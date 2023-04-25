@@ -1,4 +1,138 @@
 #!/usr/bin/make -f
 
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+
+include /usr/share/dpkg/architecture.mk
+include /usr/share/dpkg/buildflags.mk
+
+EXTRA_CMAKE_ARGUMENTS =
+DH_GENCONTROL_ARGS =
+
+# Sacrifice speed in order to make it more likely resource limits
+# won't be hit.
+ifeq ($(DEB_BUILD_ARCH_BITS),32)
+	EXTRA_CMAKE_ARGUMENTS += -DFORCE_32BIT=ON
+	LDFLAGS += -Wl,--no-keep-memory
+endif
+
+# The debug packages produced by webkit are huge and cause problems in
+# most buildds. Use -g1 in all architectures to make them smaller.
+CFLAGS := $(CFLAGS:-g=-g1)
+
+# Use the CLoop Javascript interpreter and disable the JIT. This is
+# slow but it is the most compatible solution for old (non-SSE2) CPUs.
+ifneq (,$(filter $(DEB_HOST_ARCH),i386))
+	EXTRA_CMAKE_ARGUMENTS += -DENABLE_JIT=OFF -DENABLE_C_LOOP=ON
+endif
+
+# Systemd and libmanette are Linux-only
+ifneq ($(DEB_HOST_ARCH_OS),linux)
+	EXTRA_CMAKE_ARGUMENTS += -DUSE_SYSTEMD=OFF -DENABLE_GAMEPAD=OFF
+endif
+
+# See https://bugs.webkit.org/show_bug.cgi?id=197192
+ifneq (,$(filter $(DEB_HOST_ARCH),arm64))
+	EXTRA_CMAKE_ARGUMENTS += -DWTF_CPU_ARM64_CORTEXA53=OFF
+endif
+
+# Disable Gold where it causes build problems, see #949618
+ifneq (,$(filter $(DEB_HOST_ARCH),powerpc))
+	EXTRA_CMAKE_ARGUMENTS += -DUSE_LD_GOLD=OFF
+endif
+
+# See: https://gcc.gnu.org/bugzilla/show_bug.cgi?id=93876
+# and: https://gcc.gnu.org/bugzilla/show_bug.cgi?id=93877
+ifneq (,$(filter $(DEB_HOST_ARCH),sh3 sh4))
+	CFLAGS := $(CFLAGS:-O2=-O1)
+endif
+
+ifneq (,$(filter noopt,$(DEB_BUILD_OPTIONS)))
+	EXTRA_CMAKE_ARGUMENTS += -DUSE_SYSTEM_MALLOC=ON
+	CPPFLAGS += -DRELEASE_WITHOUT_OPTIMIZATIONS
+endif
+
+ifeq (,$(filter %-doc,$(shell dh_listpackages)))
+	EXTRA_CMAKE_ARGUMENTS += -DENABLE_GTKDOC=OFF
+else ifneq (,$(filter nodoc,$(DEB_BUILD_OPTIONS)))
+	EXTRA_CMAKE_ARGUMENTS += -DENABLE_GTKDOC=OFF
+else
+	EXTRA_CMAKE_ARGUMENTS += -DENABLE_GTKDOC=ON
+endif
+
+ifneq (,$(filter debug,$(DEB_BUILD_OPTIONS)))
+	EXTRA_CMAKE_ARGUMENTS += -DCMAKE_BUILD_TYPE=Debug
+else
+	EXTRA_CMAKE_ARGUMENTS += -DCMAKE_BUILD_TYPE=Release
+	CPPFLAGS += -DNDEBUG -DG_DISABLE_CAST_CHECKS
+endif
+
+# Disable the bubblewrap sandbox if libseccomp-dev is not available
+ifeq ($(shell pkg-config --exists libseccomp && echo yes),yes)
+	EXTRA_CMAKE_ARGUMENTS += -DENABLE_BUBBLEWRAP_SANDBOX=ON
+	DH_GENCONTROL_ARGS += -Vbwrap:Depends="bubblewrap (>= 0.3.1), \
+					xdg-dbus-proxy"
+	DH_GENCONTROL_ARGS += -Vbwrap:Recommends="xdg-desktop-portal-gtk"
+else
+	EXTRA_CMAKE_ARGUMENTS += -DENABLE_BUBBLEWRAP_SANDBOX=OFF
+endif
+
+# Disable WPE on Ubuntu since the required backend is in universe
+ifeq ($(shell dpkg-vendor --derives-from Ubuntu && echo yes),yes)
+	EXTRA_CMAKE_ARGUMENTS += -DUSE_WPE_RENDERER=OFF
+# Disable the WPE renderer if libwpebackend-fdo-1.0-dev is not available
+else ifeq ($(shell pkg-config --exists wpebackend-fdo-1.0 && echo yes),yes)
+	EXTRA_CMAKE_ARGUMENTS += -DUSE_WPE_RENDERER=ON
+else
+	EXTRA_CMAKE_ARGUMENTS += -DUSE_WPE_RENDERER=OFF
+endif
+
+# set the distributor agent for Ubuntu
+ifeq ($(shell dpkg-vendor --derives-from Ubuntu && echo yes),yes)
+	EXTRA_CMAKE_ARGUMENTS += -DUSER_AGENT_BRANDING="Ubuntu"
+endif
+
+# gstreamer1.0-libav and gstreamer1.0-plugins-bad are not in Ubuntu "main"
+ifeq ($(shell dpkg-vendor --derives-from Ubuntu && echo yes),yes)
+	DH_GENCONTROL_ARGS += -Vgst:Suggests="gstreamer1.0-libav, gstreamer1.0-plugins-bad"
+else
+	DH_GENCONTROL_ARGS += -Vgst:Recommends="gstreamer1.0-libav, gstreamer1.0-plugins-bad"
+endif
+
 %:
-	dh $@
+	dh $@ --with gir --buildsystem=cmake+ninja --builddirectory=build
+
+override_dh_gencontrol:
+	dh_gencontrol -- $(DH_GENCONTROL_ARGS)
+
+override_dh_auto_configure:
+	CXXFLAGS="$(CFLAGS)" \
+	dh_auto_configure -- \
+	   -DPORT=GTK \
+	   -DCMAKE_INSTALL_LIBEXECDIR=lib/$(DEB_HOST_MULTIARCH) \
+	   -DCMAKE_C_FLAGS_RELEASE="" \
+	   -DCMAKE_C_FLAGS_DEBUG="" \
+	   -DCMAKE_CXX_FLAGS_RELEASE="" \
+	   -DCMAKE_CXX_FLAGS_DEBUG="" \
+	   -DENABLE_MINIBROWSER=ON \
+	   -DUSE_SOUP2=ON \
+	   $(EXTRA_CMAKE_ARGUMENTS)
+
+# Create a dummy doc directory in case the "nodoc" build option is set
+override_dh_install:
+	mkdir -p $(CURDIR)/debian/tmp/usr/share/gtk-doc/html/webkit2gtk-4.0
+	touch $(CURDIR)/debian/tmp/usr/share/gtk-doc/html/webkit2gtk-4.0/index.html
+	dh_install
+	jdupes -rl $(CURDIR)/debian/libwebkit2gtk-4.0-doc/usr
+
+override_dh_makeshlibs:
+	dh_makeshlibs -plibwebkit2gtk-4.0-37 -Xinjected-bundle
+	dh_makeshlibs -plibjavascriptcoregtk-4.0-18
+
+override_dh_missing:
+	dh_missing --fail-missing
+
+override_dh_builddeb:
+	DEB_BUILD_OPTIONS="$(filter-out parallel=%,$(DEB_BUILD_OPTIONS))" \
+		dh_builddeb
+
+override_dh_auto_test:
