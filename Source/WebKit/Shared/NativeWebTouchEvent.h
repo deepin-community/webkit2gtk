@@ -34,10 +34,9 @@
 #if ENABLE(TOUCH_EVENTS)
 
 #if PLATFORM(IOS_FAMILY)
-#if defined(__OBJC__)
-struct _UIWebTouchEvent;
-#endif
+#include "WKTouchEventsGestureRecognizerTypes.h"
 #elif PLATFORM(GTK)
+#include <WebCore/GRefPtrGtk.h>
 #include <WebCore/GUniquePtrGtk.h>
 #elif USE(LIBWPE)
 #include <wpe/wpe.h>
@@ -47,13 +46,15 @@ struct _UIWebTouchEvent;
 
 namespace WebKit {
 
+struct WKTouchEvent;
+
 #if ENABLE(TOUCH_EVENTS)
 
 class NativeWebTouchEvent : public WebTouchEvent {
 public:
 #if PLATFORM(IOS_FAMILY)
 #if defined(__OBJC__)
-    explicit NativeWebTouchEvent(const _UIWebTouchEvent*, UIKeyModifierFlags);
+    explicit NativeWebTouchEvent(const WKTouchEvent&, UIKeyModifierFlags);
 #endif
 #elif PLATFORM(GTK)
     NativeWebTouchEvent(GdkEvent*, Vector<WebPlatformTouchPoint>&&);
@@ -68,10 +69,12 @@ public:
 
 private:
 #if PLATFORM(IOS_FAMILY) && defined(__OBJC__)
-    Vector<WebPlatformTouchPoint> extractWebTouchPoint(const _UIWebTouchEvent*);
+    Vector<WebPlatformTouchPoint> extractWebTouchPoint(const WKTouchEvent&);
 #endif
 
-#if PLATFORM(GTK)
+#if PLATFORM(GTK) && USE(GTK4)
+    GRefPtr<GdkEvent> m_nativeEvent;
+#elif PLATFORM(GTK)
     GUniquePtr<GdkEvent> m_nativeEvent;
 #elif USE(LIBWPE)
     struct wpe_input_touch_event_raw m_fallbackTouchPoint;
@@ -81,7 +84,7 @@ private:
 #endif // ENABLE(TOUCH_EVENTS)
 
 #if PLATFORM(IOS_FAMILY) && defined(__OBJC__)
-OptionSet<WebEvent::Modifier> webEventModifierFlags(UIKeyModifierFlags);
+OptionSet<WebEventModifier> webEventModifierFlags(UIKeyModifierFlags);
 #endif
 
 } // namespace WebKit

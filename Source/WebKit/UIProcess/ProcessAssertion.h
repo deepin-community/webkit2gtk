@@ -28,39 +28,41 @@
 #include <wtf/CompletionHandler.h>
 #include <wtf/Function.h>
 #include <wtf/ProcessID.h>
-#include <wtf/ThreadSafeRefCounted.h>
-#include <wtf/WeakPtr.h>
+#include <wtf/ThreadSafeWeakPtr.h>
 #include <wtf/text/WTFString.h>
 
 #if !OS(WINDOWS)
 #include <unistd.h>
 #endif
 
-#if PLATFORM(IOS_FAMILY)
+#if USE(RUNNINGBOARD)
 #include <wtf/RetainPtr.h>
 
 OBJC_CLASS RBSAssertion;
 OBJC_CLASS WKRBSAssertionDelegate;
-#endif // PLATFORM(IOS_FAMILY)
+#endif // USE(RUNNINGBOARD)
 
 namespace WebKit {
 
-enum class ProcessAssertionType {
-    Suspended,
+enum class ProcessAssertionType : uint8_t {
+    NearSuspended,
     Background,
     UnboundedNetworking,
     Foreground,
     MediaPlayback,
     FinishTaskInterruptable,
+    BoostedJetsam,
 };
 
-class ProcessAssertion : public ThreadSafeRefCounted<ProcessAssertion>, public CanMakeWeakPtr<ProcessAssertion, WeakPtrFactoryInitialization::Eager> {
+ASCIILiteral processAssertionTypeDescription(ProcessAssertionType);
+
+class ProcessAssertion : public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<ProcessAssertion> {
     WTF_MAKE_FAST_ALLOCATED;
 public:
     enum class Mode : bool { Sync, Async };
-    static Ref<ProcessAssertion> create(ProcessID pid, const String& reason, ProcessAssertionType type, Mode mode = Mode::Async, CompletionHandler<void()>&& acquisisionHandler = nullptr)
+    static Ref<ProcessAssertion> create(ProcessID pid, const String& reason, ProcessAssertionType type, Mode mode = Mode::Async, const String& environmentIdentifier = emptyString(), CompletionHandler<void()>&& acquisisionHandler = nullptr)
     {
-        auto assertion = adoptRef(*new ProcessAssertion(pid, reason, type));
+        auto assertion = adoptRef(*new ProcessAssertion(pid, reason, type, environmentIdentifier));
         if (mode == Mode::Async)
             assertion->acquireAsync(WTFMove(acquisisionHandler));
         else {
@@ -70,6 +72,7 @@ public:
         }
         return assertion;
     }
+    static double remainingRunTimeInSeconds(ProcessID);
     virtual ~ProcessAssertion();
 
     void setPrepareForInvalidationHandler(Function<void()>&& handler) { m_prepareForInvalidationHandler = WTFMove(handler); }
@@ -81,12 +84,12 @@ public:
     bool isValid() const;
 
 protected:
-    ProcessAssertion(ProcessID, const String& reason, ProcessAssertionType);
+    ProcessAssertion(ProcessID, const String& reason, ProcessAssertionType, const String& environmentIdentifier);
 
     void acquireAsync(CompletionHandler<void()>&&);
     void acquireSync();
 
-#if PLATFORM(IOS_FAMILY)
+#if USE(RUNNINGBOARD)
     void processAssertionWillBeInvalidated();
     virtual void processAssertionWasInvalidated();
 #endif
@@ -95,7 +98,7 @@ private:
     const ProcessAssertionType m_assertionType;
     const ProcessID m_pid;
     const String m_reason;
-#if PLATFORM(IOS_FAMILY)
+#if USE(RUNNINGBOARD)
     RetainPtr<RBSAssertion> m_rbsAssertion;
     RetainPtr<WKRBSAssertionDelegate> m_delegate;
     bool m_wasInvalidated { false };
@@ -106,9 +109,9 @@ private:
 
 class ProcessAndUIAssertion final : public ProcessAssertion {
 public:
-    static Ref<ProcessAndUIAssertion> create(ProcessID pid, const String& reason, ProcessAssertionType type, Mode mode = Mode::Async, CompletionHandler<void()>&& acquisisionHandler = nullptr)
+    static Ref<ProcessAndUIAssertion> create(ProcessID pid, const String& reason, ProcessAssertionType type, Mode mode = Mode::Async, const String& environmentIdentifier = emptyString(), CompletionHandler<void()>&& acquisisionHandler = nullptr)
     {
-        auto assertion = adoptRef(*new ProcessAndUIAssertion(pid, reason, type));
+        auto assertion = adoptRef(*new ProcessAndUIAssertion(pid, reason, type, environmentIdentifier));
         if (mode == Mode::Async)
             assertion->acquireAsync(WTFMove(acquisisionHandler));
         else {
@@ -123,9 +126,12 @@ public:
     void uiAssertionWillExpireImminently();
 
     void setUIAssertionExpirationHandler(Function<void()>&& handler) { m_uiAssertionExpirationHandler = WTFMove(handler); }
+#if PLATFORM(IOS_FAMILY)
+    static void setProcessStateMonitorEnabled(bool);
+#endif
 
 private:
-    ProcessAndUIAssertion(ProcessID, const String& reason, ProcessAssertionType);
+    ProcessAndUIAssertion(ProcessID, const String& reason, ProcessAssertionType, const String& environmentIdentifier);
 
 #if PLATFORM(IOS_FAMILY)
     void processAssertionWasInvalidated() final;

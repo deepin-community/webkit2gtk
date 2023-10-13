@@ -51,6 +51,7 @@ public:
         , m_hasAnnotationsAfter(false)
         , m_isFirstAfterPageBreak(false)
         , m_isForTrailingFloats(false)
+        , m_hasSelfPaintInlineBox(false)
 #if !ASSERT_WITH_SECURITY_IMPLICATION_DISABLED
         , m_hasBadChildList(false)
 #endif
@@ -93,9 +94,6 @@ public:
     LegacyInlineBox* firstLeafDescendant() const;
     LegacyInlineBox* lastLeafDescendant() const;
 
-    typedef void (*CustomInlineBoxRangeReverse)(void* userData, Vector<LegacyInlineBox*>::iterator first, Vector<LegacyInlineBox*>::iterator last);
-    void collectLeafBoxesInLogicalOrder(Vector<LegacyInlineBox*>&, CustomInlineBoxRangeReverse customReverseImplementation = nullptr, void* userData = nullptr) const;
-
     void setConstructed() final
     {
         LegacyInlineBox::setConstructed();
@@ -115,19 +113,12 @@ public:
 
     void clearTruncation() override;
 
-    void paintBoxDecorations(PaintInfo&, const LayoutPoint&);
-    void paintMask(PaintInfo&, const LayoutPoint&);
-    void paintFillLayers(const PaintInfo&, const Color&, const FillLayer&, const LayoutRect&, CompositeOperator = CompositeOperator::SourceOver);
-    void paintFillLayer(const PaintInfo&, const Color&, const FillLayer&, const LayoutRect&, CompositeOperator = CompositeOperator::SourceOver);
-    void paintBoxShadow(const PaintInfo&, const RenderStyle&, ShadowStyle, const LayoutRect&);
     void paint(PaintInfo&, const LayoutPoint&, LayoutUnit lineTop, LayoutUnit lineBottom) override;
     bool nodeAtPoint(const HitTestRequest&, HitTestResult&, const HitTestLocation& locationInContainer, const LayoutPoint& accumulatedOffset, LayoutUnit lineTop, LayoutUnit lineBottom, HitTestAction) override;
 
-    bool boxShadowCanBeAppliedToBackground(const FillLayer&) const;
-
     // logicalLeft = left in a horizontal line and top in a vertical line.
-    LayoutUnit marginBorderPaddingLogicalLeft() const { return LayoutUnit(marginLogicalLeft() + borderLogicalLeft() + paddingLogicalLeft()); }
-    LayoutUnit marginBorderPaddingLogicalRight() const { return LayoutUnit(marginLogicalRight() + borderLogicalRight() + paddingLogicalRight()); }
+    inline LayoutUnit marginBorderPaddingLogicalLeft() const;
+    inline LayoutUnit marginBorderPaddingLogicalRight() const;
     LayoutUnit marginLogicalLeft() const
     {
         if (!includeLogicalLeftEdge())
@@ -140,30 +131,10 @@ public:
             return 0;
         return isHorizontal() ? renderer().marginRight() : renderer().marginBottom();
     }
-    float borderLogicalLeft() const
-    {
-        if (!includeLogicalLeftEdge())
-            return 0;
-        return isHorizontal() ? lineStyle().borderLeftWidth() : lineStyle().borderTopWidth();
-    }
-    float borderLogicalRight() const
-    {
-        if (!includeLogicalRightEdge())
-            return 0;
-        return isHorizontal() ? lineStyle().borderRightWidth() : lineStyle().borderBottomWidth();
-    }
-    float paddingLogicalLeft() const
-    {
-        if (!includeLogicalLeftEdge())
-            return 0;
-        return isHorizontal() ? renderer().paddingLeft() : renderer().paddingTop();
-    }
-    float paddingLogicalRight() const
-    {
-        if (!includeLogicalRightEdge())
-            return 0;
-        return isHorizontal() ? renderer().paddingRight() : renderer().paddingBottom();
-    }
+    inline float borderLogicalLeft() const;
+    inline float borderLogicalRight() const;
+    inline float paddingLogicalLeft() const;
+    inline float paddingLogicalRight() const;
 
     bool includeLogicalLeftEdge() const { return m_includeLogicalLeftEdge; }
     bool includeLogicalRightEdge() const { return m_includeLogicalRightEdge; }
@@ -191,7 +162,7 @@ public:
         bool strictMode, GlyphOverflowAndFallbackFontsMap&, FontBaseline, VerticalPositionCache&);
     void adjustMaxAscentAndDescent(LayoutUnit& maxAscent, LayoutUnit& maxDescent,
         LayoutUnit maxPositionTop, LayoutUnit maxPositionBottom);
-    void placeBoxesInBlockDirection(LayoutUnit logicalTop, LayoutUnit maxHeight, int maxAscent, bool strictMode, LayoutUnit& lineTop, LayoutUnit& lineBottom, bool& setLineTop,
+    void placeBoxesInBlockDirection(LayoutUnit logicalTop, LayoutUnit maxHeight, LayoutUnit maxAscent, bool strictMode, LayoutUnit& lineTop, LayoutUnit& lineBottom, bool& setLineTop,
         LayoutUnit& lineTopIncludingMargins, LayoutUnit& lineBottomIncludingMargins, bool& hasAnnotationsBefore, bool& hasAnnotationsAfter, FontBaseline);
     void flipLinesInBlockDirection(LayoutUnit lineTop, LayoutUnit lineBottom);
     bool requiresIdeographicBaseline(const GlyphOverflowAndFallbackFontsMap&) const;
@@ -203,7 +174,7 @@ public:
     
     void removeChild(LegacyInlineBox* child);
 
-    RenderObject::HighlightState selectionState() override;
+    RenderObject::HighlightState selectionState() const override;
 
     bool canAccommodateEllipsis(bool ltr, int blockEdge, int ellipsisWidth) const final;
     float placeEllipsisBox(bool ltr, float blockLeftEdge, float blockRightEdge, float ellipsisWidth, float &truncatedWidth, bool&) override;
@@ -294,7 +265,7 @@ public:
             parent()->clearDescendantsHaveSameLineHeightAndBaseline();
     }
 
-    void computeReplacedAndTextLineTopAndBottom(LayoutUnit& lineTop, LayoutUnit& lineBottom) const;
+    bool hasSelfPaintInlineBox() const { return m_hasSelfPaintInlineBox; }
 
 private:
     bool isInlineFlowBox() const final { return true; }
@@ -305,7 +276,6 @@ private:
     void addTextBoxVisualOverflow(LegacyInlineTextBox&, GlyphOverflowAndFallbackFontsMap&, LayoutRect& logicalVisualOverflow);
     void addOutlineVisualOverflow(LayoutRect& logicalVisualOverflow);
     void addReplacedChildOverflow(const LegacyInlineBox*, LayoutRect& logicalLayoutOverflow, LayoutRect& logicalVisualOverflow);
-    void constrainToLineTopAndBottomIfNeeded(LayoutRect&) const;
 
 private:
     unsigned m_includeLogicalLeftEdge : 1;
@@ -331,6 +301,7 @@ protected:
 
     unsigned m_isFirstAfterPageBreak : 1;
     unsigned m_isForTrailingFloats : 1;
+    unsigned m_hasSelfPaintInlineBox : 1;
 
     // End of RootInlineBox-specific members.
 

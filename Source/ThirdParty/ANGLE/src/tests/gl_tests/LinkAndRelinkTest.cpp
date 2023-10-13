@@ -15,13 +15,13 @@ using namespace angle;
 namespace
 {
 
-class LinkAndRelinkTest : public ANGLETest
+class LinkAndRelinkTest : public ANGLETest<>
 {
   protected:
     LinkAndRelinkTest() {}
 };
 
-class LinkAndRelinkTestES31 : public ANGLETest
+class LinkAndRelinkTestES31 : public ANGLETest<>
 {
   protected:
     LinkAndRelinkTestES31() {}
@@ -446,6 +446,8 @@ void main()
 }
 
 ANGLE_INSTANTIATE_TEST_ES2_AND_ES3(LinkAndRelinkTest);
+
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(LinkAndRelinkTestES31);
 ANGLE_INSTANTIATE_TEST_ES31(LinkAndRelinkTestES31);
 
 }  // namespace

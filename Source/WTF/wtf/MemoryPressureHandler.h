@@ -43,6 +43,18 @@
 
 namespace WTF {
 
+enum class MemoryPressureStatus : uint8_t {
+    Normal,
+
+    // The entire system is at a warning or critical pressure level.
+    SystemWarning,
+    SystemCritical,
+
+    // This specific process crossed a warning or critical memory usage limit.
+    ProcessLimitWarning,
+    ProcessLimitCritical
+};
+
 enum class MemoryUsagePolicy : uint8_t {
     Unrestricted, // Allocate as much as you want
     Conservative, // Maybe you don't cache every single thing
@@ -54,8 +66,8 @@ enum class WebsamProcessState : uint8_t {
     Inactive,
 };
 
-enum class Critical : uint8_t { No, Yes };
-enum class Synchronous : uint8_t { No, Yes };
+enum class Critical : bool { No, Yes };
+enum class Synchronous : bool { No, Yes };
 
 typedef WTF::Function<void(Critical, Synchronous)> LowMemoryHandler;
 
@@ -74,29 +86,46 @@ public:
 #endif
 
     void setMemoryKillCallback(WTF::Function<void()>&& function) { m_memoryKillCallback = WTFMove(function); }
-    void setMemoryPressureStatusChangedCallback(WTF::Function<void(bool)>&& function) { m_memoryPressureStatusChangedCallback = WTFMove(function); }
-    void setDidExceedInactiveLimitWhileActiveCallback(WTF::Function<void()>&& function) { m_didExceedInactiveLimitWhileActiveCallback = WTFMove(function); }
+    void setMemoryPressureStatusChangedCallback(WTF::Function<void(MemoryPressureStatus)>&& function) { m_memoryPressureStatusChangedCallback = WTFMove(function); }
 
     void setLowMemoryHandler(LowMemoryHandler&& handler)
     {
         m_lowMemoryHandler = WTFMove(handler);
     }
 
+    bool isUnderMemoryWarning() const
+    {
+        auto memoryPressureStatus = m_memoryPressureStatus.load();
+        return memoryPressureStatus == MemoryPressureStatus::SystemWarning
+            || memoryPressureStatus == MemoryPressureStatus::ProcessLimitWarning
+#if PLATFORM(MAC)
+            || m_memoryUsagePolicy == MemoryUsagePolicy::Conservative
+#endif
+            || m_isSimulatingMemoryWarning;
+    }
+
     bool isUnderMemoryPressure() const
     {
-        return m_underMemoryPressure
+        auto memoryPressureStatus = m_memoryPressureStatus.load();
+        return memoryPressureStatus == MemoryPressureStatus::SystemCritical
+            || memoryPressureStatus == MemoryPressureStatus::ProcessLimitCritical
 #if PLATFORM(MAC)
             || m_memoryUsagePolicy >= MemoryUsagePolicy::Strict
 #endif
             || m_isSimulatingMemoryPressure;
     }
+    bool isSimulatingMemoryWarning() const { return m_isSimulatingMemoryWarning; }
     bool isSimulatingMemoryPressure() const { return m_isSimulatingMemoryPressure; }
-    void setUnderMemoryPressure(bool);
+    void setMemoryPressureStatus(MemoryPressureStatus);
 
     WTF_EXPORT_PRIVATE MemoryUsagePolicy currentMemoryUsagePolicy();
 
 #if PLATFORM(COCOA)
-    WTF_EXPORT_PRIVATE void setDispatchQueue(OSObjectPtr<dispatch_queue_t>&&);
+    void setDispatchQueue(OSObjectPtr<dispatch_queue_t>&& queue)
+    {
+        RELEASE_ASSERT(!m_installed);
+        m_dispatchQueue = WTFMove(queue);
+    }
 #endif
 
     class ReliefLogger {
@@ -203,11 +232,15 @@ public:
 
     WTF_EXPORT_PRIVATE void releaseMemory(Critical, Synchronous = Synchronous::No);
 
+    WTF_EXPORT_PRIVATE void beginSimulatedMemoryWarning();
+    WTF_EXPORT_PRIVATE void endSimulatedMemoryWarning();
     WTF_EXPORT_PRIVATE void beginSimulatedMemoryPressure();
     WTF_EXPORT_PRIVATE void endSimulatedMemoryPressure();
 
     WTF_EXPORT_PRIVATE void setProcessState(WebsamProcessState);
     WebsamProcessState processState() const { return m_processState; }
+
+    WTF_EXPORT_PRIVATE static ASCIILiteral processStateDescription();
 
     WTF_EXPORT_PRIVATE static void setPageCount(unsigned);
 
@@ -234,37 +267,34 @@ private:
     void measurementTimerFired();
     void shrinkOrDie(size_t killThreshold);
     void setMemoryUsagePolicyBasedOnFootprint(size_t);
-    void doesExceedInactiveLimitWhileActive();
-    void doesNotExceedInactiveLimitWhileActive();
 
     unsigned m_pageCount { 0 };
 
-    std::atomic<bool> m_underMemoryPressure { false };
+    std::atomic<MemoryPressureStatus> m_memoryPressureStatus { MemoryPressureStatus::Normal };
     bool m_installed { false };
+    bool m_isSimulatingMemoryWarning { false };
     bool m_isSimulatingMemoryPressure { false };
     bool m_shouldLogMemoryMemoryPressureEvents { true };
-    bool m_hasInvokedDidExceedInactiveLimitWhileActiveCallback { false };
 
     WebsamProcessState m_processState { WebsamProcessState::Inactive };
     
     MemoryUsagePolicy m_memoryUsagePolicy { MemoryUsagePolicy::Unrestricted };
 
-    std::unique_ptr<RunLoop::Timer<MemoryPressureHandler>> m_measurementTimer;
+    std::unique_ptr<RunLoop::Timer>m_measurementTimer;
     WTF::Function<void()> m_memoryKillCallback;
-    WTF::Function<void(bool)> m_memoryPressureStatusChangedCallback;
-    WTF::Function<void()> m_didExceedInactiveLimitWhileActiveCallback;
+    WTF::Function<void(MemoryPressureStatus)> m_memoryPressureStatusChangedCallback;
     LowMemoryHandler m_lowMemoryHandler;
 
     Configuration m_configuration;
 
 #if OS(WINDOWS)
     void windowsMeasurementTimerFired();
-    RunLoop::Timer<MemoryPressureHandler> m_windowsMeasurementTimer;
+    RunLoop::Timer m_windowsMeasurementTimer;
     Win32Handle m_lowMemoryHandle;
 #endif
 
 #if OS(LINUX) || OS(FREEBSD)
-    RunLoop::Timer<MemoryPressureHandler> m_holdOffTimer;
+    RunLoop::Timer m_holdOffTimer;
     void holdOffTimerFired();
 #endif
 

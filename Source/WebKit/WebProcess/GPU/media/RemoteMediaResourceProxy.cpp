@@ -26,10 +26,11 @@
 #include "config.h"
 #include "RemoteMediaResourceProxy.h"
 
-#if ENABLE(GPU_PROCESS)
+#if ENABLE(GPU_PROCESS) && ENABLE(VIDEO)
 
 #include "DataReference.h"
 #include "RemoteMediaResourceManagerMessages.h"
+#include "SharedBufferReference.h"
 #include "WebCoreArgumentCoders.h"
 #include <wtf/CompletionHandler.h>
 
@@ -71,9 +72,13 @@ void RemoteMediaResourceProxy::dataSent(WebCore::PlatformMediaResource&, unsigne
     m_connection->send(Messages::RemoteMediaResourceManager::DataSent(m_id, bytesSent, totalBytesToBeSent), 0);
 }
 
-void RemoteMediaResourceProxy::dataReceived(WebCore::PlatformMediaResource&, const uint8_t* data, int length)
+void RemoteMediaResourceProxy::dataReceived(WebCore::PlatformMediaResource&, const WebCore::SharedBuffer& buffer)
 {
-    m_connection->send(Messages::RemoteMediaResourceManager::DataReceived(m_id, IPC::DataReference(data, length)), 0);
+    m_connection->sendWithAsyncReply(Messages::RemoteMediaResourceManager::DataReceived(m_id, IPC::SharedBufferReference { buffer }), [] (auto&& bufferHandle) {
+        // Take ownership of shared memory and mark it as media-related memory.
+        if (bufferHandle)
+            bufferHandle->takeOwnershipOfMemory(MemoryLedger::Media);
+    }, 0);
 }
 
 void RemoteMediaResourceProxy::accessControlCheckFailed(WebCore::PlatformMediaResource&, const WebCore::ResourceError& error)
@@ -93,4 +98,4 @@ void RemoteMediaResourceProxy::loadFinished(WebCore::PlatformMediaResource&, con
 
 }
 
-#endif
+#endif // ENABLE(GPU_PROCESS) && ENABLE(VIDEO)

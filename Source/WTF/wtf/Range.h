@@ -79,11 +79,6 @@ public:
             && m_end == other.m_end;
     }
 
-    bool operator!=(const Range& other) const
-    {
-        return !(*this == other);
-    }
-    
     explicit operator bool() const { return m_begin != m_end; }
 
     Range operator|(const Range& other) const
@@ -104,6 +99,8 @@ public:
     
     Type begin() const { return m_begin; }
     Type end() const { return m_end; }
+
+    Type distance() const { return end() - begin(); }
 
     bool overlaps(const Range& other) const
     {
@@ -138,3 +135,5 @@ private:
 };
 
 } // namespace WTF
+
+using WTF::Range;

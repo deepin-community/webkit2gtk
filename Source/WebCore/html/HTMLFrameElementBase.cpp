@@ -3,7 +3,7 @@
  *           (C) 1999 Antti Koivisto (koivisto@kde.org)
  *           (C) 2000 Simon Hausmann (hausmann@kde.org)
  *           (C) 2001 Dirk Mueller (mueller@kde.org)
- * Copyright (C) 2004-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2004-2023 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -25,13 +25,14 @@
 #include "HTMLFrameElementBase.h"
 
 #include "Document.h"
+#include "ElementInlines.h"
+#include "EventLoop.h"
 #include "FocusController.h"
-#include "Frame.h"
 #include "FrameLoader.h"
-#include "FrameView.h"
 #include "HTMLNames.h"
-#include "HTMLParserIdioms.h"
 #include "JSDOMBindingSecurity.h"
+#include "LocalFrame.h"
+#include "LocalFrameView.h"
 #include "Page.h"
 #include "RenderWidget.h"
 #include "ScriptController.h"
@@ -47,9 +48,8 @@ WTF_MAKE_ISO_ALLOCATED_IMPL(HTMLFrameElementBase);
 using namespace HTMLNames;
 
 HTMLFrameElementBase::HTMLFrameElementBase(const QualifiedName& tagName, Document& document)
-    : HTMLFrameOwnerElement(tagName, document)
+    : HTMLFrameOwnerElement(tagName, document, CreateHTMLFrameElementBase)
 {
-    setHasCustomStyleResolveCallbacks();
 }
 
 bool HTMLFrameElementBase::canLoadScriptURL(const URL& scriptURL) const
@@ -87,37 +87,37 @@ void HTMLFrameElementBase::openURL(LockHistory lockHistory, LockBackForwardList 
         return;
 
     if (m_frameURL.isEmpty())
-        m_frameURL = aboutBlankURL().string();
+        m_frameURL = AtomString { aboutBlankURL().string() };
 
-    if (shouldLoadFrameLazily())
-        return;
-
-    RefPtr<Frame> parentFrame = document().frame();
+    RefPtr parentFrame { document().frame() };
     if (!parentFrame)
         return;
 
-    document().willLoadFrameElement(document().completeURL(m_frameURL));
-
-    String frameName = getNameAttribute();
+    auto frameName = getNameAttribute();
     if (frameName.isNull() && UNLIKELY(document().settings().needsFrameNameFallbackToIdQuirk()))
         frameName = getIdAttribute();
 
+    if (shouldLoadFrameLazily()) {
+        parentFrame->loader().subframeLoader().createFrameIfNecessary(*this, frameName);
+        return;
+    }
+
+    document().willLoadFrameElement(document().completeURL(m_frameURL));
     parentFrame->loader().subframeLoader().requestFrame(*this, m_frameURL, frameName, lockHistory, lockBackForwardList);
 }
 
-void HTMLFrameElementBase::parseAttribute(const QualifiedName& name, const AtomString& value)
+void HTMLFrameElementBase::attributeChanged(const QualifiedName& name, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason attributeModificationReason)
 {
+    // FIXME: trimming whitespace is probably redundant with the URL parser
     if (name == srcdocAttr) {
-        if (value.isNull()) {
-            const AtomString& srcValue = attributeWithoutSynchronization(srcAttr);
-            if (!srcValue.isNull())
-                setLocation(stripLeadingAndTrailingHTMLSpaces(srcValue));
-        } else
-            setLocation("about:srcdoc");
+        if (newValue.isNull())
+            setLocation(attributeWithoutSynchronization(srcAttr).string().trim(isASCIIWhitespace));
+        else
+            setLocation("about:srcdoc"_s);
     } else if (name == srcAttr && !hasAttributeWithoutSynchronization(srcdocAttr))
-        setLocation(stripLeadingAndTrailingHTMLSpaces(value));
+        setLocation(newValue.string().trim(isASCIIWhitespace));
     else
-        HTMLFrameOwnerElement::parseAttribute(name, value);
+        HTMLFrameOwnerElement::attributeChanged(name, oldValue, newValue, attributeModificationReason);
 }
 
 Node::InsertedIntoAncestorResult HTMLFrameElementBase::insertedIntoAncestor(InsertionType insertionType, ContainerNode& parentOfInsertedTree)
@@ -142,22 +142,28 @@ void HTMLFrameElementBase::didFinishInsertingNode()
 
     if (!renderer())
         invalidateStyleAndRenderersForSubtree();
-    openURL();
+
+    auto work = [this, weakThis = WeakPtr { *this }] {
+        if (!weakThis)
+            return;
+        Ref<HTMLFrameElementBase> protectedThis { *this };
+        m_openingURLAfterInserting = true;
+        if (isConnected())
+            openURL();
+        m_openingURLAfterInserting = false;
+    };
+    if (!m_openingURLAfterInserting)
+        work();
+    else
+        document().eventLoop().queueTask(TaskSource::DOMManipulation, WTFMove(work));
 }
 
 void HTMLFrameElementBase::didAttachRenderers()
 {
     if (RenderWidget* part = renderWidget()) {
-        if (RefPtr<Frame> frame = contentFrame())
+        if (RefPtr frame = dynamicDowncast<LocalFrame>(contentFrame()))
             part->setWidget(frame->view());
     }
-}
-
-URL HTMLFrameElementBase::location() const
-{
-    if (hasAttributeWithoutSynchronization(srcdocAttr))
-        return aboutSrcDocURL();
-    return document().completeURL(attributeWithoutSynchronization(srcAttr));
 }
 
 void HTMLFrameElementBase::setLocation(const String& str)
@@ -173,7 +179,7 @@ void HTMLFrameElementBase::setLocation(const String& str)
 
 void HTMLFrameElementBase::setLocation(JSC::JSGlobalObject& state, const String& newLocation)
 {
-    if (WTF::protocolIsJavaScript(stripLeadingAndTrailingHTMLSpaces(newLocation))) {
+    if (WTF::protocolIsJavaScript(newLocation)) {
         if (!BindingSecurity::shouldAllowAccessToNode(state, contentDocument()))
             return;
     }
@@ -190,10 +196,11 @@ void HTMLFrameElementBase::setFocus(bool received, FocusVisibility visibility)
 {
     HTMLFrameOwnerElement::setFocus(received, visibility);
     if (Page* page = document().page()) {
+        CheckedRef focusController { page->focusController() };
         if (received)
-            page->focusController().setFocusedFrame(contentFrame());
-        else if (page->focusController().focusedFrame() == contentFrame()) // Focus may have already been given to another frame, don't take it away.
-            page->focusController().setFocusedFrame(0);
+            focusController->setFocusedFrame(dynamicDowncast<LocalFrame>(contentFrame()));
+        else if (focusController->focusedFrame() == contentFrame()) // Focus may have already been given to another frame, don't take it away.
+            focusController->setFocusedFrame(nullptr);
     }
 }
 
@@ -207,29 +214,13 @@ bool HTMLFrameElementBase::isHTMLContentAttribute(const Attribute& attribute) co
     return attribute.name() == srcdocAttr || HTMLFrameOwnerElement::isHTMLContentAttribute(attribute);
 }
 
-int HTMLFrameElementBase::width()
-{
-    document().updateLayoutIgnorePendingStylesheets();
-    if (!renderBox())
-        return 0;
-    return renderBox()->width();
-}
-
-int HTMLFrameElementBase::height()
-{
-    document().updateLayoutIgnorePendingStylesheets();
-    if (!renderBox())
-        return 0;
-    return renderBox()->height();
-}
-
 ScrollbarMode HTMLFrameElementBase::scrollingMode() const
 {
     auto scrollingAttribute = attributeWithoutSynchronization(scrollingAttr);
-    return equalLettersIgnoringASCIICase(scrollingAttribute, "no")
-        || equalLettersIgnoringASCIICase(scrollingAttribute, "noscroll")
-        || equalLettersIgnoringASCIICase(scrollingAttribute, "off")
-        ? ScrollbarAlwaysOff : ScrollbarAuto;
+    return equalLettersIgnoringASCIICase(scrollingAttribute, "no"_s)
+        || equalLettersIgnoringASCIICase(scrollingAttribute, "noscroll"_s)
+        || equalLettersIgnoringASCIICase(scrollingAttribute, "off"_s)
+        ? ScrollbarMode::AlwaysOff : ScrollbarMode::Auto;
 }
 
 } // namespace WebCore

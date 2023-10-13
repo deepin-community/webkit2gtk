@@ -3,6 +3,7 @@
  * Copyright (C) 2007 Rob Buis <buis@kde.org>
  * Copyright (C) 2008 Dirk Schulze <krit@webkit.org>
  * Copyright (C) Research In Motion Limited 2010. All rights reserved.
+ * Copyright (C) 2023 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -23,14 +24,19 @@
 #include "config.h"
 #include "RenderSVGResource.h"
 
-#include "Frame.h"
-#include "FrameView.h"
+#include "LegacyRenderSVGRoot.h"
+#include "LegacyRenderSVGShape.h"
+#include "LocalFrame.h"
+#include "LocalFrameView.h"
 #include "RenderSVGResourceClipper.h"
 #include "RenderSVGResourceFilter.h"
 #include "RenderSVGResourceMasker.h"
 #include "RenderSVGResourceSolidColor.h"
 #include "RenderSVGRoot.h"
+#include "RenderSVGShape.h"
 #include "RenderView.h"
+#include "SVGRenderStyle.h"
+#include "SVGResourceElementClient.h"
 #include "SVGResources.h"
 #include "SVGResourcesCache.h"
 #include "SVGURIReference.h"
@@ -44,34 +50,30 @@ static inline bool inheritColorFromParentStyleIfNeeded(RenderElement& object, bo
     if (!object.parent())
         return false;
     const SVGRenderStyle& parentSVGStyle = object.parent()->style().svgStyle();
-    color = applyToFill ? parentSVGStyle.fillPaintColor() : parentSVGStyle.strokePaintColor();
+    color = object.style().colorResolvingCurrentColor(applyToFill ? parentSVGStyle.fillPaintColor() : parentSVGStyle.strokePaintColor());
     return true;
 }
 
 static inline RenderSVGResource* requestPaintingResource(RenderSVGResourceMode mode, RenderElement& renderer, const RenderStyle& style, Color& fallbackColor)
 {
-    const SVGRenderStyle& svgStyle = style.svgStyle();
+    bool applyToFill = mode == RenderSVGResourceMode::ApplyToFill;
 
-    bool isRenderingMask = renderer.view().frameView().paintBehavior().contains(PaintBehavior::RenderingSVGMask);
-
-    // If we have no fill/stroke, return nullptr.
-    if (mode == RenderSVGResourceMode::ApplyToFill) {
-        // When rendering the mask for a RenderSVGResourceClipper, always use the initial fill paint server, and ignore stroke.
-        if (isRenderingMask) {
-            RenderSVGResourceSolidColor* colorResource = RenderSVGResource::sharedSolidPaintingResource();
-            colorResource->setColor(SVGRenderStyle::initialFillPaintColor());
-            return colorResource;
-        }
-
-        if (!svgStyle.hasFill())
+    // When rendering the mask for a RenderSVGResourceClipper, always use the initial fill paint server.
+    if (renderer.view().frameView().paintBehavior().contains(PaintBehavior::RenderingSVGMask)) {
+        // Ignore stroke.
+        if (!applyToFill)
             return nullptr;
-    } else {
-        if (!svgStyle.hasStroke() || isRenderingMask)
-            return nullptr;
+        
+        // But always use the initial fill paint server.
+        RenderSVGResourceSolidColor* colorResource = RenderSVGResource::sharedSolidPaintingResource();
+        colorResource->setColor(SVGRenderStyle::initialFillPaintColor().absoluteColor());
+        return colorResource;
     }
 
-    bool applyToFill = mode == RenderSVGResourceMode::ApplyToFill;
-    SVGPaintType paintType = applyToFill ? svgStyle.fillPaintType() : svgStyle.strokePaintType();
+    const auto& svgStyle = style.svgStyle();
+    auto paintType = applyToFill ? svgStyle.fillPaintType() : svgStyle.strokePaintType();
+
+    // If we have no fill/stroke, return nullptr.
     if (paintType == SVGPaintType::None)
         return nullptr;
 
@@ -81,7 +83,7 @@ static inline RenderSVGResource* requestPaintingResource(RenderSVGResourceMode m
     case SVGPaintType::RGBColor:
     case SVGPaintType::URICurrentColor:
     case SVGPaintType::URIRGBColor:
-        color = applyToFill ? svgStyle.fillPaintColor() : svgStyle.strokePaintColor();
+        color = style.colorResolvingCurrentColor(applyToFill ? svgStyle.fillPaintColor() : svgStyle.strokePaintColor());
         break;
     default:
         break;
@@ -93,7 +95,7 @@ static inline RenderSVGResource* requestPaintingResource(RenderSVGResourceMode m
 
         // For SVGPaintType::CurrentColor, 'color' already contains the 'visitedColor'.
         if (visitedPaintType < SVGPaintType::URINone && visitedPaintType != SVGPaintType::CurrentColor) {
-            const Color& visitedColor = applyToFill ? svgStyle.visitedLinkFillPaintColor() : svgStyle.visitedLinkStrokePaintColor();
+            const Color& visitedColor = style.colorResolvingCurrentColor(applyToFill ? svgStyle.visitedLinkFillPaintColor() : svgStyle.visitedLinkStrokePaintColor());
             if (visitedColor.isValid())
                 color = visitedColor.colorWithAlpha(color.alphaAsFloat());
         }
@@ -153,7 +155,7 @@ RenderSVGResourceSolidColor* RenderSVGResource::sharedSolidPaintingResource()
     return s_sharedSolidPaintingResource;
 }
 
-static inline void removeFromCacheAndInvalidateDependencies(RenderElement& renderer, bool needsLayout)
+static void removeFromCacheAndInvalidateDependencies(RenderElement& renderer, bool needsLayout)
 {
     if (auto* resources = SVGResourcesCache::cachedResourcesForRenderer(renderer)) {
         if (RenderSVGResourceFilter* filter = resources->filter())
@@ -169,11 +171,13 @@ static inline void removeFromCacheAndInvalidateDependencies(RenderElement& rende
     if (!is<SVGElement>(renderer.element()))
         return;
 
-    for (auto& element : downcast<SVGElement>(*renderer.element()).referencingElements()) {
+    Ref svgElement = downcast<SVGElement>(*renderer.element());
+
+    for (auto& element : svgElement->referencingElements()) {
         if (auto* renderer = element->renderer()) {
             // We allow cycles in SVGDocumentExtensions reference sets in order to avoid expensive
             // reference graph adjustments on changes, so we need to break possible cycles here.
-            static NeverDestroyed<WeakHashSet<SVGElement>> invalidatingDependencies;
+            static NeverDestroyed<WeakHashSet<SVGElement, WeakPtrImplWithEventTargetData>> invalidatingDependencies;
             if (UNLIKELY(!invalidatingDependencies.get().add(element.get()).isNewEntry)) {
                 // Reference cycle: we are in process of invalidating this dependant.
                 continue;
@@ -182,6 +186,12 @@ static inline void removeFromCacheAndInvalidateDependencies(RenderElement& rende
             invalidatingDependencies.get().remove(element.get());
         }
     }
+
+    for (auto& cssClient : svgElement->referencingCSSClients()) {
+        if (!cssClient)
+            continue;
+        cssClient->resourceChanged(svgElement.get());
+    }
 }
 
 void RenderSVGResource::markForLayoutAndParentResourceInvalidation(RenderObject& object, bool needsLayout)
@@ -189,12 +199,30 @@ void RenderSVGResource::markForLayoutAndParentResourceInvalidation(RenderObject&
     ASSERT(object.node());
 
     if (needsLayout && !object.renderTreeBeingDestroyed()) {
-        // If we are inside the layout of an RenderSVGRoot, do not cross the SVG boundary to
+        // If we are inside the layout of an LegacyRenderSVGRoot, do not cross the SVG boundary to
         // invalidate the ancestor renderer because it may have finished its layout already.
-        if (is<RenderSVGRoot>(object) && downcast<RenderSVGRoot>(object).isInLayout())
+        if (is<LegacyRenderSVGRoot>(object) && downcast<LegacyRenderSVGRoot>(object).isInLayout())
             object.setNeedsLayout(MarkOnlyThis);
-        else
-            object.setNeedsLayout(MarkContainingBlockChain);
+#if ENABLE(LAYER_BASED_SVG_ENGINE)
+        else if (is<RenderSVGRoot>(object) && downcast<RenderSVGRoot>(object).isInLayout())
+            object.setNeedsLayout(MarkOnlyThis);
+#endif
+        else {
+            if (!is<RenderElement>(object))
+                object.setNeedsLayout(MarkOnlyThis);
+            else {
+                auto svgRoot = SVGRenderSupport::findTreeRootObject(downcast<RenderElement>(object));
+                if (!svgRoot || !svgRoot->isInLayout())
+                    object.setNeedsLayout(MarkContainingBlockChain);
+                else {
+                    // We just want to re-layout the ancestors up to the RenderSVGRoot.
+                    object.setNeedsLayout(MarkOnlyThis);
+                    for (auto current = object.parent(); current != svgRoot; current = current->parent())
+                        current->setNeedsLayout(MarkOnlyThis);
+                    svgRoot->setNeedsLayout(MarkOnlyThis);
+                }
+            }
+        }
     }
 
     if (is<RenderElement>(object))
@@ -213,6 +241,41 @@ void RenderSVGResource::markForLayoutAndParentResourceInvalidation(RenderObject&
 
         current = current->parent();
     }
+}
+
+void RenderSVGResource::fillAndStrokePathOrShape(GraphicsContext& context, OptionSet<RenderSVGResourceMode> resourceMode, const Path* path, const RenderElement* shape) const
+{
+    if (shape) {
+        ASSERT(shape->isSVGShapeOrLegacySVGShape());
+
+        if (resourceMode.contains(RenderSVGResourceMode::ApplyToFill)) {
+            if (is<LegacyRenderSVGShape>(shape))
+                downcast<LegacyRenderSVGShape>(shape)->fillShape(context);
+#if ENABLE(LAYER_BASED_SVG_ENGINE)
+            else if (is<RenderSVGShape>(shape))
+                downcast<RenderSVGShape>(shape)->fillShape(context);
+#endif
+        }
+
+        if (resourceMode.contains(RenderSVGResourceMode::ApplyToStroke)) {
+            if (is<LegacyRenderSVGShape>(shape))
+                downcast<LegacyRenderSVGShape>(shape)->strokeShape(context);
+#if ENABLE(LAYER_BASED_SVG_ENGINE)
+            else if (is<RenderSVGShape>(shape))
+                downcast<RenderSVGShape>(shape)->strokeShape(context);
+#endif
+        }
+
+        return;
+    }
+
+    if (!path)
+        return;
+
+    if (resourceMode.contains(RenderSVGResourceMode::ApplyToFill))
+        context.fillPath(*path);
+    if (resourceMode.contains(RenderSVGResourceMode::ApplyToStroke))
+        context.strokePath(*path);
 }
 
 }

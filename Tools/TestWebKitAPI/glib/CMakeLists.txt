@@ -7,6 +7,7 @@ set(WebKitGLibAPITests_SOURCES
 
 set(WebKitGLibAPITests_INCLUDE_DIRECTORIES
     ${CMAKE_BINARY_DIR}
+    ${CMAKE_SOURCE_DIR}/Source
     ${TOOLS_DIR}/TestWebKitAPI
     ${TOOLS_DIR}/TestWebKitAPI/Tests/WebKitGLib
     ${TOOLS_DIR}/TestWebKitAPI/glib/WebKitGLib
@@ -18,7 +19,16 @@ set(WebKitGLibAPITests_INCLUDE_DIRECTORIES
     ${PAL_FRAMEWORK_HEADERS_DIR}
     ${WTF_FRAMEWORK_HEADERS_DIR}
     ${WebCore_PRIVATE_FRAMEWORK_HEADERS}
+    $<TARGET_PROPERTY:WebKit,INCLUDE_DIRECTORIES>
 )
+
+if (USE_LIBWEBRTC)
+    list(APPEND WebKitGLibAPITests_INCLUDE_DIRECTORIES
+        "${THIRDPARTY_DIR}/libwebrtc/Source"
+        "${THIRDPARTY_DIR}/libwebrtc/Source/third_party/abseil-cpp"
+        "${THIRDPARTY_DIR}/libwebrtc/Source/webrtc"
+    )
+endif ()
 
 set(WebKitGLibAPITests_SYSTEM_INCLUDE_DIRECTORIES
     ${GIO_UNIX_INCLUDE_DIRS}
@@ -29,7 +39,6 @@ set(WebKitGLibAPITests_SYSTEM_INCLUDE_DIRECTORIES
 )
 
 set(WebKitAPITest_LIBRARIES
-    WebKit::JavaScriptCore
     WebKit::WebKit
 )
 
@@ -46,7 +55,6 @@ set(WebKitGLibAPITest_LIBRARIES
 
 set(WebKitGLibAPITestExtension_LIBRARIES
     ${GLIB_LIBRARIES}
-    WebKit::JavaScriptCore
     WebKit::WebKit
 )
 
@@ -57,14 +65,9 @@ set(WebKitGLibAPIWebProcessTests
     ${TOOLS_DIR}/TestWebKitAPI/Tests/WebKitGLib/WebProcessTest.cpp
 )
 
-macro(ADD_WK2_TEST_WEB_EXTENSION extension_name)
+macro(ADD_WK2_TEST_WEB_PROCESS_EXTENSION extension_name)
     add_library(${extension_name} MODULE ${ARGN})
     add_dependencies(${extension_name} WebKit)
-    set_property(
-        TARGET ${extension_name}
-        APPEND
-        PROPERTY COMPILE_DEFINITIONS WEBKIT2_COMPILATION
-    )
     set_target_properties(${extension_name} PROPERTIES
         LIBRARY_OUTPUT_DIRECTORY ${TEST_LIBRARY_DIR}
     )
@@ -82,7 +85,7 @@ macro(ADD_WK2_TEST test_name)
     add_executable(${test_name} ${ARGN})
     add_dependencies(${test_name}
         test-gresource-bundle
-        WebExtensionTest
+        WebProcessExtensionTest
     )
     set_target_properties(${test_name} PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY ${TEST_BINARY_DIR}
@@ -104,7 +107,7 @@ set(WebKitGLibAPITests_DEFINITIONS
     WEBKIT_TEST_PLUGIN_DIR="${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/plugins"
     WEBKIT_EXEC_PATH="${CMAKE_RUNTIME_OUTPUT_DIRECTORY}"
     WEBKIT_SRC_DIR="${CMAKE_SOURCE_DIR}"
-    WEBKIT_TEST_WEB_EXTENSIONS_DIR="${TEST_LIBRARY_DIR}"
+    WEBKIT_TEST_WEB_PROCESS_EXTENSIONS_DIR="${TEST_LIBRARY_DIR}"
     WEBKIT_INJECTED_BUNDLE_PATH="${CMAKE_LIBRARY_OUTPUT_DIRECTORY}"
     WEBKIT_TEST_RESOURCES_DIR="${TEST_RESOURCES_DIR}"
 )
@@ -112,6 +115,7 @@ set(WebKitGLibAPITests_DEFINITIONS
 add_library(WebKitGLibAPITestsCore STATIC ${WebKitGLibAPITests_SOURCES})
 target_include_directories(WebKitGLibAPITestsCore PUBLIC ${WebKitGLibAPITests_INCLUDE_DIRECTORIES})
 target_include_directories(WebKitGLibAPITestsCore SYSTEM PUBLIC ${WebKitGLibAPITests_SYSTEM_INCLUDE_DIRECTORIES})
+target_compile_definitions(WebKitGLibAPITestsCore PRIVATE BUILDING_TestWebKit)
 target_compile_definitions(WebKitGLibAPITestsCore PUBLIC ${WebKitGLibAPITests_DEFINITIONS})
 target_link_libraries(WebKitGLibAPITestsCore ${WebKitGLibAPITestsCore_LIBRARIES})
 
@@ -120,25 +124,29 @@ if (COMPILER_IS_GCC_OR_CLANG)
 endif ()
 
 add_custom_command(
-    OUTPUT ${TEST_RESOURCES_DIR}/webkitglib-tests-resources.gresource
+    OUTPUT ${TEST_RESOURCES_DIR}/webkitglib-tests-resources.gresource ${TEST_RESOURCES_DIR}/webkitglib-tests-resources.deps
     DEPENDS ${TOOLS_DIR}/TestWebKitAPI/Tests/WebKitGLib/resources/webkitglib-tests.gresource.xml
             ${TOOLS_DIR}/TestWebKitAPI/Tests/WebKitGLib/resources/link-title.js
+    DEPFILE ${TEST_RESOURCES_DIR}/webkitglib-tests-resources.deps
     COMMAND glib-compile-resources
             --target=${TEST_RESOURCES_DIR}/webkitglib-tests-resources.gresource
             --sourcedir=${CMAKE_SOURCE_DIR}
+            --dependency-file=${TEST_RESOURCES_DIR}/webkitglib-tests-resources.deps
             ${TOOLS_DIR}/TestWebKitAPI/Tests/WebKitGLib/resources/webkitglib-tests.gresource.xml
+    VERBATIM
 )
 
 add_custom_target(test-gresource-bundle
     DEPENDS ${TEST_RESOURCES_DIR}/webkitglib-tests-resources.gresource
 )
 
-ADD_WK2_TEST_WEB_EXTENSION(WebExtensionTest ${TOOLS_DIR}/TestWebKitAPI/Tests/WebKitGLib/WebExtensionTest.cpp)
-ADD_WK2_TEST_WEB_EXTENSION(WebProcessTest ${WebKitGLibAPIWebProcessTests})
+ADD_WK2_TEST_WEB_PROCESS_EXTENSION(WebProcessExtensionTest ${TOOLS_DIR}/TestWebKitAPI/Tests/WebKitGLib/WebProcessExtensionTest.cpp)
+ADD_WK2_TEST_WEB_PROCESS_EXTENSION(WebProcessTest ${WebKitGLibAPIWebProcessTests})
 
 ADD_WK2_TEST(TestAuthentication ${TOOLS_DIR}/TestWebKitAPI/Tests/WebKitGLib/TestAuthentication.cpp)
 ADD_WK2_TEST(TestAutomationSession ${TOOLS_DIR}/TestWebKitAPI/Tests/WebKitGLib/TestAutomationSession.cpp)
 ADD_WK2_TEST(TestBackForwardList ${TOOLS_DIR}/TestWebKitAPI/Tests/WebKitGLib/TestBackForwardList.cpp)
+ADD_WK2_TEST(TestCookieManager ${TOOLS_DIR}/TestWebKitAPI/Tests/WebKitGLib/TestCookieManager.cpp)
 ADD_WK2_TEST(TestDownloads ${TOOLS_DIR}/TestWebKitAPI/Tests/WebKitGLib/TestDownloads.cpp)
 ADD_WK2_TEST(TestWebKitFindController ${TOOLS_DIR}/TestWebKitAPI/Tests/WebKitGLib/TestWebKitFindController.cpp)
 ADD_WK2_TEST(TestEditor ${TOOLS_DIR}/TestWebKitAPI/Tests/WebKitGLib/TestEditor.cpp)
@@ -149,7 +157,7 @@ ADD_WK2_TEST(TestOptionMenu ${TOOLS_DIR}/TestWebKitAPI/Tests/WebKitGLib/TestOpti
 ADD_WK2_TEST(TestResources ${TOOLS_DIR}/TestWebKitAPI/Tests/WebKitGLib/TestResources.cpp)
 ADD_WK2_TEST(TestSSL ${TOOLS_DIR}/TestWebKitAPI/Tests/WebKitGLib/TestSSL.cpp)
 ADD_WK2_TEST(TestUIClient ${TOOLS_DIR}/TestWebKitAPI/Tests/WebKitGLib/TestUIClient.cpp)
-ADD_WK2_TEST(TestWebExtensions ${TOOLS_DIR}/TestWebKitAPI/Tests/WebKitGLib/TestWebExtensions.cpp)
+ADD_WK2_TEST(TestWebProcessExtensions ${TOOLS_DIR}/TestWebKitAPI/Tests/WebKitGLib/TestWebProcessExtensions.cpp)
 ADD_WK2_TEST(TestWebKitPolicyClient ${TOOLS_DIR}/TestWebKitAPI/Tests/WebKitGLib/TestWebKitPolicyClient.cpp)
 ADD_WK2_TEST(TestWebKitSecurityOrigin ${TOOLS_DIR}/TestWebKitAPI/Tests/WebKitGLib/TestWebKitSecurityOrigin.cpp)
 ADD_WK2_TEST(TestWebKitSettings ${TOOLS_DIR}/TestWebKitAPI/Tests/WebKitGLib/TestWebKitSettings.cpp)
@@ -159,14 +167,14 @@ ADD_WK2_TEST(TestWebKitWebView ${TOOLS_DIR}/TestWebKitAPI/Tests/WebKitGLib/TestW
 ADD_WK2_TEST(TestWebKitUserContentFilterStore ${TOOLS_DIR}/TestWebKitAPI/Tests/WebKitGLib/TestWebKitUserContentFilterStore.cpp)
 ADD_WK2_TEST(TestWebKitUserContentManager ${TOOLS_DIR}/TestWebKitAPI/Tests/WebKitGLib/TestWebKitUserContentManager.cpp)
 ADD_WK2_TEST(TestWebsiteData ${TOOLS_DIR}/TestWebKitAPI/Tests/WebKitGLib/TestWebsiteData.cpp)
-ADD_WK2_TEST(TestConsoleMessage ${TOOLS_DIR}/TestWebKitAPI/Tests/WebKitGLib/TestConsoleMessage.cpp)
 ADD_WK2_TEST(TestDOMElement ${TOOLS_DIR}/TestWebKitAPI/Tests/WebKitGLib/TestDOMElement.cpp)
 ADD_WK2_TEST(TestGeolocationManager ${TOOLS_DIR}/TestWebKitAPI/Tests/WebKitGLib/TestGeolocationManager.cpp)
 ADD_WK2_TEST(TestInputMethodContext ${TOOLS_DIR}/TestWebKitAPI/Tests/WebKitGLib/TestInputMethodContext.cpp)
 
-# FIXME: Enable for WPE
-if (PORT STREQUAL "GTK")
-    ADD_WK2_TEST(TestCookieManager ${TOOLS_DIR}/TestWebKitAPI/Tests/WebKitGLib/TestCookieManager.cpp)
+if (ENABLE_2022_GLIB_API)
+    ADD_WK2_TEST(TestWebKitNetworkSession ${TOOLS_DIR}/TestWebKitAPI/Tests/WebKitGLib/TestWebKitNetworkSession.cpp)
+else ()
+    ADD_WK2_TEST(TestConsoleMessage ${TOOLS_DIR}/TestWebKitAPI/Tests/WebKitGLib/TestConsoleMessage.cpp)
 endif ()
 
 macro(ADD_WPE_QT_TEST test_name)
@@ -191,6 +199,8 @@ endmacro()
 if (PORT STREQUAL "WPE" AND ENABLE_WPE_QT_API)
     set(WPEQtAPITests_INCLUDE_DIRECTORIES
         ${CMAKE_BINARY_DIR}
+        ${JavaScriptCoreGLib_DERIVED_SOURCES_DIR}
+        ${JavaScriptCoreGLib_FRAMEWORK_HEADERS_DIR}
         ${GLIB_INCLUDE_DIRS}
         ${LIBSOUP_INCLUDE_DIRS}
         ${Qt5Test_INCLUDE_DIRS}

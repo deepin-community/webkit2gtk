@@ -23,12 +23,12 @@
 #include "config.h"
 #include "Event.h"
 
-#include "DOMWindow.h"
 #include "Document.h"
 #include "EventNames.h"
 #include "EventPath.h"
 #include "EventTarget.h"
 #include "InspectorInstrumentation.h"
+#include "LocalDOMWindow.h"
 #include "Performance.h"
 #include "UserGestureIndicator.h"
 #include "WorkerGlobalScope.h"
@@ -84,6 +84,7 @@ Event::Event(const AtomString& eventType, const EventInit& initializer, IsTruste
         initializer.composed ? IsComposed::Yes : IsComposed::No }
 {
     ASSERT(!eventType.isNull());
+    m_isConstructedFromInitializer = true;
 }
 
 Event::~Event() = default;
@@ -137,10 +138,15 @@ void Event::setCurrentTarget(EventTarget* currentTarget, std::optional<bool> isI
     m_currentTargetIsInShadowTree = isInShadowTree ? *isInShadowTree : (is<Node>(currentTarget) && downcast<Node>(*currentTarget).isInShadowTree());
 }
 
-Vector<EventTarget*> Event::composedPath() const
+void Event::setEventPath(const EventPath& path)
+{
+    m_eventPath = &path;
+}
+
+Vector<Ref<EventTarget>> Event::composedPath() const
 {
     if (!m_eventPath)
-        return Vector<EventTarget*>();
+        return Vector<Ref<EventTarget>>();
     return m_eventPath->computePathUnclosedToTarget(*m_currentTarget);
 }
 

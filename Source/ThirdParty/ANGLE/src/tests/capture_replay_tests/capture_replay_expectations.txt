@@ -3,241 +3,202 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 #
-# capture_replay_expectations:
-#   Skip these tests because they are expected to fail
+# Test are entered like
+# BUG PLATFORMS : test-name = handling/result
+#
+#  PLATFORMS is optional and lists the platforms the expectation / run disabling happens
+#
+# Valid values for "handling/result" are
+#
+#   SKIP_FOR_CAPTURE : SKIP from capture_replay tests
+#
+#   NOT_RUN (DEPRECATED https://anglebug.com/7516): already skipped by end2end test suite
+#
+#   FAIL : the test is expected to fail
+#
+#   FLAKY : the tests is flaky, but we still run it
+#
+#   TIMEOUT : the test is expected to time out
+#
+#   COMPILE_FAIL : the compilation of the capture_replay exec is expected to fail
+#
+#   CRASH : the test is expected to crash
+#
+# For test batches that run more than one test TIMEOUT, COMPILE_FAIL, and CRASH
+# will have to be set for all tests that run a batch, because one test that fails
+# with one of these outcomes will bring down the whole batch.
 #
 
-# Failed tests
-BindGeneratesResourceTest.*
-BindUniformLocationTest.Basic/ES2_Vulkan
-BindUniformLocationTest.Compositor/ES2_Vulkan
-BindUniformLocationTest.SameLocationForUsedAndUnusedUniform/ES2_Vulkan
-BindUniformLocationTest.SamplerLocation/ES2_Vulkan
-BindUniformLocationTest.UnusedUniformUpdate/ES2_Vulkan
-BindUniformLocationTest.UnusedUniformUpdateComplex/ES2_Vulkan
-BindUniformLocationTest.UseSamplerWhenUnusedUniforms/ES2_Vulkan
-ClientArraysTest.*
-CopyTexImageTest.*
-CopyTextureTestWebGL.*
-D3DImageFormatConversionTest.*
-DifferentStencilMasksTest.*
-EGLContextASANTest.*
-EGLContextSharingTest.TextureLifetime/ES2_Vulkan
-FramebufferTest.MultiContextNoRenderingFeedbackLoops/ES2_Vulkan
-GetTexLevelParameterTest.ExtensionStringExposed/ES2_Vulkan
-InstancingTest.LineLoop/ES2_Vulkan
-MaxTextureSizeTest.*
-MultisampledRenderToTextureTest.FramebufferCompleteness/ES2_Vulkan
-MultisampledRenderToTextureTest.TextureCubeMapParameterCheck/ES2_Vulkan
-PbufferTest.BindTexImage/ES2_Vulkan
-PbufferTest.Clearing/ES2_Vulkan
-PbufferTest.TextureSizeReset/ES2_Vulkan
-RequestExtensionTest.ExtensionsDisabledByDefault/ES2_Vulkan
-RequestExtensionTest.Queries/ES2_Vulkan
-RobustBufferAccessBehaviorTest.DynamicBuffer/ES2_Vulkan
-SimpleStateChangeTest.RebindTranslatedAttribute/ES2_Vulkan
-Texture2DDepthTest.DepthTextureES2Compatibility/ES2_Vulkan
-TextureCubeTest.*
-VulkanClearTest.*
-WebGL2ReadOutsideFramebufferTest.*
-WebGLDrawElementsTest.*
-WebGLGLSLTest.*
-WebGLReadOutsideFramebufferTest.*
+# We don't support the Capture/Replay on OpenGL yet
 
-# Crashed tests
-BlendMinMaxTest.*
-BlitFramebufferANGLETest.*
-BufferDataTest.*
-ClipDistanceTest.*
-ColorMaskTest.*
-CopyCompressedTextureTest.InternalFormat/ES2_Vulkan
-DebugMarkerTest.*
-DebugTest.*
-DepthStencilTest.*
-DiscardFramebufferEXTTest.*
-DrawBuffersTest.*
-EGLPrintEGLinfoTest.PrintGLESCapabilities/ES2_Vulkan
-EGLStreamTest.*
-ExternalWrapTest.*
-FenceNVTest.*
-GetImageTestNoExtensions.EntryPointsInactive/ES2_Vulkan
-GLSLTest.ArrayOfStructContainingArrayOfSamplers/ES2_Vulkan
-GLSLTest.InactiveSamplersInStruct/ES2_Vulkan
-GLSLTest.MixedShaderLengths/ES2_Vulkan
-GLSLTest.ZeroShaderLength/ES2_Vulkan
-GPUTestConfigTest.GPUTestConfigConditions_D3D11/ES2_Vulkan
-ImageTest.*
-IndexedPointsTestUByte.*
-IndexedPointsTestUInt.*
-IndexedPointsTestUShort.*
-OcclusionQueriesTest.*
-PBOExtensionTest.*
-PixmapTest.Clearing/ES2_Vulkan
-SemaphoreTest.SemaphoreShouldBeSemaphore/ES2_Vulkan
-SimpleOperationTest.DrawQuad/ES2_Vulkan
-SRGBFramebufferTest.Validation/ES2_Vulkan
-StateChangeRenderTest.GenerateMipmap/ES2_Vulkan
-SyncQueriesTest.*
-TextureLimitsTest.MaxCombinedTextures/ES2_Vulkan
-TimerQueriesTest.*
-UniformTest.Sampler/ES2_Vulkan
-UnpackAlignmentTest.*
-UnpackRowLengthTest.*
-VertexAttributeCachingTest.*
-VertexAttributeOORTest.*
-VertexAttributeTest.*
-ViewportTest.*
-WebGLCompatibilityTest.*
-WebGLFramebufferTest.*
+6345 : *OpenGL = SKIP_FOR_CAPTURE
 
-# Skipped tests
-EGLProgramCacheControlTest.NegativeAPI/ES2_Vulkan
-EGLProgramCacheControlTest.SaveAndReload/ES2_Vulkan
-LineLoopTest.DISABLED_DrawArraysWithLargeCount/ES2_Vulkan
-MipmapTest.DISABLED_ThreeLevelsInitData/ES2_Vulkan
+# ES2
 
-# Compile failed tests
-CopyTextureTest.CopyTextureInvalidTextureIds/ES2_Vulkan
-CubeMapTextureTest.RenderToFacesConsecutively/ES2_Vulkan
-EGLSyncTest.AndroidNativeFence_WaitSync/ES2_Vulkan
-ExplicitContextTest.GetProcAddress/ES2_Vulkan
-GetImageTest.*
-GetTexLevelParameterTest.Queries/ES2_Vulkan
-GLSLTest.InvariantGLPosition/ES2_Vulkan
-GLSLTest.MissingReturnVec4/ES2_Vulkan
-InstancingTest.IndexedAttrib0PointBufferAngle/ES2_Vulkan
-InstancingTest.IndexedAttrib0PointBufferExt/ES2_Vulkan
-InstancingTest.IndexedAttrib0PointMemoryAngle/ES2_Vulkan
-InstancingTest.IndexedAttrib0PointMemoryExt/ES2_Vulkan
-InstancingTest.IndexedAttrib0QuadBufferAngle/ES2_Vulkan
-InstancingTest.IndexedAttrib0QuadBufferExt/ES2_Vulkan
-InstancingTest.IndexedAttrib0QuadMemoryAngle/ES2_Vulkan
-InstancingTest.IndexedAttrib0QuadMemoryExt/ES2_Vulkan
-InstancingTest.IndexedAttrib0TriFanBufferAngle/ES2_Vulkan
-InstancingTest.IndexedAttrib0TriFanBufferExt/ES2_Vulkan
-InstancingTest.IndexedAttrib0TriFanMemoryAngle/ES2_Vulkan
-InstancingTest.IndexedAttrib0TriFanMemoryExt/ES2_Vulkan
-InstancingTest.IndexedAttrib1PointBufferAngle/ES2_Vulkan
-InstancingTest.IndexedAttrib1PointBufferExt/ES2_Vulkan
-InstancingTest.IndexedAttrib1PointMemoryAngle/ES2_Vulkan
-InstancingTest.IndexedAttrib1PointMemoryExt/ES2_Vulkan
-InstancingTest.IndexedAttrib1QuadBufferAngle/ES2_Vulkan
-InstancingTest.IndexedAttrib1QuadBufferExt/ES2_Vulkan
-InstancingTest.IndexedAttrib1QuadMemoryAngle/ES2_Vulkan
-InstancingTest.IndexedAttrib1QuadMemoryExt/ES2_Vulkan
-InstancingTest.IndexedAttrib1TriFanBufferAngle/ES2_Vulkan
-InstancingTest.IndexedAttrib1TriFanBufferExt/ES2_Vulkan
-InstancingTest.IndexedAttrib1TriFanMemoryAngle/ES2_Vulkan
-InstancingTest.IndexedAttrib1TriFanMemoryExt/ES2_Vulkan
-InstancingTest.Instances10Divisor1/ES2_Vulkan
-InstancingTest.Instances11Divisor1/ES2_Vulkan
-InstancingTest.Instances11Divisor2/ES2_Vulkan
-InstancingTest.Instances12Divisor1/ES2_Vulkan
-InstancingTest.Instances12Divisor11/ES2_Vulkan
-InstancingTest.Instances13Divisor1/ES2_Vulkan
-InstancingTest.Instances13Divisor2/ES2_Vulkan
-InstancingTest.Instances14Divisor1/ES2_Vulkan
-InstancingTest.Instances15Divisor1/ES2_Vulkan
-InstancingTest.Instances15Divisor2/ES2_Vulkan
-InstancingTest.Instances16Divisor1/ES2_Vulkan
-InstancingTest.Instances16Divisor3/ES2_Vulkan
-InstancingTest.Instances16Divisor7/ES2_Vulkan
-InstancingTest.Instances17Divisor2/ES2_Vulkan
-InstancingTest.Instances1Divisor1/ES2_Vulkan
-InstancingTest.Instances1Divisor2/ES2_Vulkan
-InstancingTest.Instances20Divisor2/ES2_Vulkan
-InstancingTest.Instances21Divisor2/ES2_Vulkan
-InstancingTest.Instances23Divisor2/ES2_Vulkan
-InstancingTest.Instances25Divisor33/ES2_Vulkan
-InstancingTest.Instances25Divisor5/ES2_Vulkan
-InstancingTest.Instances26Divisor2/ES2_Vulkan
-InstancingTest.Instances26Divisor3/ES2_Vulkan
-InstancingTest.Instances27Divisor2/ES2_Vulkan
-InstancingTest.Instances27Divisor4/ES2_Vulkan
-InstancingTest.Instances28Divisor3/ES2_Vulkan
-InstancingTest.Instances29Divisor11/ES2_Vulkan
-InstancingTest.Instances29Divisor2/ES2_Vulkan
-InstancingTest.Instances2Divisor1/ES2_Vulkan
-InstancingTest.Instances30Divisor4/ES2_Vulkan
-InstancingTest.Instances31Divisor6/ES2_Vulkan
-InstancingTest.Instances32Divisor2/ES2_Vulkan
-InstancingTest.Instances32Divisor3/ES2_Vulkan
-InstancingTest.Instances32Divisor8/ES2_Vulkan
-InstancingTest.Instances34Divisor3/ES2_Vulkan
-InstancingTest.Instances34Divisor30/ES2_Vulkan
-InstancingTest.Instances3Divisor1/ES2_Vulkan
-InstancingTest.Instances3Divisor2/ES2_Vulkan
-InstancingTest.Instances4Divisor1/ES2_Vulkan
-InstancingTest.Instances5Divisor1/ES2_Vulkan
-InstancingTest.Instances5Divisor2/ES2_Vulkan
-InstancingTest.Instances6Divisor1/ES2_Vulkan
-InstancingTest.Instances6Divisor2/ES2_Vulkan
-InstancingTest.Instances7Divisor1/ES2_Vulkan
-InstancingTest.Instances7Divisor2/ES2_Vulkan
-InstancingTest.Instances8Divisor1/ES2_Vulkan
-InstancingTest.Instances8Divisor2/ES2_Vulkan
-InstancingTest.Instances8Divisor4/ES2_Vulkan
-InstancingTest.Instances9Divisor1/ES2_Vulkan
-InstancingTest.Instances9Divisor2/ES2_Vulkan
-InstancingTest.NonIndexedAttrib0PointBufferAngleOffset0/ES2_Vulkan
-InstancingTest.NonIndexedAttrib0PointBufferAngleOffset2/ES2_Vulkan
-InstancingTest.NonIndexedAttrib0PointBufferExtOffset0/ES2_Vulkan
-InstancingTest.NonIndexedAttrib0PointBufferExtOffset2/ES2_Vulkan
-InstancingTest.NonIndexedAttrib0PointMemoryAngleOffset0/ES2_Vulkan
-InstancingTest.NonIndexedAttrib0PointMemoryAngleOffset2/ES2_Vulkan
-InstancingTest.NonIndexedAttrib0PointMemoryExtOffset0/ES2_Vulkan
-InstancingTest.NonIndexedAttrib0PointMemoryExtOffset2/ES2_Vulkan
-InstancingTest.NonIndexedAttrib0QuadBufferAngleOffset0/ES2_Vulkan
-InstancingTest.NonIndexedAttrib0QuadBufferAngleOffset4/ES2_Vulkan
-InstancingTest.NonIndexedAttrib0QuadBufferExtOffset0/ES2_Vulkan
-InstancingTest.NonIndexedAttrib0QuadBufferExtOffset4/ES2_Vulkan
-InstancingTest.NonIndexedAttrib0QuadMemoryAngleOffset0/ES2_Vulkan
-InstancingTest.NonIndexedAttrib0QuadMemoryAngleOffset4/ES2_Vulkan
-InstancingTest.NonIndexedAttrib0QuadMemoryExtOffset0/ES2_Vulkan
-InstancingTest.NonIndexedAttrib0QuadMemoryExtOffset4/ES2_Vulkan
-InstancingTest.NonIndexedAttrib0TriFanBufferAngleOffset0/ES2_Vulkan
-InstancingTest.NonIndexedAttrib0TriFanBufferAngleOffset8/ES2_Vulkan
-InstancingTest.NonIndexedAttrib0TriFanBufferExtOffset0/ES2_Vulkan
-InstancingTest.NonIndexedAttrib0TriFanBufferExtOffset8/ES2_Vulkan
-InstancingTest.NonIndexedAttrib0TriFanMemoryAngleOffset0/ES2_Vulkan
-InstancingTest.NonIndexedAttrib0TriFanMemoryAngleOffset8/ES2_Vulkan
-InstancingTest.NonIndexedAttrib0TriFanMemoryExtOffset0/ES2_Vulkan
-InstancingTest.NonIndexedAttrib0TriFanMemoryExtOffset8/ES2_Vulkan
-InstancingTest.NonIndexedAttrib1PointBufferAngleOffset0/ES2_Vulkan
-InstancingTest.NonIndexedAttrib1PointBufferAngleOffset2/ES2_Vulkan
-InstancingTest.NonIndexedAttrib1PointBufferExtOffset0/ES2_Vulkan
-InstancingTest.NonIndexedAttrib1PointBufferExtOffset2/ES2_Vulkan
-InstancingTest.NonIndexedAttrib1PointMemoryAngleOffset0/ES2_Vulkan
-InstancingTest.NonIndexedAttrib1PointMemoryAngleOffset2/ES2_Vulkan
-InstancingTest.NonIndexedAttrib1PointMemoryExtOffset0/ES2_Vulkan
-InstancingTest.NonIndexedAttrib1PointMemoryExtOffset2/ES2_Vulkan
-InstancingTest.NonIndexedAttrib1QuadBufferAngleOffset0/ES2_Vulkan
-InstancingTest.NonIndexedAttrib1QuadBufferAngleOffset4/ES2_Vulkan
-InstancingTest.NonIndexedAttrib1QuadBufferExtOffset0/ES2_Vulkan
-InstancingTest.NonIndexedAttrib1QuadBufferExtOffset4/ES2_Vulkan
-InstancingTest.NonIndexedAttrib1QuadMemoryAngleOffset0/ES2_Vulkan
-InstancingTest.NonIndexedAttrib1QuadMemoryAngleOffset4/ES2_Vulkan
-InstancingTest.NonIndexedAttrib1QuadMemoryExtOffset0/ES2_Vulkan
-InstancingTest.NonIndexedAttrib1QuadMemoryExtOffset4/ES2_Vulkan
-InstancingTest.NonIndexedAttrib1TriFanBufferAngleOffset0/ES2_Vulkan
-InstancingTest.NonIndexedAttrib1TriFanBufferAngleOffset8/ES2_Vulkan
-InstancingTest.NonIndexedAttrib1TriFanBufferExtOffset0/ES2_Vulkan
-InstancingTest.NonIndexedAttrib1TriFanBufferExtOffset8/ES2_Vulkan
-InstancingTest.NonIndexedAttrib1TriFanMemoryAngleOffset0/ES2_Vulkan
-InstancingTest.NonIndexedAttrib1TriFanMemoryAngleOffset8/ES2_Vulkan
-InstancingTest.NonIndexedAttrib1TriFanMemoryExtOffset0/ES2_Vulkan
-InstancingTest.NonIndexedAttrib1TriFanMemoryExtOffset8/ES2_Vulkan
-MemoryObjectTest.MemoryObjectQueries/ES2_Vulkan
-MemoryObjectTest.MemoryObjectShouldBeMemoryObject/ES2_Vulkan
-MemoryObjectTest.ShouldFailValidationOnImportFdUnsupportedHandleType/ES2_Vulkan
-PointSpritesTest.PointWithoutAttributesCompliance/ES2_Vulkan
-RobustBufferAccessBehaviorTest.EmptyBuffer/ES2_Vulkan
-RobustClientMemoryTest.*
-RobustResourceInitTest.*
-SemaphoreTest.*
-SimpleOperationTest.DrawTriangleFan/ES2_Vulkan
-SimpleStateChangeTest.DrawElementsThenDrawElementsNewIndexBuffer/ES2_Vulkan
-StateChangeTest.FramebufferIncompleteDepthAttachment/ES2_Vulkan
-Texture2DTest.CopySubImageFloat_RGB_R/ES2_Vulkan
-TextureRectangleTest.RenderToRectangle/ES2_Vulkan
-VulkanExternalImageTest.*
+6267 : FramebufferTest.MultiContextNoRenderingFeedbackLoops/* = SKIP_FOR_CAPTURE
+
+6180 : GLSLTest_ES3.GLVertexIDIntegerTextureDrawElementsU8Line/* = NOT_RUN
+6180 : GLSLTest_ES3.GLVertexIDIntegerTextureDrawElementsU8LineIds/* = NOT_RUN
+
+6221 : VulkanExternalImageTest.ShouldClearOpaqueFdWithSemaphores/* = TIMEOUT
+6221 : VulkanExternalImageTest.ShouldClearOpaqueFdWithSemaphoresMutableNoStorage/* = TIMEOUT
+6221 : VulkanExternalImageTest.ShouldClearOpaqueFdWithSemaphoresNoStorage/* = TIMEOUT
+6221 : VulkanExternalImageTest.ShouldClearOpaqueFdWithSemaphoresWithFlags/* = TIMEOUT
+6221 : VulkanExternalImageTest.ShouldDrawOpaqueFdWithSemaphores/* = TIMEOUT
+6221 : VulkanExternalImageTest.WaitSemaphoresRetainsContentOpaqueFd/* = TIMEOUT
+
+6267 : WebGLCompatibilityTest.MultiContextNoRenderingFeedbackLoops/* = SKIP_FOR_CAPTURE
+
+6180 WIN : WebGLCompatibilityTest.DrawElementsBufferOutOfBoundsInVertexBuffer/* = FLAKY
+
+6654 : UniformTest.UnusedStructInlineUniform/* = SKIP_FOR_CAPTURE
+6654 : UniformTest.UnusedStructInlineUniformWithSampler/* = SKIP_FOR_CAPTURE
+
+# Fails because of unsupported combined depth/stencil GetImage.
+4688 ASAN : DepthStencilTest.DepthOnlyEmulatedWithPacked/* = FAIL
+
+# ES3
+6180 : BlitFramebufferTest.BlitDepthStencilPixelByPixel/* = NOT_RUN
+6180 : GLSLTest_ES3.UnsuccessfulRelinkWithBindAttribLocation/* = NOT_RUN
+3886 : ComputeShaderTest.BindImageTexture3D/* = NOT_RUN
+7441 : DrawBaseInstanceTest.DrawElementsInstancedBaseInstance/ES3_D3D11__DynamicDraw* = NOT_RUN
+
+# This test only exists on Win64
+6180 WIN : BufferDataOverflowTest.VertexBufferIntegerOverflow/* = NOT_RUN
+
+6180 WIN : TransformFeedbackTest.DrawWithoutTransformFeedbackThenWith/* = FLAKY
+6180 : TransformFeedbackTest.TransformFeedbackQueryPausedDrawThenResume/* = FLAKY
+6513 : TransformFeedbackTest.MultiContext/* = FLAKY
+6180 WIN : TransformFeedbackTest.BufferOutOfMemory/* = FLAKY
+6180 WIN : TransformFeedbackTest.EndThenBindNewBufferAndRestart/* = FLAKY
+6180 : VertexAttributeTestES3.DrawWithUnalignedData/* = FLAKY
+
+# Skip because crashes
+6313 : CopyTextureTestES3.InvalidateBlitThenBlend1000Layers/* = CRASH
+6313 : CopyTextureTestES3.InvalidateBlitThenBlend3Layers/* = CRASH
+6314 : FramebufferTest_ES3.AttachmentsWithUnequalDimensions/* = CRASH
+6314 : FramebufferTest_ES3.ChangeAttachmentThenInvalidateAndDraw/* = CRASH
+6314 : FramebufferTest_ES3.RenderAndInvalidateImmutableTextureWithBeyondMaxLevel/* = CRASH
+6399 : Texture2DTestES3.TexStorage2DCycleThroughYuvSourcesNoData/* = CRASH
+6399 : Texture2DTestES3.TexStorage2DSimultaneousUseOfMultipleYuvSourcesNoData/* = CRASH
+6400 : Texture2DTestES3.TextureCompletenessChangesWithBaseLevel/* = CRASH
+6399 : Texture2DTestES3.TexStorage2DLargeYuvTextureCount/* = CRASH
+6335 DEBUG : VulkanExternalImageTest.ShouldImportSemaphoreOpaqueFd/* = CRASH
+
+
+# Skip because Timeout
+
+# ES3 Flaky
+6631 : MultithreadingTest.MultiContextCreateAndDeleteResources/* = CRASH
+6631 WIN : MultithreadingTestES3.MultithreadFenceDraw/* = CRASH
+6631 WIN : MultithreadingTestES3.MultithreadFenceTexImage/* = CRASH
+6631 : MultithreadingTest.MultiContextDrawWithSwapBuffers/* = CRASH
+
+# Uses multiple contexts, don't want to run
+6752 : OcclusionQueriesNoSurfaceTestES3.SwitchingContextsWithQuery/* = SKIP_FOR_CAPTURE
+
+# ES3_1
+6180 : ProgramPipelineTest31.VerifyPpoLinkErrorSignalledCorrectly/* = FAIL
+
+# ES3_1 Crashed
+6180 : EGLMultiContextTest.ComputeShaderOkayWithRendering/* = CRASH
+6180 : EGLMultiContextTest.TestContextDestroySimple/* = CRASH
+
+# ES3_1 gtest skips
+6180 : GLSLTest_ES31.InterpolateAtWithSwizzle/* = NOT_RUN
+
+6741 : VulkanImageTest.* = SKIP_FOR_CAPTURE
+6741 : VulkanMemoryTest.* = SKIP_FOR_CAPTURE
+
+6941 : Texture2DTestES3RobustInit.TextureCOMPRESSEDRGB8A1ETC2/* = NOT_RUN
+6941 : Texture2DTestES3RobustInit.TextureCOMPRESSEDSRGB8A1ETC2/* = NOT_RUN
+
+6926 : Texture2DTestES3.TextureRGBUpdateWithPBO/ES3_Vulkan* = NOT_RUN
+
+7112 : TransformFeedbackTest.BaseInstance/* = NOT_RUN
+
+# GLES 3.2 tests that fail because of missing features
+5366 : GeometryShaderTestES32.MaxGeometryImageUniforms/* = CRASH
+5366 : ProgramPipelineTest32.MaxGeometryImageUniforms/* = CRASH
+
+7088 : VulkanPerformanceCounterTest* = SKIP_FOR_CAPTURE
+
+7291 : BlitFramebufferTest.Blit3D/* = SKIP_FOR_CAPTURE
+7291 : BlitFramebufferTest.Blit3DTo2DArray/* = SKIP_FOR_CAPTURE
+7291 : BlitFramebufferTest.Blit2DArrayTo3D/* = SKIP_FOR_CAPTURE
+7291 : BlitFramebufferTest.drawBlitAndDrawAgain/* = SKIP_FOR_CAPTURE
+7291 : BlitFramebufferTest.scissorDrawBlitAndDrawAgain/* = SKIP_FOR_CAPTURE
+
+7357 : FramebufferTest_ES3.FramebufferConditionalFeedbackLoop/* = SKIP_FOR_CAPTURE
+7499 : Texture2DTest.TextureMaxSize/* = SKIP_FOR_CAPTURE
+7373 : FramebufferTest_ES3.SurfaceDimensionsChangeAndFragCoord/* = SKIP_FOR_CAPTURE
+
+7423 : MultithreadingTest.NoFlushNoContextReturnsTimeout/* = SKIP_FOR_CAPTURE
+7423 : MultithreadingTestES3.ThreadBClientWaitBeforeThreadASyncFinish/* = SKIP_FOR_CAPTURE
+7423 : MultithreadingTestES3.ThreadBClientWaitBeforeThreadASyncFlush/* = SKIP_FOR_CAPTURE
+7423 : MultithreadingTestES3.ThreadBGetStatusBeforeThreadASyncFinish/* = SKIP_FOR_CAPTURE
+7423 : MultithreadingTestES3.ThreadBGetStatusBeforeThreadASyncFlush/* = SKIP_FOR_CAPTURE
+7423 : MultithreadingTestES3.ThreadBServerWaitBeforeThreadASyncFinish/* = SKIP_FOR_CAPTURE
+7423 : MultithreadingTestES3.ThreadBServerWaitBeforeThreadASyncFlush/* = SKIP_FOR_CAPTURE
+7423 : MultithreadingTestES3.ThreadCWaitBeforeThreadBSyncFinish/* = SKIP_FOR_CAPTURE
+
+# Also multi-threaded
+7423 : EGLMultiContextTest.RepeatedEglInitAndTerminate/* = SKIP_FOR_CAPTURE
+7423 : EGLMultiContextTest.ThreadBClientWaitBeforeThreadASyncFlush/* = SKIP_FOR_CAPTURE
+7423 : EGLMultiContextTest.ThreadBServerWaitBeforeThreadASyncFlush/* = SKIP_FOR_CAPTURE
+7423 : EGLMultiContextTest.ThreadBGetStatusBeforeThreadASyncFlush/* = SKIP_FOR_CAPTURE
+7423 : EGLMultiContextTest.ThreadBClientWaitBeforeThreadASyncFinish/* = SKIP_FOR_CAPTURE
+7423 : EGLMultiContextTest.ThreadBServerWaitBeforeThreadASyncFinish/* = SKIP_FOR_CAPTURE
+7423 : EGLMultiContextTest.ThreadBGetStatusBeforeThreadASyncFinish/* = SKIP_FOR_CAPTURE
+7423 : EGLMultiContextTest.ThreadBCanSubmitWhileThreadAWaiting/* = SKIP_FOR_CAPTURE
+
+7419 : MultithreadingTestES3.CreateFramebufferFetchBeforeRenderPass/* = NOT_RUN
+7419 : MultithreadingTestES3.CreateFramebufferFetchMidRenderPass/* = NOT_RUN
+
+7389 : Texture2DTest.ManySupersedingTextureUpdates/* = SKIP_FOR_CAPTURE
+
+7449 : MultisampleTest.ContentPresevedAfterInterruption/* = SKIP_FOR_CAPTURE
+7449 : MultisampleTest.Line/* = SKIP_FOR_CAPTURE
+7449 : MultisampleTest.Point/* = SKIP_FOR_CAPTURE
+7449 : MultisampleTest.Triangle/* = SKIP_FOR_CAPTURE
+
+7483 : MultisampleTest.AlphaToSampleCoverage/* = SKIP_FOR_CAPTURE
+7483 : MultisampleTestES3.ResolveToFBO/* = SKIP_FOR_CAPTURE
+
+6723 : EGLMultiContextTest.ReuseUnterminatedDisplay/* = SKIP_FOR_CAPTURE
+
+# No support yet for Capture/Replay of External Textures using other attribs
+7570 : ImageTest.MipLevels/* = SKIP_FOR_CAPTURE
+7570 : ImageTest.Source2DTarget2D_Colorspace/* = SKIP_FOR_CAPTURE
+7570 : ImageTest.Source2DTarget2DArray_Colorspace/* = SKIP_FOR_CAPTURE
+7570 : ImageTest.Source2DTargetExternal_Colorspace/* = SKIP_FOR_CAPTURE
+7570 : ImageTest.SourceCubeTarget2D_Colorspace/* = SKIP_FOR_CAPTURE
+7570 : ImageTest.SourceCubeTargetExternal_Colorspace/* = SKIP_FOR_CAPTURE
+7570 : ImageTest.SourceRenderbufferTargetTexture_Colorspace/* = SKIP_FOR_CAPTURE
+7570 : ImageTest.SourceRenderbufferTargetTextureExternal_Colorspace/* = SKIP_FOR_CAPTURE
+7570 : ImageTest.ValidationGLEGLImage_Colorspace/* = SKIP_FOR_CAPTURE
+7570 : ImageTest.ValidationImageBase/* = SKIP_FOR_CAPTURE
+7570 : ImageTestES3.Source2DTargetExternalESSL3_Colorspace/* = SKIP_FOR_CAPTURE
+7570 : ImageTestES3.SourceCubeTargetExternalESSL3/* = SKIP_FOR_CAPTURE
+7570 : ImageTestES3.SourceCubeTargetExternalESSL3_Colorspace/* = SKIP_FOR_CAPTURE
+7570 : ImageTestES3.SourceRenderbufferTargetTextureExternalESSL3_Colorspace/* = SKIP_FOR_CAPTURE
+
+7581 : FramebufferTest_ES3.BlitWithDifferentPreRotations/* = SKIP_FOR_CAPTURE
+
+7814 WIN : PBOExtensionTest.PBOWithExistingData/ES2_Vulkan_SwiftShader = FLAKY
+7814 WIN : PBOExtensionTest.PBOWithOtherTarget/ES2_Vulkan_SwiftShader = FLAKY
+
+# Related to uninitialized memory/buffers when using image suballocation
+8033 WIN : FramebufferTestWithFormatFallback.R4G4B4A4_OutOfRangeStagedUpdateReformated/* = SKIP_FOR_CAPTURE
+8033 WIN : ClearTestES3.RepeatedStencilClear/* = SKIP_FOR_CAPTURE
+8033 WIN : ClearTestES3.RepeatedStencilClearWithBlitAfterClearAndDrawInBetween/* = SKIP_FOR_CAPTURE
+8033 WIN : StateChangeTestES3.StencilReferenceAndCompareMask/* = SKIP_FOR_CAPTURE
+8033 WIN : StateChangeTestES3.StencilWriteMask/* = SKIP_FOR_CAPTURE
+
+# Corrupting memory by writing past readBufferSize due to GL_PACK_SKIP_ROWS etc
+8070 : Texture2DNorm16TestES3.TextureNorm16R16RenderTest/* = SKIP_FOR_CAPTURE
+8070 : Texture2DNorm16TestES3.TextureNorm16RG16RenderTest/* = SKIP_FOR_CAPTURE
+8070 : Texture2DNorm16TestES3.TextureNorm16RGBA16RenderTest/* = SKIP_FOR_CAPTURE
+
+# Fails if run after DifferentStencilMasksTest.DrawWithSameEffectiveMask
+8079 : DiscardFramebufferEXTTest.ClearDepthThenDrawWithoutDepthTestThenDiscard/* = SKIP_FOR_CAPTURE

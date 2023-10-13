@@ -28,70 +28,49 @@
 #include "PerformanceUserTiming.h"
 
 #include "Document.h"
+#include "FrameDestructionObserverInlines.h"
+#include "InspectorInstrumentation.h"
 #include "MessagePort.h"
 #include "PerformanceMarkOptions.h"
 #include "PerformanceMeasureOptions.h"
 #include "PerformanceTiming.h"
 #include "SerializedScriptValue.h"
+#include "WorkerOrWorkletGlobalScope.h"
 #include <JavaScriptCore/JSCJSValueInlines.h>
-#include <wtf/NeverDestroyed.h>
-#include <wtf/RobinHoodHashMap.h>
+#include <wtf/SortedArrayMap.h>
 
 namespace WebCore {
 
 using NavigationTimingFunction = unsigned long long (PerformanceTiming::*)() const;
-static const MemoryCompactLookupOnlyRobinHoodHashMap<String, NavigationTimingFunction>& restrictedMarkNamesToNavigationTimingFunctionMap()
-{
-    ASSERT(isMainThread());
 
-    static auto map = makeNeverDestroyed<MemoryCompactLookupOnlyRobinHoodHashMap<String, NavigationTimingFunction>>({
-        { "connectEnd"_s, &PerformanceTiming::connectEnd },
-        { "connectStart"_s, &PerformanceTiming::connectStart },
-        { "domComplete"_s, &PerformanceTiming::domComplete },
-        { "domContentLoadedEventEnd"_s, &PerformanceTiming::domContentLoadedEventEnd },
-        { "domContentLoadedEventStart"_s, &PerformanceTiming::domContentLoadedEventStart },
-        { "domInteractive"_s, &PerformanceTiming::domInteractive },
-        { "domLoading"_s, &PerformanceTiming::domLoading },
-        { "domainLookupEnd"_s, &PerformanceTiming::domainLookupEnd },
-        { "domainLookupStart"_s, &PerformanceTiming::domainLookupStart },
-        { "fetchStart"_s, &PerformanceTiming::fetchStart },
-        { "loadEventEnd"_s, &PerformanceTiming::loadEventEnd },
-        { "loadEventStart"_s, &PerformanceTiming::loadEventStart },
-        { "navigationStart"_s, &PerformanceTiming::navigationStart },
-        { "redirectEnd"_s, &PerformanceTiming::redirectEnd },
-        { "redirectStart"_s, &PerformanceTiming::redirectStart },
-        { "requestStart"_s, &PerformanceTiming::requestStart },
-        { "responseEnd"_s, &PerformanceTiming::responseEnd },
-        { "responseStart"_s, &PerformanceTiming::responseStart },
-        { "secureConnectionStart"_s, &PerformanceTiming::secureConnectionStart },
-        { "unloadEventEnd"_s, &PerformanceTiming::unloadEventEnd },
-        { "unloadEventStart"_s, &PerformanceTiming::unloadEventStart },
-    });
-    
-    return map;
-}
-
-static NavigationTimingFunction restrictedMarkFunction(const String& markName)
-{
-    ASSERT(isMainThread());
-    return restrictedMarkNamesToNavigationTimingFunctionMap().get(markName);
-}
-
-static bool isRestrictedMarkNameNonMainThread(const String& markName)
-{
-    ASSERT(!isMainThread());
-
-    bool isRestricted;
-    callOnMainThreadAndWait([&isRestricted, markName = markName.isolatedCopy()] {
-        isRestricted = restrictedMarkNamesToNavigationTimingFunctionMap().contains(markName);
-    });
-    return isRestricted;
-}
+static constexpr std::pair<ComparableASCIILiteral, NavigationTimingFunction> restrictedMarkMappings[] = {
+    { "connectEnd", &PerformanceTiming::connectEnd },
+    { "connectStart", &PerformanceTiming::connectStart },
+    { "domComplete", &PerformanceTiming::domComplete },
+    { "domContentLoadedEventEnd", &PerformanceTiming::domContentLoadedEventEnd },
+    { "domContentLoadedEventStart", &PerformanceTiming::domContentLoadedEventStart },
+    { "domInteractive", &PerformanceTiming::domInteractive },
+    { "domLoading", &PerformanceTiming::domLoading },
+    { "domainLookupEnd", &PerformanceTiming::domainLookupEnd },
+    { "domainLookupStart", &PerformanceTiming::domainLookupStart },
+    { "fetchStart", &PerformanceTiming::fetchStart },
+    { "loadEventEnd", &PerformanceTiming::loadEventEnd },
+    { "loadEventStart", &PerformanceTiming::loadEventStart },
+    { "navigationStart", &PerformanceTiming::navigationStart },
+    { "redirectEnd", &PerformanceTiming::redirectEnd },
+    { "redirectStart", &PerformanceTiming::redirectStart },
+    { "requestStart", &PerformanceTiming::requestStart },
+    { "responseEnd", &PerformanceTiming::responseEnd },
+    { "responseStart", &PerformanceTiming::responseStart },
+    { "secureConnectionStart", &PerformanceTiming::secureConnectionStart },
+    { "unloadEventEnd", &PerformanceTiming::unloadEventEnd },
+    { "unloadEventStart", &PerformanceTiming::unloadEventStart },
+};
+static constexpr SortedArrayMap restrictedMarkFunctions { restrictedMarkMappings };
 
 bool PerformanceUserTiming::isRestrictedMarkName(const String& markName)
 {
-    ASSERT(isMainThread());
-    return restrictedMarkNamesToNavigationTimingFunctionMap().contains(markName);
+    return restrictedMarkFunctions.contains(markName);
 }
 
 PerformanceUserTiming::PerformanceUserTiming(Performance& performance)
@@ -115,7 +94,15 @@ static void addPerformanceEntry(PerformanceEntryMap& map, const String& name, Pe
 
 ExceptionOr<Ref<PerformanceMark>> PerformanceUserTiming::mark(JSC::JSGlobalObject& globalObject, const String& markName, std::optional<PerformanceMarkOptions>&& markOptions)
 {
-    auto mark = PerformanceMark::create(globalObject, *m_performance.scriptExecutionContext(), markName, WTFMove(markOptions));
+    Ref context = *m_performance.scriptExecutionContext();
+
+    std::optional<MonotonicTime> timestamp;
+    if (markOptions && markOptions->startTime)
+        timestamp = m_performance.monotonicTimeFromRelativeTime(*markOptions->startTime);
+
+    InspectorInstrumentation::performanceMark(context.get(), markName, timestamp, is<Document>(context) ? downcast<Document>(context).frame() : nullptr);
+
+    auto mark = PerformanceMark::create(globalObject, context, markName, WTFMove(markOptions));
     if (mark.hasException())
         return mark.releaseException();
 
@@ -128,7 +115,7 @@ void PerformanceUserTiming::clearMarks(const String& markName)
     clearPerformanceEntries(m_marksMap, markName);
 }
 
-ExceptionOr<double> PerformanceUserTiming::convertMarkToTimestamp(const Variant<String, double>& mark) const
+ExceptionOr<double> PerformanceUserTiming::convertMarkToTimestamp(const std::variant<String, double>& mark) const
 {
     return WTF::switchOn(mark, [&](auto& value) {
         return convertMarkToTimestamp(value);
@@ -137,19 +124,19 @@ ExceptionOr<double> PerformanceUserTiming::convertMarkToTimestamp(const Variant<
 
 ExceptionOr<double> PerformanceUserTiming::convertMarkToTimestamp(const String& mark) const
 {
-    if (!is<Document>(m_performance.scriptExecutionContext())) {
-        if (isRestrictedMarkNameNonMainThread(mark))
+    if (!isMainThread()) {
+        if (restrictedMarkFunctions.contains(mark))
             return Exception { TypeError };
     } else {
-        if (auto function = restrictedMarkFunction(mark)) {
-            if (function == &PerformanceTiming::navigationStart)
+        if (auto function = restrictedMarkFunctions.tryGet(mark)) {
+            if (*function == &PerformanceTiming::navigationStart)
                 return 0.0;
 
             // PerformanceTiming should always be non-null for the Document ScriptExecutionContext.
             ASSERT(m_performance.timing());
             auto timing = m_performance.timing();
             auto startTime = timing->navigationStart();
-            auto endTime = ((*timing).*(function))();
+            auto endTime = ((*timing).*(*function))();
             if (!endTime)
                 return Exception { InvalidAccessError };
             return endTime - startTime;

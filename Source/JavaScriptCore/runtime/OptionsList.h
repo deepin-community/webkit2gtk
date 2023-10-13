@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,6 +26,7 @@
 #pragma once
 
 #include "GCLogging.h"
+#include "JSExportMacros.h"
 #include <wtf/MathExtras.h>
 
 #if OS(DARWIN)
@@ -102,10 +103,12 @@ bool canUseWebAssemblyFastMemory();
     \
     v(Bool, forceCodeBlockLiveness, false, Normal, nullptr) \
     v(Bool, forceICFailure, false, Normal, nullptr) \
+    v(Bool, forceUnlinkedDFG, false, Normal, nullptr) \
     \
     v(Unsigned, repatchCountForCoolDown, 8, Normal, nullptr) \
     v(Unsigned, initialCoolDownCount, 20, Normal, nullptr) \
-    v(Unsigned, repatchBufferingCountdown, 8, Normal, nullptr) \
+    v(Unsigned, repatchBufferingCountdown, 6, Normal, nullptr) \
+    v(Unsigned, initialRepatchBufferingCountdown, 6, Normal, nullptr) \
     \
     v(Bool, dumpGeneratedBytecodes, false, Normal, nullptr) \
     v(Bool, dumpGeneratedWasmBytecodes, false, Normal, nullptr) \
@@ -124,8 +127,9 @@ bool canUseWebAssemblyFastMemory();
     \
     v(Bool, useIterationIntrinsics, true, Normal, nullptr) \
     \
-    v(Bool, useOSLog, false, Normal, "Log dataLog()s to os_log instead of stderr") \
+    v(OSLogType, useOSLog, OSLogType::None, Normal, "Log dataLog()s to os_log instead of stderr") \
     /* dumpDisassembly implies dumpDFGDisassembly. */ \
+    v(Bool, needDisassemblySupport, false, Normal, nullptr) \
     v(Bool, dumpDisassembly, false, Normal, "dumps disassembly of all JIT compiled code upon compilation") \
     v(Bool, asyncDisassembly, false, Normal, nullptr) \
     v(Bool, logJIT, false, Normal, nullptr) \
@@ -133,6 +137,8 @@ bool canUseWebAssemblyFastMemory();
     v(Bool, dumpFTLDisassembly, false, Normal, "dumps disassembly of FTL function upon compilation") \
     v(Bool, dumpRegExpDisassembly, false, Normal, "dumps disassembly of RegExp upon compilation") \
     v(Bool, dumpWasmDisassembly, false, Normal, "dumps disassembly of all Wasm code upon compilation") \
+    v(OptionString, dumpWasmSourceFileName, nullptr, Normal, "log every wasm module validation, and dump source bytes to <filename>.0.wasm, <filename>.1.wasm, etc...") \
+    v(OptionString, wasmB3FunctionsToDump, nullptr, Normal, "file with newline separated list of function indices to dump IR/disassembly for, if no such file exists, the function index itself") \
     v(Bool, dumpBBQDisassembly, false, Normal, "dumps disassembly of BBQ Wasm code upon compilation") \
     v(Bool, dumpOMGDisassembly, false, Normal, "dumps disassembly of OMG Wasm code upon compilation") \
     v(Bool, logJITCodeForPerf, false, Configurable, nullptr) \
@@ -142,6 +148,8 @@ bool canUseWebAssemblyFastMemory();
     v(OptionString, jitAllowlist, nullptr, Normal, "file with newline separated list of function signatures to allow compilation on or, if no such file exists, the function signature to allow") \
     v(OptionString, dfgAllowlist, nullptr, Normal, "file with newline separated list of function signatures to allow DFG compilation on or, if no such file exists, the function signature to allow") \
     v(OptionString, ftlAllowlist, nullptr, Normal, "file with newline separated list of function signatures to allow FTL compilation on or, if no such file exists, the function signature to allow") \
+    v(OptionString, bbqAllowlist, nullptr, Normal, "file with newline separated list of function indices to allow BBQ compilation on or, if no such file exists, the function index to allow") \
+    v(OptionString, omgAllowlist, nullptr, Normal, "file with newline separated list of function indices to allow OMG compilation on or, if no such file exists, the function index to allow") \
     v(Bool, dumpSourceAtDFGTime, false, Normal, "dumps source code of JS function being DFG compiled") \
     v(Bool, dumpBytecodeAtDFGTime, false, Normal, "dumps bytecode of JS function being DFG compiled") \
     v(Bool, dumpGraphAfterParsing, false, Normal, nullptr) \
@@ -155,7 +163,6 @@ bool canUseWebAssemblyFastMemory();
     v(Bool, verboseCompilation, false, Normal, nullptr) \
     v(Bool, verboseFTLCompilation, false, Normal, nullptr) \
     v(Bool, logCompilationChanges, false, Normal, nullptr) \
-    v(Bool, useProbeOSRExit, false, Normal, nullptr) \
     v(Bool, printEachOSRExit, false, Normal, nullptr) \
     v(Bool, validateDoesGC, ASSERT_ENABLED, Normal, nullptr) \
     v(Bool, validateGraph, false, Normal, nullptr) \
@@ -197,7 +204,7 @@ bool canUseWebAssemblyFastMemory();
     v(Double, mediumHeapRAMFraction, 0.5, Normal, nullptr) \
     v(Double, mediumHeapGrowthFactor, 1.5, Normal, nullptr) \
     v(Double, largeHeapGrowthFactor, 1.24, Normal, nullptr) \
-    v(Double, miniVMHeapGrowthFactor, 1.27, Normal, nullptr) \
+    v(Double, miniVMHeapGrowthFactor, 1.20, Normal, nullptr) \
     v(Double, criticalGCMemoryThreshold, 0.80, Normal, "percent memory in use the GC considers critical.  The collector is much more aggressive above this threshold") \
     v(Double, customFullGCCallbackBailThreshold, -1.0, Normal, "percent of memory paged out before we bail out of timer based Full GCs. -1.0 means use (maxHeapGrowthFactor - 1)") \
     v(Double, minimumMutatorUtilization, 0, Normal, nullptr) \
@@ -245,6 +252,7 @@ bool canUseWebAssemblyFastMemory();
     v(Unsigned, frequentCallThreshold, 2, Normal, nullptr) \
     v(Double, minimumCallToKnownRate, 0.51, Normal, nullptr) \
     v(Bool, createPreHeaders, true, Normal, nullptr) \
+    v(Bool, useMovHintRemoval, true, Normal, nullptr) \
     v(Bool, usePutStackSinking, true, Normal, nullptr) \
     v(Bool, useObjectAllocationSinking, true, Normal, nullptr) \
     v(Bool, useValueRepElimination, true, Normal, nullptr) \
@@ -256,12 +264,15 @@ bool canUseWebAssemblyFastMemory();
     v(Unsigned, numberOfWorklistThreads, computeNumberOfWorkerThreads(3, 2), Normal, nullptr) \
     v(Unsigned, numberOfDFGCompilerThreads, computeNumberOfWorkerThreads(3, 2) - 1, Normal, nullptr) \
     v(Unsigned, numberOfFTLCompilerThreads, computeNumberOfWorkerThreads(MAXIMUM_NUMBER_OF_FTL_COMPILER_THREADS, 2) - 1, Normal, nullptr) \
+    v(Unsigned, numberOfWasmCompilerThreads, computeNumberOfWorkerThreads(INT32_MAX, 2) - 1, Normal, nullptr) \
     v(Int32, priorityDeltaOfDFGCompilerThreads, computePriorityDeltaOfWorkerThreads(-1, 0), Normal, nullptr) \
     v(Int32, priorityDeltaOfFTLCompilerThreads, computePriorityDeltaOfWorkerThreads(-2, 0), Normal, nullptr) \
     v(Int32, priorityDeltaOfWasmCompilerThreads, computePriorityDeltaOfWorkerThreads(-1, 0), Normal, nullptr) \
     \
     v(Bool, useProfiler, false, Normal, nullptr) \
+    v(Bool, dumpProfilerDataAtExit, false, Normal, nullptr) \
     v(Bool, disassembleBaselineForProfiler, true, Normal, nullptr) \
+    v(Unsigned, abbreviateSourceCodeForProfiler, 0, Normal, nullptr) \
     \
     v(Bool, useArchitectureSpecificOptimizations, true, Normal, nullptr) \
     \
@@ -287,6 +298,11 @@ bool canUseWebAssemblyFastMemory();
     \
     v(Unsigned, maximumBinaryStringSwitchCaseLength, 50, Normal, nullptr) \
     v(Unsigned, maximumBinaryStringSwitchTotalLength, 2000, Normal, nullptr) \
+    v(Unsigned, maximumRegExpTestInlineCodesize, 500, Normal, "Maximum code size in bytes for inlined RegExp.test JIT code.") \
+    \
+    v(Unsigned, maximumWasmDepthForInlining, isIOS() ? 2 : 8, Normal, "Maximum inlining depth to consider inlining a wasm function.") \
+    v(Unsigned, maximumWasmCalleeSizeForInlining, 200, Normal, "Maximum wasm size in bytes to consider inlining a wasm function.") \
+    v(Unsigned, maximumWasmCallerSizeForInlining, 10000, Normal, "Maximum wasm size in bytes for the caller of an inlined function.") \
     \
     v(Double, jitPolicyScale, 1.0, Normal, "scale JIT thresholds to this specified ratio between 0.0 (compile ASAP) and 1.0 (compile like normal).") \
     v(Bool, forceEagerCompilation, false, Normal, nullptr) \
@@ -309,7 +325,6 @@ bool canUseWebAssemblyFastMemory();
     v(Int32, evalThresholdMultiplier, 10, Normal, nullptr) \
     v(Unsigned, maximumEvalCacheableSourceLength, 256, Normal, nullptr) \
     \
-    v(Bool, randomizeExecutionCountsBetweenCheckpoints, false, Normal, nullptr) \
     v(Int32, maximumExecutionCountsBetweenCheckpointsForBaseline, 1000, Normal, nullptr) \
     v(Int32, maximumExecutionCountsBetweenCheckpointsForUpperTiers, 50000, Normal, nullptr) \
     \
@@ -347,6 +362,7 @@ bool canUseWebAssemblyFastMemory();
     v(Bool, forceWeakRandomSeed, false, Normal, nullptr) \
     v(Unsigned, forcedWeakRandomSeed, 0, Normal, nullptr) \
     \
+    v(Bool, allowDoubleShape, true, Normal, "debugging option to test disabling use of DoubleShape") \
     v(Bool, useZombieMode, false, Normal, "debugging option to scribble over dead objects with 0xbadbeef0") \
     v(Bool, useImmortalObjects, false, Normal, "debugging option to keep all objects alive forever") \
     v(Bool, sweepSynchronously, false, Normal, "debugging option to sweep all dead objects synchronously at GC end before resuming mutator") \
@@ -354,6 +370,7 @@ bool canUseWebAssemblyFastMemory();
     \
     v(GCLogLevel, logGC, GCLogging::None, Normal, "debugging option to log GC activity (0 = None, 1 = Basic, 2 = Verbose)") \
     v(Bool, useGC, true, Normal, nullptr) \
+    v(Bool, useGlobalGC, false, Normal, nullptr) \
     v(Bool, gcAtEnd, false, Normal, "If true, the jsc CLI will do a GC before exiting") \
     v(Bool, forceGCSlowPaths, false, Normal, "If true, we will force all JIT fast allocations down their slow paths.") \
     v(Bool, forceDidDeferGCWork, false, Normal, "If true, we will force all DeferGC destructions to perform a GC.") \
@@ -424,7 +441,7 @@ bool canUseWebAssemblyFastMemory();
     \
     v(Bool, logPhaseTimes, false, Normal, nullptr) \
     v(Double, rareBlockPenalty, 0.001, Normal, nullptr) \
-    v(Unsigned, maximumTmpsForGraphColoring, 25000, Normal, "The maximum number of tmps an Air program can have before always register allocating with Linear Scan") \
+    v(Unsigned, maximumTmpsForGraphColoring, 60000, Normal, "The maximum number of tmps an Air program can have before always register allocating with Linear Scan") \
     v(Bool, airLinearScanVerbose, false, Normal, nullptr) \
     v(Bool, airLinearScanSpillsEverything, false, Normal, nullptr) \
     v(Bool, airForceBriggsAllocator, false, Normal, nullptr) \
@@ -438,10 +455,10 @@ bool canUseWebAssemblyFastMemory();
     v(Unsigned, maxB3TailDupBlockSuccessors, 3, Normal, nullptr) \
     v(Bool, useB3HoistLoopInvariantValues, false, Normal, nullptr) \
     v(Bool, useB3CanonicalizePrePostIncrements, false, Normal, nullptr) \
+    v(Bool, useAirOptimizePairedLoadStore, true, Normal, nullptr) \
     \
     v(Bool, useDollarVM, false, Restricted, "installs the $vm debugging tool in global objects") \
     v(OptionString, functionOverrides, nullptr, Restricted, "file with debugging overrides for function bodies") \
-    v(Bool, useSigillCrashAnalyzer, false, Configurable, "logs data about SIGILL crashes") \
     \
     v(Unsigned, watchdog, 0, Normal, "watchdog timeout (0 = Disabled, N = a timeout period of N milliseconds)") \
     v(Bool, usePollingTraps, false, Normal, "use polling (instead of signalling) VM traps") \
@@ -458,6 +475,8 @@ bool canUseWebAssemblyFastMemory();
     v(Bool, dumpModuleRecord, false, Normal, nullptr) \
     v(Bool, dumpModuleLoadingState, false, Normal, nullptr) \
     v(Bool, exposeInternalModuleLoader, false, Normal, "expose the internal module loader object to the global space for debugging") \
+    \
+    v(Bool, exposePrivateIdentifiers, false, Normal, "Allow non-builtin scripts to use private identifiers. Mostly useful to expose @superSamplerBegin/End intrinsics for profiling") \
     \
     v(Bool, useSuperSampler, false, Normal, nullptr) \
     \
@@ -487,8 +506,10 @@ bool canUseWebAssemblyFastMemory();
     v(Bool, crashIfWebAssemblyCantFastMemory, false, Normal, "If true, we will crash if we can't obtain fast memory for wasm.") \
     v(Bool, crashOnFailedWebAssemblyValidate, false, Normal, "If true, we will crash if we can't validate a wasm module instead of throwing an exception.") \
     v(Unsigned, maxNumWebAssemblyFastMemories, 4, Normal, nullptr) \
-    v(Bool, useFastTLSForWasmContext, true, Normal, "If true, we will store context in fast TLS. If false, we will pin it to a register.") \
-    v(Bool, wasmBBQUsesAir, true, Normal, nullptr) \
+    v(Bool, useSinglePassBBQJIT, true, Normal, "If true, BBQ will use the new single-pass WebAssembly baseline JIT as its compilation backend.") \
+    v(Bool, wasmBBQUsesAir, true, Normal, "If true, BBQ will use Air as its compilation backend.") \
+    v(Bool, verboseBBQJITAllocation, false, Normal, "Logs extra information about register allocation during BBQ JIT") \
+    v(Bool, verboseBBQJITInstructions, false, Normal, "Logs instruction information during BBQ JIT") \
     v(Bool, useWasmLLInt, true, Normal, nullptr) \
     v(Bool, useBBQJIT, true, Normal, "allows the BBQ JIT to be used if true") \
     v(Bool, useOMGJIT, true, Normal, "allows the OMG JIT to be used if true") \
@@ -529,20 +550,42 @@ bool canUseWebAssemblyFastMemory();
     v(Bool, dumpBaselineJITSizeStatistics, false, Normal, nullptr) \
     v(Bool, dumpDFGJITSizeStatistics, false, Normal, nullptr) \
     v(Bool, verboseExecutablePoolAllocation, false, Normal, nullptr) \
-    v(Bool, useDataIC, false, Normal, nullptr) \
-    v(Bool, useDataICInOptimizingJIT, false, Normal, nullptr) \
+    v(Bool, useDataICInFTL, false, Normal, nullptr) \
     v(Bool, useDataICSharing, false, Normal, nullptr) \
+    v(Bool, useLLIntICs, true, Normal, "Use property and call ICs in LLInt code.") \
+    v(Bool, useBaselineJITCodeSharing, is64Bit(), Normal, nullptr) \
+    v(Bool, libpasScavengeContinuously, false, Normal, nullptr) \
+    v(Bool, useWasmFaultSignalHandler, true, Normal, nullptr) \
+    v(Bool, dumpUnlinkedDFGValidation, false, Normal, nullptr) \
+    v(Bool, dumpWasmOpcodeStatistics, false, Normal, nullptr) \
+    v(Bool, dumpCompilerConstructionSite, false, Normal, nullptr) \
+    v(Bool, dumpWasmWarnings, false, Normal, nullptr) \
+    v(Bool, useRecursiveJSONParse, true, Normal, nullptr) \
+    v(Unsigned, thresholdForStringReplaceCache, 0x1000, Normal, nullptr) \
     \
     /* Feature Flags */\
     \
-    v(Bool, useArrayFindLastMethod, true, Normal, "Expose the findLast() and findLastIndex() methods on Array and %TypedArray%.") \
-    v(Bool, useAtMethod, true, Normal, "Expose the at() method on Array, %TypedArray%, and String.") \
-    v(Bool, useHasOwn, true, Normal, "Expose the Object.hasOwn method") \
-    v(Bool, useIntlEnumeration, true, Normal, "Expose the Intl enumeration APIs.") \
+    v(Bool, useArrayBufferTransfer, false, Normal, "Expose ArrayBuffer.transfer feature.") \
+    v(Bool, useArrayFromAsync, true, Normal, "Expose the Array.fromAsync.") \
+    v(Bool, useArrayGroupMethod, false, Normal, "Expose the Object.groupBy() and Map.groupBy() methods.") \
+    v(Bool, useAtomicsWaitAsync, true, Normal, "Expose the waitAsync() methods on Atomics.") \
+    v(Bool, useSetMethods, true, Normal, "Expose the various Set.prototype methods for handling combinations of sets") \
+    v(Bool, useImportAssertion, false, Normal, "Enable import assertion.") \
+    v(Bool, useIntlDurationFormat, true, Normal, "Expose the Intl DurationFormat.") \
+    v(Bool, usePromiseWithResolversMethod, false, Normal, "Expose the Promise.withResolvers() method.") \
+    v(Bool, useResizableArrayBuffer, true, Normal, "Expose ResizableArrayBuffer feature.") \
     v(Bool, useSharedArrayBuffer, false, Normal, nullptr) \
+    v(Bool, useShadowRealm, false, Normal, "Expose the ShadowRealm object.") \
+    v(Bool, useStringWellFormed, true, Normal, "Expose the String well-formed methods.") \
     v(Bool, useTemporal, false, Normal, "Expose the Temporal object.") \
     v(Bool, useWebAssemblyThreading, true, Normal, "Allow instructions from the wasm threading spec.") \
     v(Bool, useWebAssemblyTypedFunctionReferences, false, Normal, "Allow function types from the wasm typed function references spec.") \
+    v(Bool, useWebAssemblyGC, false, Normal, "Allow gc types from the wasm gc proposal.") \
+    v(Bool, forceAllFunctionsToUseSIMD, false, Normal, "Force all functions to act conservatively w.r.t fp/vector registers for testing.") \
+    v(Bool, useWebAssemblySIMD, true, Normal, "Allow the new simd instructions and types from the wasm simd spec.") \
+    v(Bool, useWebAssemblyRelaxedSIMD, false, Normal, "Allow the relaxed simd instructions and types from the wasm relaxed simd spec.") \
+    v(Bool, useWebAssemblyTailCalls, false, Normal, "Allow the new instructions from the wasm tail calls spec.") \
+    v(Bool, useWasmIPInt, false, Normal, "Use the in-place interpereter for WASM instead of LLInt.") \
 
 
 enum OptionEquivalence {
@@ -639,6 +682,16 @@ private:
     unsigned m_highLimit;
 };
 
+enum class OSLogType : uint8_t {
+    None,
+    // These corresponds to OS_LOG_TYPE_xxx.
+    Default,
+    Info,
+    Debug,
+    Error,
+    Fault
+};
+
 struct OptionsStorage {
     using Bool = bool;
     using Unsigned = unsigned;
@@ -648,6 +701,7 @@ struct OptionsStorage {
     using OptionRange = JSC::OptionRange;
     using OptionString = const char*;
     using GCLogLevel = GCLogging::Level;
+    using OSLogType = JSC::OSLogType;
 
     bool allowUnfinalizedAccess;
     bool isFinalized;

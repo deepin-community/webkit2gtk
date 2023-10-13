@@ -29,9 +29,14 @@
 
 #include <WebCore/LibWebRTCProvider.h>
 #include <WebCore/LibWebRTCSocketIdentifier.h>
-#include <webrtc/rtc_base/async_packet_socket.h>
 #include <wtf/Deque.h>
 #include <wtf/Forward.h>
+
+ALLOW_COMMA_BEGIN
+
+#include <webrtc/rtc_base/async_packet_socket.h>
+
+ALLOW_COMMA_END
 
 namespace IPC {
 class Connection;
@@ -45,12 +50,12 @@ class LibWebRTCSocketFactory;
 class LibWebRTCSocket final : public rtc::AsyncPacketSocket {
     WTF_MAKE_FAST_ALLOCATED;
 public:
-    enum class Type { UDP, ServerTCP, ClientTCP, ServerConnectionTCP };
+    enum class Type { UDP, ClientTCP, ServerConnectionTCP };
 
-    LibWebRTCSocket(LibWebRTCSocketFactory&, const void* socketGroup, Type, const rtc::SocketAddress& localAddress, const rtc::SocketAddress& remoteAddress);
+    LibWebRTCSocket(LibWebRTCSocketFactory&, WebCore::ScriptExecutionContextIdentifier, Type, const rtc::SocketAddress& localAddress, const rtc::SocketAddress& remoteAddress);
     ~LibWebRTCSocket();
 
-    const void* socketGroup() const { return m_socketGroup; }
+    WebCore::ScriptExecutionContextIdentifier contextIdentifier() const { return m_contextIdentifier; }
     WebCore::LibWebRTCSocketIdentifier identifier() const { return m_identifier; }
     const rtc::SocketAddress& localAddress() const { return m_localAddress; }
     const rtc::SocketAddress& remoteAddress() const { return m_remoteAddress; }
@@ -70,7 +75,7 @@ private:
     void signalAddressReady(const rtc::SocketAddress&);
     void signalConnect();
     void signalClose(int);
-    void signalNewConnection(rtc::AsyncPacketSocket*);
+    void signalUsedInterface(String&&);
 
     // AsyncPacketSocket API
     int GetError() const final { return m_error; }
@@ -100,7 +105,7 @@ private:
     size_t m_availableSendingBytes { 65536 };
     bool m_shouldSignalReadyToSend { false };
     bool m_isSuspended { false };
-    const void* m_socketGroup { nullptr };
+    WebCore::ScriptExecutionContextIdentifier m_contextIdentifier;
 };
 
 } // namespace WebKit

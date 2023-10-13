@@ -37,12 +37,15 @@
 #include "FetchLoader.h"
 #include "FetchLoaderClient.h"
 #include "ResourceError.h"
+#include "SharedBuffer.h"
 
 namespace WebCore {
 
+DECLARE_ALLOCATOR_WITH_HEAP_IDENTIFIER(FetchBodyOwner);
+
 class FetchBodyOwner : public RefCounted<FetchBodyOwner>, public ActiveDOMObject, public CanMakeWeakPtr<FetchBodyOwner> {
+    WTF_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(FetchBodyOwner);
 public:
-    FetchBodyOwner(ScriptExecutionContext&, std::optional<FetchBody>&&, Ref<FetchHeaders>&&);
     ~FetchBodyOwner();
 
     bool bodyUsed() const { return isDisturbed(); }
@@ -61,18 +64,22 @@ public:
 
     ExceptionOr<RefPtr<ReadableStream>> readableStream(JSC::JSGlobalObject&);
     bool hasReadableStreamBody() const { return m_body && m_body->hasReadableStream(); }
+    bool isReadableStreamBody() const { return m_body && m_body->isReadableStream(); }
 
     virtual void consumeBodyAsStream();
     virtual void feedStream() { }
     virtual void cancel() { }
+    virtual void loadBody() { }
 
     bool hasLoadingError() const;
     ResourceError loadingError() const;
     std::optional<Exception> loadingException() const;
 
-    const String& contentType() const { return m_contentType; }
+    String contentType() const { return m_headers->fastGet(HTTPHeaderName::ContentType); }
 
 protected:
+    FetchBodyOwner(ScriptExecutionContext*, std::optional<FetchBody>&&, Ref<FetchHeaders>&&);
+
     const FetchBody& body() const { return *m_body; }
     FetchBody& body() { return *m_body; }
     bool isBodyNull() const { return !m_body; }
@@ -80,7 +87,6 @@ protected:
     void cloneBody(FetchBodyOwner&);
 
     ExceptionOr<void> extractBody(FetchBody::Init&&);
-    void updateContentType();
     void consumeOnceLoadingFinished(FetchBodyConsumer::Type, Ref<DeferredPromise>&&);
 
     void setBody(FetchBody&& body) { m_body = WTFMove(body); }
@@ -99,7 +105,7 @@ protected:
 
 private:
     // Blob loading routines
-    void blobChunk(const uint8_t*, size_t);
+    void blobChunk(const SharedBuffer&);
     void blobLoadingSucceeded();
     void blobLoadingFailed();
     void finishBlobLoading();
@@ -112,9 +118,9 @@ private:
 
         // FetchLoaderClient API
         void didReceiveResponse(const ResourceResponse&) final;
-        void didReceiveData(const uint8_t* data, size_t size) final { owner.blobChunk(data, size); }
+        void didReceiveData(const SharedBuffer& buffer) final { owner.blobChunk(buffer); }
         void didFail(const ResourceError&) final;
-        void didSucceed() final { owner.blobLoadingSucceeded(); }
+        void didSucceed(const NetworkLoadMetrics&) final { owner.blobLoadingSucceeded(); }
 
         FetchBodyOwner& owner;
         std::unique_ptr<FetchLoader> loader;
@@ -122,7 +128,6 @@ private:
 
 protected:
     std::optional<FetchBody> m_body;
-    String m_contentType;
     bool m_isDisturbed { false };
     RefPtr<FetchBodySource> m_readableStreamSource;
     Ref<FetchHeaders> m_headers;
@@ -131,7 +136,7 @@ private:
     std::optional<BlobLoader> m_blobLoader;
     bool m_isBodyOpaque { false };
 
-    Variant<std::nullptr_t, Exception, ResourceError> m_loadingError;
+    std::variant<std::nullptr_t, Exception, ResourceError> m_loadingError;
 };
 
 } // namespace WebCore

@@ -28,6 +28,7 @@
 
 #include "APIDebuggableInfo.h"
 #include "APINavigation.h"
+#include "MessageSenderInlines.h"
 #include "RemoteWebInspectorUIMessages.h"
 #include "RemoteWebInspectorUIProxyMessages.h"
 #include "WebInspectorUIProxy.h"
@@ -67,7 +68,7 @@ void RemoteWebInspectorUIProxy::setDiagnosticLoggingAvailable(bool available)
 #endif
 }
 
-void RemoteWebInspectorUIProxy::load(Ref<API::DebuggableInfo>&& debuggableInfo, const String& backendCommandsURL)
+void RemoteWebInspectorUIProxy::initialize(Ref<API::DebuggableInfo>&& debuggableInfo, const String& backendCommandsURL)
 {
     m_debuggableInfo = WTFMove(debuggableInfo);
     m_backendCommandsURL = backendCommandsURL;
@@ -75,7 +76,7 @@ void RemoteWebInspectorUIProxy::load(Ref<API::DebuggableInfo>&& debuggableInfo, 
     createFrontendPageAndWindow();
 
     m_inspectorPage->send(Messages::RemoteWebInspectorUI::Initialize(m_debuggableInfo->debuggableInfoData(), backendCommandsURL));
-    m_inspectorPage->loadRequest(URL(URL(), WebInspectorUIProxy::inspectorPageURL()));
+    m_inspectorPage->loadRequest(URL { WebInspectorUIProxy::inspectorPageURL() });
 }
 
 void RemoteWebInspectorUIProxy::closeFromBackend()
@@ -92,6 +93,16 @@ void RemoteWebInspectorUIProxy::closeFromCrash()
 void RemoteWebInspectorUIProxy::show()
 {
     bringToFront();
+}
+
+void RemoteWebInspectorUIProxy::showConsole()
+{
+    m_inspectorPage->send(Messages::RemoteWebInspectorUI::ShowConsole { });
+}
+
+void RemoteWebInspectorUIProxy::showResources()
+{
+    m_inspectorPage->send(Messages::RemoteWebInspectorUI::ShowResources { });
 }
 
 void RemoteWebInspectorUIProxy::sendMessageToFrontend(const String& message)
@@ -121,7 +132,7 @@ void RemoteWebInspectorUIProxy::reopen()
     ASSERT(!m_backendCommandsURL.isEmpty());
 
     closeFrontendPageAndWindow();
-    load(m_debuggableInfo.copyRef(), m_backendCommandsURL);
+    initialize(m_debuggableInfo.copyRef(), m_backendCommandsURL);
 }
 
 void RemoteWebInspectorUIProxy::resetState()
@@ -134,14 +145,19 @@ void RemoteWebInspectorUIProxy::bringToFront()
     platformBringToFront();
 }
 
-void RemoteWebInspectorUIProxy::save(const String& suggestedURL, const String& content, bool base64Encoded, bool forceSaveDialog)
+void RemoteWebInspectorUIProxy::save(Vector<InspectorFrontendClient::SaveData>&& saveDatas, bool forceSaveAs)
 {
-    platformSave(suggestedURL, content, base64Encoded, forceSaveDialog);
+    platformSave(WTFMove(saveDatas), forceSaveAs);
 }
 
-void RemoteWebInspectorUIProxy::append(const String& suggestedURL, const String& content)
+void RemoteWebInspectorUIProxy::load(const String& path, CompletionHandler<void(const String&)>&& completionHandler)
 {
-    platformAppend(suggestedURL, content);
+    platformLoad(path, WTFMove(completionHandler));
+}
+
+void RemoteWebInspectorUIProxy::pickColorFromScreen(CompletionHandler<void(const std::optional<WebCore::Color>&)>&& completionHandler)
+{
+    platformPickColorFromScreen(WTFMove(completionHandler));
 }
 
 void RemoteWebInspectorUIProxy::setSheetRect(const FloatRect& rect)
@@ -164,9 +180,22 @@ void RemoteWebInspectorUIProxy::openURLExternally(const String& url)
     platformOpenURLExternally(url);
 }
 
+void RemoteWebInspectorUIProxy::revealFileExternally(const String& path)
+{
+    platformRevealFileExternally(path);
+}
+
 void RemoteWebInspectorUIProxy::showCertificate(const CertificateInfo& certificateInfo)
 {
     platformShowCertificate(certificateInfo);
+}
+
+void RemoteWebInspectorUIProxy::setInspectorPageDeveloperExtrasEnabled(bool enabled)
+{
+    if (!m_inspectorPage)
+        return;
+
+    m_inspectorPage->preferences().setDeveloperExtrasEnabled(enabled);
 }
 
 void RemoteWebInspectorUIProxy::sendMessageToBackend(const String& message)
@@ -221,12 +250,14 @@ WebPageProxy* RemoteWebInspectorUIProxy::platformCreateFrontendPageAndWindow()
 
 void RemoteWebInspectorUIProxy::platformResetState() { }
 void RemoteWebInspectorUIProxy::platformBringToFront() { }
-void RemoteWebInspectorUIProxy::platformSave(const String&, const String&, bool, bool) { }
-void RemoteWebInspectorUIProxy::platformAppend(const String&, const String&) { }
+void RemoteWebInspectorUIProxy::platformSave(Vector<WebCore::InspectorFrontendClient::SaveData>&&, bool /* forceSaveAs */) { }
+void RemoteWebInspectorUIProxy::platformLoad(const String&, CompletionHandler<void(const String&)>&& completionHandler) { completionHandler(nullString()); }
+void RemoteWebInspectorUIProxy::platformPickColorFromScreen(CompletionHandler<void(const std::optional<WebCore::Color>&)>&& completionHandler) { completionHandler({ }); }
 void RemoteWebInspectorUIProxy::platformSetSheetRect(const FloatRect&) { }
 void RemoteWebInspectorUIProxy::platformSetForcedAppearance(InspectorFrontendClient::Appearance) { }
 void RemoteWebInspectorUIProxy::platformStartWindowDrag() { }
 void RemoteWebInspectorUIProxy::platformOpenURLExternally(const String&) { }
+void RemoteWebInspectorUIProxy::platformRevealFileExternally(const String&) { }
 void RemoteWebInspectorUIProxy::platformShowCertificate(const CertificateInfo&) { }
 void RemoteWebInspectorUIProxy::platformCloseFrontendPageAndWindow() { }
 #endif // !ENABLE(REMOTE_INSPECTOR) || (!PLATFORM(MAC) && !PLATFORM(GTK) && !PLATFORM(WIN))

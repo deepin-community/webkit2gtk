@@ -32,26 +32,6 @@
 namespace JSC {
 
 template<typename BytecodeMetadata>
-ArrayProfile* arrayProfileForImpl(BytecodeMetadata& metadata, unsigned checkpointIndex)
-{
-    UNUSED_PARAM(checkpointIndex);
-    return &metadata.m_callLinkInfo.m_arrayProfile;
-}
-
-template<typename BytecodeMetadata>
-bool hasArrayProfileFor(BytecodeMetadata& metadata, unsigned checkpointIndex)
-{
-    return arrayProfileForImpl(metadata, checkpointIndex);
-}
-
-template<typename BytecodeMetadata>
-ArrayProfile& arrayProfileFor(BytecodeMetadata& metadata, unsigned checkpointIndex)
-{
-    ASSERT(hasArrayProfileFor(metadata, checkpointIndex));
-    return *arrayProfileForImpl(metadata, checkpointIndex);
-}
-
-template<typename BytecodeMetadata>
 ValueProfile* valueProfileForImpl(BytecodeMetadata& metadata, unsigned checkpointIndex)
 {
     UNUSED_PARAM(checkpointIndex);
@@ -71,6 +51,28 @@ ValueProfile* valueProfileForImpl(BytecodeMetadata& metadata, unsigned checkpoin
         }
     } else 
         return &metadata.m_profile;
+}
+
+template <typename Bytecode>
+uintptr_t valueProfileOffsetFor(unsigned checkpointIndex)
+{
+    UNUSED_PARAM(checkpointIndex);
+    if constexpr (Bytecode::opcodeID == op_iterator_open) {
+        switch (checkpointIndex) {
+        case OpIteratorOpen::symbolCall: return Bytecode::Metadata::offsetOfIteratorProfile();
+        case OpIteratorOpen::getNext: return Bytecode::Metadata::offsetOfNextProfile();
+        default: RELEASE_ASSERT_NOT_REACHED();
+        }
+
+    } else if constexpr (Bytecode::opcodeID == op_iterator_next) {
+        switch (checkpointIndex) {
+        case OpIteratorNext::computeNext: return Bytecode::Metadata::offsetOfNextResultProfile();
+        case OpIteratorNext::getDone: return Bytecode::Metadata::offsetOfDoneProfile();
+        case OpIteratorNext::getValue: return Bytecode::Metadata::offsetOfValueProfile();
+        default: RELEASE_ASSERT_NOT_REACHED();
+        }
+    } else 
+        return Bytecode::Metadata::offsetOfProfile();
 }
 
 template<typename BytecodeMetadata>
@@ -108,6 +110,8 @@ Operand destinationFor(const Bytecode& bytecode, unsigned checkpointIndex, JITTy
         case OpIteratorNext::getValue: return bytecode.m_value;
         default: RELEASE_ASSERT_NOT_REACHED();
         }
+        return { };
+    } else if constexpr (Bytecode::opcodeID == op_call_ignore_result) {
         return { };
     } else
         return bytecode.m_dst;
@@ -158,7 +162,7 @@ ptrdiff_t stackOffsetInRegistersForCall(const Bytecode& bytecode, unsigned check
 }
 
 template<typename BytecodeMetadata>
-LLIntCallLinkInfo& callLinkInfoFor(BytecodeMetadata& metadata, unsigned checkpointIndex)
+CallLinkInfo& callLinkInfoFor(BytecodeMetadata& metadata, unsigned checkpointIndex)
 {
     UNUSED_PARAM(checkpointIndex);
     return metadata.m_callLinkInfo;

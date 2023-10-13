@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006 Apple Inc.  All rights reserved.
+ * Copyright (C) 2006-2023 Apple Inc.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -48,6 +48,10 @@ public:
     WEBCORE_EXPORT TimerBase();
     WEBCORE_EXPORT virtual ~TimerBase();
 
+    // TimerBase's destructor inspects Ref<Thread> m_thread, which won't work if we are moved-from.
+    TimerBase(TimerBase&&) = delete;
+    TimerBase& operator=(TimerBase&&) = delete;
+
     WEBCORE_EXPORT void start(Seconds nextFireInterval, Seconds repeatInterval);
 
     void startRepeating(Seconds repeatInterval) { start(repeatInterval, repeatInterval); }
@@ -65,7 +69,7 @@ public:
 
     void didChangeAlignmentInterval();
 
-    static void fireTimersInNestedEventLoop();
+    WEBCORE_EXPORT static void fireTimersInNestedEventLoop();
 
 private:
     virtual void fired() = 0;
@@ -108,7 +112,7 @@ private:
 class Timer : public TimerBase {
     WTF_MAKE_FAST_ALLOCATED;
 public:
-    static void schedule(Seconds delay, WTF::Function<void()>&& function)
+    static void schedule(Seconds delay, Function<void()>&& function)
     {
         auto* timer = new Timer([] { });
         timer->m_function = [timer, function = WTFMove(function)] {
@@ -124,7 +128,7 @@ public:
     {
     }
 
-    Timer(WTF::Function<void ()>&& function)
+    Timer(Function<void()>&& function)
         : m_function(WTFMove(function))
     {
     }
@@ -135,7 +139,7 @@ private:
         m_function();
     }
     
-    WTF::Function<void ()> m_function;
+    Function<void()> m_function;
 };
 
 inline bool TimerBase::isActive() const
@@ -158,7 +162,7 @@ public:
     {
     }
 
-    DeferrableOneShotTimer(WTF::Function<void()>&& function, Seconds delay)
+    DeferrableOneShotTimer(Function<void()>&& function, Seconds delay)
         : m_function(WTFMove(function))
         , m_delay(delay)
         , m_shouldRestartWhenTimerFires(false)
@@ -198,7 +202,7 @@ private:
         m_function();
     }
 
-    WTF::Function<void ()> m_function;
+    Function<void()> m_function;
 
     Seconds m_delay;
     bool m_shouldRestartWhenTimerFires;

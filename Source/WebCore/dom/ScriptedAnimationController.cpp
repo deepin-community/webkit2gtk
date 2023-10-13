@@ -30,7 +30,6 @@
 #include "InspectorInstrumentation.h"
 #include "Logging.h"
 #include "Page.h"
-#include "Quirks.h"
 #include "RequestAnimationFrameCallback.h"
 #include "Settings.h"
 #include "UserGestureIndicator.h"
@@ -40,16 +39,11 @@
 namespace WebCore {
 
 ScriptedAnimationController::ScriptedAnimationController(Document& document)
-    : m_document(makeWeakPtr(document))
+    : m_document(document)
 {
 }
 
 ScriptedAnimationController::~ScriptedAnimationController() = default;
-
-bool ScriptedAnimationController::requestAnimationFrameEnabled() const
-{
-    return m_document && m_document->settings().requestAnimationFrameEnabled();
-}
 
 void ScriptedAnimationController::suspend()
 {
@@ -139,7 +133,7 @@ void ScriptedAnimationController::cancelCallback(CallbackId callbackId)
 
 void ScriptedAnimationController::serviceRequestAnimationFrameCallbacks(ReducedResolutionSeconds timestamp)
 {
-    if (!m_callbackDataList.size() || m_suspendCount || !requestAnimationFrameEnabled())
+    if (!m_callbackDataList.size() || m_suspendCount)
         return;
 
     if (shouldRescheduleRequestAnimationFrame(timestamp)) {
@@ -151,8 +145,6 @@ void ScriptedAnimationController::serviceRequestAnimationFrameCallbacks(ReducedR
     TraceScope tracingScope(RAFCallbackStart, RAFCallbackEnd);
 
     auto highResNowMs = std::round(1000 * timestamp.seconds());
-    if (m_document && m_document->quirks().needsMillisecondResolutionForHighResTimeStamp())
-        highResNowMs += 0.1;
 
     LOG_WITH_STREAM(RequestAnimationFrame, stream << "ScriptedAnimationController::serviceRequestAnimationFrameCallbacks at " << highResNowMs << " (throttling reasons " << throttlingReasons() << ", preferred interval " << preferredScriptedAnimationInterval().milliseconds() << "ms)");
 
@@ -174,9 +166,10 @@ void ScriptedAnimationController::serviceRequestAnimationFrameCallbacks(ReducedR
             userGestureTokenToForward = nullptr;
         UserGestureIndicator gestureIndicator(userGestureTokenToForward);
 
-        InspectorInstrumentation::willFireAnimationFrame(protectedDocument, callback->m_id);
+        auto identifier = callback->m_id;
+        InspectorInstrumentation::willFireAnimationFrame(protectedDocument, identifier);
         callback->handleEvent(highResNowMs);
-        InspectorInstrumentation::didFireAnimationFrame(protectedDocument);
+        InspectorInstrumentation::didFireAnimationFrame(protectedDocument, identifier);
     }
 
     // Remove any callbacks we fired from the list of pending callbacks.
@@ -192,9 +185,6 @@ void ScriptedAnimationController::serviceRequestAnimationFrameCallbacks(ReducedR
 
 void ScriptedAnimationController::scheduleAnimation()
 {
-    if (!requestAnimationFrameEnabled())
-        return;
-
     if (auto* page = this->page())
         page->scheduleRenderingUpdate(RenderingUpdateStep::AnimationFrameCallbacks);
 }

@@ -26,73 +26,96 @@
 #include "config.h"
 #include "NetworkBroadcastChannelRegistry.h"
 
+#include "NetworkProcess.h"
+#include "NetworkProcessProxyMessages.h"
 #include "WebBroadcastChannelRegistryMessages.h"
 #include <WebCore/MessageWithMessagePorts.h>
 #include <wtf/CallbackAggregator.h>
 
 namespace WebKit {
 
-NetworkBroadcastChannelRegistry::NetworkBroadcastChannelRegistry() = default;
+#define REGISTRY_MESSAGE_CHECK(assertion) REGISTRY_MESSAGE_CHECK_COMPLETION(assertion, (void)0)
+#define REGISTRY_MESSAGE_CHECK_COMPLETION(assertion, completion) do { \
+    ASSERT(assertion); \
+    if (UNLIKELY(!(assertion))) { \
+        if (auto webProcessIdentifier = m_networkProcess->webProcessIdentifierForConnection(connection)) \
+            m_networkProcess->parentProcessConnection()->send(Messages::NetworkProcessProxy::TerminateWebProcess(webProcessIdentifier), 0); \
+        { completion; } \
+        return; \
+    } \
+} while (0)
 
-void NetworkBroadcastChannelRegistry::registerChannel(IPC::Connection& connection, const WebCore::SecurityOriginData& origin, const String& name, WebCore::BroadcastChannelIdentifier channelIdentifier)
+static bool isValidClientOrigin(const WebCore::ClientOrigin& clientOrigin)
 {
-    auto& channelsForOrigin = m_broadcastChannels.ensure(origin, [] { return NameToChannelIdentifiersMap { }; }).iterator->value;
-    auto& channelsForName = channelsForOrigin.ensure(name, [] { return Vector<GlobalBroadcastChannelIdentifier> { }; }).iterator->value;
-    GlobalBroadcastChannelIdentifier globalChannelIdentifier { connection.uniqueID(), channelIdentifier };
-    ASSERT(!channelsForName.contains(globalChannelIdentifier));
-    channelsForName.append(WTFMove(globalChannelIdentifier));
+    return !clientOrigin.topOrigin.isNull() && !clientOrigin.clientOrigin.isNull();
 }
 
-void NetworkBroadcastChannelRegistry::unregisterChannel(IPC::Connection& connection, const WebCore::SecurityOriginData& origin, const String& name, WebCore::BroadcastChannelIdentifier channelIdentifier)
+NetworkBroadcastChannelRegistry::NetworkBroadcastChannelRegistry(NetworkProcess& networkProcess)
+    : m_networkProcess(networkProcess)
 {
+}
+
+void NetworkBroadcastChannelRegistry::registerChannel(IPC::Connection& connection, const WebCore::ClientOrigin& origin, const String& name)
+{
+    REGISTRY_MESSAGE_CHECK(isValidClientOrigin(origin));
+
+    auto& channelsForOrigin = m_broadcastChannels.ensure(origin, [] { return NameToConnectionIdentifiersMap { }; }).iterator->value;
+    auto& connectionIdentifiersForName = channelsForOrigin.ensure(name, [] { return Vector<IPC::Connection::UniqueID> { }; }).iterator->value;
+    ASSERT(!connectionIdentifiersForName.contains(connection.uniqueID()));
+    connectionIdentifiersForName.append(connection.uniqueID());
+}
+
+void NetworkBroadcastChannelRegistry::unregisterChannel(IPC::Connection& connection, const WebCore::ClientOrigin& origin, const String& name)
+{
+    REGISTRY_MESSAGE_CHECK(isValidClientOrigin(origin));
+
     auto channelsForOriginIterator = m_broadcastChannels.find(origin);
     ASSERT(channelsForOriginIterator != m_broadcastChannels.end());
     if (channelsForOriginIterator == m_broadcastChannels.end())
         return;
-    auto channelsForNameIterator = channelsForOriginIterator->value.find(name);
-    ASSERT(channelsForNameIterator != channelsForOriginIterator->value.end());
-    if (channelsForNameIterator == channelsForOriginIterator->value.end())
+    auto connectionIdentifiersForNameIterator = channelsForOriginIterator->value.find(name);
+    ASSERT(connectionIdentifiersForNameIterator != channelsForOriginIterator->value.end());
+    if (connectionIdentifiersForNameIterator == channelsForOriginIterator->value.end())
         return;
 
-    GlobalBroadcastChannelIdentifier globalChannelIdentifier { connection.uniqueID(), channelIdentifier };
-    ASSERT(channelsForNameIterator->value.contains(globalChannelIdentifier));
-    channelsForNameIterator->value.removeFirst(globalChannelIdentifier);
+    ASSERT(connectionIdentifiersForNameIterator->value.contains(connection.uniqueID()));
+    connectionIdentifiersForNameIterator->value.removeFirst(connection.uniqueID());
 }
 
-void NetworkBroadcastChannelRegistry::postMessage(IPC::Connection& connection, const WebCore::SecurityOriginData& origin, const String& name, WebCore::BroadcastChannelIdentifier source, WebCore::MessageWithMessagePorts&& message, CompletionHandler<void()>&& completionHandler)
+void NetworkBroadcastChannelRegistry::postMessage(IPC::Connection& connection, const WebCore::ClientOrigin& origin, const String& name, WebCore::MessageWithMessagePorts&& message, CompletionHandler<void()>&& completionHandler)
 {
+    REGISTRY_MESSAGE_CHECK_COMPLETION(isValidClientOrigin(origin), completionHandler());
+
     auto channelsForOriginIterator = m_broadcastChannels.find(origin);
     ASSERT(channelsForOriginIterator != m_broadcastChannels.end());
     if (channelsForOriginIterator == m_broadcastChannels.end())
         return completionHandler();
-    auto channelsForNameIterator = channelsForOriginIterator->value.find(name);
-    ASSERT(channelsForNameIterator != channelsForOriginIterator->value.end());
-    if (channelsForNameIterator == channelsForOriginIterator->value.end())
+    auto connectionIdentifiersForNameIterator = channelsForOriginIterator->value.find(name);
+    ASSERT(connectionIdentifiersForNameIterator != channelsForOriginIterator->value.end());
+    if (connectionIdentifiersForNameIterator == channelsForOriginIterator->value.end())
         return completionHandler();
 
     auto callbackAggregator = CallbackAggregator::create(WTFMove(completionHandler));
-    GlobalBroadcastChannelIdentifier sourceGlobalChannelIdentifier { connection.uniqueID(), source };
-    for (auto& globalIdentifier : channelsForNameIterator->value) {
-        if (globalIdentifier == sourceGlobalChannelIdentifier)
+    for (auto& connectionID : connectionIdentifiersForNameIterator->value) {
+        // Only dispatch the post the messages to BroadcastChannels outside the source process.
+        if (connectionID == connection.uniqueID())
             continue;
 
-        RefPtr connection = IPC::Connection::connection(globalIdentifier.connectionIdentifier);
+        RefPtr connection = IPC::Connection::connection(connectionID);
         if (!connection)
             continue;
 
-        connection->sendWithAsyncReply(Messages::WebBroadcastChannelRegistry::PostMessageToRemote(globalIdentifier.channelIndentifierInProcess, message), [callbackAggregator] { }, 0);
+        connection->sendWithAsyncReply(Messages::WebBroadcastChannelRegistry::PostMessageToRemote(origin, name, message), [callbackAggregator] { }, 0);
     }
 }
 
 void NetworkBroadcastChannelRegistry::removeConnection(IPC::Connection& connection)
 {
-    Vector<WebCore::SecurityOriginData> originsToRemove;
+    Vector<WebCore::ClientOrigin> originsToRemove;
     for (auto& entry : m_broadcastChannels) {
         Vector<String> namesToRemove;
         for (auto& innerEntry : entry.value) {
-            innerEntry.value.removeAllMatching([connectionIdentifier = connection.uniqueID()](auto& globalIdentifier) {
-                return globalIdentifier.connectionIdentifier == connectionIdentifier;
-            });
+            innerEntry.value.removeFirst(connection.uniqueID());
             if (innerEntry.value.isEmpty())
                 namesToRemove.append(innerEntry.key);
         }
@@ -104,5 +127,8 @@ void NetworkBroadcastChannelRegistry::removeConnection(IPC::Connection& connecti
     for (auto& originToRemove : originsToRemove)
         m_broadcastChannels.remove(originToRemove);
 }
+
+#undef REGISTRY_MESSAGE_CHECK
+#undef REGISTRY_MESSAGE_CHECK_COMPLETION
 
 } // namespace WebKit

@@ -26,14 +26,16 @@
 #include "config.h"
 #include "HTMLSourceElement.h"
 
+#include "ElementInlines.h"
 #include "Event.h"
 #include "EventNames.h"
 #include "HTMLImageElement.h"
 #include "HTMLNames.h"
 #include "HTMLPictureElement.h"
 #include "Logging.h"
-#include "MediaList.h"
 #include "MediaQueryParser.h"
+#include "MediaQueryParserContext.h"
+#include "NodeName.h"
 #include <wtf/IsoMallocInlines.h>
 
 #if ENABLE(VIDEO)
@@ -53,7 +55,6 @@ using namespace HTMLNames;
 inline HTMLSourceElement::HTMLSourceElement(const QualifiedName& tagName, Document& document)
     : HTMLElement(tagName, document)
     , ActiveDOMObject(document)
-    , m_errorEventTimer(*this, &HTMLSourceElement::errorEventTimerFired)
 {
     LOG(Media, "HTMLSourceElement::HTMLSourceElement - %p", this);
     ASSERT(hasTagName(sourceTag));
@@ -124,22 +125,16 @@ void HTMLSourceElement::removedFromAncestor(RemovalType removalType, ContainerNo
 void HTMLSourceElement::scheduleErrorEvent()
 {
     LOG(Media, "HTMLSourceElement::scheduleErrorEvent - %p", this);
-    if (m_errorEventTimer.isActive())
+    if (m_errorEventCancellationGroup.hasPendingTask())
         return;
 
-    m_errorEventTimer.startOneShot(0_s);
+    queueCancellableTaskToDispatchEvent(*this, TaskSource::MediaElement, m_errorEventCancellationGroup, Event::create(eventNames().errorEvent, Event::CanBubble::No, Event::IsCancelable::Yes));
 }
 
 void HTMLSourceElement::cancelPendingErrorEvent()
 {
     LOG(Media, "HTMLSourceElement::cancelPendingErrorEvent - %p", this);
-    m_errorEventTimer.stop();
-}
-
-void HTMLSourceElement::errorEventTimerFired()
-{
-    LOG(Media, "HTMLSourceElement::errorEventTimerFired - %p", this);
-    dispatchEvent(Event::create(eventNames().errorEvent, Event::CanBubble::No, Event::IsCancelable::Yes));
+    m_errorEventCancellationGroup.cancel();
 }
 
 bool HTMLSourceElement::isURLAttribute(const Attribute& attribute) const
@@ -152,66 +147,59 @@ const char* HTMLSourceElement::activeDOMObjectName() const
     return "HTMLSourceElement";
 }
 
-void HTMLSourceElement::suspend(ReasonForSuspension reason)
-{
-    // FIXME: Shouldn't this also stop the timer for PageWillBeSuspended?
-    if (reason == ReasonForSuspension::BackForwardCache) {
-        m_shouldRescheduleErrorEventOnResume = m_errorEventTimer.isActive();
-        m_errorEventTimer.stop();
-    }
-}
-
-void HTMLSourceElement::resume()
-{
-    if (m_shouldRescheduleErrorEventOnResume) {
-        m_errorEventTimer.startOneShot(0_s);
-        m_shouldRescheduleErrorEventOnResume = false;
-    }
-}
-
 void HTMLSourceElement::stop()
 {
     cancelPendingErrorEvent();
 }
 
-void HTMLSourceElement::parseAttribute(const QualifiedName& name, const AtomString& value)
+void HTMLSourceElement::attributeChanged(const QualifiedName& name, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason attributeModificationReason)
 {
-    HTMLElement::parseAttribute(name, value);
-    if (name == srcsetAttr || name == sizesAttr || name == mediaAttr || name == typeAttr) {
+    HTMLElement::attributeChanged(name, oldValue, newValue, attributeModificationReason);
+
+    switch (name.nodeName()) {
+    case AttributeNames::typeAttr: {
+        RefPtr parent = parentElement();
+        if (m_shouldCallSourcesChanged && parent)
+            downcast<HTMLPictureElement>(*parent).sourcesChanged();
+#if ENABLE(MODEL_ELEMENT)
+        if (auto* parentModelElement = dynamicDowncast<HTMLModelElement>(parent.get()))
+            parentModelElement->sourcesChanged();
+#endif
+        break;
+    }
+    case AttributeNames::srcsetAttr:
+    case AttributeNames::sizesAttr:
+    case AttributeNames::mediaAttr: {
         if (name == mediaAttr)
             m_cachedParsedMediaAttribute = std::nullopt;
-        auto parent = makeRefPtr(parentNode());
-        if (m_shouldCallSourcesChanged)
+        RefPtr parent = parentElement();
+        if (m_shouldCallSourcesChanged && parent)
             downcast<HTMLPictureElement>(*parent).sourcesChanged();
+        break;
     }
+    case AttributeNames::widthAttr:
+    case AttributeNames::heightAttr:
+        if (RefPtr parent = dynamicDowncast<HTMLPictureElement>(parentElement()))
+            parent->sourceDimensionAttributesChanged(*this);
+        break;
 #if ENABLE(MODEL_ELEMENT)
-    if (name == srcAttr ||  name == typeAttr) {
-        RefPtr<Element> parent = parentElement();
-        if (is<HTMLModelElement>(parent))
-            downcast<HTMLModelElement>(*parent).sourcesChanged();
-    }
+    case AttributeNames::srcAttr:
+        if (RefPtr parent = dynamicDowncast<HTMLModelElement>(parentElement()))
+            parent->sourcesChanged();
+        break;
 #endif
+    default:
+        break;
+    }
 }
 
-const MediaQuerySet* HTMLSourceElement::parsedMediaAttribute(Document& document) const
+const MQ::MediaQueryList& HTMLSourceElement::parsedMediaAttribute(Document& document) const
 {
     if (!m_cachedParsedMediaAttribute) {
-        RefPtr<const MediaQuerySet> parsedAttribute;
         auto& value = attributeWithoutSynchronization(mediaAttr);
-        if (!value.isNull())
-            parsedAttribute = MediaQuerySet::create(value, MediaQueryParserContext(document));
-        m_cachedParsedMediaAttribute = WTFMove(parsedAttribute);
+        m_cachedParsedMediaAttribute = MQ::MediaQueryParser::parse(value, MediaQueryParserContext { document });
     }
-    return m_cachedParsedMediaAttribute.value().get();
-}
-
-void HTMLSourceElement::attributeChanged(const QualifiedName& name, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason reason)
-{
-    if (name == widthAttr || name == heightAttr) {
-        if (RefPtr parent = parentNode(); is<HTMLPictureElement>(parent))
-            downcast<HTMLPictureElement>(*parent).sourceDimensionAttributesChanged(*this);
-    }
-    HTMLElement::attributeChanged(name, oldValue, newValue, reason);
+    return m_cachedParsedMediaAttribute.value();
 }
 
 }

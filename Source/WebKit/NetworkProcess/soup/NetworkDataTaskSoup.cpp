@@ -33,19 +33,21 @@
 #include "NetworkLoad.h"
 #include "NetworkProcess.h"
 #include "NetworkSessionSoup.h"
+#include "PrivateRelayed.h"
 #include "WebErrors.h"
 #include "WebKitDirectoryInputStream.h"
 #include <WebCore/AuthenticationChallenge.h>
 #include <WebCore/HTTPParsers.h>
 #include <WebCore/MIMETypeRegistry.h>
 #include <WebCore/NetworkStorageSession.h>
+#include <WebCore/OriginAccessPatterns.h>
 #include <WebCore/PublicSuffix.h>
 #include <WebCore/SharedBuffer.h>
 #include <WebCore/ShouldRelaxThirdPartyCookieBlocking.h>
 #include <WebCore/SoupNetworkSession.h>
 #include <WebCore/SoupVersioning.h>
-#include <WebCore/TextEncoding.h>
 #include <WebCore/TimingAllowOrigin.h>
+#include <pal/text/TextEncoding.h>
 #include <wtf/MainThread.h>
 #include <wtf/glib/RunLoopSourcePriority.h>
 
@@ -63,8 +65,6 @@ NetworkDataTaskSoup::NetworkDataTaskSoup(NetworkSession& session, NetworkDataTas
     , m_sourceOrigin(parameters.sourceOrigin)
     , m_timeoutSource(RunLoop::main(), this, &NetworkDataTaskSoup::timeoutFired)
 {
-    m_session->registerNetworkDataTask(*this);
-
     auto request = parameters.request;
     if (request.url().protocolIsInHTTPFamily()) {
 #if USE(SOUP2)
@@ -90,8 +90,6 @@ NetworkDataTaskSoup::NetworkDataTaskSoup(NetworkSession& session, NetworkDataTas
 NetworkDataTaskSoup::~NetworkDataTaskSoup()
 {
     clearRequest();
-    if (m_session)
-        m_session->unregisterNetworkDataTask(*this);
 }
 
 String NetworkDataTaskSoup::suggestedFilename() const
@@ -103,7 +101,7 @@ String NetworkDataTaskSoup::suggestedFilename() const
     if (!suggestedFilename.isEmpty())
         return suggestedFilename;
 
-    return decodeURLEscapeSequences(m_response.url().lastPathComponent());
+    return PAL::decodeURLEscapeSequences(m_response.url().lastPathComponent());
 }
 
 void NetworkDataTaskSoup::setPriority(ResourceLoadPriority priority)
@@ -142,16 +140,15 @@ void NetworkDataTaskSoup::setPendingDownloadLocation(const String& filename, San
 void NetworkDataTaskSoup::createRequest(ResourceRequest&& request, WasBlockingCookies wasBlockingCookies)
 {
     m_currentRequest = WTFMove(request);
-    if (m_currentRequest.url().isLocalFile()) {
+    if (m_currentRequest.url().protocolIsFile()) {
         m_file = adoptGRef(g_file_new_for_path(m_currentRequest.url().fileSystemPath().utf8().data()));
         return;
     }
 
-    if (m_currentRequest.url().protocolIsData())
-        return;
+    ASSERT(!m_currentRequest.url().protocolIsData());
 
     if (!m_currentRequest.url().protocolIsInHTTPFamily()) {
-        scheduleFailure(InvalidURLFailure);
+        scheduleFailure(FailureType::InvalidURL);
         return;
     }
 
@@ -159,7 +156,7 @@ void NetworkDataTaskSoup::createRequest(ResourceRequest&& request, WasBlockingCo
 
     m_soupMessage = m_currentRequest.createSoupMessage(m_session->blobRegistry());
     if (!m_soupMessage) {
-        scheduleFailure(InvalidURLFailure);
+        scheduleFailure(FailureType::InvalidURL);
         return;
     }
 
@@ -189,7 +186,7 @@ void NetworkDataTaskSoup::createRequest(ResourceRequest&& request, WasBlockingCo
     }
     soup_message_set_flags(m_soupMessage.get(), static_cast<SoupMessageFlags>(soup_message_get_flags(m_soupMessage.get()) | messageFlags));
 
-#if ENABLE(RESOURCE_LOAD_STATISTICS)
+#if ENABLE(TRACKING_PREVENTION)
     bool shouldBlockCookies = wasBlockingCookies == WasBlockingCookies::Yes ? true : m_storedCredentialsPolicy == StoredCredentialsPolicy::EphemeralStateless;
     if (!shouldBlockCookies) {
         if (auto* networkStorageSession = m_session->networkStorageSession())
@@ -201,7 +198,7 @@ void NetworkDataTaskSoup::createRequest(ResourceRequest&& request, WasBlockingCo
 #endif
 
 #if SOUP_CHECK_VERSION(2, 67, 1)
-    if ((m_currentRequest.url().protocolIs("https") && !shouldAllowHSTSPolicySetting()) || (m_currentRequest.url().protocolIs("http") && !shouldAllowHSTSProtocolUpgrade()))
+    if ((m_currentRequest.url().protocolIs("https"_s) && !shouldAllowHSTSPolicySetting()) || (m_currentRequest.url().protocolIs("http"_s) && !shouldAllowHSTSProtocolUpgrade()))
         soup_message_disable_feature(m_soupMessage.get(), SOUP_TYPE_HSTS_ENFORCER);
     else {
 #if USE(SOUP2)
@@ -256,7 +253,6 @@ void NetworkDataTaskSoup::clearRequest()
 
     stopTimeout();
     m_pendingResult = nullptr;
-    m_pendingDataURLResult = std::nullopt;
     m_file = nullptr;
     m_inputStream = nullptr;
     m_multipartInputStream = nullptr;
@@ -338,25 +334,6 @@ void NetworkDataTaskSoup::resume()
         return;
     }
 
-    if (m_currentRequest.url().protocolIsData() && !m_cancellable) {
-        m_networkLoadMetrics.fetchStart = MonotonicTime::now();
-        m_cancellable = adoptGRef(g_cancellable_new());
-        DataURLDecoder::decode(m_currentRequest.url(), { }, DataURLDecoder::Mode::Legacy, [this, protectedThis = WTFMove(protectedThis)](auto decodeResult) mutable {
-            if (m_state == State::Canceling || m_state == State::Completed || !m_client) {
-                clearRequest();
-                return;
-            }
-
-            if (m_state == State::Suspended) {
-                m_pendingDataURLResult = WTFMove(decodeResult);
-                return;
-            }
-
-            didReadDataURL(WTFMove(decodeResult));
-        });
-        return;
-    }
-
     if (m_pendingResult) {
         GRefPtr<GAsyncResult> pendingResult = WTFMove(m_pendingResult);
         if (m_inputStream)
@@ -373,8 +350,7 @@ void NetworkDataTaskSoup::resume()
                 readFileCallback(m_file.get(), pendingResult.get(), protectedThis.leakRef());
         } else
             ASSERT_NOT_REACHED();
-    } else if (m_currentRequest.url().protocolIsData())
-        didReadDataURL(WTFMove(m_pendingDataURLResult));
+    }
 }
 
 void NetworkDataTaskSoup::cancel()
@@ -503,7 +479,7 @@ void NetworkDataTaskSoup::dispatchDidReceiveResponse()
     // FIXME: This cannot be eliminated until other code no longer relies on ResourceResponse's NetworkLoadMetrics.
     m_response.setDeprecatedNetworkLoadMetrics(Box<NetworkLoadMetrics>::create(m_networkLoadMetrics));
 
-    didReceiveResponse(ResourceResponse(m_response), NegotiatedLegacyTLS::No, [this, protectedThis = makeRef(*this)](PolicyAction policyAction) {
+    didReceiveResponse(ResourceResponse(m_response), NegotiatedLegacyTLS::No, PrivateRelayed::No, [this, protectedThis = Ref { *this }](PolicyAction policyAction) {
         if (m_state == State::Canceling || m_state == State::Completed) {
             clearRequest();
             return;
@@ -525,7 +501,7 @@ void NetworkDataTaskSoup::dispatchDidReceiveResponse()
         case PolicyAction::Download:
             download();
             break;
-        case PolicyAction::StopAllLoads:
+        case PolicyAction::LoadWillContinueInAnotherProcess:
             ASSERT_NOT_REACHED();
             break;
         }
@@ -656,7 +632,7 @@ void NetworkDataTaskSoup::authenticateCallback(SoupSession* session, SoupMessage
     // it's proxy authentication and the request URL is HTTPS, because in that case libsoup uses a
     // tunnel internally and the SoupMessage used for the authentication is the tunneling one.
     // See https://bugs.webkit.org/show_bug.cgi?id=175378.
-    if (soupMessage != task->m_soupMessage.get() && (soupMessage->status_code != SOUP_STATUS_PROXY_AUTHENTICATION_REQUIRED || !task->m_currentRequest.url().protocolIs("https")))
+    if (soupMessage != task->m_soupMessage.get() && (soupMessage->status_code != SOUP_STATUS_PROXY_AUTHENTICATION_REQUIRED || !task->m_currentRequest.url().protocolIs("https"_s)))
         return;
 
     if (task->state() == State::Canceling || task->state() == State::Completed || !task->m_client) {
@@ -688,16 +664,16 @@ static inline bool isAuthenticationFailureStatusCode(int httpStatusCode)
 void NetworkDataTaskSoup::completeAuthentication(const AuthenticationChallenge& challenge, const Credential& credential)
 {
     switch (challenge.protectionSpace().authenticationScheme()) {
-    case ProtectionSpaceAuthenticationSchemeDefault:
-    case ProtectionSpaceAuthenticationSchemeHTTPBasic:
-    case ProtectionSpaceAuthenticationSchemeHTTPDigest:
-    case ProtectionSpaceAuthenticationSchemeHTMLForm:
-    case ProtectionSpaceAuthenticationSchemeNTLM:
-    case ProtectionSpaceAuthenticationSchemeNegotiate:
-    case ProtectionSpaceAuthenticationSchemeOAuth:
+    case ProtectionSpace::AuthenticationScheme::Default:
+    case ProtectionSpace::AuthenticationScheme::HTTPBasic:
+    case ProtectionSpace::AuthenticationScheme::HTTPDigest:
+    case ProtectionSpace::AuthenticationScheme::HTMLForm:
+    case ProtectionSpace::AuthenticationScheme::NTLM:
+    case ProtectionSpace::AuthenticationScheme::Negotiate:
+    case ProtectionSpace::AuthenticationScheme::OAuth:
         soup_auth_authenticate(challenge.soupAuth(), credential.user().utf8().data(), credential.password().utf8().data());
         break;
-    case ProtectionSpaceAuthenticationSchemeClientCertificatePINRequested: {
+    case ProtectionSpace::AuthenticationScheme::ClientCertificatePINRequested: {
 #if USE(SOUP2)
         ASSERT_NOT_REACHED();
 #else
@@ -707,15 +683,15 @@ void NetworkDataTaskSoup::completeAuthentication(const AuthenticationChallenge& 
 #endif
         break;
     }
-    case ProtectionSpaceAuthenticationSchemeClientCertificateRequested:
+    case ProtectionSpace::AuthenticationScheme::ClientCertificateRequested:
 #if USE(SOUP2)
         ASSERT_NOT_REACHED();
 #else
         soup_message_set_tls_client_certificate(m_soupMessage.get(), credential.certificate());
 #endif
         break;
-    case ProtectionSpaceAuthenticationSchemeServerTrustEvaluationRequested:
-    case ProtectionSpaceAuthenticationSchemeUnknown:
+    case ProtectionSpace::AuthenticationScheme::ServerTrustEvaluationRequested:
+    case ProtectionSpace::AuthenticationScheme::Unknown:
         break;
     }
 }
@@ -723,31 +699,31 @@ void NetworkDataTaskSoup::completeAuthentication(const AuthenticationChallenge& 
 void NetworkDataTaskSoup::cancelAuthentication(const AuthenticationChallenge& challenge)
 {
     switch (challenge.protectionSpace().authenticationScheme()) {
-    case ProtectionSpaceAuthenticationSchemeDefault:
-    case ProtectionSpaceAuthenticationSchemeHTTPBasic:
-    case ProtectionSpaceAuthenticationSchemeHTTPDigest:
-    case ProtectionSpaceAuthenticationSchemeHTMLForm:
-    case ProtectionSpaceAuthenticationSchemeNTLM:
-    case ProtectionSpaceAuthenticationSchemeNegotiate:
-    case ProtectionSpaceAuthenticationSchemeOAuth:
+    case ProtectionSpace::AuthenticationScheme::Default:
+    case ProtectionSpace::AuthenticationScheme::HTTPBasic:
+    case ProtectionSpace::AuthenticationScheme::HTTPDigest:
+    case ProtectionSpace::AuthenticationScheme::HTMLForm:
+    case ProtectionSpace::AuthenticationScheme::NTLM:
+    case ProtectionSpace::AuthenticationScheme::Negotiate:
+    case ProtectionSpace::AuthenticationScheme::OAuth:
         soup_auth_cancel(challenge.soupAuth());
         break;
-    case ProtectionSpaceAuthenticationSchemeClientCertificatePINRequested:
+    case ProtectionSpace::AuthenticationScheme::ClientCertificatePINRequested:
 #if USE(SOUP2)
         ASSERT_NOT_REACHED();
 #else
         soup_message_tls_client_certificate_password_request_complete(m_soupMessage.get());
 #endif
         break;
-    case ProtectionSpaceAuthenticationSchemeClientCertificateRequested:
+    case ProtectionSpace::AuthenticationScheme::ClientCertificateRequested:
 #if USE(SOUP2)
         ASSERT_NOT_REACHED();
 #else
         soup_message_set_tls_client_certificate(m_soupMessage.get(), nullptr);
 #endif
         break;
-    case ProtectionSpaceAuthenticationSchemeServerTrustEvaluationRequested:
-    case ProtectionSpaceAuthenticationSchemeUnknown:
+    case ProtectionSpace::AuthenticationScheme::ServerTrustEvaluationRequested:
+    case ProtectionSpace::AuthenticationScheme::Unknown:
         break;
     }
 }
@@ -790,7 +766,7 @@ void NetworkDataTaskSoup::authenticate(AuthenticationChallenge&& challenge)
     if (m_storedCredentialsPolicy == StoredCredentialsPolicy::Use && persistentCredentialStorageEnabled()) {
         auto protectionSpace = challenge.protectionSpace();
         m_session->networkStorageSession()->getCredentialFromPersistentStorage(protectionSpace, m_cancellable.get(),
-            [this, protectedThis = makeRef(*this), authChallenge = WTFMove(challenge)] (Credential&& credential) mutable {
+            [this, protectedThis = Ref { *this }, authChallenge = WTFMove(challenge)] (Credential&& credential) mutable {
                 if (m_state == State::Canceling || m_state == State::Completed || !m_client) {
                     clearRequest();
                     return;
@@ -805,7 +781,7 @@ void NetworkDataTaskSoup::authenticate(AuthenticationChallenge&& challenge)
 
 void NetworkDataTaskSoup::continueAuthenticate(AuthenticationChallenge&& challenge)
 {
-    m_client->didReceiveChallenge(AuthenticationChallenge(challenge), NegotiatedLegacyTLS::No, [this, protectedThis = makeRef(*this), challenge](AuthenticationChallengeDisposition disposition, const Credential& credential) {
+    m_client->didReceiveChallenge(AuthenticationChallenge(challenge), NegotiatedLegacyTLS::No, [this, protectedThis = Ref { *this }, challenge](AuthenticationChallengeDisposition disposition, const Credential& credential) {
         if (m_state == State::Canceling || m_state == State::Completed) {
             cancelAuthentication(challenge);
             clearRequest();
@@ -928,9 +904,9 @@ void NetworkDataTaskSoup::continueHTTPRedirection()
     static const unsigned maxRedirects = 20;
     if (m_currentRequest.redirectCount() > maxRedirects) {
 #if USE(SOUP2)
-        didFail(ResourceError::transportError(m_currentRequest.url(), SOUP_STATUS_TOO_MANY_REDIRECTS, "Too many redirects"));
+        didFail(ResourceError::transportError(m_currentRequest.url(), SOUP_STATUS_TOO_MANY_REDIRECTS, "Too many redirects"_s));
 #else
-        didFail(ResourceError(g_quark_to_string(SOUP_SESSION_ERROR), SOUP_SESSION_ERROR_TOO_MANY_REDIRECTS, m_currentRequest.url(), String::fromUTF8("Too many redirects")));
+        didFail(ResourceError(String::fromLatin1(g_quark_to_string(SOUP_SESSION_ERROR)), SOUP_SESSION_ERROR_TOO_MANY_REDIRECTS, m_currentRequest.url(), String::fromUTF8("Too many redirects")));
 #endif
         return;
     }
@@ -944,21 +920,32 @@ void NetworkDataTaskSoup::continueHTTPRedirection()
         redirectedURL.setFragmentIdentifier(request.url().fragmentIdentifier());
     request.setURL(redirectedURL);
 
-    m_networkLoadMetrics.hasCrossOriginRedirect = m_networkLoadMetrics.hasCrossOriginRedirect || !SecurityOrigin::create(m_currentRequest.url())->canRequest(request.url());
+    m_networkLoadMetrics.hasCrossOriginRedirect = m_networkLoadMetrics.hasCrossOriginRedirect || !SecurityOrigin::create(m_currentRequest.url())->canRequest(request.url(), WebCore::EmptyOriginAccessPatterns::singleton());
+
+    if (m_response.httpStatusCode() == 307 || m_response.httpStatusCode() == 308) {
+        ASSERT(m_lastHTTPMethod == request.httpMethod());
+        auto body = m_firstRequest.httpBody();
+        if (body && !body->isEmpty() && !equalLettersIgnoringASCIICase(m_lastHTTPMethod, "get"_s))
+            request.setHTTPBody(WTFMove(body));
+
+        String originalContentType = m_firstRequest.httpContentType();
+        if (!originalContentType.isEmpty())
+            request.setHTTPHeaderField(WebCore::HTTPHeaderName::ContentType, originalContentType);
+    }
 
     // Clear the user agent to ensure a new one is computed.
     auto userAgent = request.httpUserAgent();
     request.clearHTTPUserAgent();
 
     // Should not set Referer after a redirect from a secure resource to non-secure one.
-    if (m_shouldClearReferrerOnHTTPSToHTTPRedirect && !request.url().protocolIs("https") && protocolIs(request.httpReferrer(), "https"))
+    if (m_shouldClearReferrerOnHTTPSToHTTPRedirect && !request.url().protocolIs("https"_s) && protocolIs(request.httpReferrer(), "https"_s))
         request.clearHTTPReferrer();
 
     bool isCrossOrigin = !protocolHostAndPortAreEqual(m_currentRequest.url(), request.url());
-    if (!equalLettersIgnoringASCIICase(request.httpMethod(), "get")) {
+    if (!equalLettersIgnoringASCIICase(request.httpMethod(), "get"_s)) {
         // Change newRequest method to GET if change was made during a previous redirection or if current redirection says so.
         if (soup_message_get_method(m_soupMessage.get()) == SOUP_METHOD_GET || !request.url().protocolIsInHTTPFamily() || shouldRedirectAsGET(m_soupMessage.get(), isCrossOrigin)) {
-            request.setHTTPMethod("GET");
+            request.setHTTPMethod("GET"_s);
             request.setHTTPBody(nullptr);
             request.clearHTTPContentType();
         }
@@ -991,7 +978,7 @@ void NetworkDataTaskSoup::continueHTTPRedirection()
     clearRequest();
 
     auto response = ResourceResponse(m_response);
-    m_client->willPerformHTTPRedirection(WTFMove(response), WTFMove(request), [this, protectedThis = makeRef(*this), wasBlockingCookies, userAgent = WTFMove(userAgent)](const ResourceRequest& newRequest) {
+    m_client->willPerformHTTPRedirection(WTFMove(response), WTFMove(request), [this, protectedThis = Ref { *this }, wasBlockingCookies, userAgent = WTFMove(userAgent)](const ResourceRequest& newRequest) {
         if (newRequest.isNull() || m_state == State::Canceling)
             return;
 
@@ -1036,7 +1023,7 @@ void NetworkDataTaskSoup::readCallback(GInputStream* inputStream, GAsyncResult* 
         if (task->m_soupMessage)
             task->didFail(ResourceError::genericGError(task->m_currentRequest.url(), error.get()));
         else if (task->m_file)
-            task->didFail(ResourceError(g_quark_to_string(error->domain), error->code, task->m_firstRequest.url(), String::fromUTF8(error->message)));
+            task->didFail(ResourceError(String::fromLatin1(g_quark_to_string(error->domain)), error->code, task->m_firstRequest.url(), String::fromUTF8(error->message)));
         else
             RELEASE_ASSERT_NOT_REACHED();
     } else if (bytesRead > 0)
@@ -1126,9 +1113,9 @@ void NetworkDataTaskSoup::didRequestNextPart(GRefPtr<GInputStream>&& inputStream
     ASSERT(!m_inputStream);
     m_inputStream = WTFMove(inputStream);
     auto* headers = soup_multipart_input_stream_get_headers(m_multipartInputStream.get());
-    String contentType = soup_message_headers_get_one(headers, "Content-Type");
+    auto contentType = String::fromLatin1(soup_message_headers_get_one(headers, "Content-Type"));
     m_response = ResourceResponse(m_firstRequest.url(), extractMIMETypeFromMediaType(contentType),
-        soup_message_headers_get_content_length(headers), extractCharsetFromMediaType(contentType));
+        soup_message_headers_get_content_length(headers), extractCharsetFromMediaType(contentType).toString());
     m_response.updateFromSoupMessageHeaders(headers);
     dispatchDidReceiveResponse();
 }
@@ -1172,12 +1159,12 @@ static AtomString soupHTTPVersionToString(SoupHTTPVersion version)
 {
     switch (version) {
     case SOUP_HTTP_1_0:
-        return AtomString("http/1.0", AtomString::ConstructFromLiteral);
+        return "http/1.0"_s;
     case SOUP_HTTP_1_1:
-        return AtomString("http/1.1", AtomString::ConstructFromLiteral);
+        return "http/1.1"_s;
 #if SOUP_CHECK_VERSION(2, 99, 3)
     case SOUP_HTTP_2_0:
-        return AtomString("h2", AtomString::ConstructFromLiteral);
+        return "h2"_s;
 #endif
     }
 
@@ -1210,6 +1197,22 @@ static String tlsProtocolVersionToString(GTlsProtocolVersion version)
 }
 #endif
 
+WebCore::AdditionalNetworkLoadMetricsForWebInspector& NetworkDataTaskSoup::additionalNetworkLoadMetricsForWebInspector()
+{
+    if (!m_networkLoadMetrics.additionalNetworkLoadMetricsForWebInspector)
+        m_networkLoadMetrics.additionalNetworkLoadMetricsForWebInspector = WebCore::AdditionalNetworkLoadMetricsForWebInspector::create();
+    return *m_networkLoadMetrics.additionalNetworkLoadMetricsForWebInspector;
+}
+
+#if USE(SOUP2)
+static void addHeaderSizes(const char *name, const char *value, gpointer pointer)
+{
+    uint64_t* size = static_cast<uint64_t*>(pointer);
+    // Each header is formatted as "<name>: <value>\r\n"
+    *size += strlen(name) + strlen(value) + 4;
+}
+#endif
+
 void NetworkDataTaskSoup::didGetHeaders()
 {
     // We are a bit more conservative with the persistent credential storage than the session store,
@@ -1233,26 +1236,42 @@ void NetworkDataTaskSoup::didGetHeaders()
     // is the first one we receive after starting, so we use it also to get information about the
     // request headers.
     if (shouldCaptureExtraNetworkLoadMetrics()) {
+        auto& additionalMetrics = additionalNetworkLoadMetricsForWebInspector();
+
         HTTPHeaderMap requestHeaders;
         SoupMessageHeadersIter headersIter;
         soup_message_headers_iter_init(&headersIter, soup_message_get_request_headers(m_soupMessage.get()));
         const char* headerName;
         const char* headerValue;
         while (soup_message_headers_iter_next(&headersIter, &headerName, &headerValue))
-            requestHeaders.set(String(headerName), String(headerValue));
-        m_networkLoadMetrics.requestHeaders = WTFMove(requestHeaders);
+            requestHeaders.set(String::fromLatin1(headerName), String::fromLatin1(headerValue));
+        additionalMetrics.requestHeaders = WTFMove(requestHeaders);
 
-        m_networkLoadMetrics.priority = toNetworkLoadPriority(soup_message_get_priority(m_soupMessage.get()));
+        additionalMetrics.priority = toNetworkLoadPriority(soup_message_get_priority(m_soupMessage.get()));
 #if !USE(SOUP2)
-        m_networkLoadMetrics.connectionIdentifier = String::number(soup_message_get_connection_id(m_soupMessage.get()));
+        additionalMetrics.connectionIdentifier = String::number(soup_message_get_connection_id(m_soupMessage.get()));
         auto* address = soup_message_get_remote_address(m_soupMessage.get());
         if (G_IS_INET_SOCKET_ADDRESS(address)) {
             GUniquePtr<char> ipAddress(g_inet_address_to_string(g_inet_socket_address_get_address(G_INET_SOCKET_ADDRESS(address))));
-            m_networkLoadMetrics.remoteAddress = makeString(ipAddress.get(), ':', g_inet_socket_address_get_port(G_INET_SOCKET_ADDRESS(address)));
+            additionalMetrics.remoteAddress = makeString(ipAddress.get(), ':', g_inet_socket_address_get_port(G_INET_SOCKET_ADDRESS(address)));
         }
-        m_networkLoadMetrics.tlsProtocol = tlsProtocolVersionToString(soup_message_get_tls_protocol_version(m_soupMessage.get()));
-        m_networkLoadMetrics.tlsCipher = String::fromUTF8(soup_message_get_tls_ciphersuite_name(m_soupMessage.get()));
-        m_networkLoadMetrics.responseHeaderBytesReceived = soup_message_metrics_get_response_header_bytes_received(metrics);
+        additionalMetrics.tlsProtocol = tlsProtocolVersionToString(soup_message_get_tls_protocol_version(m_soupMessage.get()));
+        additionalMetrics.tlsCipher = String::fromUTF8(soup_message_get_tls_ciphersuite_name(m_soupMessage.get()));
+        additionalMetrics.responseHeaderBytesReceived = soup_message_metrics_get_response_header_bytes_received(metrics);
+#else
+        {
+            auto* requestHeaders = soup_message_get_request_headers(m_soupMessage.get());
+            uint64_t requestHeadersSize = 0;
+            soup_message_headers_foreach(requestHeaders, addHeaderSizes, &requestHeadersSize);
+            additionalMetrics.requestHeaderBytesSent = requestHeadersSize;
+        }
+
+        {
+            auto* responseHeaders = soup_message_get_response_headers(m_soupMessage.get());
+            uint64_t responseHeadersSize = 0;
+            soup_message_headers_foreach(responseHeaders, addHeaderSizes, &responseHeadersSize);
+            additionalMetrics.responseHeaderBytesReceived = responseHeadersSize;
+        }
 #endif
     }
 
@@ -1268,7 +1287,7 @@ void NetworkDataTaskSoup::wroteHeadersCallback(SoupMessage* soupMessage, Network
     }
     ASSERT(task->m_soupMessage.get() == soupMessage);
     auto* metrics = soup_message_get_metrics(soupMessage);
-    task->m_networkLoadMetrics.requestHeaderBytesSent = soup_message_metrics_get_request_header_bytes_sent(metrics);
+    task->additionalNetworkLoadMetricsForWebInspector().requestHeaderBytesSent = soup_message_metrics_get_request_header_bytes_sent(metrics);
 }
 
 void NetworkDataTaskSoup::wroteBodyCallback(SoupMessage* soupMessage, NetworkDataTaskSoup* task)
@@ -1279,7 +1298,7 @@ void NetworkDataTaskSoup::wroteBodyCallback(SoupMessage* soupMessage, NetworkDat
     }
     ASSERT(task->m_soupMessage.get() == soupMessage);
     auto* metrics = soup_message_get_metrics(soupMessage);
-    task->m_networkLoadMetrics.requestBodyBytesSent = soup_message_metrics_get_request_body_bytes_sent(metrics);
+    task->additionalNetworkLoadMetricsForWebInspector().requestBodyBytesSent = soup_message_metrics_get_request_body_bytes_sent(metrics);
 }
 
 void NetworkDataTaskSoup::gotBodyCallback(SoupMessage* soupMessage, NetworkDataTaskSoup* task)
@@ -1366,7 +1385,7 @@ void NetworkDataTaskSoup::download()
     else
         outputStream = adoptGRef(g_file_create(m_downloadDestinationFile.get(), G_FILE_CREATE_NONE, nullptr, &error.outPtr()));
     if (!outputStream) {
-        didFailDownload(downloadDestinationError(m_response, error->message));
+        didFailDownload(downloadDestinationError(m_response, String::fromUTF8(error->message)));
         return;
     }
 
@@ -1374,7 +1393,7 @@ void NetworkDataTaskSoup::download()
     m_downloadIntermediateFile = adoptGRef(g_file_new_for_path(intermediatePath.get()));
     outputStream = adoptGRef(g_file_replace(m_downloadIntermediateFile.get(), nullptr, TRUE, G_FILE_CREATE_NONE, nullptr, &error.outPtr()));
     if (!outputStream) {
-        didFailDownload(downloadDestinationError(m_response, error->message));
+        didFailDownload(downloadDestinationError(m_response, String::fromUTF8(error->message)));
         return;
     }
     m_downloadOutputStream = adoptGRef(G_OUTPUT_STREAM(outputStream.leakRef()));
@@ -1402,7 +1421,7 @@ void NetworkDataTaskSoup::writeDownloadCallback(GOutputStream* outputStream, GAs
     gsize bytesWritten;
     g_output_stream_write_all_finish(outputStream, result, &bytesWritten, &error.outPtr());
     if (error)
-        task->didFailDownload(downloadDestinationError(task->m_response, error->message));
+        task->didFailDownload(downloadDestinationError(task->m_response, String::fromUTF8(error->message)));
     else
         task->didWriteDownload(bytesWritten);
 }
@@ -1434,7 +1453,7 @@ void NetworkDataTaskSoup::didFinishDownload()
     ASSERT(m_downloadIntermediateFile);
     GUniqueOutPtr<GError> error;
     if (!g_file_move(m_downloadIntermediateFile.get(), m_downloadDestinationFile.get(), G_FILE_COPY_OVERWRITE, m_cancellable.get(), nullptr, nullptr, &error.outPtr())) {
-        didFailDownload(downloadDestinationError(m_response, error->message));
+        didFailDownload(downloadDestinationError(m_response, String::fromUTF8(error->message)));
         return;
     }
 
@@ -1515,7 +1534,7 @@ void NetworkDataTaskSoup::networkEvent(GSocketClientEvent event, GIOStream* stre
             GRefPtr<GSocketAddress> address = adoptGRef(g_socket_connection_get_remote_address(G_SOCKET_CONNECTION(stream), nullptr));
             if (G_IS_INET_SOCKET_ADDRESS(address.get())) {
                 GUniquePtr<char> ipAddress(g_inet_address_to_string(g_inet_socket_address_get_address(G_INET_SOCKET_ADDRESS(address.get()))));
-                m_networkLoadMetrics.remoteAddress = makeString(ipAddress.get(), ':', g_inet_socket_address_get_port(G_INET_SOCKET_ADDRESS(address.get())));
+                additionalNetworkLoadMetricsForWebInspector().remoteAddress = makeString(ipAddress.get(), ':', g_inet_socket_address_get_port(G_INET_SOCKET_ADDRESS(address.get())));
             }
         }
         // Web Timing considers that connection time involves dns, proxy & TLS negotiation...
@@ -1558,9 +1577,14 @@ bool NetworkDataTaskSoup::shouldAllowHSTSPolicySetting() const
 {
     // Follow Apple's HSTS abuse mitigation 1:
     //  "Limit HSTS State to the Hostname, or the Top Level Domain + 1"
+#if ENABLE(PUBLIC_SUFFIX_LIST)
     return isTopLevelNavigation()
         || m_currentRequest.url().host() == m_currentRequest.firstPartyForCookies().host()
-        || isPublicSuffix(m_currentRequest.url().host().toStringWithoutCopying());
+        || isPublicSuffix(m_currentRequest.url().host());
+#else
+    return isTopLevelNavigation()
+        || m_currentRequest.url().host() == m_currentRequest.firstPartyForCookies().host();
+#endif
 }
 
 bool NetworkDataTaskSoup::shouldAllowHSTSProtocolUpgrade() const
@@ -1573,8 +1597,14 @@ bool NetworkDataTaskSoup::shouldAllowHSTSProtocolUpgrade() const
 
 void NetworkDataTaskSoup::protocolUpgradedViaHSTS(SoupMessage* soupMessage)
 {
-    m_response = ResourceResponse::syntheticRedirectResponse(m_currentRequest.url(), soupURIToURL(soup_message_get_uri(soupMessage)));
-    continueHTTPRedirection();
+    if (!m_response.isNull() && !m_response.httpHeaderField(HTTPHeaderName::Location).isEmpty()) {
+        // We handle HSTS upgrades as a redirection to let Web and UI processes know about the URL change, but in
+        // case of redirection, the new request is originated in the network process, so we can just update the URL.
+        m_currentRequest.setURL(soupURIToURL(soup_message_get_uri(m_soupMessage.get())));
+    } else {
+        m_response = ResourceResponse::syntheticRedirectResponse(m_currentRequest.url(), soupURIToURL(soup_message_get_uri(soupMessage)));
+        continueHTTPRedirection();
+    }
 }
 
 #if USE(SOUP2)
@@ -1598,7 +1628,7 @@ void NetworkDataTaskSoup::didStartRequest()
 {
 #if USE(SOUP2)
     m_networkLoadMetrics.requestStart = MonotonicTime::now();
-    if (!m_networkLoadMetrics.secureConnectionStart && m_currentRequest.url().protocolIs("https"))
+    if (!m_networkLoadMetrics.secureConnectionStart && m_currentRequest.url().protocolIs("https"_s))
         m_networkLoadMetrics.secureConnectionStart = WebCore::reusedTLSConnectionSentinel;
 #else
     auto* metrics = soup_message_get_metrics(m_soupMessage.get());
@@ -1613,7 +1643,7 @@ void NetworkDataTaskSoup::didStartRequest()
     m_networkLoadMetrics.domainLookupEnd = MonotonicTime::fromRawSeconds(domainLookupEnd.seconds());
     m_networkLoadMetrics.connectStart = MonotonicTime::fromRawSeconds(connectStart.seconds());
     m_networkLoadMetrics.connectEnd = MonotonicTime::fromRawSeconds(connectEnd.seconds());
-    if (!secureConnectionStart && m_currentRequest.url().protocolIs("https"))
+    if (!secureConnectionStart && m_currentRequest.url().protocolIs("https"_s))
         m_networkLoadMetrics.secureConnectionStart = WebCore::reusedTLSConnectionSentinel;
     else
         m_networkLoadMetrics.secureConnectionStart = MonotonicTime::fromRawSeconds(secureConnectionStart.seconds());
@@ -1634,7 +1664,7 @@ void NetworkDataTaskSoup::restartedCallback(SoupMessage* soupMessage, NetworkDat
 
 void NetworkDataTaskSoup::didRestart()
 {
-    m_networkLoadMetrics = { };
+    m_networkLoadMetrics = NetworkLoadMetrics::emptyMetrics();
 #if USE(SOUP2)
     m_networkLoadMetrics.fetchStart = MonotonicTime::now();
 #else
@@ -1673,14 +1703,14 @@ void NetworkDataTaskSoup::didGetFileInfo(GFileInfo* info)
 {
     m_response.setURL(m_firstRequest.url());
     if (g_file_info_get_file_type(info) == G_FILE_TYPE_DIRECTORY) {
-        m_response.setMimeType("text/html");
+        m_response.setMimeType("text/html"_s);
         m_response.setExpectedContentLength(-1);
     } else {
-        const gchar* contentType = g_file_info_get_content_type(info);
-        m_response.setMimeType(extractMIMETypeFromMediaType(contentType));
-        m_response.setTextEncodingName(extractCharsetFromMediaType(contentType));
+        auto contentType = String::fromLatin1(g_file_info_get_content_type(info));
+        m_response.setMimeType(AtomString { extractMIMETypeFromMediaType(contentType) });
+        m_response.setTextEncodingName(extractCharsetFromMediaType(contentType).toAtomString());
         if (m_response.mimeType().isEmpty())
-            m_response.setMimeType(MIMETypeRegistry::mimeTypeForPath(m_response.url().path().toString()));
+            m_response.setMimeType(AtomString { MIMETypeRegistry::mimeTypeForPath(m_response.url().path().toString()) });
         m_response.setExpectedContentLength(g_file_info_get_size(info));
     }
 }
@@ -1704,7 +1734,7 @@ void NetworkDataTaskSoup::readFileCallback(GFile* file, GAsyncResult* result, Ne
     GUniqueOutPtr<GError> error;
     GRefPtr<GInputStream> inputStream = adoptGRef(G_INPUT_STREAM(g_file_read_finish(file, result, &error.outPtr())));
     if (error)
-        task->didFail(ResourceError(g_quark_to_string(error->domain), error->code, task->m_firstRequest.url(), String::fromUTF8(error->message)));
+        task->didFail(ResourceError(String::fromLatin1(g_quark_to_string(error->domain)), error->code, task->m_firstRequest.url(), String::fromUTF8(error->message)));
     else
         task->didReadFile(WTFMove(inputStream));
 }
@@ -1728,7 +1758,7 @@ void NetworkDataTaskSoup::enumerateFileChildrenCallback(GFile* file, GAsyncResul
     GUniqueOutPtr<GError> error;
     GRefPtr<GFileEnumerator> enumerator = adoptGRef(g_file_enumerate_children_finish(file, result, &error.outPtr()));
     if (error)
-        task->didFail(ResourceError(g_quark_to_string(error->domain), error->code, task->m_firstRequest.url(), String::fromUTF8(error->message)));
+        task->didFail(ResourceError(String::fromLatin1(g_quark_to_string(error->domain)), error->code, task->m_firstRequest.url(), String::fromUTF8(error->message)));
     else
         task->didReadFile(webkitDirectoryInputStreamNew(WTFMove(enumerator), task->m_firstRequest.url().string().utf8()));
 }
@@ -1736,24 +1766,6 @@ void NetworkDataTaskSoup::enumerateFileChildrenCallback(GFile* file, GAsyncResul
 void NetworkDataTaskSoup::didReadFile(GRefPtr<GInputStream>&& inputStream)
 {
     m_inputStream = WTFMove(inputStream);
-    dispatchDidReceiveResponse();
-}
-
-void NetworkDataTaskSoup::didReadDataURL(std::optional<DataURLDecoder::Result>&& result)
-{
-    if (g_cancellable_is_cancelled(m_cancellable.get())) {
-        didFail(cancelledError(m_currentRequest));
-        return;
-    }
-
-    if (!result) {
-        didFail(internalError(m_currentRequest.url()));
-        return;
-    }
-
-    m_response = ResourceResponse::dataURLResponse(m_currentRequest.url(), result.value());
-    auto bytes = SharedBuffer::create(WTFMove(result->data))->createGBytes();
-    m_inputStream = adoptGRef(g_memory_input_stream_new_from_bytes(bytes.get()));
     dispatchDidReceiveResponse();
 }
 

@@ -47,17 +47,18 @@ class AudioMediaStreamTrackRendererInternalUnitManager {
 public:
     AudioMediaStreamTrackRendererInternalUnitManager() = default;
 
-    UniqueRef<WebCore::AudioMediaStreamTrackRendererInternalUnit> createRemoteInternalUnit(WebCore::AudioMediaStreamTrackRendererInternalUnit::RenderCallback&&);
-
     class Proxy;
     void add(Proxy&);
     void remove(Proxy&);
 
-    void gpuProcessConnectionClosed();
+    void reset(AudioMediaStreamTrackRendererInternalUnitIdentifier);
+    void restartAllUnits();
 
 private:
     HashMap<AudioMediaStreamTrackRendererInternalUnitIdentifier, WeakPtr<Proxy>> m_proxies;
 };
+
+UniqueRef<WebCore::AudioMediaStreamTrackRendererInternalUnit> createRemoteAudioMediaStreamTrackRendererInternalUnitProxy(WebCore::AudioMediaStreamTrackRendererInternalUnit::Client&);
 
 }
 

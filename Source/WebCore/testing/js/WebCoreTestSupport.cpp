@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2011, 2015 Google Inc. All rights reserved.
- * Copyright (C) 2016-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,17 +28,19 @@
 #include "WebCoreTestSupport.h"
 
 #include "DeprecatedGlobalSettings.h"
-#include "Frame.h"
+#include "FrameDestructionObserverInlines.h"
 #include "InternalSettings.h"
 #include "Internals.h"
 #include "JSDocument.h"
 #include "JSInternals.h"
 #include "JSServiceWorkerInternals.h"
 #include "JSWorkerGlobalScope.h"
+#include "LocalFrame.h"
 #include "LogInitialization.h"
 #include "Logging.h"
 #include "MockGamepadProvider.h"
 #include "Page.h"
+#include "ProcessWarming.h"
 #include "SWContextManager.h"
 #include "ServiceWorkerGlobalScope.h"
 #include "WheelEventTestMonitor.h"
@@ -51,13 +53,17 @@
 
 #if PLATFORM(COCOA)
 #include "UTIRegistry.h"
-#include "VersionChecks.h"
 #include <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
 #endif
 
 namespace WebCoreTestSupport {
 using namespace JSC;
 using namespace WebCore;
+
+void initializeNames()
+{
+    ProcessWarming::initializeNames();
+}
 
 void injectInternalsObject(JSContextRef context)
 {
@@ -86,7 +92,7 @@ void resetInternalsObject(JSContextRef context)
     InternalSettings::from(page)->resetToConsistentState();
 }
 
-void monitorWheelEvents(WebCore::Frame& frame, bool clearLatchingState)
+void monitorWheelEvents(WebCore::LocalFrame& frame, bool clearLatchingState)
 {
     Page* page = frame.page();
     if (!page)
@@ -95,7 +101,7 @@ void monitorWheelEvents(WebCore::Frame& frame, bool clearLatchingState)
     page->startMonitoringWheelEvents(clearLatchingState);
 }
 
-void setWheelEventMonitorTestCallbackAndStartMonitoring(bool expectWheelEndOrCancel, bool expectMomentumEnd, WebCore::Frame& frame, JSContextRef context, JSObjectRef jsCallbackFunction)
+void setWheelEventMonitorTestCallbackAndStartMonitoring(bool expectWheelEndOrCancel, bool expectMomentumEnd, WebCore::LocalFrame& frame, JSContextRef context, JSObjectRef jsCallbackFunction)
 {
     Page* page = frame.page();
     if (!page || !page->isMonitoringWheelEvents())
@@ -111,7 +117,7 @@ void setWheelEventMonitorTestCallbackAndStartMonitoring(bool expectWheelEndOrCan
     }
 }
 
-void clearWheelEventTestMonitor(WebCore::Frame& frame)
+void clearWheelEventTestMonitor(WebCore::LocalFrame& frame)
 {
     Page* page = frame.page();
     if (!page)
@@ -148,10 +154,15 @@ void setAllowsAnySSLCertificate(bool allowAnySSLCertificate)
     DeprecatedGlobalSettings::setAllowsAnySSLCertificate(allowAnySSLCertificate);
 }
 
+bool allowsAnySSLCertificate()
+{
+    return DeprecatedGlobalSettings::allowsAnySSLCertificate();
+}
+
 void setLinkedOnOrAfterEverythingForTesting()
 {
 #if PLATFORM(COCOA)
-    setApplicationSDKVersion(std::numeric_limits<uint32_t>::max());
+    enableAllSDKAlignedBehaviors();
 #endif
 }
 
@@ -180,16 +191,17 @@ void disconnectMockGamepad(unsigned gamepadIndex)
 #endif
 }
 
-void setMockGamepadDetails(unsigned gamepadIndex, const WTF::String& gamepadID, const WTF::String& mapping, unsigned axisCount, unsigned buttonCount)
+void setMockGamepadDetails(unsigned gamepadIndex, const String& gamepadID, const String& mapping, unsigned axisCount, unsigned buttonCount, bool supportsDualRumble)
 {
 #if ENABLE(GAMEPAD)
-    MockGamepadProvider::singleton().setMockGamepadDetails(gamepadIndex, gamepadID, mapping, axisCount, buttonCount);
+    MockGamepadProvider::singleton().setMockGamepadDetails(gamepadIndex, gamepadID, mapping, axisCount, buttonCount, supportsDualRumble);
 #else
     UNUSED_PARAM(gamepadIndex);
     UNUSED_PARAM(gamepadID);
     UNUSED_PARAM(mapping);
     UNUSED_PARAM(axisCount);
     UNUSED_PARAM(buttonCount);
+    UNUSED_PARAM(supportsDualRumble);
 #endif
 }
 
@@ -218,7 +230,7 @@ void setMockGamepadButtonValue(unsigned gamepadIndex, unsigned buttonIndex, doub
 void setupNewlyCreatedServiceWorker(uint64_t serviceWorkerIdentifier)
 {
 #if ENABLE(SERVICE_WORKER)
-    auto identifier = makeObjectIdentifier<ServiceWorkerIdentifierType>(serviceWorkerIdentifier);
+    auto identifier = AtomicObjectIdentifier<ServiceWorkerIdentifierType>(serviceWorkerIdentifier);
     SWContextManager::singleton().postTaskToServiceWorker(identifier, [identifier] (ServiceWorkerGlobalScope& globalScope) {
         auto* script = globalScope.script();
         if (!script)
@@ -228,7 +240,7 @@ void setupNewlyCreatedServiceWorker(uint64_t serviceWorkerIdentifier)
         auto& vm = globalObject.vm();
         JSLockHolder locker(vm);
         auto* contextWrapper = script->globalScopeWrapper();
-        contextWrapper->putDirect(vm, Identifier::fromString(vm, Internals::internalsId), toJS(&globalObject, contextWrapper, ServiceWorkerInternals::create(identifier)));
+        contextWrapper->putDirect(vm, Identifier::fromString(vm, Internals::internalsId), toJS(&globalObject, contextWrapper, ServiceWorkerInternals::create(globalScope, identifier)));
     });
 #else
     UNUSED_PARAM(serviceWorkerIdentifier);
@@ -236,15 +248,18 @@ void setupNewlyCreatedServiceWorker(uint64_t serviceWorkerIdentifier)
 }
 
 #if PLATFORM(COCOA)
-void setAdditionalSupportedImageTypesForTesting(const WTF::String& imageTypes)
+void setAdditionalSupportedImageTypesForTesting(const String& imageTypes)
 {
     WebCore::setAdditionalSupportedImageTypesForTesting(imageTypes);
 }
 #endif
 
+#if ENABLE(JIT_OPERATION_VALIDATION) || ENABLE(JIT_OPERATION_DISASSEMBLY)
+
+extern const JSC::JITOperationAnnotation startOfJITOperationsInWebCoreTestSupport __asm("section$start$__DATA_CONST$__jsc_ops");
+extern const JSC::JITOperationAnnotation endOfJITOperationsInWebCoreTestSupport __asm("section$end$__DATA_CONST$__jsc_ops");
+
 #if ENABLE(JIT_OPERATION_VALIDATION)
-extern const uintptr_t startOfJITOperationsInWebCoreTestSupport __asm("section$start$__DATA_CONST$__jsc_ops");
-extern const uintptr_t endOfJITOperationsInWebCoreTestSupport __asm("section$end$__DATA_CONST$__jsc_ops");
 
 void populateJITOperations()
 {
@@ -252,7 +267,23 @@ void populateJITOperations()
     std::call_once(onceKey, [] {
         JSC::JITOperationList::populatePointersInEmbedder(&startOfJITOperationsInWebCoreTestSupport, &endOfJITOperationsInWebCoreTestSupport);
     });
+#if ENABLE(JIT_OPERATION_DISASSEMBLY)
+    if (UNLIKELY(JSC::Options::needDisassemblySupport()))
+        populateDisassemblyLabels();
+#endif
 }
 #endif // ENABLE(JIT_OPERATION_VALIDATION)
 
+#if ENABLE(JIT_OPERATION_DISASSEMBLY)
+void populateDisassemblyLabels()
+{
+    static std::once_flag onceKey;
+    std::call_once(onceKey, [] {
+        JSC::JITOperationList::populateDisassemblyLabelsInEmbedder(&startOfJITOperationsInWebCoreTestSupport, &endOfJITOperationsInWebCoreTestSupport);
+    });
 }
+#endif // ENABLE(JIT_OPERATION_DISASSEMBLY)
+
+#endif // ENABLE(JIT_OPERATION_VALIDATION) || ENABLE(JIT_OPERATION_DISASSEMBLY)
+
+} // namespace WebCoreTestSupport

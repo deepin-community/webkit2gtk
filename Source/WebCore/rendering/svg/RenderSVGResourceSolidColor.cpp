@@ -20,11 +20,14 @@
 #include "config.h"
 #include "RenderSVGResourceSolidColor.h"
 
-#include "Frame.h"
-#include "FrameView.h"
 #include "GraphicsContext.h"
+#include "LocalFrame.h"
+#include "LocalFrameView.h"
+#include "RenderElement.h"
 #include "RenderStyle.h"
 #include "RenderView.h"
+#include "SVGRenderStyle.h"
+#include "SVGRenderSupport.h"
 
 namespace WebCore {
 
@@ -67,23 +70,11 @@ bool RenderSVGResourceSolidColor::applyResource(RenderElement& renderer, const R
     return true;
 }
 
-void RenderSVGResourceSolidColor::postApplyResource(RenderElement&, GraphicsContext*& context, OptionSet<RenderSVGResourceMode> resourceMode, const Path* path, const RenderSVGShape* shape)
+void RenderSVGResourceSolidColor::postApplyResource(RenderElement&, GraphicsContext*& context, OptionSet<RenderSVGResourceMode> resourceMode, const Path* path, const RenderElement* shape)
 {
     ASSERT(context);
     ASSERT(!resourceMode.isEmpty());
-
-    if (resourceMode.contains(RenderSVGResourceMode::ApplyToFill)) {
-        if (path)
-            context->fillPath(*path);
-        else if (shape)
-            shape->fillShape(*context);
-    }
-    if (resourceMode.contains(RenderSVGResourceMode::ApplyToStroke)) {
-        if (path)
-            context->strokePath(*path);
-        else if (shape)
-            shape->strokeShape(*context);
-    }
+    fillAndStrokePathOrShape(*context, resourceMode, path, shape);
 }
 
 }

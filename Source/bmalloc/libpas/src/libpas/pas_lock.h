@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2020 Apple Inc. All rights reserved.
+ * Copyright (c) 2018-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -78,7 +78,7 @@ static inline void pas_lock_construct_disabled(pas_lock* lock)
                           code path. */
 }
 
-PAS_API void pas_lock_lock_slow(pas_lock* lock);
+PAS_API PAS_NEVER_INLINE void pas_lock_lock_slow(pas_lock* lock);
 
 static inline void pas_lock_lock(pas_lock* lock)
 {
@@ -100,7 +100,7 @@ static inline bool pas_lock_try_lock(pas_lock* lock)
 static inline void pas_lock_unlock(pas_lock* lock)
 {
     pas_race_test_will_unlock(lock);
-    __c11_atomic_store((_Atomic bool*)&lock->lock, false, __ATOMIC_SEQ_CST);
+    pas_atomic_store_bool((bool*)&lock->lock, false);
 }
 
 static inline void pas_lock_assert_held(pas_lock* lock)
@@ -115,7 +115,7 @@ static inline void pas_lock_testing_assert_held(pas_lock* lock)
 
 PAS_END_EXTERN_C;
 
-#else /* !PAS_USE_SPINLOCKS */
+#elif PAS_OS(DARWIN) /* !PAS_USE_SPINLOCKS */
 
 #if defined(__has_include) && __has_include(<os/lock_private.h>) && (defined(LIBPAS) || defined(PAS_BMALLOC)) && (!defined(OS_UNFAIR_LOCK_INLINE) || OS_UNFAIR_LOCK_INLINE)
 #ifndef OS_UNFAIR_LOCK_INLINE
@@ -192,6 +192,92 @@ static inline void pas_lock_testing_assert_held(pas_lock* lock)
 
 PAS_END_EXTERN_C;
 
+#elif PAS_PLATFORM(PLAYSTATION) /* !PAS_USE_SPINLOCKS */
+
+#include <errno.h>
+#include <pthread_np.h>
+
+PAS_BEGIN_EXTERN_C;
+
+struct pas_lock;
+typedef struct pas_lock pas_lock;
+
+struct pas_lock {
+    pthread_mutex_t mutex;
+};
+
+#define PAS_LOCK_INITIALIZER ((pas_lock){ .mutex = PTHREAD_MUTEX_INITIALIZER })
+
+static inline void pas_lock_construct(pas_lock* lock)
+{
+    *lock = PAS_LOCK_INITIALIZER;
+}
+
+static inline void pas_lock_construct_disabled(pas_lock* lock)
+{
+    pthread_mutex_destroy(&lock->mutex);
+    pas_zero_memory(lock, sizeof(pas_lock));
+}
+
+static inline void pas_lock_mutex_setname(pas_lock* lock)
+{
+    pthread_mutex_setname_np(&lock->mutex, "SceNKLibpas");
+}
+
+static inline void pas_lock_lock(pas_lock* lock)
+{
+    bool unnamed;
+    unnamed = (lock->mutex == PTHREAD_MUTEX_INITIALIZER);
+    pas_race_test_will_lock(lock);
+    pthread_mutex_lock(&lock->mutex);
+    pas_race_test_did_lock(lock);
+    if (PAS_UNLIKELY(unnamed))
+        pas_lock_mutex_setname(lock);
+}
+
+static inline bool pas_lock_try_lock(pas_lock* lock)
+{
+    int error;
+    bool unnamed;
+    unnamed = (lock->mutex == PTHREAD_MUTEX_INITIALIZER);
+    error = pthread_mutex_trylock(&lock->mutex);
+    PAS_ASSERT(!error || error == EBUSY);
+    if (!error) {
+        pas_race_test_did_try_lock(lock);
+        if (PAS_UNLIKELY(unnamed))
+            pas_lock_mutex_setname(lock);
+    }
+    return !error;
+}
+
+static inline void pas_lock_unlock(pas_lock* lock)
+{
+    pas_race_test_will_unlock(lock);
+    pthread_mutex_unlock(&lock->mutex);
+}
+
+static inline bool pas_lock_test_held(pas_lock* lock)
+{
+    if (pthread_mutex_trylock(&lock->mutex))
+        return true;
+    pthread_mutex_unlock(&lock->mutex);
+    return false;
+}
+
+static inline void pas_lock_assert_held(pas_lock* lock)
+{
+    PAS_ASSERT(pas_lock_test_held(lock));
+}
+
+static inline void pas_lock_testing_assert_held(pas_lock* lock)
+{
+    PAS_TESTING_ASSERT(pas_lock_test_held(lock));
+}
+
+PAS_END_EXTERN_C;
+
+#else /* !PAS_USE_SPINLOCKS */
+#error "No pas_lock implementation found"
 #endif /* !PAS_USE_SPINLOCKS */
 
 PAS_BEGIN_EXTERN_C;
@@ -207,6 +293,11 @@ PAS_BEGIN_EXTERN_C;
     PAS_UNUSED static inline bool name##_lock_try_lock(void) \
     { \
         return pas_lock_try_lock(&name##_lock); \
+    } \
+    \
+    PAS_UNUSED static inline bool name##_lock_lock_with_mode(pas_lock_lock_mode mode) \
+    { \
+        return pas_lock_lock_with_mode(&name##_lock, mode); \
     } \
     \
     PAS_UNUSED static inline void name##_lock_unlock(void) \

@@ -32,8 +32,9 @@
 #include "SharedMemory.h"
 #include <JavaScriptCore/JSArray.h>
 #include <JavaScriptCore/JSArrayBuffer.h>
-#include <JavaScriptCore/JSGlobalObject.h>
+#include <JavaScriptCore/JSCJSValueInlines.h>
 #include <JavaScriptCore/JSObject.h>
+#include <JavaScriptCore/JSObjectInlines.h>
 #include <JavaScriptCore/ObjectConstructor.h>
 #include <wtf/ObjectIdentifier.h>
 #include <wtf/text/WTFString.h>
@@ -67,7 +68,7 @@ template<> JSC::JSValue jsValueForDecodedArgumentValue(JSC::JSGlobalObject*, URL
 template<> JSC::JSValue jsValueForDecodedArgumentValue(JSC::JSGlobalObject*, WebCore::RegistrableDomain&&);
 
 template<> JSC::JSValue jsValueForDecodedArgumentValue(JSC::JSGlobalObject*, IPC::Semaphore&&);
-template<> JSC::JSValue jsValueForDecodedArgumentValue(JSC::JSGlobalObject*, WebKit::SharedMemory::IPCHandle&&);
+template<> JSC::JSValue jsValueForDecodedArgumentValue(JSC::JSGlobalObject*, WebKit::SharedMemory::Handle&&);
 
 template<typename T, std::enable_if_t<std::is_arithmetic<T>::value>* = nullptr>
 JSC::JSValue jsValueForDecodedArgumentValue(JSC::JSGlobalObject*, T)
@@ -96,6 +97,12 @@ template<> JSC::JSValue jsValueForDecodedArgumentValue(JSC::JSGlobalObject*, siz
 
 template<typename U>
 JSC::JSValue jsValueForDecodedArgumentValue(JSC::JSGlobalObject* globalObject, ObjectIdentifier<U>&& value)
+{
+    return jsValueForDecodedArgumentValue(globalObject, value.toUInt64());
+}
+
+template<typename U>
+JSC::JSValue jsValueForDecodedArgumentValue(JSC::JSGlobalObject* globalObject, AtomicObjectIdentifier<U>&& value)
 {
     return jsValueForDecodedArgumentValue(globalObject, value.toUInt64());
 }
@@ -152,9 +159,22 @@ static std::optional<JSC::JSValue> jsValueForDecodedArguments(JSC::JSGlobalObjec
     auto scope = DECLARE_THROW_SCOPE(globalObject->vm());
     auto* array = JSC::constructEmptyArray(globalObject, nullptr);
     RETURN_IF_EXCEPTION(scope, JSC::JSValue());
-    typename IPC::CodingType<T>::Type* dummyArguments = nullptr;
+    T* dummyArguments = nullptr;
     return putJSValueForDecodeArgumentInArray<>(globalObject, decoder, array, 0, dummyArguments);
 }
+
+// The bindings implementation will call the function templates below to decode a message.
+// These function templates are specialized by each message in their own generated file.
+// Each implementation will just call the above `jsValueForDecodedArguments()` function.
+// This has the benefit that upon compilation, only the message receiver implementation files are
+// recompiled when the message argument types change.
+// The bindings implementation, e.g. the caller of jsValueForDecodedMessage<>, does not need
+// to know all the message argument types, and need to be recompiled only when the message itself
+// changes.
+template<MessageName>
+std::optional<JSC::JSValue> jsValueForDecodedMessage(JSC::JSGlobalObject*, IPC::Decoder&);
+template<MessageName>
+std::optional<JSC::JSValue> jsValueForDecodedMessageReply(JSC::JSGlobalObject*, IPC::Decoder&);
 
 }
 

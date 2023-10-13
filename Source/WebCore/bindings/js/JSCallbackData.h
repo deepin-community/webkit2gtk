@@ -29,7 +29,6 @@
 #pragma once
 
 #include "JSDOMBinding.h"
-#include "JSDOMGlobalObject.h"
 #include "ScriptExecutionContext.h"
 #include <JavaScriptCore/JSObject.h>
 #include <JavaScriptCore/Strong.h>
@@ -49,6 +48,8 @@ public:
 
     JSDOMGlobalObject* globalObject() { return m_globalObject.get(); }
 
+    WEBCORE_EXPORT static JSC::JSValue invokeCallback(JSDOMGlobalObject&, JSC::JSObject* callback, JSC::JSValue thisValue, JSC::MarkedArgumentBuffer&, CallbackType, JSC::PropertyName functionName, NakedPtr<JSC::Exception>& returnedException);
+
 protected:
     explicit JSCallbackData(JSDOMGlobalObject* globalObject)
         : m_globalObject(globalObject)
@@ -61,8 +62,6 @@ protected:
         ASSERT(m_thread.ptr() == &Thread::current());
 #endif
     }
-    
-    WEBCORE_EXPORT static JSC::JSValue invokeCallback(JSDOMGlobalObject&, JSC::JSObject* callback, JSC::JSValue thisValue, JSC::MarkedArgumentBuffer&, CallbackType, JSC::PropertyName functionName, NakedPtr<JSC::Exception>& returnedException);
 
 private:
     JSC::Weak<JSDOMGlobalObject> m_globalObject;

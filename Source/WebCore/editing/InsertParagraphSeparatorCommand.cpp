@@ -29,10 +29,12 @@
 #include "Document.h"
 #include "Editing.h"
 #include "EditingStyle.h"
+#include "ElementInlines.h"
 #include "HTMLBRElement.h"
 #include "HTMLFormElement.h"
 #include "HTMLNames.h"
 #include "InsertLineBreakCommand.h"
+#include "NodeName.h"
 #include "NodeTraversal.h"
 #include "RenderText.h"
 #include "Text.h"
@@ -145,6 +147,83 @@ Ref<Element> InsertParagraphSeparatorCommand::cloneHierarchyUnderNewBlock(const 
     return parent.releaseNonNull();
 }
 
+static bool isPhrasingContent(const Node* node)
+{
+    if (!node || !is<Element>(*node))
+        return false;
+
+    switch (downcast<Element>(*node).elementName()) {
+    case ElementNames::HTML::a:
+    case ElementNames::HTML::abbr:
+    case ElementNames::HTML::area:
+    case ElementNames::HTML::audio:
+    case ElementNames::HTML::b:
+    case ElementNames::HTML::bdi:
+    case ElementNames::HTML::bdo:
+    case ElementNames::HTML::br:
+    case ElementNames::HTML::button:
+    case ElementNames::HTML::canvas:
+    case ElementNames::HTML::cite:
+    case ElementNames::HTML::code:
+    case ElementNames::HTML::data:
+    case ElementNames::HTML::datalist:
+    case ElementNames::HTML::del:
+    case ElementNames::HTML::dfn:
+    case ElementNames::HTML::em:
+    case ElementNames::HTML::embed:
+    case ElementNames::HTML::i:
+    case ElementNames::HTML::iframe:
+    case ElementNames::HTML::img:
+    case ElementNames::HTML::input:
+    case ElementNames::HTML::ins:
+    case ElementNames::HTML::kbd:
+    case ElementNames::HTML::label:
+    case ElementNames::HTML::link:
+    case ElementNames::HTML::map:
+    case ElementNames::HTML::mark:
+    case ElementNames::MathML::math:
+    case ElementNames::HTML::meta:
+    case ElementNames::HTML::meter:
+    case ElementNames::HTML::noscript:
+    case ElementNames::HTML::object:
+    case ElementNames::HTML::output:
+    case ElementNames::HTML::picture:
+    case ElementNames::HTML::progress:
+    case ElementNames::HTML::q:
+    case ElementNames::HTML::ruby:
+    case ElementNames::HTML::s:
+    case ElementNames::HTML::samp:
+    case ElementNames::HTML::script:
+    case ElementNames::HTML::select:
+    case ElementNames::HTML::slot:
+    case ElementNames::HTML::small_:
+    case ElementNames::HTML::span:
+    case ElementNames::HTML::strong:
+    case ElementNames::HTML::sub:
+    case ElementNames::HTML::sup:
+    case ElementNames::SVG::svg:
+    case ElementNames::HTML::template_:
+    case ElementNames::HTML::textarea:
+    case ElementNames::HTML::time:
+    case ElementNames::HTML::u:
+    case ElementNames::HTML::var:
+    case ElementNames::HTML::video:
+    case ElementNames::HTML::wbr:
+        return true;
+    default:
+        break;
+    }
+    return false;
+}
+
+static bool isEditableRootPhrasingContent(Position position)
+{
+    auto* editableRoot = highestEditableRoot(position);
+    if (!editableRoot)
+        return false;
+    return enclosingNodeOfType(firstPositionInOrBeforeNode(editableRoot), isPhrasingContent);
+}
+
 void InsertParagraphSeparatorCommand::doApply()
 {
     if (endingSelection().isNoneOrOrphaned())
@@ -166,6 +245,7 @@ void InsertParagraphSeparatorCommand::doApply()
     Position canonicalPos = VisiblePosition(insertionPosition).deepEquivalent();
     if (!startBlock
         || !startBlock->nonShadowBoundaryParentNode()
+        || isEditableRootPhrasingContent(insertionPosition)
         || isRenderedTable(startBlock.get())
         || isTableCell(startBlock.get())
         || is<HTMLFormElement>(*startBlock)
@@ -258,7 +338,7 @@ void InsertParagraphSeparatorCommand::doApply()
         if (!appendBlockPlaceholder(WTFMove(parent)))
             return;
 
-        setEndingSelection(VisibleSelection(firstPositionInNode(parentPtr), Affinity::Downstream, endingSelection().isDirectional()));
+        setEndingSelection(VisibleSelection(VisiblePosition(firstPositionInNode(parentPtr), Affinity::Downstream), endingSelection().isDirectional()));
         return;
     }
     
@@ -298,7 +378,7 @@ void InsertParagraphSeparatorCommand::doApply()
             return;
         
         // In this case, we need to set the new ending selection.
-        setEndingSelection(VisibleSelection(insertionPosition, Affinity::Downstream, endingSelection().isDirectional()));
+        setEndingSelection(VisibleSelection(VisiblePosition(insertionPosition, Affinity::Downstream), endingSelection().isDirectional()));
         return;
     }
 
@@ -318,7 +398,7 @@ void InsertParagraphSeparatorCommand::doApply()
         // If the insertion point is a break element, there is nothing else
         // we need to do.
         if (auto* renderer = visiblePos.deepEquivalent().anchorNode()->renderer(); renderer && renderer->isBR()) {
-            setEndingSelection(VisibleSelection(insertionPosition, Affinity::Downstream, endingSelection().isDirectional()));
+            setEndingSelection(VisibleSelection(VisiblePosition(insertionPosition, Affinity::Downstream), endingSelection().isDirectional()));
             return;
         }
     }
@@ -389,23 +469,24 @@ void InsertParagraphSeparatorCommand::doApply()
 
     // Move the start node and the siblings of the start node.
     if (VisiblePosition(insertionPosition) != VisiblePosition(positionBeforeNode(blockToInsert.get()))) {
-        Node* n;
+        RefPtr<Node> n;
         if (insertionPosition.containerNode() == startBlock)
             n = insertionPosition.computeNodeAfterPosition();
         else {
-            Node* splitTo = insertionPosition.containerNode();
+            RefPtr<Node> splitTo = insertionPosition.containerNode();
             if (is<Text>(*splitTo) && insertionPosition.offsetInContainerNode() >= caretMaxOffset(*splitTo))
                 splitTo = NodeTraversal::next(*splitTo, startBlock.get());
-            ASSERT(splitTo);
-            splitTreeToNode(*splitTo, *startBlock);
+            if (splitTo) {
+                splitTreeToNode(*splitTo, *startBlock);
 
-            for (n = startBlock->firstChild(); n; n = n->nextSibling()) {
-                if (VisiblePosition(insertionPosition) <= VisiblePosition(positionBeforeNode(n)))
-                    break;
+                for (n = startBlock->firstChild(); n; n = n->nextSibling()) {
+                    if (VisiblePosition(insertionPosition) <= VisiblePosition(positionBeforeNode(n.get())))
+                        break;
+                }
             }
         }
 
-        moveRemainingSiblingsToNewParent(n, blockToInsert.get(), *blockToInsert);
+        moveRemainingSiblingsToNewParent(n.get(), blockToInsert.get(), *blockToInsert);
     }            
 
     // Handle whitespace that occurs after the split
@@ -420,7 +501,7 @@ void InsertParagraphSeparatorCommand::doApply()
         }
     }
 
-    setEndingSelection(VisibleSelection(firstPositionInNode(blockToInsert.get()), Affinity::Downstream, endingSelection().isDirectional()));
+    setEndingSelection(VisibleSelection(VisiblePosition(firstPositionInNode(blockToInsert.get()), Affinity::Downstream), endingSelection().isDirectional()));
     applyStyleAfterInsertion(startBlock.get());
 }
 

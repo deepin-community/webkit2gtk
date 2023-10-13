@@ -28,6 +28,7 @@
 
 #include "FloatSize.h"
 #include "IntPoint.h"
+#include <wtf/Hasher.h>
 #include <wtf/MathExtras.h>
 
 #if USE(CG)
@@ -42,11 +43,6 @@ typedef struct _NSPoint NSPoint;
 #endif
 #endif // PLATFORM(MAC)
 
-#if PLATFORM(WIN)
-struct D2D_POINT_2F;
-typedef D2D_POINT_2F D2D1_POINT_2F;
-#endif
-
 namespace WTF {
 class TextStream;
 }
@@ -55,8 +51,8 @@ namespace WebCore {
 
 class AffineTransform;
 class TransformationMatrix;
-class IntPoint;
 class IntSize;
+class FloatRect;
 
 class FloatPoint {
     WTF_MAKE_FAST_ALLOCATED;
@@ -166,6 +162,8 @@ public:
     }
 
     WEBCORE_EXPORT FloatPoint constrainedBetween(const FloatPoint& min, const FloatPoint& max) const;
+    
+    WEBCORE_EXPORT FloatPoint constrainedWithin(const FloatRect&) const;
 
     FloatPoint shrunkTo(const FloatPoint& other) const
     {
@@ -192,13 +190,11 @@ public:
     WEBCORE_EXPORT operator NSPoint() const;
 #endif
 
-#if PLATFORM(WIN)
-    WEBCORE_EXPORT FloatPoint(const D2D1_POINT_2F&);
-    WEBCORE_EXPORT operator D2D1_POINT_2F() const;
-#endif
-
     WEBCORE_EXPORT FloatPoint matrixTransform(const TransformationMatrix&) const;
     WEBCORE_EXPORT FloatPoint matrixTransform(const AffineTransform&) const;
+
+    WEBCORE_EXPORT String toJSONString() const;
+    WEBCORE_EXPORT Ref<JSON::Object> toJSONObject() const;
 
 private:
     float m_x { 0 };
@@ -254,11 +250,6 @@ inline bool operator==(const FloatPoint& a, const FloatPoint& b)
     return a.x() == b.x() && a.y() == b.y();
 }
 
-inline bool operator!=(const FloatPoint& a, const FloatPoint& b)
-{
-    return a.x() != b.x() || a.y() != b.y();
-}
-
 inline float operator*(const FloatPoint& a, const FloatPoint& b)
 {
     // dot product
@@ -310,7 +301,24 @@ inline bool areEssentiallyEqual(const FloatPoint& a, const FloatPoint& b)
     return WTF::areEssentiallyEqual(a.x(), b.x()) && WTF::areEssentiallyEqual(a.y(), b.y());
 }
 
+inline void add(Hasher& hasher, const FloatPoint& point)
+{
+    add(hasher, point.x(), point.y());
+}
+
 WEBCORE_EXPORT WTF::TextStream& operator<<(WTF::TextStream&, const FloatPoint&);
 
 }
 
+namespace WTF {
+
+template<typename Type> struct LogArgument;
+template <>
+struct LogArgument<WebCore::FloatPoint> {
+    static String toString(const WebCore::FloatPoint& point)
+    {
+        return point.toJSONString();
+    }
+};
+
+} // namespace WTF

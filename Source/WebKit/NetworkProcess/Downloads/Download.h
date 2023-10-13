@@ -50,7 +50,6 @@ class AuthenticationChallenge;
 class BlobDataFileReference;
 class Credential;
 class ResourceError;
-class ResourceHandle;
 class ResourceRequest;
 class ResourceResponse;
 }
@@ -81,7 +80,6 @@ public:
 
     DownloadID downloadID() const { return m_downloadID; }
     PAL::SessionID sessionID() const { return m_sessionID; }
-    const String& suggestedName() const { return m_suggestedName; }
 
     void setSandboxExtension(RefPtr<SandboxExtension>&& sandboxExtension) { m_sandboxExtension = WTFMove(sandboxExtension); }
     void didReceiveChallenge(const WebCore::AuthenticationChallenge&, ChallengeCompletionHandler&&);
@@ -117,7 +115,6 @@ private:
     RetainPtr<NSProgress> m_progress;
 #endif
     PAL::SessionID m_sessionID;
-    String m_suggestedName;
     bool m_hasReceivedData { false };
     IgnoreDidFailCallback m_ignoreDidFailCallback { IgnoreDidFailCallback::No };
     DownloadMonitor m_monitor { *this };

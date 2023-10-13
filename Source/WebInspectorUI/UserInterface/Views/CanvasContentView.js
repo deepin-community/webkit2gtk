@@ -105,9 +105,15 @@ WI.CanvasContentView = class CanvasContentView extends WI.ContentView
             subtitle.className = "subtitle";
             subtitle.textContent = WI.Canvas.displayNameForContextType(this.representedObject.contextType);
 
+            if (this.representedObject.contextAttributes.colorSpace) {
+                let subtitle = titles.appendChild(document.createElement("span"));
+                subtitle.className = "color-space";
+                subtitle.textContent = "(" + WI.Canvas.displayNameForColorSpace(this.representedObject.contextAttributes.colorSpace) + ")";
+            }
+
             let navigationBar = new WI.NavigationBar;
 
-            if (this.representedObject.contextType === WI.Canvas.ContextType.Canvas2D || this.representedObject.contextType === WI.Canvas.ContextType.BitmapRenderer || this.representedObject.contextType === WI.Canvas.ContextType.WebGL || this.representedObject.contextType === WI.Canvas.ContextType.WebGL2) {
+            if (this.representedObject.contextType === WI.Canvas.ContextType.Canvas2D || this.representedObject.contextType === WI.Canvas.ContextType.OffscreenCanvas2D || this.representedObject.contextType === WI.Canvas.ContextType.BitmapRenderer || this.representedObject.contextType === WI.Canvas.ContextType.WebGL || this.representedObject.contextType === WI.Canvas.ContextType.WebGL2) {
                 const toolTip = WI.UIString("Start recording canvas actions.\nShift-click to record a single frame.");
                 const altToolTip = WI.UIString("Stop recording canvas actions");
                 this._recordButtonNavigationItem = new WI.ToggleButtonNavigationItem("record-start-stop", toolTip, altToolTip, "Images/Record.svg", "Images/Stop.svg", 13, 13);
@@ -302,8 +308,7 @@ WI.CanvasContentView = class CanvasContentView extends WI.ContentView
                     return;
 
                 const text = WI.UIString("Selected Canvas Context");
-                const addSpecialUserLogClass = true;
-                WI.consoleLogViewController.appendImmediateExecutionWithResult(text, remoteObject, addSpecialUserLogClass);
+                WI.consoleLogViewController.appendImmediateExecutionWithResult(text, remoteObject, {addSpecialUserLogClass: true, shouldRevealConsole: true});
             });
         });
 

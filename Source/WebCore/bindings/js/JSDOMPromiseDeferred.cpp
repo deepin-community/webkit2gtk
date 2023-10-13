@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,11 +26,11 @@
 #include "config.h"
 #include "JSDOMPromiseDeferred.h"
 
-#include "DOMWindow.h"
 #include "EventLoop.h"
 #include "JSDOMExceptionHandling.h"
 #include "JSDOMPromise.h"
-#include "JSDOMWindow.h"
+#include "JSLocalDOMWindow.h"
+#include "LocalDOMWindow.h"
 #include "ScriptController.h"
 #include "WorkerGlobalScope.h"
 #include <JavaScriptCore/BuiltinNames.h>
@@ -38,12 +38,16 @@
 #include <JavaScriptCore/JSONObject.h>
 #include <JavaScriptCore/JSPromiseConstructor.h>
 #include <JavaScriptCore/Strong.h>
+#include <wtf/Scope.h>
 
 namespace WebCore {
 using namespace JSC;
 
 JSC::JSValue DeferredPromise::promise() const
 {
+    if (isEmpty())
+        return jsUndefined();
+
     ASSERT(deferred());
     return deferred();
 }
@@ -53,9 +57,18 @@ void DeferredPromise::callFunction(JSGlobalObject& lexicalGlobalObject, ResolveM
     if (shouldIgnoreRequestToFulfill())
         return;
 
+    JSC::VM& vm = lexicalGlobalObject.vm();
+    auto scope = DECLARE_CATCH_SCOPE(vm);
+
+    auto handleExceptionIfNeeded = makeScopeExit([&] {
+        if (UNLIKELY(scope.exception()))
+            handleUncaughtException(scope, *jsCast<JSDOMGlobalObject*>(&lexicalGlobalObject));
+    });
+
     if (activeDOMObjectsAreSuspended()) {
         JSC::Strong<JSC::Unknown, ShouldStrongDestructorGrabLock::Yes> strongResolution(lexicalGlobalObject.vm(), resolution);
-        scriptExecutionContext()->eventLoop().queueTask(TaskSource::Networking, [this, protectedThis = makeRef(*this), mode, strongResolution = WTFMove(strongResolution)]() mutable {
+        ASSERT(scriptExecutionContext()->eventLoop().isSuspended());
+        scriptExecutionContext()->eventLoop().queueTask(TaskSource::Networking, [this, protectedThis = Ref { *this }, mode, strongResolution = WTFMove(strongResolution)]() mutable {
             if (shouldIgnoreRequestToFulfill())
                 return;
 
@@ -90,13 +103,20 @@ void DeferredPromise::whenSettled(Function<void()>&& callback)
         return;
 
     if (activeDOMObjectsAreSuspended()) {
-        scriptExecutionContext()->eventLoop().queueTask(TaskSource::Networking, [this, protectedThis = makeRef(*this), callback = WTFMove(callback)]() mutable {
+        scriptExecutionContext()->eventLoop().queueTask(TaskSource::Networking, [this, protectedThis = Ref { *this }, callback = WTFMove(callback)]() mutable {
             whenSettled(WTFMove(callback));
         });
         return;
     }
 
-    DOMPromise::whenPromiseIsSettled(globalObject(), deferred(), WTFMove(callback));
+    {
+        auto* globalObject = this->globalObject();
+        auto& vm = globalObject->vm();
+        JSC::JSLockHolder locker(vm);
+        auto scope = DECLARE_CATCH_SCOPE(vm);
+        DOMPromise::whenPromiseIsSettled(globalObject, deferred(), WTFMove(callback));
+        DEFERRED_PROMISE_HANDLE_AND_RETURN_IF_EXCEPTION(scope, globalObject);
+    }
 }
 
 void DeferredPromise::reject(RejectAsHandled rejectAsHandled)
@@ -128,6 +148,7 @@ void DeferredPromise::reject(Exception exception, RejectAsHandled rejectAsHandle
     if (shouldIgnoreRequestToFulfill())
         return;
 
+    Ref protectedThis(*this);
     ASSERT(deferred());
     ASSERT(m_globalObject);
     auto& lexicalGlobalObject = *m_globalObject;
@@ -139,10 +160,10 @@ void DeferredPromise::reject(Exception exception, RejectAsHandled rejectAsHandle
         EXCEPTION_ASSERT(scope.exception());
         auto error = scope.exception()->value();
         bool isTerminating = handleTerminationExceptionIfNeeded(scope, lexicalGlobalObject);
-        scope.clearException();
-
-        if (!isTerminating)
+        if (!isTerminating) {
+            scope.clearException();
             reject<IDLAny>(error, rejectAsHandled);
+        }
         return;
     }
 
@@ -162,6 +183,7 @@ void DeferredPromise::reject(ExceptionCode ec, const String& message, RejectAsHa
     if (shouldIgnoreRequestToFulfill())
         return;
 
+    Ref protectedThis(*this);
     ASSERT(deferred());
     ASSERT(m_globalObject);
     auto& lexicalGlobalObject = *m_globalObject;
@@ -173,10 +195,10 @@ void DeferredPromise::reject(ExceptionCode ec, const String& message, RejectAsHa
         EXCEPTION_ASSERT(scope.exception());
         auto error = scope.exception()->value();
         bool isTerminating = handleTerminationExceptionIfNeeded(scope, lexicalGlobalObject);
-        scope.clearException();
-
-        if (!isTerminating)
+        if (!isTerminating) {
+            scope.clearException();
             reject<IDLAny>(error, rejectAsHandled);
+        }
         return;
     }
 
@@ -208,6 +230,8 @@ void rejectPromiseWithExceptionIfAny(JSC::JSGlobalObject& lexicalGlobalObject, J
     UNUSED_PARAM(lexicalGlobalObject);
     if (LIKELY(!catchScope.exception()))
         return;
+    if (catchScope.vm().hasPendingTerminationException())
+        return;
 
     JSValue error = catchScope.exception()->value();
     catchScope.clearException();
@@ -228,7 +252,7 @@ JSC::EncodedJSValue createRejectedPromiseWithTypeError(JSC::JSGlobalObject& lexi
     if (cause == RejectedPromiseWithTypeErrorCause::NativeGetter)
         rejectionValue->setNativeGetterTypeError();
 
-    auto callData = getCallData(vm, rejectFunction);
+    auto callData = JSC::getCallData(rejectFunction);
     ASSERT(callData.type != CallData::Type::None);
 
     MarkedArgumentBuffer arguments;
@@ -274,10 +298,11 @@ bool DeferredPromise::handleTerminationExceptionIfNeeded(CatchScope& scope, JSDO
 
     auto& scriptExecutionContext = *lexicalGlobalObject.scriptExecutionContext();
     if (is<WorkerGlobalScope>(scriptExecutionContext)) {
-        auto& scriptController = *downcast<WorkerGlobalScope>(scriptExecutionContext).script();
+        auto* scriptController = downcast<WorkerGlobalScope>(scriptExecutionContext).script();
         bool terminatorCausedException = vm.isTerminationException(exception);
-        if (terminatorCausedException || scriptController.isTerminatingExecution()) {
-            scriptController.forbidExecution();
+        if (terminatorCausedException || (scriptController && scriptController->isTerminatingExecution())) {
+            scriptController->forbidExecution();
+            m_needsAbort = true;
             return true;
         }
     }

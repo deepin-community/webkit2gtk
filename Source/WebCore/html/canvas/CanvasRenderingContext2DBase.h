@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2006-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -47,6 +47,7 @@
 #include "ImageSmoothingQuality.h"
 #include "Path.h"
 #include "PlatformLayer.h"
+#include "Timer.h"
 #include <wtf/Vector.h>
 #include <wtf/text/WTFString.h>
 
@@ -60,20 +61,31 @@ class GraphicsContext;
 class ImageData;
 class OffscreenCanvas;
 class Path2D;
+class RenderElement;
 class RenderObject;
+class SVGImageElement;
 class TextMetrics;
+class WebCodecsVideoFrame;
 
 struct DOMMatrix2DInit;
 
-using CanvasImageSource = Variant<RefPtr<HTMLImageElement>, RefPtr<HTMLCanvasElement>, RefPtr<ImageBitmap>
-#if ENABLE(CSS_TYPED_OM)
+namespace DisplayList {
+class DrawingContext;
+}
+
+using CanvasImageSource = std::variant<RefPtr<HTMLImageElement>
+    , RefPtr<SVGImageElement>
+    , RefPtr<HTMLCanvasElement>
+    , RefPtr<ImageBitmap>
     , RefPtr<CSSStyleImageValue>
-#endif
 #if ENABLE(OFFSCREEN_CANVAS)
     , RefPtr<OffscreenCanvas>
 #endif
 #if ENABLE(VIDEO)
     , RefPtr<HTMLVideoElement>
+#endif
+#if ENABLE(WEB_CODECS)
+    , RefPtr<WebCodecsVideoFrame>
 #endif
     >;
 
@@ -182,7 +194,7 @@ public:
     void drawImageFromRect(HTMLImageElement&, float sx = 0, float sy = 0, float sw = 0, float sh = 0, float dx = 0, float dy = 0, float dw = 0, float dh = 0, const String& compositeOperation = emptyString());
     void clearCanvas();
 
-    using StyleVariant = Variant<String, RefPtr<CanvasGradient>, RefPtr<CanvasPattern>>;
+    using StyleVariant = std::variant<String, RefPtr<CanvasGradient>, RefPtr<CanvasPattern>>;
     StyleVariant strokeStyle() const;
     void setStrokeStyle(StyleVariant&&);
     StyleVariant fillStyle() const;
@@ -225,6 +237,8 @@ public:
     using Direction = CanvasDirection;
     void setDirection(Direction);
 
+    const HashSet<uint32_t>& suppliedColors() const { return m_suppliedColors; }
+
     class FontProxy final : public FontSelectorClient {
     public:
         FontProxy() = default;
@@ -234,7 +248,7 @@ public:
 
         bool realized() const { return m_font.fontSelector(); }
         void initialize(FontSelector&, const FontCascade&);
-        const FontMetrics& fontMetrics() const;
+        const FontMetrics& metricsOfPrimaryFont() const;
         const FontCascadeDescription& fontDescription() const;
         float width(const TextRun&, GlyphOverflow* = 0) const;
         void drawBidiText(GraphicsContext&, const TextRun&, const FloatPoint&, FontCascade::CustomFontNotReadyAction) const;
@@ -292,7 +306,7 @@ public:
 
 protected:
     static const int DefaultFontSize;
-    static const char* const DefaultFontFamily;
+    static const ASCIILiteral DefaultFontFamily;
 
     const State& state() const { return m_stateStack.last(); }
     void realizeSaves();
@@ -312,6 +326,14 @@ protected:
     bool usesCSSCompatibilityParseMode() const { return m_usesCSSCompatibilityParseMode; }
 
 private:
+    struct CachedImageData {
+        CachedImageData(CanvasRenderingContext2DBase&);
+
+        RefPtr<ImageData> imageData;
+        DeferrableOneShotTimer evictionTimer;
+        unsigned requestCount = 0;
+    };
+
     void applyLineDash() const;
     void setShadow(const FloatSize& offset, float blur, const Color&);
     void applyShadow();
@@ -321,10 +343,15 @@ private:
         ApplyTransform = 1 << 0,
         ApplyShadow = 1 << 1,
         ApplyClip = 1 << 2,
+        ApplyPostProcessing = 1 << 3,
+        PreserveCachedImageData = 1 << 4,
     };
-    void didDraw(std::optional<FloatRect>, OptionSet<DidDrawOption> = { DidDrawOption::ApplyTransform, DidDrawOption::ApplyShadow, DidDrawOption::ApplyClip });
+    void didDraw(std::optional<FloatRect>, OptionSet<DidDrawOption> = { DidDrawOption::ApplyTransform, DidDrawOption::ApplyShadow, DidDrawOption::ApplyClip, DidDrawOption::ApplyPostProcessing });
     void didDrawEntireCanvas();
+    void didDraw(bool entireCanvas, const FloatRect&);
+    template<typename RectProvider> void didDraw(bool entireCanvas, RectProvider);
 
+    bool is2dBase() const final { return true; }
     void paintRenderingResultsToCanvas() override;
     bool needsPreparationForDisplay() const final;
     void prepareForDisplay() final;
@@ -342,27 +369,33 @@ private:
     void setStrokeStyle(CanvasStyle);
     void setFillStyle(CanvasStyle);
 
+    ExceptionOr<RefPtr<CanvasPattern>> createPattern(CachedImage&, RenderElement*, bool repeatX, bool repeatY);
     ExceptionOr<RefPtr<CanvasPattern>> createPattern(HTMLImageElement&, bool repeatX, bool repeatY);
+    ExceptionOr<RefPtr<CanvasPattern>> createPattern(SVGImageElement&, bool repeatX, bool repeatY);
     ExceptionOr<RefPtr<CanvasPattern>> createPattern(CanvasBase&, bool repeatX, bool repeatY);
 #if ENABLE(VIDEO)
     ExceptionOr<RefPtr<CanvasPattern>> createPattern(HTMLVideoElement&, bool repeatX, bool repeatY);
 #endif
     ExceptionOr<RefPtr<CanvasPattern>> createPattern(ImageBitmap&, bool repeatX, bool repeatY);
-#if ENABLE(CSS_TYPED_OM)
     ExceptionOr<RefPtr<CanvasPattern>> createPattern(CSSStyleImageValue&, bool repeatX, bool repeatY);
+#if ENABLE(WEB_CODECS)
+    ExceptionOr<RefPtr<CanvasPattern>> createPattern(WebCodecsVideoFrame&, bool repeatX, bool repeatY);
 #endif
 
     ExceptionOr<void> drawImage(HTMLImageElement&, const FloatRect& srcRect, const FloatRect& dstRect);
     ExceptionOr<void> drawImage(HTMLImageElement&, const FloatRect& srcRect, const FloatRect& dstRect, const CompositeOperator&, const BlendMode&);
+    ExceptionOr<void> drawImage(SVGImageElement&, const FloatRect& srcRect, const FloatRect& dstRect);
+    ExceptionOr<void> drawImage(SVGImageElement&, const FloatRect& srcRect, const FloatRect& dstRect, const CompositeOperator&, const BlendMode&);
     ExceptionOr<void> drawImage(CanvasBase&, const FloatRect& srcRect, const FloatRect& dstRect);
-    ExceptionOr<void> drawImage(Document&, CachedImage*, const RenderObject*, const FloatRect& imageRect, const FloatRect& srcRect, const FloatRect& dstRect, const CompositeOperator&, const BlendMode&, ImageOrientation = ImageOrientation::FromImage);
+    ExceptionOr<void> drawImage(Document&, CachedImage*, const RenderObject*, const FloatRect& imageRect, const FloatRect& srcRect, const FloatRect& dstRect, const CompositeOperator&, const BlendMode&, ImageOrientation = ImageOrientation::Orientation::FromImage);
 #if ENABLE(VIDEO)
     ExceptionOr<void> drawImage(HTMLVideoElement&, const FloatRect& srcRect, const FloatRect& dstRect);
 #endif
-#if ENABLE(CSS_TYPED_OM)
     ExceptionOr<void> drawImage(CSSStyleImageValue&, const FloatRect& srcRect, const FloatRect& dstRect);
-#endif
     ExceptionOr<void> drawImage(ImageBitmap&, const FloatRect& srcRect, const FloatRect& dstRect);
+#if ENABLE(WEB_CODECS)
+    ExceptionOr<void> drawImage(WebCodecsVideoFrame&, const FloatRect& srcRect, const FloatRect& dstRect);
+#endif
 
     void beginCompositeLayer();
     void endCompositeLayer();
@@ -379,7 +412,6 @@ private:
     bool rectContainsCanvas(const FloatRect&) const;
 
     template<class T> IntRect calculateCompositingBufferRect(const T&, IntSize*);
-    RefPtr<ImageBuffer> createCompositingBuffer(const IntRect&);
     void compositeBuffer(ImageBuffer&, const IntRect&, CompositeOperator);
 
     void inflateStrokeRect(FloatRect&) const;
@@ -396,6 +428,10 @@ private:
 
     FloatPoint textOffset(float width, TextDirection);
 
+    bool cacheImageDataIfPossible(ImageData&, const IntPoint& destinationPosition, const IntRect& sourceRect);
+    RefPtr<ImageData> takeCachedImageDataIfPossible(const IntRect& sourceRect, PredefinedColorSpace) const;
+    void evictCachedImageData();
+
     static constexpr unsigned MaxSaveCount = 1024 * 16;
     Vector<State, 1> m_stateStack;
     FloatRect m_dirtyRect;
@@ -403,7 +439,11 @@ private:
     bool m_usesCSSCompatibilityParseMode;
     bool m_usesDisplayListDrawing { false };
     mutable std::unique_ptr<DisplayList::DrawingContext> m_recordingContext;
+    HashSet<uint32_t> m_suppliedColors;
+    mutable std::optional<CachedImageData> m_cachedImageData;
     CanvasRenderingContext2DSettings m_settings;
 };
 
 } // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_CANVASRENDERINGCONTEXT(WebCore::CanvasRenderingContext2DBase, is2dBase())

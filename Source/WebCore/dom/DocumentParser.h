@@ -23,16 +23,17 @@
 
 #pragma once
 
-#include "Document.h"
 #include <wtf/Forward.h>
 #include <wtf/RefCounted.h>
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
+class Document;
 class DocumentWriter;
 class SegmentedString;
 class ScriptableDocumentParser;
+class WeakPtrImplWithEventTargetData;
 
 class DocumentParser : public RefCounted<DocumentParser> {
 public:
@@ -50,10 +51,8 @@ public:
     virtual void appendBytes(DocumentWriter&, const uint8_t* bytes, size_t length) = 0;
     virtual void flush(DocumentWriter&) = 0;
 
-    // FIXME: append() should be private, but DocumentWriter::replaceDocument uses it for now.
-    // FIXME: This really should take a std::unique_ptr to signify that it expects to take
-    // ownership of the buffer. The parser expects the RefPtr to hold the only ref of the StringImpl.
     virtual void append(RefPtr<StringImpl>&&) = 0;
+    virtual void appendSynchronously(RefPtr<StringImpl>&& inputSource) { append(WTFMove(inputSource)); }
 
     virtual void finish() = 0;
 
@@ -115,7 +114,7 @@ private:
 
     // Every DocumentParser needs a pointer back to the document.
     // m_document will be 0 after the parser is stopped.
-    WeakPtr<Document> m_document;
+    WeakPtr<Document, WeakPtrImplWithEventTargetData> m_document;
 };
 
 } // namespace WebCore

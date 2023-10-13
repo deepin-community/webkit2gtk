@@ -56,15 +56,12 @@
 #include "CSSPropertyNames.h"
 #include "CommonVM.h"
 #include "CookieJar.h"
-#include "DOMWindow.h"
 #include "DocumentLoader.h"
 #include "DocumentType.h"
-#include "ElementChildIterator.h"
+#include "ElementChildIteratorInlines.h"
 #include "FocusController.h"
-#include "Frame.h"
 #include "FrameLoader.h"
 #include "FrameTree.h"
-#include "FrameView.h"
 #include "HTMLBodyElement.h"
 #include "HTMLCollection.h"
 #include "HTMLDocumentParser.h"
@@ -74,6 +71,9 @@
 #include "HTMLHtmlElement.h"
 #include "HTMLIFrameElement.h"
 #include "HTMLNames.h"
+#include "LocalDOMWindow.h"
+#include "LocalFrame.h"
+#include "LocalFrameView.h"
 #include "Quirks.h"
 #include "ScriptController.h"
 #include "StyleResolver.h"
@@ -87,13 +87,15 @@ WTF_MAKE_ISO_ALLOCATED_IMPL(HTMLDocument);
 
 using namespace HTMLNames;
 
-Ref<HTMLDocument> HTMLDocument::createSynthesizedDocument(Frame& frame, const URL& url)
+Ref<HTMLDocument> HTMLDocument::createSynthesizedDocument(LocalFrame& frame, const URL& url)
 {
-    return adoptRef(*new HTMLDocument(&frame, frame.settings(), url, HTMLDocumentClass, Synthesized));
+    auto document = adoptRef(*new HTMLDocument(&frame, frame.settings(), url, { }, { DocumentClass::HTML }, { ConstructionFlag::Synthesized }));
+    document->addToContextsMap();
+    return document;
 }
 
-HTMLDocument::HTMLDocument(Frame* frame, const Settings& settings, const URL& url, DocumentClassFlags documentClasses, unsigned constructionFlags)
-    : Document(frame, settings, url, documentClasses | HTMLDocumentClass, constructionFlags)
+HTMLDocument::HTMLDocument(LocalFrame* frame, const Settings& settings, const URL& url, ScriptExecutionContextIdentifier documentIdentifier, DocumentClasses documentClasses, OptionSet<ConstructionFlag> constructionFlags)
+    : Document(frame, settings, url, documentClasses | DocumentClasses(DocumentClass::HTML), constructionFlags, documentIdentifier)
 {
     clearXMLVersion();
 }
@@ -103,24 +105,24 @@ HTMLDocument::~HTMLDocument() = default;
 int HTMLDocument::width()
 {
     updateLayoutIgnorePendingStylesheets();
-    RefPtr<FrameView> frameView = view();
+    RefPtr frameView = view();
     return frameView ? frameView->contentsWidth() : 0;
 }
 
 int HTMLDocument::height()
 {
     updateLayoutIgnorePendingStylesheets();
-    RefPtr<FrameView> frameView = view();
+    RefPtr frameView = view();
     return frameView ? frameView->contentsHeight() : 0;
 }
 
 Ref<DocumentParser> HTMLDocument::createParser()
 {
-    return HTMLDocumentParser::create(*this);
+    return HTMLDocumentParser::create(*this, parserContentPolicy());
 }
 
 // https://html.spec.whatwg.org/multipage/dom.html#dom-document-nameditem
-std::optional<Variant<RefPtr<WindowProxy>, RefPtr<Element>, RefPtr<HTMLCollection>>> HTMLDocument::namedItem(const AtomString& name)
+std::optional<std::variant<RefPtr<WindowProxy>, RefPtr<Element>, RefPtr<HTMLCollection>>> HTMLDocument::namedItem(const AtomString& name)
 {
     if (name.isNull() || !hasDocumentNamedItem(*name.impl()))
         return std::nullopt;
@@ -128,16 +130,21 @@ std::optional<Variant<RefPtr<WindowProxy>, RefPtr<Element>, RefPtr<HTMLCollectio
     if (UNLIKELY(documentNamedItemContainsMultipleElements(*name.impl()))) {
         auto collection = documentNamedItems(name);
         ASSERT(collection->length() > 1);
-        return Variant<RefPtr<WindowProxy>, RefPtr<Element>, RefPtr<HTMLCollection>> { RefPtr<HTMLCollection> { WTFMove(collection) } };
+        return std::variant<RefPtr<WindowProxy>, RefPtr<Element>, RefPtr<HTMLCollection>> { RefPtr<HTMLCollection> { WTFMove(collection) } };
     }
 
     auto& element = *documentNamedItem(*name.impl());
     if (UNLIKELY(is<HTMLIFrameElement>(element))) {
-        if (auto domWindow = makeRefPtr(downcast<HTMLIFrameElement>(element).contentWindow()))
-            return Variant<RefPtr<WindowProxy>, RefPtr<Element>, RefPtr<HTMLCollection>> { WTFMove(domWindow) };
+        if (RefPtr domWindow = downcast<HTMLIFrameElement>(element).contentWindow())
+            return std::variant<RefPtr<WindowProxy>, RefPtr<Element>, RefPtr<HTMLCollection>> { WTFMove(domWindow) };
     }
 
-    return Variant<RefPtr<WindowProxy>, RefPtr<Element>, RefPtr<HTMLCollection>> { RefPtr<Element> { &element } };
+    return std::variant<RefPtr<WindowProxy>, RefPtr<Element>, RefPtr<HTMLCollection>> { RefPtr<Element> { &element } };
+}
+
+bool HTMLDocument::isSupportedPropertyName(const AtomString& name) const
+{
+    return !name.isNull() && hasDocumentNamedItem(*name.impl());
 }
 
 Vector<AtomString> HTMLDocument::supportedPropertyNames() const
@@ -176,64 +183,64 @@ void HTMLDocument::removeWindowNamedItem(const AtomStringImpl& name, Element& it
 
 bool HTMLDocument::isCaseSensitiveAttribute(const QualifiedName& attributeName)
 {
-    static const auto caseInsensitiveAttributeSet = makeNeverDestroyed([] {
+    static NeverDestroyed set = [] {
         // This is the list of attributes in HTML 4.01 with values marked as "[CI]" or case-insensitive
         // Mozilla treats all other values as case-sensitive, thus so do we.
-        static const QualifiedName* const names[] = {
-            &accept_charsetAttr.get(),
-            &acceptAttr.get(),
-            &alignAttr.get(),
-            &alinkAttr.get(),
-            &axisAttr.get(),
-            &bgcolorAttr.get(),
-            &charsetAttr.get(),
-            &checkedAttr.get(),
-            &clearAttr.get(),
-            &codetypeAttr.get(),
-            &colorAttr.get(),
-            &compactAttr.get(),
-            &declareAttr.get(),
-            &deferAttr.get(),
-            &dirAttr.get(),
-            &disabledAttr.get(),
-            &enctypeAttr.get(),
-            &faceAttr.get(),
-            &frameAttr.get(),
-            &hreflangAttr.get(),
-            &http_equivAttr.get(),
-            &langAttr.get(),
-            &languageAttr.get(),
-            &linkAttr.get(),
-            &mediaAttr.get(),
-            &methodAttr.get(),
-            &multipleAttr.get(),
-            &nohrefAttr.get(),
-            &noresizeAttr.get(),
-            &noshadeAttr.get(),
-            &nowrapAttr.get(),
-            &readonlyAttr.get(),
-            &relAttr.get(),
-            &revAttr.get(),
-            &rulesAttr.get(),
-            &scopeAttr.get(),
-            &scrollingAttr.get(),
-            &selectedAttr.get(),
-            &shapeAttr.get(),
-            &targetAttr.get(),
-            &textAttr.get(),
-            &typeAttr.get(),
-            &valignAttr.get(),
-            &valuetypeAttr.get(),
-            &vlinkAttr.get(),
+        static constexpr std::array names {
+            &accept_charsetAttr,
+            &acceptAttr,
+            &alignAttr,
+            &alinkAttr,
+            &axisAttr,
+            &bgcolorAttr,
+            &charsetAttr,
+            &checkedAttr,
+            &clearAttr,
+            &codetypeAttr,
+            &colorAttr,
+            &compactAttr,
+            &declareAttr,
+            &deferAttr,
+            &dirAttr,
+            &disabledAttr,
+            &enctypeAttr,
+            &faceAttr,
+            &frameAttr,
+            &hreflangAttr,
+            &http_equivAttr,
+            &langAttr,
+            &languageAttr,
+            &linkAttr,
+            &mediaAttr,
+            &methodAttr,
+            &multipleAttr,
+            &nohrefAttr,
+            &noresizeAttr,
+            &noshadeAttr,
+            &nowrapAttr,
+            &readonlyAttr,
+            &relAttr,
+            &revAttr,
+            &rulesAttr,
+            &scopeAttr,
+            &scrollingAttr,
+            &selectedAttr,
+            &shapeAttr,
+            &targetAttr,
+            &textAttr,
+            &typeAttr,
+            &valignAttr,
+            &valuetypeAttr,
+            &vlinkAttr,
         };
         MemoryCompactLookupOnlyRobinHoodHashSet<AtomString> set;
+        set.reserveInitialCapacity(std::size(names));
         for (auto* name : names)
-            set.add(name->localName());
+            set.add(name->get().localName());
         return set;
-    }());
-
+    }();
     bool isPossibleHTMLAttr = !attributeName.hasPrefix() && attributeName.namespaceURI().isNull();
-    return !isPossibleHTMLAttr || !caseInsensitiveAttributeSet.get().contains(attributeName.localName());
+    return !isPossibleHTMLAttr || !set.get().contains(attributeName.localName());
 }
 
 bool HTMLDocument::isFrameSet() const

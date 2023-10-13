@@ -29,7 +29,8 @@
 #if ENABLE(TOUCH_EVENTS)
 
 #include "Document.h"
-#include "Frame.h"
+#include "FrameDestructionObserverInlines.h"
+#include "LocalFrame.h"
 #include "Touch.h"
 #include "TouchList.h"
 #include "WindowProxy.h"
@@ -38,9 +39,9 @@ namespace WebCore {
 
 Ref<Touch> DocumentTouch::createTouch(Document& document, RefPtr<WindowProxy>&& window, EventTarget* target, int identifier, int pageX, int pageY, int screenX, int screenY, int radiusX, int radiusY, float rotationAngle, float force)
 {
-    Frame* frame;
-    if (window && is<Frame>(window->frame()))
-        frame = downcast<Frame>(window->frame());
+    LocalFrame* frame;
+    if (window && is<LocalFrame>(window->frame()))
+        frame = downcast<LocalFrame>(window->frame());
     else
         frame = document.frame();
 
@@ -51,7 +52,7 @@ Ref<Touch> DocumentTouch::createTouch(Document& document, RefPtr<WindowProxy>&& 
     return Touch::create(frame, target, identifier, screenX, screenY, pageX, pageY, radiusX, radiusY, rotationAngle, force);
 }
 
-Ref<TouchList> DocumentTouch::createTouchList(Document&, Vector<std::reference_wrapper<Touch>>&& touches)
+Ref<TouchList> DocumentTouch::createTouchList(Document&, FixedVector<std::reference_wrapper<Touch>>&& touches)
 {
     return TouchList::create(WTFMove(touches));
 }

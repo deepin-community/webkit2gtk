@@ -32,13 +32,14 @@
 #include "ResourceLoadNotifier.h"
 
 #include "DocumentLoader.h"
-#include "Frame.h"
 #include "FrameLoader.h"
-#include "FrameLoaderClient.h"
 #include "InspectorInstrumentation.h"
+#include "LocalFrame.h"
+#include "LocalFrameLoaderClient.h"
 #include "Page.h"
 #include "ProgressTracker.h"
 #include "ResourceLoader.h"
+#include "SharedBuffer.h"
 
 #if USE(QUICK_LOOK)
 #include "QuickLook.h"
@@ -46,7 +47,7 @@
 
 namespace WebCore {
 
-ResourceLoadNotifier::ResourceLoadNotifier(Frame& frame)
+ResourceLoadNotifier::ResourceLoadNotifier(LocalFrame& frame)
     : m_frame(frame)
 {
 }
@@ -56,7 +57,7 @@ void ResourceLoadNotifier::didReceiveAuthenticationChallenge(ResourceLoader* loa
     didReceiveAuthenticationChallenge(loader->identifier(), loader->documentLoader(), currentWebChallenge);
 }
 
-void ResourceLoadNotifier::didReceiveAuthenticationChallenge(unsigned long identifier, DocumentLoader* loader, const AuthenticationChallenge& currentWebChallenge)
+void ResourceLoadNotifier::didReceiveAuthenticationChallenge(ResourceLoaderIdentifier identifier, DocumentLoader* loader, const AuthenticationChallenge& currentWebChallenge)
 {
     m_frame.loader().client().dispatchDidReceiveAuthenticationChallenge(loader, identifier, currentWebChallenge);
 }
@@ -65,7 +66,7 @@ void ResourceLoadNotifier::willSendRequest(ResourceLoader* loader, ResourceReque
 {
     m_frame.loader().applyUserAgentIfNeeded(clientRequest);
 
-    dispatchWillSendRequest(loader->documentLoader(), loader->identifier(), clientRequest, redirectResponse, loader->cachedResource());
+    dispatchWillSendRequest(loader->documentLoader(), loader->identifier(), clientRequest, redirectResponse, loader->cachedResource(), loader);
 }
 
 void ResourceLoadNotifier::didReceiveResponse(ResourceLoader* loader, const ResourceResponse& r)
@@ -78,12 +79,12 @@ void ResourceLoadNotifier::didReceiveResponse(ResourceLoader* loader, const Reso
     dispatchDidReceiveResponse(loader->documentLoader(), loader->identifier(), r, loader);
 }
 
-void ResourceLoadNotifier::didReceiveData(ResourceLoader* loader, const uint8_t* data, int dataLength, int encodedDataLength)
+void ResourceLoadNotifier::didReceiveData(ResourceLoader* loader, const SharedBuffer& buffer, int encodedDataLength)
 {
     if (Page* page = m_frame.page())
-        page->progress().incrementProgress(loader->identifier(), dataLength);
+        page->progress().incrementProgress(loader->identifier(), buffer.size());
 
-    dispatchDidReceiveData(loader->documentLoader(), loader->identifier(), data, dataLength, encodedDataLength);
+    dispatchDidReceiveData(loader->documentLoader(), loader->identifier(), &buffer, buffer.size(), encodedDataLength);
 }
 
 void ResourceLoadNotifier::didFinishLoad(ResourceLoader* loader, const NetworkLoadMetrics& networkLoadMetrics)
@@ -99,15 +100,15 @@ void ResourceLoadNotifier::didFailToLoad(ResourceLoader* loader, const ResourceE
     if (Page* page = m_frame.page())
         page->progress().completeProgress(loader->identifier());
 
-    // Notifying the FrameLoaderClient may cause the frame to be destroyed.
-    Ref<Frame> protect(m_frame);
+    // Notifying the LocalFrameLoaderClient may cause the frame to be destroyed.
+    Ref protectedFrame { m_frame };
     if (!error.isNull())
         m_frame.loader().client().dispatchDidFailLoading(loader->documentLoader(), loader->identifier(), error);
 
     InspectorInstrumentation::didFailLoading(&m_frame, loader->documentLoader(), loader->identifier(), error);
 }
 
-void ResourceLoadNotifier::assignIdentifierToInitialRequest(unsigned long identifier, DocumentLoader* loader, const ResourceRequest& request)
+void ResourceLoadNotifier::assignIdentifierToInitialRequest(ResourceLoaderIdentifier identifier, DocumentLoader* loader, const ResourceRequest& request)
 {
     bool pageIsProvisionallyLoading = false;
     if (auto* frameLoader = loader ? loader->frameLoader() : nullptr)
@@ -119,7 +120,7 @@ void ResourceLoadNotifier::assignIdentifierToInitialRequest(unsigned long identi
     m_frame.loader().client().assignIdentifierToInitialRequest(identifier, loader, request);
 }
 
-void ResourceLoadNotifier::dispatchWillSendRequest(DocumentLoader* loader, unsigned long identifier, ResourceRequest& request, const ResourceResponse& redirectResponse, const CachedResource* cachedResource)
+void ResourceLoadNotifier::dispatchWillSendRequest(DocumentLoader* loader, ResourceLoaderIdentifier identifier, ResourceRequest& request, const ResourceResponse& redirectResponse, const CachedResource* cachedResource, ResourceLoader* resourceLoader)
 {
 #if USE(QUICK_LOOK)
     // Always allow QuickLook-generated URLs based on the protocol scheme.
@@ -133,65 +134,59 @@ void ResourceLoadNotifier::dispatchWillSendRequest(DocumentLoader* loader, unsig
     if (m_frame.loader().documentLoader())
         m_frame.loader().documentLoader()->didTellClientAboutLoad(request.url().string());
 
-    // Notifying the FrameLoaderClient may cause the frame to be destroyed.
-    Ref<Frame> protectedFrame(m_frame);
+    // Notifying the LocalFrameLoaderClient may cause the frame to be destroyed.
+    Ref protectedFrame { m_frame };
     m_frame.loader().client().dispatchWillSendRequest(loader, identifier, request, redirectResponse);
-
-    if (auto* page = m_frame.page()) {
-        auto mainFrameMainResource = m_frame.isMainFrame() && m_initialRequestIdentifier == identifier ? MainFrameMainResource::Yes : MainFrameMainResource::No;
-        if (!page->allowsLoadFromURL(request.url(), mainFrameMainResource))
-            request = { };
-    }
 
     // If the URL changed, then we want to put that new URL in the "did tell client" set too.
     if (!request.isNull() && oldRequestURL != request.url().string() && m_frame.loader().documentLoader())
         m_frame.loader().documentLoader()->didTellClientAboutLoad(request.url().string());
 
-    InspectorInstrumentation::willSendRequest(&m_frame, identifier, loader, request, redirectResponse, cachedResource);
+    InspectorInstrumentation::willSendRequest(&m_frame, identifier, loader, request, redirectResponse, cachedResource, resourceLoader);
 }
 
-void ResourceLoadNotifier::dispatchDidReceiveResponse(DocumentLoader* loader, unsigned long identifier, const ResourceResponse& r, ResourceLoader* resourceLoader)
+void ResourceLoadNotifier::dispatchDidReceiveResponse(DocumentLoader* loader, ResourceLoaderIdentifier identifier, const ResourceResponse& r, ResourceLoader* resourceLoader)
 {
-    // Notifying the FrameLoaderClient may cause the frame to be destroyed.
-    Ref<Frame> protect(m_frame);
+    // Notifying the LocalFrameLoaderClient may cause the frame to be destroyed.
+    Ref protectedFrame { m_frame };
     m_frame.loader().client().dispatchDidReceiveResponse(loader, identifier, r);
 
     InspectorInstrumentation::didReceiveResourceResponse(m_frame, identifier, loader, r, resourceLoader);
 }
 
-void ResourceLoadNotifier::dispatchDidReceiveData(DocumentLoader* loader, unsigned long identifier, const uint8_t* data, int dataLength, int encodedDataLength)
+void ResourceLoadNotifier::dispatchDidReceiveData(DocumentLoader* loader, ResourceLoaderIdentifier identifier, const SharedBuffer* buffer, int expectedDataLength, int encodedDataLength)
 {
-    // Notifying the FrameLoaderClient may cause the frame to be destroyed.
-    Ref<Frame> protect(m_frame);
-    m_frame.loader().client().dispatchDidReceiveContentLength(loader, identifier, dataLength);
+    // Notifying the LocalFrameLoaderClient may cause the frame to be destroyed.
+    Ref protectedFrame { m_frame };
+    m_frame.loader().client().dispatchDidReceiveContentLength(loader, identifier, expectedDataLength);
 
-    InspectorInstrumentation::didReceiveData(&m_frame, identifier, data, dataLength, encodedDataLength);
+    InspectorInstrumentation::didReceiveData(&m_frame, identifier, buffer, encodedDataLength);
 }
 
-void ResourceLoadNotifier::dispatchDidFinishLoading(DocumentLoader* loader, unsigned long identifier, const NetworkLoadMetrics& networkLoadMetrics, ResourceLoader* resourceLoader)
+void ResourceLoadNotifier::dispatchDidFinishLoading(DocumentLoader* loader, ResourceLoaderIdentifier identifier, const NetworkLoadMetrics& networkLoadMetrics, ResourceLoader* resourceLoader)
 {
-    // Notifying the FrameLoaderClient may cause the frame to be destroyed.
-    Ref<Frame> protect(m_frame);
+    // Notifying the LocalFrameLoaderClient may cause the frame to be destroyed.
+    Ref protectedFrame { m_frame };
     m_frame.loader().client().dispatchDidFinishLoading(loader, identifier);
 
     InspectorInstrumentation::didFinishLoading(&m_frame, loader, identifier, networkLoadMetrics, resourceLoader);
 }
 
-void ResourceLoadNotifier::dispatchDidFailLoading(DocumentLoader* loader, unsigned long identifier, const ResourceError& error)
+void ResourceLoadNotifier::dispatchDidFailLoading(DocumentLoader* loader, ResourceLoaderIdentifier identifier, const ResourceError& error)
 {
-    // Notifying the FrameLoaderClient may cause the frame to be destroyed.
-    Ref<Frame> protect(m_frame);
+    // Notifying the LocalFrameLoaderClient may cause the frame to be destroyed.
+    Ref protectedFrame { m_frame };
     m_frame.loader().client().dispatchDidFailLoading(loader, identifier, error);
 
     InspectorInstrumentation::didFailLoading(&m_frame, loader, identifier, error);
 }
 
-void ResourceLoadNotifier::sendRemainingDelegateMessages(DocumentLoader* loader, unsigned long identifier, const ResourceRequest& request, const ResourceResponse& response, const uint8_t* data, int dataLength, int encodedDataLength, const ResourceError& error)
+void ResourceLoadNotifier::sendRemainingDelegateMessages(DocumentLoader* loader, ResourceLoaderIdentifier identifier, const ResourceRequest& request, const ResourceResponse& response, const SharedBuffer* buffer, int expectedDataLength, int encodedDataLength, const ResourceError& error)
 {
     // If the request is null, willSendRequest cancelled the load. We should
     // only dispatch didFailLoading in this case.
     if (request.isNull()) {
-        ASSERT(error.isCancellation());
+        ASSERT(error.isCancellation() || error.isAccessControl());
         dispatchDidFailLoading(loader, identifier, error);
         return;
     }
@@ -199,8 +194,8 @@ void ResourceLoadNotifier::sendRemainingDelegateMessages(DocumentLoader* loader,
     if (!response.isNull())
         dispatchDidReceiveResponse(loader, identifier, response);
 
-    if (dataLength > 0)
-        dispatchDidReceiveData(loader, identifier, data, dataLength, encodedDataLength);
+    if (expectedDataLength > 0)
+        dispatchDidReceiveData(loader, identifier, buffer, expectedDataLength, encodedDataLength);
 
     if (error.isNull()) {
         NetworkLoadMetrics emptyMetrics;

@@ -25,11 +25,12 @@ import itertools
 from collections import Counter, defaultdict
 
 BUILTIN_ATTRIBUTE = "Builtin"
-ASYNC_ATTRIBUTE = "Async"
 MAINTHREADCALLBACK_ATTRIBUTE = "MainThreadCallback"
+CALL_WITH_REPLY_ID_ATTRIBUTE = "CallWithReplyID"
+ALLOWEDWHENWAITINGFORSYNCREPLY_ATTRIBUTE = "AllowedWhenWaitingForSyncReply"
+ALLOWEDWHENWAITINGFORSYNCREPLYDURINGUNBOUNDEDIPC_ATTRIBUTE = "AllowedWhenWaitingForSyncReplyDuringUnboundedIPC"
 SYNCHRONOUS_ATTRIBUTE = 'Synchronous'
 STREAM_ATTRIBUTE = "Stream"
-WANTS_CONNECTION_ATTRIBUTE = 'WantsConnection'
 
 class MessageReceiver(object):
     def __init__(self, name, superclass, attributes, messages, condition):
@@ -72,12 +73,12 @@ class Parameter(object):
 
 
 ipc_receiver = MessageReceiver(name="IPC", superclass=None, attributes=[BUILTIN_ATTRIBUTE], messages=[
-    Message('WrappedAsyncMessageForTesting', [], [], attributes=[BUILTIN_ATTRIBUTE, SYNCHRONOUS_ATTRIBUTE], condition=None),
+    Message('WrappedAsyncMessageForTesting', [], [], attributes=[BUILTIN_ATTRIBUTE, SYNCHRONOUS_ATTRIBUTE, ALLOWEDWHENWAITINGFORSYNCREPLY_ATTRIBUTE], condition=None),
     Message('SyncMessageReply', [], [], attributes=[BUILTIN_ATTRIBUTE], condition=None),
     Message('InitializeConnection', [], [], attributes=[BUILTIN_ATTRIBUTE], condition="PLATFORM(COCOA)"),
     Message('LegacySessionState', [], [], attributes=[BUILTIN_ATTRIBUTE], condition=None),
     Message('SetStreamDestinationID', [], [], attributes=[BUILTIN_ATTRIBUTE], condition=None),
-    Message('ProcessOutOfStreamMessage', [], [], attributes=[BUILTIN_ATTRIBUTE], condition=None)
+    Message('ProcessOutOfStreamMessage', [], [], attributes=[BUILTIN_ATTRIBUTE], condition=None),
 ], condition=None)
 
 
@@ -110,7 +111,7 @@ def generate_global_model(receivers):
     async_reply_messages = []
     for receiver in receivers:
         for message in receiver.messages:
-            if message.has_attribute(ASYNC_ATTRIBUTE):
+            if message.reply_parameters is not None and not message.has_attribute(SYNCHRONOUS_ATTRIBUTE):
                 async_reply_messages.append(Message(name='%s_%sReply' % (receiver.name, message.name), parameters=message.reply_parameters, reply_parameters=[], attributes=None, condition=message.condition))
     async_reply_receiver = MessageReceiver(name='AsyncReply', superclass='None', attributes=[BUILTIN_ATTRIBUTE], messages=async_reply_messages, condition=None)
     return [ipc_receiver, async_reply_receiver] + receivers

@@ -53,7 +53,7 @@ MediaSourceTrackGStreamer::~MediaSourceTrackGStreamer()
 
 Ref<MediaSourceTrackGStreamer> MediaSourceTrackGStreamer::create(TrackPrivateBaseGStreamer::TrackType type, AtomString trackId, GRefPtr<GstCaps>&& initialCaps)
 {
-    return makeRef(*new MediaSourceTrackGStreamer(type, trackId, WTFMove(initialCaps)));
+    return adoptRef(*new MediaSourceTrackGStreamer(type, trackId, WTFMove(initialCaps)));
 }
 
 bool MediaSourceTrackGStreamer::isReadyForMoreSamples()
@@ -90,6 +90,8 @@ void MediaSourceTrackGStreamer::remove()
     m_isRemoved = true;
 }
 
-}
+#undef GST_CAT_DEFAULT
 
-#endif
+} // namespace WebCore
+
+#endif // ENABLE(MEDIA_SOURCE) && USE(GSTREAMER)

@@ -47,7 +47,7 @@ namespace WebKit {
 DownloadProxyMap::DownloadProxyMap(NetworkProcessProxy& process)
     : m_process(process)
 #if PLATFORM(COCOA)
-    , m_shouldTakeAssertion(WTF::processHasEntitlement("com.apple.multitasking.systemappassertions"))
+    , m_shouldTakeAssertion(WTF::processHasEntitlement("com.apple.multitasking.systemappassertions"_s))
 #endif
 {
     platformCreate();
@@ -69,20 +69,8 @@ void DownloadProxyMap::platformDestroy()
 }
 #endif
 
-void DownloadProxyMap::applicationDidEnterBackground()
+Ref<DownloadProxy> DownloadProxyMap::createDownloadProxy(WebsiteDataStore& dataStore, Ref<API::DownloadClient>&& client, const WebCore::ResourceRequest& resourceRequest, const FrameInfoData& frameInfo, WebPageProxy* originatingPage)
 {
-    m_process.send(Messages::NetworkProcess::ApplicationDidEnterBackground(), 0);
-}
-
-void DownloadProxyMap::applicationWillEnterForeground()
-{
-    m_process.send(Messages::NetworkProcess::ApplicationWillEnterForeground(), 0);
-}
-
-DownloadProxy& DownloadProxyMap::createDownloadProxy(WebsiteDataStore& dataStore, WebProcessPool& processPool, const WebCore::ResourceRequest& resourceRequest, const FrameInfoData& frameInfo, WebPageProxy* originatingPage)
-{
-    auto* legacyDownloadClient = processPool.legacyDownloadClient();
-    Ref<API::DownloadClient> client = legacyDownloadClient ? Ref<API::DownloadClient>(*legacyDownloadClient) : adoptRef(*new API::DownloadClient);
     auto downloadProxy = DownloadProxy::create(*this, dataStore, WTFMove(client), resourceRequest, frameInfo, originatingPage);
     m_downloads.set(downloadProxy->downloadID(), downloadProxy.copyRef());
 
@@ -93,7 +81,7 @@ DownloadProxy& DownloadProxyMap::createDownloadProxy(WebsiteDataStore& dataStore
         m_downloadUIAssertion = ProcessAssertion::create(getCurrentProcessID(), "WebKit downloads"_s, ProcessAssertionType::UnboundedNetworking);
 
         ASSERT(!m_downloadNetworkingAssertion);
-        m_downloadNetworkingAssertion = ProcessAssertion::create(m_process.processIdentifier(), "WebKit downloads"_s, ProcessAssertionType::UnboundedNetworking);
+        m_downloadNetworkingAssertion = ProcessAssertion::create(m_process.processID(), "WebKit downloads"_s, ProcessAssertionType::UnboundedNetworking);
 
         RELEASE_LOG(ProcessSuspension, "UIProcess took 'WebKit downloads' assertions for UIProcess and NetworkProcess");
     }

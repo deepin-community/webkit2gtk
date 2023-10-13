@@ -53,11 +53,9 @@ U2fAuthenticator::U2fAuthenticator(std::unique_ptr<CtapDriver>&& driver)
 
 void U2fAuthenticator::makeCredential()
 {
-    auto& creationOptions = WTF::get<PublicKeyCredentialCreationOptions>(requestData().options);
-    if (!isConvertibleToU2fRegisterCommand(creationOptions)) {
-        receiveRespond(ExceptionData { NotSupportedError, "Cannot convert the request to U2F command."_s });
+    auto& creationOptions = std::get<PublicKeyCredentialCreationOptions>(requestData().options);
+    if (!isConvertibleToU2fRegisterCommand(creationOptions))
         return;
-    }
     if (!creationOptions.excludeCredentials.isEmpty()) {
         ASSERT(!m_nextListIndex);
         checkExcludeList(m_nextListIndex++);
@@ -68,7 +66,7 @@ void U2fAuthenticator::makeCredential()
 
 void U2fAuthenticator::checkExcludeList(size_t index)
 {
-    auto& creationOptions = WTF::get<PublicKeyCredentialCreationOptions>(requestData().options);
+    auto& creationOptions = std::get<PublicKeyCredentialCreationOptions>(requestData().options);
     if (index >= creationOptions.excludeCredentials.size()) {
         issueRegisterCommand();
         return;
@@ -80,31 +78,27 @@ void U2fAuthenticator::checkExcludeList(size_t index)
 
 void U2fAuthenticator::issueRegisterCommand()
 {
-    auto u2fCmd = convertToU2fRegisterCommand(requestData().hash, WTF::get<PublicKeyCredentialCreationOptions>(requestData().options));
+    auto u2fCmd = convertToU2fRegisterCommand(requestData().hash, std::get<PublicKeyCredentialCreationOptions>(requestData().options));
     ASSERT(u2fCmd);
     issueNewCommand(WTFMove(*u2fCmd), CommandType::RegisterCommand);
 }
 
 void U2fAuthenticator::getAssertion()
 {
-    if (!isConvertibleToU2fSignCommand(WTF::get<PublicKeyCredentialRequestOptions>(requestData().options))) {
-        receiveRespond(ExceptionData { NotSupportedError, "Cannot convert the request to U2F command."_s });
+    if (!isConvertibleToU2fSignCommand(std::get<PublicKeyCredentialRequestOptions>(requestData().options)))
         return;
-    }
     ASSERT(!m_nextListIndex);
     issueSignCommand(m_nextListIndex++);
 }
 
 void U2fAuthenticator::issueSignCommand(size_t index)
 {
-    auto& requestOptions = WTF::get<PublicKeyCredentialRequestOptions>(requestData().options);
+    auto& requestOptions = std::get<PublicKeyCredentialRequestOptions>(requestData().options);
     if (index >= requestOptions.allowCredentials.size()) {
-        if (auto* observer = this->observer())
-            observer->authenticatorStatusUpdated(WebAuthenticationStatus::NoCredentialsFound);
-        receiveRespond(ExceptionData { NotAllowedError, "No credentials from the allowCredentials list is found in the authenticator."_s });
+        issueNewCommand(constructBogusU2fRegistrationCommand(), CommandType::BogusCommandNoCredentials);
         return;
     }
-    auto u2fCmd = convertToU2fSignCommand(requestData().hash, requestOptions, requestOptions.allowCredentials[index].idVector, m_isAppId);
+    auto u2fCmd = convertToU2fSignCommand(requestData().hash, requestOptions, requestOptions.allowCredentials[index].id, m_isAppId);
     ASSERT(u2fCmd);
     issueNewCommand(WTFMove(*u2fCmd), CommandType::SignCommand);
 }
@@ -118,7 +112,7 @@ void U2fAuthenticator::issueNewCommand(Vector<uint8_t>&& command, CommandType ty
 
 void U2fAuthenticator::issueCommand(const Vector<uint8_t>& command, CommandType type)
 {
-    driver().transact(Vector<uint8_t>(command), [weakThis = makeWeakPtr(*this), type](Vector<uint8_t>&& data) {
+    driver().transact(Vector<uint8_t>(command), [weakThis = WeakPtr { *this }, type](Vector<uint8_t>&& data) {
         ASSERT(RunLoop::isMain());
         if (!weakThis)
             return;
@@ -141,8 +135,11 @@ void U2fAuthenticator::responseReceived(Vector<uint8_t>&& response, CommandType 
     case CommandType::CheckOnlyCommand:
         continueCheckOnlyCommandAfterResponseReceived(WTFMove(*apduResponse));
         return;
-    case CommandType::BogusCommand:
-        continueBogusCommandAfterResponseReceived(WTFMove(*apduResponse));
+    case CommandType::BogusCommandExcludeCredentialsMatch:
+        continueBogusCommandExcludeCredentialsMatchAfterResponseReceived(WTFMove(*apduResponse));
+        return;
+    case CommandType::BogusCommandNoCredentials:
+        continueBogusCommandNoCredentialsAfterResponseReceived(WTFMove(*apduResponse));
         return;
     case CommandType::SignCommand:
         continueSignCommandAfterResponseReceived(WTFMove(*apduResponse));
@@ -155,9 +152,9 @@ void U2fAuthenticator::continueRegisterCommandAfterResponseReceived(ApduResponse
 {
     switch (apduResponse.status()) {
     case ApduResponse::Status::SW_NO_ERROR: {
-        auto& options = WTF::get<PublicKeyCredentialCreationOptions>(requestData().options);
-        auto appId = processGoogleLegacyAppIdSupportExtension(options.extensions);
-        auto response = readU2fRegisterResponse(!appId ? options.rp.id : appId, apduResponse.data(), AuthenticatorAttachment::CrossPlatform, options.attestation);
+        auto& options = std::get<PublicKeyCredentialCreationOptions>(requestData().options);
+        ASSERT(options.rp.id);
+        auto response = readU2fRegisterResponse(*options.rp.id, apduResponse.data(), AuthenticatorAttachment::CrossPlatform, { driver().transport() }, options.attestation);
         if (!response) {
             receiveRespond(ExceptionData { UnknownError, "Couldn't parse the U2F register response."_s });
             return;
@@ -179,14 +176,14 @@ void U2fAuthenticator::continueCheckOnlyCommandAfterResponseReceived(ApduRespons
     switch (apduResponse.status()) {
     case ApduResponse::Status::SW_NO_ERROR:
     case ApduResponse::Status::SW_CONDITIONS_NOT_SATISFIED:
-        issueNewCommand(constructBogusU2fRegistrationCommand(), CommandType::BogusCommand);
+        issueNewCommand(constructBogusU2fRegistrationCommand(), CommandType::BogusCommandExcludeCredentialsMatch);
         return;
     default:
         checkExcludeList(m_nextListIndex++);
     }
 }
 
-void U2fAuthenticator::continueBogusCommandAfterResponseReceived(ApduResponse&& apduResponse)
+void U2fAuthenticator::continueBogusCommandExcludeCredentialsMatchAfterResponseReceived(ApduResponse&& apduResponse)
 {
     switch (apduResponse.status()) {
     case ApduResponse::Status::SW_NO_ERROR:
@@ -201,23 +198,40 @@ void U2fAuthenticator::continueBogusCommandAfterResponseReceived(ApduResponse&& 
     }
 }
 
+void U2fAuthenticator::continueBogusCommandNoCredentialsAfterResponseReceived(ApduResponse&& apduResponse)
+{
+    switch (apduResponse.status()) {
+    case ApduResponse::Status::SW_NO_ERROR:
+        if (auto* observer = this->observer())
+            observer->authenticatorStatusUpdated(WebAuthenticationStatus::NoCredentialsFound);
+        receiveRespond(ExceptionData { NotAllowedError, "No credentials from the allowCredentials list is found in the authenticator."_s });
+        return;
+    case ApduResponse::Status::SW_CONDITIONS_NOT_SATISFIED:
+        // Polling is required during test of user presence.
+        m_retryTimer.startOneShot(Seconds::fromMilliseconds(retryTimeOutValueMs));
+        return;
+    default:
+        receiveRespond(ExceptionData { UnknownError, makeString("Unknown internal error. Error code: ", static_cast<unsigned>(apduResponse.status())) });
+    }
+}
+
 void U2fAuthenticator::continueSignCommandAfterResponseReceived(ApduResponse&& apduResponse)
 {
-    auto& requestOptions = WTF::get<PublicKeyCredentialRequestOptions>(requestData().options);
+    auto& requestOptions = std::get<PublicKeyCredentialRequestOptions>(requestData().options);
     switch (apduResponse.status()) {
     case ApduResponse::Status::SW_NO_ERROR: {
         RefPtr<AuthenticatorAssertionResponse> response;
         if (m_isAppId) {
             ASSERT(requestOptions.extensions && !requestOptions.extensions->appid.isNull());
-            response = readU2fSignResponse(requestOptions.extensions->appid, requestOptions.allowCredentials[m_nextListIndex - 1].idVector, apduResponse.data(), AuthenticatorAttachment::CrossPlatform);
+            response = readU2fSignResponse(requestOptions.extensions->appid, requestOptions.allowCredentials[m_nextListIndex - 1].id, apduResponse.data(), AuthenticatorAttachment::CrossPlatform);
         } else
-            response = readU2fSignResponse(requestOptions.rpId, requestOptions.allowCredentials[m_nextListIndex - 1].idVector, apduResponse.data(), AuthenticatorAttachment::CrossPlatform);
+            response = readU2fSignResponse(requestOptions.rpId, requestOptions.allowCredentials[m_nextListIndex - 1].id, apduResponse.data(), AuthenticatorAttachment::CrossPlatform);
         if (!response) {
             receiveRespond(ExceptionData { UnknownError, "Couldn't parse the U2F sign response."_s });
             return;
         }
         if (m_isAppId)
-            response->setExtensions({ m_isAppId });
+            response->setExtensions({ m_isAppId, std::nullopt, std::nullopt });
 
         receiveRespond(response.releaseNonNull());
         return;

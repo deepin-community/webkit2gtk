@@ -60,29 +60,25 @@ public:
         return m_offset;
     }
     
-    bool operator==(const T& other) const
+    bool operator==(const GenericOffset& other) const
     {
-        return m_offset == other.offsetUnchecked();
+        return m_offset == other.m_offset;
     }
-    bool operator!=(const T& other) const
+    bool operator<(const GenericOffset& other) const
     {
-        return m_offset != other.offsetUnchecked();
+        return m_offset < other.m_offset;
     }
-    bool operator<(const T& other) const
+    bool operator>(const GenericOffset& other) const
     {
-        return m_offset < other.offsetUnchecked();
+        return m_offset > other.m_offset;
     }
-    bool operator>(const T& other) const
+    bool operator<=(const GenericOffset& other) const
     {
-        return m_offset > other.offsetUnchecked();
+        return m_offset <= other.m_offset;
     }
-    bool operator<=(const T& other) const
+    bool operator>=(const GenericOffset& other) const
     {
-        return m_offset <= other.offsetUnchecked();
-    }
-    bool operator>=(const T& other) const
-    {
-        return m_offset >= other.offsetUnchecked();
+        return m_offset >= other.m_offset;
     }
     
     T operator+(int value) const

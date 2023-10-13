@@ -28,6 +28,7 @@
 #include <WebCore/DisplayList.h>
 #include <WebCore/DisplayListItems.h>
 #include <WebCore/DisplayListIterator.h>
+#include <WebCore/Filter.h>
 #include <WebCore/Gradient.h>
 #include <WebCore/InMemoryDisplayList.h>
 
@@ -41,7 +42,7 @@ static uint8_t globalItemBuffer[globalItemBufferCapacity];
 
 static Ref<Gradient> createGradient()
 {
-    auto gradient = Gradient::create(Gradient::ConicData { { 0., 0. }, 1.25 });
+    auto gradient = Gradient::create(Gradient::ConicData { { 0., 0. }, 1.25 }, { ColorInterpolationMethod::SRGB { }, AlphaPremultiplication::Unpremultiplied });
     gradient->addColorStop({ 0.1, Color::red });
     gradient->addColorStop({ 0.5, Color::green });
     gradient->addColorStop({ 0.9, Color::blue });
@@ -73,7 +74,7 @@ TEST(DisplayListTests, AppendItems)
         list.append<FillRectWithGradient>(FloatRect { 1., 1., 10., 10. }, gradient);
         list.append<SetInlineFillColor>(Color::red);
 #if ENABLE(INLINE_PATH_DATA)
-        list.append<StrokeLine>(LineData {{ 0., 0. }, { 10., 15. }});
+        list.append<StrokeLine>(PathDataLine { { 0., 0. }, { 10., 15. } });
 #endif
     }
 
@@ -94,7 +95,7 @@ TEST(DisplayListTests, AppendItems)
             EXPECT_TRUE(handle.isDrawingItem());
             EXPECT_TRUE(handle.is<FillPath>());
             auto& item = handle.get<FillPath>();
-            EXPECT_EQ(item.path().platformPath(), path.platformPath());
+            EXPECT_EQ(item.path(), path);
             break;
         }
         case ItemType::FillRectWithGradient: {
@@ -102,7 +103,7 @@ TEST(DisplayListTests, AppendItems)
             EXPECT_TRUE(handle.is<FillRectWithGradient>());
             auto& item = handle.get<FillRectWithGradient>();
             EXPECT_EQ(item.rect(), FloatRect(1., 1., 10., 10.));
-            EXPECT_EQ(&item.gradient(), gradient.ptr());
+            EXPECT_EQ(item.gradient().ptr(), gradient.ptr());
             break;
         }
         case ItemType::SetInlineFillColor: {
@@ -122,8 +123,6 @@ TEST(DisplayListTests, AppendItems)
             break;
         }
 #endif
-        case ItemType::MetaCommandChangeItemBuffer:
-            break;
         default: {
             observedUnexpectedItem = true;
             break;
@@ -200,10 +199,10 @@ TEST(DisplayListTests, ItemBufferClient)
             return { globalBufferIdentifier, globalItemBuffer, globalItemBufferCapacity };
         }
 
-        RefPtr<SharedBuffer> encodeItemOutOfLine(const DisplayListItem& displayListItem) const final
+        RefPtr<FragmentedSharedBuffer> encodeItemOutOfLine(const DisplayListItem& displayListItem) const final
         {
             auto index = m_items.size();
-            m_items.append(WTF::get<StrokePath>(displayListItem));
+            m_items.append(std::get<StrokePath>(displayListItem));
             return SharedBuffer::create(reinterpret_cast<uint8_t*>(&index), sizeof(size_t));
         }
 

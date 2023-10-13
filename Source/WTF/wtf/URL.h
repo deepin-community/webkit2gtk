@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2003-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2003-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,8 +25,6 @@
 
 #pragma once
 
-#include <wtf/Forward.h>
-#include <wtf/RetainPtr.h>
 #include <wtf/text/WTFString.h>
 
 #if USE(GLIB) && HAVE(GURI)
@@ -50,7 +48,7 @@ class URLTextEncoding {
 public:
     virtual Vector<uint8_t> encodeForURLParsing(StringView) const = 0;
 protected:
-    virtual ~URLTextEncoding() { }
+    virtual ~URLTextEncoding() = default;
 };
 
 class URL {
@@ -63,34 +61,40 @@ public:
     bool isHashTableDeletedValue() const { return m_string.isHashTableDeletedValue(); }
 
     // Resolves the relative URL with the given base URL. If provided, the
-    // URLTextEncoding is used to encode non-ASCII characers. The base URL can be
+    // URLTextEncoding is used to encode non-ASCII characters. The base URL can be
     // null or empty, in which case the relative URL will be interpreted as absolute.
     WTF_EXPORT_PRIVATE URL(const URL& base, const String& relative, const URLTextEncoding* = nullptr);
+
+    // Parses the input string as an absolute URL. If you need to parse a relative URL, call the constructor above
+    // taking a base URL and a relative URL string.
+    WTF_EXPORT_PRIVATE explicit URL(String&& absoluteURL, const URLTextEncoding* = nullptr);
+    explicit URL(const String& absoluteURL, const URLTextEncoding* encoding = nullptr)
+        : URL(String { absoluteURL }, encoding)
+    {
+    }
 
     WTF_EXPORT_PRIVATE static URL fakeURLWithRelativePart(StringView);
     WTF_EXPORT_PRIVATE static URL fileURLWithFileSystemPath(StringView);
 
     WTF_EXPORT_PRIVATE String strippedForUseAsReferrer() const;
+    WTF_EXPORT_PRIVATE String strippedForUseAsReferrerWithExplicitPort() const;
+
+    // Similar to strippedForUseAsReferrer except we also remove the query component.
+    WTF_EXPORT_PRIVATE String strippedForUseAsReport() const;
 
     // Makes a deep copy. Helpful only if you need to use a URL on another
     // thread. Since the underlying StringImpl objects are immutable, there's
     // no other reason to ever prefer isolatedCopy() over plain old assignment.
-    WTF_EXPORT_PRIVATE URL isolatedCopy() const;
+    WTF_EXPORT_PRIVATE URL isolatedCopy() const &;
+    WTF_EXPORT_PRIVATE URL isolatedCopy() &&;
 
     bool isNull() const;
     bool isEmpty() const;
     bool isValid() const;
 
-    // Since we overload operator NSURL* we have this to prevent accidentally using that operator
+    // Since we overload operator NSURL * we have this to prevent accidentally using that operator
     // when placing a URL in an if statment.
     operator bool() const = delete;
-
-    // Returns true if you can set the host and port for the URL.
-    // Non-hierarchical URLs don't have a host and port.
-    bool canSetHostOrPort() const { return isHierarchical(); }
-
-    bool canSetPathname() const { return isHierarchical(); }
-    WTF_EXPORT_PRIVATE bool isHierarchical() const;
 
     const String& string() const { return m_string; }
     WTF_EXPORT_PRIVATE String stringCenterEllipsizedToLength(unsigned length = 1024) const;
@@ -110,8 +114,9 @@ public:
 
     WTF_EXPORT_PRIVATE StringView queryWithLeadingQuestionMark() const;
     WTF_EXPORT_PRIVATE StringView fragmentIdentifierWithLeadingNumberSign() const;
-    WTF_EXPORT_PRIVATE StringView stringWithoutQueryOrFragmentIdentifier() const;
-    WTF_EXPORT_PRIVATE StringView stringWithoutFragmentIdentifier() const;
+    WTF_EXPORT_PRIVATE StringView viewWithoutQueryOrFragmentIdentifier() const;
+    WTF_EXPORT_PRIVATE StringView viewWithoutFragmentIdentifier() const;
+    WTF_EXPORT_PRIVATE String stringWithoutFragmentIdentifier() const;
 
     WTF_EXPORT_PRIVATE String protocolHostAndPort() const;
     WTF_EXPORT_PRIVATE String hostAndPort() const;
@@ -129,15 +134,15 @@ public:
 
     // Returns true if the current URL's protocol is the same as the null-
     // terminated ASCII argument. The argument must be lower-case.
-    WTF_EXPORT_PRIVATE bool protocolIs(const char*) const;
     WTF_EXPORT_PRIVATE bool protocolIs(StringView) const;
-    bool protocolIsBlob() const { return protocolIs("blob"); }
-    bool protocolIsData() const { return protocolIs("data"); }
-    WTF_EXPORT_PRIVATE bool protocolIsAbout() const;
+    bool protocolIsAbout() const { return protocolIs("about"_s); }
+    bool protocolIsBlob() const { return protocolIs("blob"_s); }
+    bool protocolIsData() const { return protocolIs("data"_s); }
+    bool protocolIsFile() const { return protocolIs("file"_s); }
     WTF_EXPORT_PRIVATE bool protocolIsJavaScript() const;
-    bool protocolIsInHTTPFamily() const;
-    WTF_EXPORT_PRIVATE bool isLocalFile() const;
-    bool cannotBeABaseURL() const { return m_cannotBeABaseURL; }
+    bool protocolIsInFTPFamily() const { return protocolIs("ftp"_s) || protocolIs("ftps"_s); }
+    bool protocolIsInHTTPFamily() const { return m_protocolIsInHTTPFamily; }
+    bool hasOpaquePath() const { return m_hasOpaquePath; }
 
     WTF_EXPORT_PRIVATE bool isAboutBlank() const;
     WTF_EXPORT_PRIVATE bool isAboutSrcDoc() const;
@@ -166,7 +171,7 @@ public:
 
     WTF_EXPORT_PRIVATE void setFragmentIdentifier(StringView);
     WTF_EXPORT_PRIVATE void removeFragmentIdentifier();
-
+    WTF_EXPORT_PRIVATE String consumefragmentDirective();
     WTF_EXPORT_PRIVATE void removeQueryAndFragmentIdentifier();
 
     WTF_EXPORT_PRIVATE static bool hostIsIPAddress(StringView);
@@ -193,13 +198,11 @@ public:
 #ifndef NDEBUG
     void print() const;
 #endif
-    WTF_EXPORT_PRIVATE void dump(PrintStream& out) const;
 
-    template<typename Encoder> void encode(Encoder&) const;
-    template<typename Decoder> static WARN_UNUSED_RETURN bool decode(Decoder&, URL&);
-    template<typename Decoder> static std::optional<URL> decode(Decoder&);
+    WTF_EXPORT_PRIVATE void dump(PrintStream&) const;
 
     WTF_EXPORT_PRIVATE bool hasSpecialScheme() const;
+    WTF_EXPORT_PRIVATE bool hasLocalScheme() const;
 
 private:
     friend class URLParser;
@@ -208,15 +211,22 @@ private:
     unsigned hostStart() const;
     unsigned credentialsEnd() const;
     void remove(unsigned start, unsigned length);
-    void parse(const String&);
+    void parse(String&&);
+    void parseAllowingC0AtEnd(String&&);
+
+    void maybeTrimTrailingSpacesFromOpaquePath();
 
     friend WTF_EXPORT_PRIVATE bool protocolHostAndPortAreEqual(const URL&, const URL&);
+
+#if USE(CF)
+    static RetainPtr<CFURLRef> emptyCFURL();
+#endif
 
     String m_string;
 
     unsigned m_isValid : 1;
     unsigned m_protocolIsInHTTPFamily : 1;
-    unsigned m_cannotBeABaseURL : 1;
+    unsigned m_hasOpaquePath : 1;
 
     // This is out of order to align the bits better. The port is after the host.
     unsigned m_portLength : 3;
@@ -238,15 +248,16 @@ static_assert(sizeof(URL) == sizeof(String) + 8 * sizeof(unsigned), "URL should 
 bool operator==(const URL&, const URL&);
 bool operator==(const URL&, const String&);
 bool operator==(const String&, const URL&);
-bool operator!=(const URL&, const URL&);
-bool operator!=(const URL&, const String&);
-bool operator!=(const String&, const URL&);
 
 WTF_EXPORT_PRIVATE bool equalIgnoringFragmentIdentifier(const URL&, const URL&);
 WTF_EXPORT_PRIVATE bool protocolHostAndPortAreEqual(const URL&, const URL&);
 WTF_EXPORT_PRIVATE Vector<KeyValuePair<String, String>> differingQueryParameters(const URL&, const URL&);
+WTF_EXPORT_PRIVATE Vector<KeyValuePair<String, String>> queryParameters(const URL&);
 WTF_EXPORT_PRIVATE bool isEqualIgnoringQueryAndFragments(const URL&, const URL&);
-WTF_EXPORT_PRIVATE void removeQueryParameters(URL&, const HashSet<String>&);
+
+// Returns the parameters that were removed (including duplicates), in the order that they appear in the URL.
+WTF_EXPORT_PRIVATE Vector<String> removeQueryParameters(URL&, const HashSet<String>&);
+WTF_EXPORT_PRIVATE Vector<String> removeQueryParameters(URL&, Function<bool(const String&)>&&);
 
 WTF_EXPORT_PRIVATE const URL& aboutBlankURL();
 WTF_EXPORT_PRIVATE const URL& aboutSrcDocURL();
@@ -256,7 +267,7 @@ WTF_EXPORT_PRIVATE const URL& aboutSrcDocURL();
 // These are also different from the WTF::URL functions in that they don't require the string to be a valid and parsable URL.
 // This is especially important because valid javascript URLs are not necessarily considered valid by WTF::URL.
 
-WTF_EXPORT_PRIVATE bool protocolIs(StringView url, const char* protocol);
+WTF_EXPORT_PRIVATE bool protocolIs(StringView url, ASCIILiteral protocol);
 WTF_EXPORT_PRIVATE bool protocolIsJavaScript(StringView url);
 WTF_EXPORT_PRIVATE bool protocolIsInHTTPFamily(StringView url);
 
@@ -286,29 +297,6 @@ template<> struct HashTraits<URL>;
 
 // Function template and inline function definitions.
 
-template<typename Encoder> void URL::encode(Encoder& encoder) const
-{
-    encoder << m_string;
-}
-
-template<typename Decoder> bool URL::decode(Decoder& decoder, URL& url)
-{
-    auto optionalURL = decode(decoder);
-    if (!optionalURL)
-        return false;
-    url = WTFMove(*optionalURL);
-    return true;
-}
-
-template<typename Decoder> std::optional<URL> URL::decode(Decoder& decoder)
-{
-    std::optional<String> string;
-    decoder >> string;
-    if (!string)
-        return std::nullopt;
-    return URL(URL(), WTFMove(*string));
-}
-
 inline bool operator==(const URL& a, const URL& b)
 {
     return a.string() == b.string();
@@ -322,21 +310,6 @@ inline bool operator==(const URL& a, const String& b)
 inline bool operator==(const String& a, const URL& b)
 {
     return a == b.string();
-}
-
-inline bool operator!=(const URL& a, const URL& b)
-{
-    return a.string() != b.string();
-}
-
-inline bool operator!=(const URL& a, const String& b)
-{
-    return a.string() != b;
-}
-
-inline bool operator!=(const String& a, const URL& b)
-{
-    return a != b.string();
 }
 
 inline URL::URL(HashTableDeletedValueType)
@@ -377,11 +350,6 @@ inline bool URL::hasQuery() const
 inline bool URL::hasFragmentIdentifier() const
 {
     return m_isValid && m_string.length() > m_queryEnd;
-}
-
-inline bool URL::protocolIsInHTTPFamily() const
-{
-    return m_protocolIsInHTTPFamily;
 }
 
 inline unsigned URL::pathEnd() const

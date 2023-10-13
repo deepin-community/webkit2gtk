@@ -33,6 +33,8 @@
 
 namespace WebCore {
 class CaptureDevice;
+struct CaptureDeviceWithCapabilities;
+struct MediaDeviceHashSalts;
 struct MediaStreamRequest;
 }
 
@@ -54,14 +56,12 @@ private:
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) final;
 
     // Messages::UserMediaCaptureManager
-    using ValidateUserMediaRequestConstraintsCallback = CompletionHandler<void(std::optional<String> invalidConstraint, Vector<WebCore::CaptureDevice>& audioDevices, Vector<WebCore::CaptureDevice>& videoDevices, std::optional<String> deviceIdentifierHashSalt)>;
-    void validateUserMediaRequestConstraints(WebCore::MediaStreamRequest, String hashSalt, ValidateUserMediaRequestConstraintsCallback&&);
+    using ValidateUserMediaRequestConstraintsCallback = CompletionHandler<void(std::optional<String> invalidConstraint, Vector<WebCore::CaptureDevice>& audioDevices, Vector<WebCore::CaptureDevice>& videoDevices)>;
+    void validateUserMediaRequestConstraints(WebCore::MediaStreamRequest, WebCore::MediaDeviceHashSalts&&, ValidateUserMediaRequestConstraintsCallback&&);
     ValidateUserMediaRequestConstraintsCallback m_validateUserMediaRequestConstraintsCallback;
 
-    using GetMediaStreamDevicesCallback = CompletionHandler<void(Vector<WebCore::CaptureDevice>&&)>;
-    void getMediaStreamDevices(GetMediaStreamDevicesCallback&&);
-
-    WebProcess& m_process;
+    using GetMediaStreamDevicesCallback = CompletionHandler<void(Vector<WebCore::CaptureDeviceWithCapabilities>&&)>;
+    void getMediaStreamDevices(bool revealIdsAndLabels, GetMediaStreamDevicesCallback&&);
 };
 
 } // namespace WebKit

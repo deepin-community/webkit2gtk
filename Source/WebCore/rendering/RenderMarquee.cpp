@@ -46,11 +46,13 @@
 
 #include "RenderMarquee.h"
 
-#include "FrameView.h"
 #include "HTMLMarqueeElement.h"
 #include "HTMLNames.h"
+#include "LocalFrameView.h"
+#include "RenderBoxModelObjectInlines.h"
 #include "RenderLayer.h"
 #include "RenderLayerScrollableArea.h"
+#include "RenderStyleInlines.h"
 #include "RenderView.h"
 
 namespace WebCore {
@@ -63,7 +65,7 @@ RenderMarquee::RenderMarquee(RenderLayer* layer)
 {
     ASSERT(layer);
     ASSERT(layer->scrollableArea());
-    layer->scrollableArea()->setConstrainsScrollingToContentEdge(false);
+    layer->scrollableArea()->setScrollClamping(ScrollClamping::Unclamped);
 }
 
 RenderMarquee::~RenderMarquee() = default;
@@ -281,7 +283,7 @@ void RenderMarquee::timerFired()
         }
         bool positive = range > 0;
         int clientSize = (isHorizontal() ? roundToInt(m_layer->renderBox()->clientWidth()) : roundToInt(m_layer->renderBox()->clientHeight()));
-        int increment = abs(intValueForLength(m_layer->renderer().style().marqueeIncrement(), clientSize));
+        int increment = std::abs(intValueForLength(m_layer->renderer().style().marqueeIncrement(), clientSize));
         int currentPos = (isHorizontal() ? scrollableArea->scrollOffset().x() : scrollableArea->scrollOffset().y());
         newPos =  currentPos + (addIncrement ? increment : -increment);
         if (positive)

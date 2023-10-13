@@ -26,9 +26,28 @@
 #include "config.h"
 #include "WebProcess.h"
 
+#include "LogInitialization.h"
+#include <WebCore/LogInitialization.h>
+#include <wtf/LogInitialization.h>
+
+#if USE(WPE_RENDERER)
+#include <WebCore/PlatformDisplayLibWPE.h>
+#endif
+
 namespace WebKit {
 
-void WebProcess::platformInitializeWebProcess(WebProcessCreationParameters&)
+void WebProcess::platformInitializeWebProcess(WebProcessCreationParameters& parameters)
+{
+#if USE(WPE_RENDERER)
+    if (!parameters.isServiceWorkerProcess) {
+        RELEASE_ASSERT(is<WebCore::PlatformDisplayLibWPE>(WebCore::PlatformDisplay::sharedDisplay()));
+        downcast<WebCore::PlatformDisplayLibWPE>(WebCore::PlatformDisplay::sharedDisplay()).initialize(parameters.hostClientFileDescriptor.release());
+    }
+#endif
+    applyProcessCreationParameters(parameters.auxiliaryProcessParameters);
+}
+
+void WebProcess::platformInitializeProcess(const AuxiliaryProcessInitializationParameters&)
 {
 }
 
@@ -44,7 +63,7 @@ void WebProcess::platformSetCacheModel(CacheModel)
 {
 }
 
-void WebProcess::grantAccessToAssetServices(WebKit::SandboxExtension::Handle&&)
+void WebProcess::grantAccessToAssetServices(Vector<WebKit::SandboxExtension::Handle>&&)
 {
 }
 
@@ -52,7 +71,7 @@ void WebProcess::revokeAccessToAssetServices()
 {
 }
 
-void WebProcess::switchFromStaticFontRegistryToUserFontRegistry(WebKit::SandboxExtension::Handle&&)
+void WebProcess::switchFromStaticFontRegistryToUserFontRegistry(Vector<WebKit::SandboxExtension::Handle>&&)
 {
 }
 

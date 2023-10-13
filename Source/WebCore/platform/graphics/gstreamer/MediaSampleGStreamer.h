@@ -26,11 +26,10 @@
 #include "FloatSize.h"
 #include "GStreamerCommon.h"
 #include "MediaSample.h"
+#include "VideoFrameTimeMetadata.h"
 #include <wtf/text/AtomString.h>
 
 namespace WebCore {
-
-class PixelBuffer;
 
 class MediaSampleGStreamer : public MediaSample {
 public:
@@ -39,27 +38,22 @@ public:
         return adoptRef(*new MediaSampleGStreamer(WTFMove(sample), presentationSize, trackId));
     }
 
-    static Ref<MediaSampleGStreamer> createFakeSample(GstCaps*, MediaTime pts, MediaTime dts, MediaTime duration, const FloatSize& presentationSize, const AtomString& trackId);
-    static Ref<MediaSampleGStreamer> createImageSample(PixelBuffer&&, const IntSize& destinationSize = { }, double frameRate = 1);
+    static Ref<MediaSampleGStreamer> createFakeSample(GstCaps*, const MediaTime& pts, const MediaTime& dts, const MediaTime& duration, const FloatSize& presentationSize, const AtomString& trackId);
 
     void extendToTheBeginning();
     MediaTime presentationTime() const override { return m_pts; }
     MediaTime decodeTime() const override { return m_dts; }
     MediaTime duration() const override { return m_duration; }
     AtomString trackID() const override { return m_trackId; }
-    void setTrackID(const String& trackId) override { m_trackId = trackId; }
     size_t sizeInBytes() const override { return m_size; }
     FloatSize presentationSize() const override { return m_presentationSize; }
     void offsetTimestampsBy(const MediaTime&) override;
     void setTimestamps(const MediaTime&, const MediaTime&) override;
-    bool isDivisable() const override { return false; }
-    std::pair<RefPtr<MediaSample>, RefPtr<MediaSample>> divide(const MediaTime&, UseEndTime) override  { return { nullptr, nullptr }; }
     Ref<MediaSample> createNonDisplayingCopy() const override;
     SampleFlags flags() const override { return m_flags; }
-    PlatformSample platformSample() override;
-    std::optional<ByteRange> byteRange() const override { return std::nullopt; }
+    PlatformSample platformSample() const override;
+    PlatformSample::Type platformSampleType() const override { return PlatformSample::GStreamerSampleType; }
     void dump(PrintStream&) const override;
-    RefPtr<JSC::Uint8ClampedArray> getRGBAImageData() const final;
 
 protected:
     MediaSampleGStreamer(GRefPtr<GstSample>&&, const FloatSize& presentationSize, const AtomString& trackId);

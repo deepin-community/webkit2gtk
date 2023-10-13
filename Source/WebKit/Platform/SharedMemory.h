@@ -27,113 +27,98 @@
 #pragma once
 
 #include <wtf/Forward.h>
-#include <wtf/Noncopyable.h>
 #include <wtf/ThreadSafeRefCounted.h>
 
 #if USE(UNIX_DOMAIN_SOCKETS)
-#include "Attachment.h"
+#include <wtf/unix/UnixFileDescriptor.h>
 #endif
 
 #if OS(WINDOWS)
-#include <windows.h>
+#include <wtf/win/Win32Handle.h>
+#endif
+
+#if OS(DARWIN)
+#include <wtf/MachSendRight.h>
 #endif
 
 namespace IPC {
 class Decoder;
 class Encoder;
+class Connection;
+
+template<typename, typename> struct ArgumentCoder;
 }
 
 namespace WebCore {
+class FragmentedSharedBuffer;
+class ProcessIdentity;
 class SharedBuffer;
 }
-
-#if OS(DARWIN)
-namespace WTF {
-class MachSendRight;
-}
-#endif
 
 namespace WebKit {
 
 enum class MemoryLedger { None, Default, Network, Media, Graphics, Neural };
 
+class SharedMemoryHandle {
+    WTF_MAKE_NONCOPYABLE(SharedMemoryHandle);
+public:
+    using Type =
+#if USE(UNIX_DOMAIN_SOCKETS)
+        UnixFileDescriptor;
+#elif OS(DARWIN)
+        MachSendRight;
+#elif OS(WINDOWS)
+        Win32Handle;
+#endif
+
+    SharedMemoryHandle() = default;
+    SharedMemoryHandle(SharedMemoryHandle&&) = default;
+    SharedMemoryHandle(SharedMemoryHandle::Type&&, size_t);
+
+    SharedMemoryHandle& operator=(SharedMemoryHandle&&) = default;
+
+    bool isNull() const;
+
+    size_t size() const { return m_size; }
+
+    // Take/Set ownership of the memory for jetsam purposes.
+    void takeOwnershipOfMemory(MemoryLedger) const;
+    void setOwnershipOfMemory(const WebCore::ProcessIdentity&, MemoryLedger) const;
+
+#if USE(UNIX_DOMAIN_SOCKETS)
+    UnixFileDescriptor releaseHandle();
+#endif
+
+private:
+    friend struct IPC::ArgumentCoder<SharedMemoryHandle, void>;
+    friend class SharedMemory;
+#if USE(UNIX_DOMAIN_SOCKETS)
+    friend class IPC::Connection;
+#endif
+
+    Type m_handle;
+    size_t m_size { 0 };
+};
+
 class SharedMemory : public ThreadSafeRefCounted<SharedMemory> {
 public:
-    enum class Protection {
-        ReadOnly,
-        ReadWrite
-    };
+    using Handle = SharedMemoryHandle;
 
-    class Handle {
-        WTF_MAKE_NONCOPYABLE(Handle);
-    public:
-        Handle();
-        ~Handle();
-        Handle(Handle&&);
-        Handle& operator=(Handle&&);
-
-        bool isNull() const;
-
-#if OS(DARWIN) || OS(WINDOWS)
-        size_t size() const { return m_size; }
-#endif
-
-        // Take ownership of the memory for jetsam purposes.
-        void takeOwnershipOfMemory(MemoryLedger) const;
-
-        void clear();
-
-#if USE(UNIX_DOMAIN_SOCKETS)
-        IPC::Attachment releaseAttachment() const;
-        void adoptAttachment(IPC::Attachment&&);
-#endif
-#if OS(WINDOWS)
-        static void encodeHandle(IPC::Encoder&, HANDLE);
-        static std::optional<HANDLE> decodeHandle(IPC::Decoder&);
-#endif
-    private:
-        friend class SharedMemory;
-#if USE(UNIX_DOMAIN_SOCKETS)
-        mutable IPC::Attachment m_attachment;
-#elif OS(DARWIN)
-        mutable mach_port_t m_port { MACH_PORT_NULL };
-        size_t m_size;
-#elif OS(WINDOWS)
-        mutable HANDLE m_handle;
-        size_t m_size;
-#endif
-    };
-
-    struct IPCHandle {
-        IPCHandle() = default;
-        IPCHandle(Handle&& handle, uint64_t dataSize)
-            : handle(WTFMove(handle))
-            , dataSize(dataSize)
-        {
-        }
-        void encode(IPC::Encoder&) const;
-        static WARN_UNUSED_RETURN bool decode(IPC::Decoder&, IPCHandle&);
-
-        Handle handle;
-        uint64_t dataSize { 0 };
-    };
+    enum class Protection : bool { ReadOnly, ReadWrite };
 
     // FIXME: Change these factory functions to return Ref<SharedMemory> and crash on failure.
     static RefPtr<SharedMemory> allocate(size_t);
-    static RefPtr<SharedMemory> copyBuffer(const WebCore::SharedBuffer&);
-    static RefPtr<SharedMemory> map(const Handle&, Protection);
+    static RefPtr<SharedMemory> copyBuffer(const WebCore::FragmentedSharedBuffer&);
+    static RefPtr<SharedMemory> map(Handle&&, Protection);
 #if USE(UNIX_DOMAIN_SOCKETS)
     static RefPtr<SharedMemory> wrapMap(void*, size_t, int fileDescriptor);
 #elif OS(DARWIN)
     static RefPtr<SharedMemory> wrapMap(void*, size_t, Protection);
 #endif
-#if OS(WINDOWS)
-    static RefPtr<SharedMemory> adopt(HANDLE, size_t, Protection);
-#endif
 
     ~SharedMemory();
 
-    bool createHandle(Handle&, Protection);
+    std::optional<Handle> createHandle(Protection);
 
     size_t size() const { return m_size; }
     void* data() const
@@ -143,15 +128,14 @@ public:
     }
 
 #if OS(WINDOWS)
-    HANDLE handle() const { return m_handle; }
+    HANDLE handle() const { return m_handle.get(); }
 #endif
 
 #if PLATFORM(COCOA)
     Protection protection() const { return m_protection; }
 #endif
 
-    // Return the system page size in bytes.
-    static unsigned systemPageSize();
+    Ref<WebCore::SharedBuffer> createSharedBuffer(size_t) const;
 
 private:
 #if OS(DARWIN)
@@ -165,13 +149,13 @@ private:
 #endif
 
 #if USE(UNIX_DOMAIN_SOCKETS)
-    std::optional<int> m_fileDescriptor;
+    UnixFileDescriptor m_fileDescriptor;
     bool m_isWrappingMap { false };
 #elif OS(DARWIN)
-    mach_port_t m_port { MACH_PORT_NULL };
+    MachSendRight m_sendRight;
 #elif OS(WINDOWS)
-    HANDLE m_handle;
+    Win32Handle m_handle;
 #endif
 };
 
-};
+} // namespace WebKit

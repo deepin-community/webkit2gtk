@@ -64,7 +64,8 @@ ExceptionOr<Ref<OscillatorNode>> OscillatorNode::create(BaseAudioContext& contex
         return Exception { InvalidStateError, "Must provide periodicWave when using custom type."_s };
     
     auto oscillator = adoptRef(*new OscillatorNode(context, options));
-    
+    oscillator->suspendIfNeeded();
+
     auto result = oscillator->handleAudioNodeOptions(options, { 2, ChannelCountMode::Max, ChannelInterpretation::Speakers });
     if (result.hasException())
         return result.releaseException();
@@ -289,7 +290,7 @@ double OscillatorNode::processARate(int n, float* destP, double virtualReadIndex
         float frequency = invRateScale * incr;
         m_periodicWave->waveDataForFundamentalFrequency(frequency, lowerWaveData, higherWaveData, tableInterpolationFactor);
 
-        float sample = doInterpolation(virtualReadIndex, fabs(incr), readIndexMask, tableInterpolationFactor, lowerWaveData, higherWaveData);
+        float sample = doInterpolation(virtualReadIndex, std::abs(incr), readIndexMask, tableInterpolationFactor, lowerWaveData, higherWaveData);
 
         *destP++ = sample;
 
@@ -324,7 +325,7 @@ double OscillatorNode::processKRate(int n, float* destP, double virtualReadIndex
     float incr = frequency * rateScale;
 
     for (int k = 0; k < n; ++k) {
-        float sample = doInterpolation(virtualReadIndex, fabs(incr), readIndexMask, tableInterpolationFactor, lowerWaveData, higherWaveData);
+        float sample = doInterpolation(virtualReadIndex, std::abs(incr), readIndexMask, tableInterpolationFactor, lowerWaveData, higherWaveData);
 
         *destP++ = sample;
 

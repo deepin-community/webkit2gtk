@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,8 +25,11 @@
 
 #pragma once
 
+#include "DecomposedGlyphs.h"
 #include "DisplayListItemBuffer.h"
 #include "DisplayListItemType.h"
+#include "DisplayListResourceHeap.h"
+#include "Filter.h"
 #include "FloatRect.h"
 #include "Font.h"
 #include "GraphicsContext.h"
@@ -45,16 +48,9 @@ namespace WebCore {
 
 namespace DisplayList {
 
-enum AsTextFlag {
-    None                            = 0,
-    IncludesPlatformOperations      = 1 << 0,
-};
-
-typedef unsigned AsTextFlags;
-
 class DisplayList {
     WTF_MAKE_NONCOPYABLE(DisplayList); WTF_MAKE_FAST_ALLOCATED;
-    friend class Recorder;
+    friend class RecorderImpl;
     friend class Replayer;
 public:
     WEBCORE_EXPORT DisplayList();
@@ -71,11 +67,9 @@ public:
     WEBCORE_EXPORT bool isEmpty() const;
     WEBCORE_EXPORT size_t sizeInBytes() const;
 
-    String asText(AsTextFlags) const;
+    WEBCORE_EXPORT String asText(OptionSet<AsTextFlag>) const;
 
-    const ImageBufferHashMap& imageBuffers() const { return m_imageBuffers; }
-    const NativeImageHashMap& nativeImages() const { return m_nativeImages; }
-    const FontRenderingResourceMap& fonts() const { return m_fonts; }
+    const ResourceHeap& resourceHeap() const { return m_resourceHeap; }
 
     WEBCORE_EXPORT void setItemBufferReadingClient(ItemBufferReadingClient*);
     WEBCORE_EXPORT void setItemBufferWritingClient(ItemBufferWritingClient*);
@@ -84,7 +78,7 @@ public:
     void shrinkToFit();
 
 #if !defined(NDEBUG) || !LOG_DISABLED
-    WTF::CString description() const;
+    CString description() const;
     WEBCORE_EXPORT void dump() const;
 #endif
 
@@ -92,9 +86,6 @@ public:
 
     template<typename T, class... Args> void append(Args&&... args);
     void append(ItemHandle);
-
-    bool tracksDrawingItemExtents() const { return m_tracksDrawingItemExtents; }
-    WEBCORE_EXPORT void setTracksDrawingItemExtents(bool);
 
     class Iterator;
 
@@ -105,41 +96,40 @@ private:
     ItemBuffer* itemBufferIfExists() const { return m_items.get(); }
     WEBCORE_EXPORT ItemBuffer& itemBuffer();
 
-    void addDrawingItemExtent(std::optional<FloatRect>&& extent)
-    {
-        ASSERT(m_tracksDrawingItemExtents);
-        m_drawingItemExtents.append(WTFMove(extent));
-    }
-
     void cacheImageBuffer(WebCore::ImageBuffer& imageBuffer)
     {
-        m_imageBuffers.ensure(imageBuffer.renderingResourceIdentifier(), [&]() {
-            return makeRef(imageBuffer);
-        });
+        m_resourceHeap.add(imageBuffer.renderingResourceIdentifier(), Ref { imageBuffer });
     }
 
     void cacheNativeImage(NativeImage& image)
     {
-        m_nativeImages.ensure(image.renderingResourceIdentifier(), [&]() {
-            return makeRef(image);
-        });
+        m_resourceHeap.add(image.renderingResourceIdentifier(), Ref { image });
     }
 
     void cacheFont(Font& font)
     {
-        m_fonts.ensure(font.renderingResourceIdentifier(), [&]() {
-            return makeRef(font);
-        });
+        m_resourceHeap.add(font.renderingResourceIdentifier(), Ref { font });
     }
 
-    static bool shouldDumpForFlags(AsTextFlags, ItemHandle);
+    void cacheDecomposedGlyphs(DecomposedGlyphs& decomposedGlyphs)
+    {
+        m_resourceHeap.add(decomposedGlyphs.renderingResourceIdentifier(), Ref { decomposedGlyphs });
+    }
 
-    ImageBufferHashMap m_imageBuffers;
-    NativeImageHashMap m_nativeImages;
-    FontRenderingResourceMap m_fonts;
+    void cacheGradient(Gradient& gradient)
+    {
+        m_resourceHeap.add(gradient.renderingResourceIdentifier(), Ref { gradient });
+    }
+
+    void cacheFilter(Filter& filter)
+    {
+        m_resourceHeap.add(filter.renderingResourceIdentifier(), Ref { filter });
+    }
+
+    static bool shouldDumpForFlags(OptionSet<AsTextFlag>, ItemHandle);
+
+    LocalResourceHeap m_resourceHeap;
     std::unique_ptr<ItemBuffer> m_items;
-    Vector<std::optional<FloatRect>> m_drawingItemExtents;
-    bool m_tracksDrawingItemExtents { true };
 };
 
 template<typename T, class... Args>
@@ -148,7 +138,7 @@ void DisplayList::append(Args&&... args)
     itemBuffer().append<T>(std::forward<Args>(args)...);
 }
 
-WTF::TextStream& operator<<(WTF::TextStream&, const DisplayList&);
+WEBCORE_EXPORT WTF::TextStream& operator<<(WTF::TextStream&, const DisplayList&);
 
 } // DisplayList
 

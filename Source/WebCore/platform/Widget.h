@@ -60,11 +60,11 @@ namespace WebCore {
 
 class Cursor;
 class Event;
-class EventRegionContext;
 class FontCascade;
-class FrameView;
 class GraphicsContext;
+class LocalFrameView;
 class PlatformMouseEvent;
+class RegionContext;
 class ScrollView;
 
 enum WidgetNotification { WillPaintFlattened, DidPaintFlattened };
@@ -110,13 +110,13 @@ public:
 
     enum class SecurityOriginPaintPolicy { AnyOrigin, AccessibleOriginOnly };
 
-    WEBCORE_EXPORT virtual void paint(GraphicsContext&, const IntRect&, SecurityOriginPaintPolicy = SecurityOriginPaintPolicy::AnyOrigin, EventRegionContext* = nullptr);
+    WEBCORE_EXPORT virtual void paint(GraphicsContext&, const IntRect&, SecurityOriginPaintPolicy = SecurityOriginPaintPolicy::AnyOrigin, RegionContext* = nullptr);
     void invalidate() { invalidateRect(boundsRect()); }
     virtual void invalidateRect(const IntRect&) = 0;
 
     WEBCORE_EXPORT virtual void setFocus(bool);
 
-    void setCursor(const Cursor&);
+    WEBCORE_EXPORT void setCursor(const Cursor&);
 
     WEBCORE_EXPORT virtual void show();
     WEBCORE_EXPORT virtual void hide();
@@ -128,9 +128,8 @@ public:
 
     void setIsSelected(bool);
 
-    virtual bool isFrameView() const { return false; }
-    virtual bool isPluginView() const { return false; }
-    // FIXME: The Mac plug-in code should inherit from PluginView. When this happens PluginViewBase and PluginView can become one class.
+    virtual bool isLocalFrameView() const { return false; }
+    virtual bool isRemoteFrameView() const { return false; }
     virtual bool isPluginViewBase() const { return false; }
     virtual bool isScrollbar() const { return false; }
     virtual bool isScrollView() const { return false; }
@@ -138,7 +137,7 @@ public:
     WEBCORE_EXPORT void removeFromParent();
     WEBCORE_EXPORT virtual void setParent(ScrollView* view);
     WEBCORE_EXPORT ScrollView* parent() const;
-    FrameView* root() const;
+    LocalFrameView* root() const;
 
     virtual void handleEvent(Event&) { }
 
@@ -175,7 +174,11 @@ public:
     // the frame rects be the same no matter what transforms are applied.
     virtual bool transformsAffectFrameRect() { return true; }
 
+    virtual void willBeDestroyed() { }
+
 #if PLATFORM(COCOA)
+    virtual id accessibilityHitTest(const IntPoint&) const { return nil; }
+    virtual id accessibilityObject() const { return nil; }
     NSView* getOuterView() const;
 
     void removeFromSuperview();

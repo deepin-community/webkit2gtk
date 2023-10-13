@@ -29,6 +29,14 @@
 
 namespace WTF {
 
+// CheckedPtr is used to verify that the object being pointed to outlives the CheckedPtr.
+// It does not affect the lifetime of the object being pointed to; it simply adds a runtime
+// check (via RELEASE_ASSERT) that when the object being pointed to is destroyed, there are
+// no outstanding CheckedPtrs that reference it.
+//
+// Use is similar to WeakPtr, but CheckedPtr is used in cases where the target is never
+// expected to become null, and CheckedPtr has less overhead.
+
 template<typename T, typename PtrTraits>
 class CheckedPtr {
     WTF_MAKE_FAST_ALLOCATED;
@@ -105,8 +113,8 @@ public:
 
     ALWAYS_INLINE const T* get() const { return PtrTraits::unwrap(m_ptr); }
     ALWAYS_INLINE T* get() { return PtrTraits::unwrap(m_ptr); }
-    ALWAYS_INLINE const T& operator*() const { ASSERT(this); return *get(); }
-    ALWAYS_INLINE T& operator*() { ASSERT(this); return *get(); }
+    ALWAYS_INLINE const T& operator*() const { ASSERT(m_ptr); return *get(); }
+    ALWAYS_INLINE T& operator*() { ASSERT(m_ptr); return *get(); }
     ALWAYS_INLINE const T* operator->() const { return get(); }
     ALWAYS_INLINE T* operator->() { return get(); }
 

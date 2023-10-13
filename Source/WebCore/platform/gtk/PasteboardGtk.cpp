@@ -44,12 +44,12 @@ enum ClipboardDataType {
 
 std::unique_ptr<Pasteboard> Pasteboard::createForCopyAndPaste(std::unique_ptr<PasteboardContext>&& context)
 {
-    return makeUnique<Pasteboard>(WTFMove(context), "CLIPBOARD");
+    return makeUnique<Pasteboard>(WTFMove(context), "CLIPBOARD"_s);
 }
 
 std::unique_ptr<Pasteboard> Pasteboard::createForGlobalSelection(std::unique_ptr<PasteboardContext>&& context)
 {
-    return makeUnique<Pasteboard>(WTFMove(context), "PRIMARY");
+    return makeUnique<Pasteboard>(WTFMove(context), "PRIMARY"_s);
 }
 
 #if ENABLE(DRAG_SUPPORT)
@@ -80,6 +80,7 @@ Pasteboard::Pasteboard(std::unique_ptr<PasteboardContext>&& context, SelectionDa
 Pasteboard::Pasteboard(std::unique_ptr<PasteboardContext>&& context, const String& name)
     : m_context(WTFMove(context))
     , m_name(name)
+    , m_changeCount(platformStrategies()->pasteboardStrategy()->changeCount(m_name))
 {
 }
 
@@ -100,11 +101,11 @@ static ClipboardDataType selectionDataTypeFromHTMLClipboardType(const String& ty
 {
     // From the Mac port: Ignore any trailing charset - JS strings are
     // Unicode, which encapsulates the charset issue.
-    if (type == "text/plain")
+    if (type == "text/plain"_s)
         return ClipboardDataTypeText;
-    if (type == "text/html")
+    if (type == "text/html"_s)
         return ClipboardDataTypeMarkup;
-    if (type == "Files" || type == "text/uri-list")
+    if (type == "Files"_s || type == "text/uri-list"_s)
         return ClipboardDataTypeURIList;
 
     // Not a known type, so just default to using the text portion.
@@ -181,6 +182,10 @@ void Pasteboard::write(const PasteboardImage& pasteboardImage)
         data.setImage(pasteboardImage.image.get());
         platformStrategies()->pasteboardStrategy()->writeToClipboard(m_name, WTFMove(data));
     }
+}
+
+void Pasteboard::write(const PasteboardBuffer&)
+{
 }
 
 void Pasteboard::write(const PasteboardWebContent& pasteboardContent)
@@ -312,7 +317,7 @@ void Pasteboard::read(PasteboardWebContentReader& reader, WebContentReadingPolic
     }
 }
 
-void Pasteboard::read(PasteboardFileReader& reader, std::optional<size_t>)
+void Pasteboard::read(PasteboardFileReader& reader, std::optional<size_t> index)
 {
     if (m_selectionData) {
         for (const auto& filePath : m_selectionData->filenames())
@@ -320,9 +325,17 @@ void Pasteboard::read(PasteboardFileReader& reader, std::optional<size_t>)
         return;
     }
 
-    auto filePaths = platformStrategies()->pasteboardStrategy()->readFilePathsFromClipboard(m_name);
-    for (const auto& filePath : filePaths)
-        reader.readFilename(filePath);
+    if (!index) {
+        auto filePaths = platformStrategies()->pasteboardStrategy()->readFilePathsFromClipboard(m_name);
+        for (const auto& filePath : filePaths)
+            reader.readFilename(filePath);
+        return;
+    }
+
+    if (reader.shouldReadBuffer("image/png"_s)) {
+        if (auto buffer = readBuffer(index, "image/png"_s))
+            reader.readBuffer({ }, { }, buffer.releaseNonNull());
+    }
 }
 
 bool Pasteboard::hasData()
@@ -399,7 +412,7 @@ String Pasteboard::readOrigin()
 String Pasteboard::readString(const String& type)
 {
     if (!m_selectionData) {
-        if (type.startsWith("text/plain"))
+        if (type.startsWith("text/plain"_s))
             return platformStrategies()->pasteboardStrategy()->readTextFromClipboard(m_name);
 
         auto buffer = platformStrategies()->pasteboardStrategy()->readBufferFromClipboard(m_name, type);
@@ -451,7 +464,7 @@ Pasteboard::FileContentState Pasteboard::fileContentState()
             return FileContentState::MayContainFilePaths;
     }
 
-    auto result = types.findMatching([](const String& type) {
+    auto result = types.findIf([](const String& type) {
         return MIMETypeRegistry::isSupportedImageMIMEType(type);
     });
     return result == notFound ? FileContentState::NoFileOrImageData : FileContentState::MayContainFilePaths;
@@ -475,11 +488,18 @@ void Pasteboard::writeCustomData(const Vector<PasteboardCustomData>& data)
         return;
     }
 
-    platformStrategies()->pasteboardStrategy()->writeCustomData(data, m_name, context());
+    m_changeCount = platformStrategies()->pasteboardStrategy()->writeCustomData(data, m_name, context());
 }
 
 void Pasteboard::write(const Color&)
 {
 }
 
+int64_t Pasteboard::changeCount() const
+{
+    if (m_selectionData)
+        return 0;
+    return platformStrategies()->pasteboardStrategy()->changeCount(m_name);
 }
+
+} // namespace WebCore

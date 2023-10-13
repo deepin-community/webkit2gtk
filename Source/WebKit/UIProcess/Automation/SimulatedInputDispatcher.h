@@ -29,7 +29,7 @@
 
 #include <WebCore/FrameIdentifier.h>
 #include <WebCore/IntPoint.h>
-#include <WebCore/IntSize.h>
+#include <variant>
 #include <wtf/CompletionHandler.h>
 #include <wtf/ListHashSet.h>
 #include <wtf/RunLoop.h>
@@ -56,7 +56,12 @@ class WebPageProxy;
 using KeyboardInteraction = Inspector::Protocol::Automation::KeyboardInteractionType;
 using VirtualKey = Inspector::Protocol::Automation::VirtualKey;
 using VirtualKeyMap = HashMap<VirtualKey, VirtualKey, WTF::IntHash<VirtualKey>, WTF::StrongEnumHashTraits<VirtualKey>>;
+#if ENABLE(WEBDRIVER_KEYBOARD_GRAPHEME_CLUSTERS)
+// A CharKey must only ever represent a single unicode codepoint or a single grapheme cluster.
+using CharKey = String;
+#else
 using CharKey = UChar32;
+#endif
 using CharKeySet = ListHashSet<CharKey>;
 using MouseButton = Inspector::Protocol::Automation::MouseButton;
 using MouseInteraction = Inspector::Protocol::Automation::MouseInteraction;
@@ -135,7 +140,7 @@ public:
         virtual void simulateTouchInteraction(WebPageProxy&, TouchInteraction, const WebCore::IntPoint& locationInView, std::optional<Seconds> duration, AutomationCompletionHandler&&) = 0;
 #endif
 #if ENABLE(WEBDRIVER_KEYBOARD_INTERACTIONS)
-        virtual void simulateKeyboardInteraction(WebPageProxy&, KeyboardInteraction, WTF::Variant<VirtualKey, CharKey>&&, AutomationCompletionHandler&&) = 0;
+        virtual void simulateKeyboardInteraction(WebPageProxy&, KeyboardInteraction, std::variant<VirtualKey, CharKey>&&, AutomationCompletionHandler&&) = 0;
 #endif
 #if ENABLE(WEBDRIVER_WHEEL_INTERACTIONS)
         virtual void simulateWheelInteraction(WebPageProxy&, const WebCore::IntPoint& locationInView, const WebCore::IntSize& delta, AutomationCompletionHandler&&) = 0;
@@ -176,7 +181,7 @@ private:
     std::optional<WebCore::FrameIdentifier> m_frameID;
     AutomationCompletionHandler m_runCompletionHandler;
     AutomationCompletionHandler m_keyFrameTransitionCompletionHandler;
-    RunLoop::Timer<SimulatedInputDispatcher> m_keyFrameTransitionDurationTimer;
+    RunLoop::Timer m_keyFrameTransitionDurationTimer;
 
     Vector<SimulatedInputKeyFrame> m_keyframes;
 

@@ -33,12 +33,12 @@
 #include "WebPage.h"
 #include <GLES2/gl2.h>
 #include <WebCore/Document.h>
-#include <WebCore/Frame.h>
-#include <WebCore/FrameView.h>
+#include <WebCore/GraphicsContext.h>
 #include <WebCore/GraphicsLayerTextureMapper.h>
+#include <WebCore/LocalFrame.h>
+#include <WebCore/LocalFrameView.h>
 #include <WebCore/Page.h>
 #include <WebCore/Settings.h>
-#include <WebCore/TemporaryOpenGLSetting.h>
 #include <WebCore/TextureMapperGL.h>
 #include <WebCore/TextureMapperLayer.h>
 
@@ -74,7 +74,10 @@ void LayerTreeHost::compositeLayersToContext()
 
 bool LayerTreeHost::flushPendingLayerChanges()
 {
-    FrameView* frameView = m_webPage.corePage()->mainFrame().view();
+    auto* localMainFrame = dynamicDowncast<WebCore::LocalFrame>(m_webPage.corePage()->mainFrame());
+    if (!localMainFrame)
+        return false;
+    auto* frameView = localMainFrame->view();
     m_rootLayer->flushCompositingStateForThisLayerOnly();
     if (!frameView->flushCompositingStateIncludingSubframes())
         return false;
@@ -88,6 +91,9 @@ bool LayerTreeHost::flushPendingLayerChanges()
 
 void LayerTreeHost::layerFlushTimerFired()
 {
+    if (m_isSuspended)
+        return;
+
     if (m_notifyAfterScheduledLayerFlush) {
         m_webPage.drawingArea()->layerHostDidFlushLayers();
         m_notifyAfterScheduledLayerFlush = false;
@@ -121,7 +127,7 @@ LayerTreeHost::LayerTreeHost(WebPage& webPage)
     applyDeviceScaleFactor();
 
     // The creation of the TextureMapper needs an active OpenGL context.
-    m_context = GLContext::createContextForWindow(window());
+    m_context = GLContext::create(window(), PlatformDisplay::sharedDisplay());
 
     if (!m_context)
         return;
@@ -238,10 +244,12 @@ void LayerTreeHost::sizeDidChange(const WebCore::IntSize& newSize)
 
 void LayerTreeHost::pauseRendering()
 {
+    m_isSuspended = true;
 }
 
 void LayerTreeHost::resumeRendering()
 {
+    m_isSuspended = false;
 }
 
 WebCore::GraphicsLayerFactory* LayerTreeHost::graphicsLayerFactory()
@@ -270,9 +278,9 @@ RefPtr<WebCore::DisplayRefreshMonitor> LayerTreeHost::createDisplayRefreshMonito
     return nullptr;
 }
 
-HWND LayerTreeHost::window()
+GLNativeWindowType LayerTreeHost::window()
 {
-    return reinterpret_cast<HWND>(m_webPage.nativeWindowHandle());
+    return reinterpret_cast<GLNativeWindowType>(m_webPage.nativeWindowHandle());
 }
 
 bool LayerTreeHost::enabled()
@@ -280,11 +288,12 @@ bool LayerTreeHost::enabled()
     return window() && m_rootCompositingLayer;
 }
 
-void LayerTreeHost::paintContents(const GraphicsLayer*, GraphicsContext& context, const FloatRect& rectToPaint, GraphicsLayerPaintBehavior)
+void LayerTreeHost::paintContents(const GraphicsLayer*, GraphicsContext& context, const FloatRect& rectToPaint, OptionSet<GraphicsLayerPaintBehavior>)
 {
     context.save();
     context.clip(rectToPaint);
-    m_webPage.corePage()->mainFrame().view()->paint(context, enclosingIntRect(rectToPaint));
+    if (auto* localMainFrame = dynamicDowncast<WebCore::LocalFrame>(m_webPage.corePage()->mainFrame()))
+        localMainFrame->view()->paint(context, enclosingIntRect(rectToPaint));
     context.restore();
 }
 

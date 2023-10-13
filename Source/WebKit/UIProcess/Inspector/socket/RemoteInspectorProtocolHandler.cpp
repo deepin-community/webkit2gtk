@@ -31,11 +31,13 @@
 #include "APIContentWorld.h"
 #include "APILoaderClient.h"
 #include "APINavigation.h"
+#include "PageLoadState.h"
 #include "WebPageGroup.h"
 #include "WebPageProxy.h"
 #include "WebScriptMessageHandler.h"
 #include "WebUserContentControllerProxy.h"
 #include <WebCore/JSDOMExceptionHandling.h>
+#include <WebCore/RunJavaScriptParameters.h>
 #include <WebCore/SerializedScriptValue.h>
 #include <wtf/URL.h>
 #include <wtf/text/StringBuilder.h>
@@ -55,12 +57,28 @@ public:
 
     void didPostMessage(WebPageProxy& page, FrameInfoData&&, API::ContentWorld&, WebCore::SerializedScriptValue& serializedScriptValue) override
     {
-        auto tokens = serializedScriptValue.toString().split(":");
-        if (tokens.size() != 3)
+        auto valueAsString = serializedScriptValue.toString();
+        auto tokens = StringView { valueAsString }.split(':');
+        uint32_t connectionID = 0;
+        uint32_t targetID = 0;
+        String type;
+        int i = 0;
+        for (auto token : tokens) {
+            if (!i)
+                connectionID = parseInteger<uint32_t>(token).value_or(0);
+            else if (i == 1)
+                targetID = parseInteger<uint32_t>(token).value_or(0);
+            else if (i == 2)
+                type = token.toString();
+            else
+                return;
+            ++i;
+        }
+        if (i != 3)
             return;
 
-        URL requestURL { { }, page.pageLoadState().url() };
-        m_inspectorProtocolHandler.inspect(requestURL.hostAndPort(), parseInteger<int>(tokens[0]).value_or(0), parseInteger<int>(tokens[1]).value_or(0), tokens[2]);
+        URL requestURL { page.pageLoadState().url() };
+        m_inspectorProtocolHandler.inspect(requestURL.hostAndPort(), connectionID, targetID, type);
     }
     
     bool supportsAsyncReply() override
@@ -121,7 +139,7 @@ void RemoteInspectorProtocolHandler::inspect(const String& hostAndPort, Connecti
 
 void RemoteInspectorProtocolHandler::runScript(const String& script)
 {
-    m_page.runJavaScriptInMainFrame({ script, URL { }, false, std::nullopt, false }, 
+    m_page.runJavaScriptInMainFrame({ script, URL { }, false, std::nullopt, false, RemoveTransientActivation::Yes },
         [] (auto&& result) {
         if (!result.has_value())
             LOG_ERROR("Exception running script \"%s\"", result.error().message.utf8().data());
@@ -162,14 +180,14 @@ void RemoteInspectorProtocolHandler::updateTargetList()
 
 void RemoteInspectorProtocolHandler::platformStartTask(WebPageProxy& pageProxy, WebURLSchemeTask& task)
 {
-    auto& requestURL = task.request().url();
+    auto requestURL = task.request().url();
 
     // Destroy the client before creating a new connection so it can connect to the same port
     m_inspectorClient = nullptr;
     m_inspectorClient = makeUnique<RemoteInspectorClient>(requestURL, *this);
 
     // Setup target postMessage listener
-    auto handler = WebScriptMessageHandler::create(makeUnique<ScriptMessageClient>(*this), "inspector", API::ContentWorld::pageContentWorld());
+    auto handler = WebScriptMessageHandler::create(makeUnique<ScriptMessageClient>(*this), "inspector"_s, API::ContentWorld::pageContentWorld());
     pageProxy.pageGroup().userContentController().addUserScriptMessageHandler(handler.get());
 
     // Setup loader client to get notified of page load

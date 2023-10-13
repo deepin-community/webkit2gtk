@@ -35,7 +35,7 @@
 #include <wtf/glib/WTFGType.h>
 
 /**
- * SECTION: JSCClass
+ * JSCClass:
  * @short_description: JavaScript custom class
  * @title: JSCClass
  * @see_also: JSCContext
@@ -65,17 +65,13 @@ typedef struct _JSCClassPrivate {
     JSC::Weak<JSC::JSObject> prototype;
 } JSCClassPrivate;
 
-struct _JSCClass {
-    GObject parent;
-
-    JSCClassPrivate* priv;
-};
-
+#if !ENABLE(2022_GLIB_API)
 struct _JSCClassClass {
     GObjectClass parent_class;
 };
+#endif
 
-WEBKIT_DEFINE_TYPE(JSCClass, jsc_class, G_TYPE_OBJECT)
+WEBKIT_DEFINE_FINAL_TYPE(JSCClass, jsc_class, G_TYPE_OBJECT, GObject)
 
 class VTableExceptionHandler {
 public:
@@ -110,10 +106,9 @@ private:
 
 static bool isWrappedObject(JSC::JSObject* jsObject)
 {
-    JSC::JSGlobalObject* globalObject = jsObject->globalObject();
     if (jsObject->isGlobalObject())
-        return jsObject->inherits<JSC::JSCallbackObject<JSC::JSAPIWrapperGlobalObject>>(globalObject->vm());
-    return jsObject->inherits<JSC::JSCallbackObject<JSC::JSAPIWrapperObject>>(globalObject->vm());
+        return jsObject->inherits<JSC::JSCallbackObject<JSC::JSAPIWrapperGlobalObject>>();
+    return jsObject->inherits<JSC::JSCallbackObject<JSC::JSAPIWrapperObject>>();
 }
 
 static JSClassRef wrappedObjectClass(JSC::JSObject* jsObject)
@@ -338,8 +333,7 @@ static void jsc_class_class_init(JSCClassClass* klass)
         PROP_CONTEXT,
         g_param_spec_object(
             "context",
-            "JSCContext",
-            "JSC Context",
+            nullptr, nullptr,
             JSC_TYPE_CONTEXT,
             static_cast<GParamFlags>(WEBKIT_PARAM_WRITABLE | G_PARAM_CONSTRUCT_ONLY)));
 
@@ -352,8 +346,7 @@ static void jsc_class_class_init(JSCClassClass* klass)
         PROP_NAME,
         g_param_spec_string(
             "name",
-            "Name",
-            "The class name",
+            nullptr, nullptr,
             nullptr,
             static_cast<GParamFlags>(WEBKIT_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY)));
 
@@ -366,8 +359,7 @@ static void jsc_class_class_init(JSCClassClass* klass)
         PROP_PARENT,
         g_param_spec_object(
             "parent",
-            "Partent",
-            "The parent class",
+            nullptr, nullptr,
             JSC_TYPE_CLASS,
             static_cast<GParamFlags>(WEBKIT_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY)));
 }
@@ -575,7 +567,7 @@ static GRefPtr<JSCValue> jscClassCreateConstructor(JSCClass* jscClass, const cha
  * @jsc_class: a #JSCClass
  * @name: (nullable): the constructor name or %NULL
  * @callback: (scope async): a #GCallback to be called to create an instance of @jsc_class
- * @user_data: (closure): user data to pass to @callback
+ * @user_data: user data to pass to @callback
  * @destroy_notify: (nullable): destroy notifier for @user_data
  * @return_type: the #GType of the constructor return value
  * @n_params: the number of parameter types to follow or 0 if constructor doesn't receive parameters.
@@ -624,7 +616,7 @@ JSCValue* jsc_class_add_constructor(JSCClass* jscClass, const char* name, GCallb
  * @jsc_class: a #JSCClass
  * @name: (nullable): the constructor name or %NULL
  * @callback: (scope async): a #GCallback to be called to create an instance of @jsc_class
- * @user_data: (closure): user data to pass to @callback
+ * @user_data: user data to pass to @callback
  * @destroy_notify: (nullable): destroy notifier for @user_data
  * @return_type: the #GType of the constructor return value
  * @n_parameters: the number of parameters
@@ -670,7 +662,7 @@ JSCValue* jsc_class_add_constructorv(JSCClass* jscClass, const char* name, GCall
  * @jsc_class: a #JSCClass
  * @name: (nullable): the constructor name or %NULL
  * @callback: (scope async): a #GCallback to be called to create an instance of @jsc_class
- * @user_data: (closure): user data to pass to @callback
+ * @user_data: user data to pass to @callback
  * @destroy_notify: (nullable): destroy notifier for @user_data
  * @return_type: the #GType of the constructor return value
  *
@@ -722,7 +714,7 @@ static void jscClassAddMethod(JSCClass* jscClass, const char* name, GCallback ca
  * @jsc_class: a #JSCClass
  * @name: the method name
  * @callback: (scope async): a #GCallback to be called to invoke method @name of @jsc_class
- * @user_data: (closure): user data to pass to @callback
+ * @user_data: user data to pass to @callback
  * @destroy_notify: (nullable): destroy notifier for @user_data
  * @return_type: the #GType of the method return value, or %G_TYPE_NONE if the method is void.
  * @n_params: the number of parameter types to follow or 0 if the method doesn't receive parameters.
@@ -763,7 +755,7 @@ void jsc_class_add_method(JSCClass* jscClass, const char* name, GCallback callba
  * @jsc_class: a #JSCClass
  * @name: the method name
  * @callback: (scope async): a #GCallback to be called to invoke method @name of @jsc_class
- * @user_data: (closure): user data to pass to @callback
+ * @user_data: user data to pass to @callback
  * @destroy_notify: (nullable): destroy notifier for @user_data
  * @return_type: the #GType of the method return value, or %G_TYPE_NONE if the method is void.
  * @n_parameters: the number of parameter types to follow or 0 if the method doesn't receive parameters.
@@ -802,7 +794,7 @@ void jsc_class_add_methodv(JSCClass* jscClass, const char* name, GCallback callb
  * @jsc_class: a #JSCClass
  * @name: the method name
  * @callback: (scope async): a #GCallback to be called to invoke method @name of @jsc_class
- * @user_data: (closure): user data to pass to @callback
+ * @user_data: user data to pass to @callback
  * @destroy_notify: (nullable): destroy notifier for @user_data
  * @return_type: the #GType of the method return value, or %G_TYPE_NONE if the method is void.
  *
@@ -833,7 +825,7 @@ void jsc_class_add_method_variadic(JSCClass* jscClass, const char* name, GCallba
  * @property_type: the #GType of the property value
  * @getter: (scope async) (nullable): a #GCallback to be called to get the property value
  * @setter: (scope async) (nullable): a #GCallback to be called to set the property value
- * @user_data: (closure): user data to pass to @getter and @setter
+ * @user_data: user data to pass to @getter and @setter
  * @destroy_notify: (nullable): destroy notifier for @user_data
  *
  * Add a property with @name to @jsc_class. When the property value needs to be getted, @getter is called
@@ -859,5 +851,5 @@ void jsc_class_add_property(JSCClass* jscClass, const char* name, GType property
 
     auto context = jscContextGetOrCreate(priv->context);
     GRefPtr<JSCValue> prototype = jscContextGetOrCreateValue(context.get(), toRef(priv->prototype.get()));
-    jsc_value_object_define_property_accessor(prototype.get(), name, JSC_VALUE_PROPERTY_CONFIGURABLE, propertyType, getter, setter, userData, destroyNotify);
+    jscValueAddPropertyAccessor(prototype.get(), name, propertyType, getter, setter, userData, destroyNotify);
 }

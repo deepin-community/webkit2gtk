@@ -31,7 +31,7 @@
 
 namespace JSC {
 
-const ClassInfo ErrorInstance::s_info = { "Error", &JSNonFinalObject::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(ErrorInstance) };
+const ClassInfo ErrorInstance::s_info = { "Error"_s, &JSNonFinalObject::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(ErrorInstance) };
 
 ErrorInstance::ErrorInstance(VM& vm, Structure* structure, ErrorType errorType)
     : Base(vm, structure)
@@ -40,7 +40,19 @@ ErrorInstance::ErrorInstance(VM& vm, Structure* structure, ErrorType errorType)
     , m_outOfMemoryError(false)
     , m_errorInfoMaterialized(false)
     , m_nativeGetterTypeError(false)
+#if ENABLE(WEBASSEMBLY)
+    , m_catchableFromWasm(true)
+#endif // ENABLE(WEBASSEMBLY)
 {
+}
+
+ErrorInstance* ErrorInstance::create(JSGlobalObject* globalObject, String&& message, ErrorType errorType, unsigned line, unsigned column, String&& sourceURL, String&& stackString)
+{
+    VM& vm = globalObject->vm();
+    Structure* structure = globalObject->errorStructure(errorType);
+    ErrorInstance* instance = new (NotNull, allocateCell<ErrorInstance>(vm)) ErrorInstance(vm, structure, errorType);
+    instance->finishCreation(vm, WTFMove(message), line, column, WTFMove(sourceURL), WTFMove(stackString));
+    return instance;
 }
 
 ErrorInstance* ErrorInstance::create(JSGlobalObject* globalObject, Structure* structure, JSValue message, JSValue options, SourceAppender appender, RuntimeType type, ErrorType errorType, bool useCurrentFrame)
@@ -61,14 +73,14 @@ ErrorInstance* ErrorInstance::create(JSGlobalObject* globalObject, Structure* st
     return create(globalObject, vm, structure, messageString, cause, appender, type, errorType, useCurrentFrame);
 }
 
-static String appendSourceToErrorMessage(CallFrame* callFrame, ErrorInstance* exception, BytecodeIndex bytecodeIndex, const String& message)
+static String appendSourceToErrorMessage(CodeBlock* codeBlock, ErrorInstance* exception, BytecodeIndex bytecodeIndex, const String& message)
 {
     ErrorInstance::SourceAppender appender = exception->sourceAppender();
     exception->clearSourceAppender();
     RuntimeType type = exception->runtimeTypeForCause();
     exception->clearRuntimeTypeForCause();
 
-    if (!callFrame->codeBlock()->hasExpressionInfo() || message.isNull())
+    if (!codeBlock->hasExpressionInfo() || message.isNull())
         return message;
     
     int startOffset = 0;
@@ -76,13 +88,6 @@ static String appendSourceToErrorMessage(CallFrame* callFrame, ErrorInstance* ex
     int divotPoint = 0;
     unsigned line = 0;
     unsigned column = 0;
-
-    CodeBlock* codeBlock;
-    CodeOrigin codeOrigin = callFrame->codeOrigin();
-    if (codeOrigin && codeOrigin.inlineCallFrame())
-        codeBlock = baselineCodeBlockForInlineCallFrame(codeOrigin.inlineCallFrame());
-    else
-        codeBlock = callFrame->codeBlock();
 
     codeBlock->expressionRangeForBytecodeIndex(bytecodeIndex, divotPoint, startOffset, endOffset, line, column);
     
@@ -94,7 +99,7 @@ static String appendSourceToErrorMessage(CallFrame* callFrame, ErrorInstance* ex
         return message;
     
     if (expressionStart < expressionStop)
-        return appender(message, codeBlock->source().provider()->getRange(expressionStart, expressionStop).toString(), type, ErrorInstance::FoundExactSource);
+        return appender(message, codeBlock->source().provider()->getRange(expressionStart, expressionStop), type, ErrorInstance::FoundExactSource);
 
     // No range information, so give a few characters of context.
     int dataLength = sourceString.length();
@@ -110,13 +115,13 @@ static String appendSourceToErrorMessage(CallFrame* callFrame, ErrorInstance* ex
         stop++;
     while (stop > expressionStart && isStrWhiteSpace(sourceString[stop - 1]))
         stop--;
-    return appender(message, codeBlock->source().provider()->getRange(start, stop).toString(), type, ErrorInstance::FoundApproximateSource);
+    return appender(message, codeBlock->source().provider()->getRange(start, stop), type, ErrorInstance::FoundApproximateSource);
 }
 
 void ErrorInstance::finishCreation(VM& vm, JSGlobalObject* globalObject, const String& message, JSValue cause, SourceAppender appender, RuntimeType type, bool useCurrentFrame)
 {
     Base::finishCreation(vm);
-    ASSERT(inherits(vm, info()));
+    ASSERT(inherits(info()));
 
     m_sourceAppender = appender;
     m_runtimeTypeForCause = type;
@@ -126,22 +131,33 @@ void ErrorInstance::finishCreation(VM& vm, JSGlobalObject* globalObject, const S
         Locker locker { cellLock() };
         m_stackTrace = WTFMove(stackTrace);
     }
-    vm.heap.writeBarrier(this);
+    vm.writeBarrier(this);
 
     String messageWithSource = message;
     if (m_stackTrace && !m_stackTrace->isEmpty() && hasSourceAppender()) {
-        BytecodeIndex bytecodeIndex;
-        CallFrame* callFrame;
-        getBytecodeIndex(vm, vm.topCallFrame, m_stackTrace.get(), callFrame, bytecodeIndex);
-        if (callFrame && callFrame->codeBlock() && !callFrame->callee().isWasm())
-            messageWithSource = appendSourceToErrorMessage(callFrame, this, bytecodeIndex, message);
+        auto [codeBlock, bytecodeIndex] = getBytecodeIndex(vm, vm.topCallFrame);
+        if (codeBlock)
+            messageWithSource = appendSourceToErrorMessage(codeBlock, this, bytecodeIndex, message);
     }
 
     if (!messageWithSource.isNull())
-        putDirect(vm, vm.propertyNames->message, jsString(vm, messageWithSource), static_cast<unsigned>(PropertyAttribute::DontEnum));
+        putDirect(vm, vm.propertyNames->message, jsString(vm, WTFMove(messageWithSource)), static_cast<unsigned>(PropertyAttribute::DontEnum));
 
     if (!cause.isEmpty())
         putDirect(vm, vm.propertyNames->cause, cause, static_cast<unsigned>(PropertyAttribute::DontEnum));
+}
+
+void ErrorInstance::finishCreation(VM& vm, String&& message, unsigned line, unsigned column, String&& sourceURL, String&& stackString)
+{
+    Base::finishCreation(vm);
+    ASSERT(inherits(info()));
+
+    m_line = line;
+    m_column = column;
+    m_sourceURL = WTFMove(sourceURL);
+    m_stackString = WTFMove(stackString);
+    if (!message.isNull())
+        putDirect(vm, vm.propertyNames->message, jsString(vm, WTFMove(message)), static_cast<unsigned>(PropertyAttribute::DontEnum));
 }
 
 // Based on ErrorPrototype's errorProtoFuncToString(), but is modified to
@@ -151,7 +167,7 @@ String ErrorInstance::sanitizedMessageString(JSGlobalObject* globalObject)
 {
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
-    Integrity::auditStructureID(vm, structureID());
+    Integrity::auditStructureID(structureID());
 
     JSValue messageValue;
     auto messagePropertName = vm.propertyNames->message;
@@ -160,8 +176,9 @@ String ErrorInstance::sanitizedMessageString(JSGlobalObject* globalObject)
         messageValue = messageSlot.getValue(globalObject, messagePropertName);
     RETURN_IF_EXCEPTION(scope, { });
 
-    if (!messageValue)
+    if (!messageValue || !messageValue.isPrimitive())
         return { };
+
     RELEASE_AND_RETURN(scope, messageValue.toWTFString(globalObject));
 }
 
@@ -169,7 +186,7 @@ String ErrorInstance::sanitizedNameString(JSGlobalObject* globalObject)
 {
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
-    Integrity::auditStructureID(vm, structureID());
+    Integrity::auditStructureID(structureID());
 
     JSValue nameValue;
     auto namePropertName = vm.propertyNames->name;
@@ -187,11 +204,11 @@ String ErrorInstance::sanitizedNameString(JSGlobalObject* globalObject)
             nameValue = nameSlot.getValue(globalObject, namePropertName);
             break;
         }
-        currentObj = obj->getPrototypeDirect(vm);
+        currentObj = obj->getPrototypeDirect();
     }
     RETURN_IF_EXCEPTION(scope, { });
 
-    if (!nameValue)
+    if (!nameValue || !nameValue.isPrimitive())
         return "Error"_s;
     RELEASE_AND_RETURN(scope, nameValue.toWTFString(globalObject));
 }
@@ -200,7 +217,7 @@ String ErrorInstance::sanitizedToString(JSGlobalObject* globalObject)
 {
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
-    Integrity::auditStructureID(vm, structureID());
+    Integrity::auditStructureID(structureID());
 
     String nameString = sanitizedNameString(globalObject);
     RETURN_IF_EXCEPTION(scope, String());
@@ -208,10 +225,10 @@ String ErrorInstance::sanitizedToString(JSGlobalObject* globalObject)
     String messageString = sanitizedMessageString(globalObject);
     RETURN_IF_EXCEPTION(scope, String());
 
-    return makeString(nameString, nameString.isEmpty() || messageString.isEmpty() ? "" : ": ", messageString);
+    return makeString(nameString, nameString.isEmpty() || messageString.isEmpty() ? ""_s : ": "_s, messageString);
 }
 
-void ErrorInstance::finalizeUnconditionally(VM& vm)
+void ErrorInstance::finalizeUnconditionally(VM& vm, CollectionScope)
 {
     if (!m_stackTrace)
         return;
@@ -232,7 +249,7 @@ void ErrorInstance::computeErrorInfo(VM& vm)
     ASSERT(!m_errorInfoMaterialized);
 
     if (m_stackTrace && !m_stackTrace->isEmpty()) {
-        getLineColumnAndSource(m_stackTrace.get(), m_line, m_column, m_sourceURL);
+        getLineColumnAndSource(vm, m_stackTrace.get(), m_line, m_column, m_sourceURL);
         m_stackString = Interpreter::stackTraceAsString(vm, *m_stackTrace.get());
         m_stackTrace = nullptr;
     }
@@ -308,7 +325,9 @@ bool ErrorInstance::deleteProperty(JSCell* cell, JSGlobalObject* globalObject, P
 {
     VM& vm = globalObject->vm();
     ErrorInstance* thisObject = jsCast<ErrorInstance*>(cell);
-    thisObject->materializeErrorInfoIfNeeded(vm, propertyName);
+    bool materializedProperties = thisObject->materializeErrorInfoIfNeeded(vm, propertyName);
+    if (materializedProperties)
+        slot.disableCaching();
     return Base::deleteProperty(thisObject, globalObject, propertyName, slot);
 }
 

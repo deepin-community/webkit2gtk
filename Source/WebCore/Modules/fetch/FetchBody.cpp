@@ -39,8 +39,11 @@
 #include "JSDOMPromiseDeferred.h"
 #include "ReadableStreamSource.h"
 #include <JavaScriptCore/ArrayBufferView.h>
+#include <pal/text/TextCodecUTF8.h>
 
 namespace WebCore {
+
+FetchBody::~FetchBody() = default;
 
 ExceptionOr<FetchBody> FetchBody::extract(Init&& value, String& contentType)
 {
@@ -77,25 +80,24 @@ ExceptionOr<FetchBody> FetchBody::extract(Init&& value, String& contentType)
     });
 }
 
-std::optional<FetchBody> FetchBody::fromFormData(ScriptExecutionContext& context, FormData& formData)
+std::optional<FetchBody> FetchBody::fromFormData(ScriptExecutionContext& context, Ref<FormData>&& formData)
 {
-    ASSERT(!formData.isEmpty());
+    ASSERT(!formData->isEmpty());
 
-    if (auto buffer = formData.asSharedBuffer()) {
+    if (auto buffer = formData->asSharedBuffer()) {
         FetchBody body;
         body.m_consumer.setData(buffer.releaseNonNull());
         return body;
     }
 
-    auto url = formData.asBlobURL();
+    auto url = formData->asBlobURL();
     if (!url.isNull()) {
         // FIXME: Properly set mime type and size of the blob.
-        Ref<const Blob> blob = Blob::deserialize(&context, url, { }, { }, { });
+        Ref<const Blob> blob = Blob::deserialize(&context, url, { }, { }, 0, { });
         return FetchBody { WTFMove(blob) };
     }
 
-    // FIXME: Support form data bodies.
-    return std::nullopt;
+    return FetchBody { WTFMove(formData) };
 }
 
 void FetchBody::arrayBuffer(FetchBodyOwner& owner, Ref<DeferredPromise>&& promise)
@@ -104,10 +106,9 @@ void FetchBody::arrayBuffer(FetchBodyOwner& owner, Ref<DeferredPromise>&& promis
     consume(owner, WTFMove(promise));
 }
 
-void FetchBody::blob(FetchBodyOwner& owner, Ref<DeferredPromise>&& promise, const String& contentType)
+void FetchBody::blob(FetchBodyOwner& owner, Ref<DeferredPromise>&& promise)
 {
     m_consumer.setType(FetchBodyConsumer::Type::Blob);
-    m_consumer.setContentType(Blob::normalizedContentType(extractMIMETypeFromMediaType(contentType)));
     consume(owner, WTFMove(promise));
 }
 
@@ -137,12 +138,10 @@ void FetchBody::formData(FetchBodyOwner& owner, Ref<DeferredPromise>&& promise)
     consume(owner, WTFMove(promise));
 }
 
-void FetchBody::consumeOnceLoadingFinished(FetchBodyConsumer::Type type, Ref<DeferredPromise>&& promise, const String& contentType)
+void FetchBody::consumeOnceLoadingFinished(FetchBodyConsumer::Type type, Ref<DeferredPromise>&& promise)
 {
     m_consumer.setType(type);
     m_consumer.setConsumePromise(WTFMove(promise));
-    if (type == FetchBodyConsumer::Type::Blob)
-        m_consumer.setContentType(Blob::normalizedContentType(extractMIMETypeFromMediaType(contentType)));
 }
 
 void FetchBody::consume(FetchBodyOwner& owner, Ref<DeferredPromise>&& promise)
@@ -172,31 +171,26 @@ void FetchBody::consume(FetchBodyOwner& owner, Ref<DeferredPromise>&& promise)
         return;
     }
 
-    m_consumer.resolve(WTFMove(promise), owner.contentType(), m_readableStream.get());
+    m_consumer.resolve(WTFMove(promise), owner.contentType(), &owner, m_readableStream.get());
 }
 
 void FetchBody::consumeAsStream(FetchBodyOwner& owner, FetchBodySource& source)
 {
     bool closeStream = false;
-    if (isArrayBuffer()) {
+    if (isArrayBuffer())
         closeStream = source.enqueue(ArrayBuffer::tryCreate(arrayBufferBody().data(), arrayBufferBody().byteLength()));
-        m_data = nullptr;
-    } else if (isArrayBufferView()) {
+    else if (isArrayBufferView())
         closeStream = source.enqueue(ArrayBuffer::tryCreate(arrayBufferViewBody().baseAddress(), arrayBufferViewBody().byteLength()));
-        m_data = nullptr;
-    } else if (isText()) {
-        auto data = UTF8Encoding().encode(textBody(), UnencodableHandling::Entities);
+    else if (isText()) {
+        auto data = PAL::TextCodecUTF8::encodeUTF8(textBody());
         closeStream = source.enqueue(ArrayBuffer::tryCreate(data.data(), data.size()));
-        m_data = nullptr;
     } else if (isURLSearchParams()) {
-        auto data = UTF8Encoding().encode(urlSearchParamsBody().toString(), UnencodableHandling::Entities);
+        auto data = PAL::TextCodecUTF8::encodeUTF8(urlSearchParamsBody().toString());
         closeStream = source.enqueue(ArrayBuffer::tryCreate(data.data(), data.size()));
-        m_data = nullptr;
-    } else if (isBlob()) {
+    } else if (isBlob())
         owner.loadBlob(blobBody(), nullptr);
-        m_data = nullptr;
-    } else if (isFormData())
-        source.error(Exception { NotSupportedError, "Not implemented"_s });
+    else if (isFormData())
+        m_consumer.consumeFormDataAsStream(formDataBody(), source, owner.scriptExecutionContext());
     else if (m_consumer.hasData())
         closeStream = source.enqueue(m_consumer.takeAsArrayBuffer());
     else
@@ -220,7 +214,7 @@ void FetchBody::consumeArrayBufferView(FetchBodyOwner& owner, Ref<DeferredPromis
 
 void FetchBody::consumeText(FetchBodyOwner& owner, Ref<DeferredPromise>&& promise, const String& text)
 {
-    auto data = UTF8Encoding().encode(text, UnencodableHandling::Entities);
+    auto data = PAL::TextCodecUTF8::encodeUTF8(text);
     m_consumer.resolveWithData(WTFMove(promise), owner.contentType(), data.data(), data.size());
     m_data = nullptr;
 }
@@ -234,14 +228,8 @@ void FetchBody::consumeBlob(FetchBodyOwner& owner, Ref<DeferredPromise>&& promis
 
 void FetchBody::consumeFormData(FetchBodyOwner& owner, Ref<DeferredPromise>&& promise)
 {
-    if (auto sharedBuffer = formDataBody().asSharedBuffer()) {
-        m_consumer.resolveWithData(WTFMove(promise), owner.contentType(), sharedBuffer->data(), sharedBuffer->size());
-        m_data = nullptr;
-    } else {
-        // FIXME: If the form data contains blobs, load them like we do other blobs.
-        // That will fix the last WPT test in response-consume.html.
-        promise->reject(NotSupportedError);
-    }
+    m_consumer.resolveWithFormData(WTFMove(promise), owner.contentType(), formDataBody(), owner.scriptExecutionContext());
+    m_data = nullptr;
 }
 
 void FetchBody::loadingFailed(const Exception& exception)
@@ -257,9 +245,9 @@ void FetchBody::loadingSucceeded(const String& contentType)
 RefPtr<FormData> FetchBody::bodyAsFormData() const
 {
     if (isText())
-        return FormData::create(UTF8Encoding().encode(textBody(), UnencodableHandling::Entities));
+        return FormData::create(PAL::TextCodecUTF8::encodeUTF8(textBody()));
     if (isURLSearchParams())
-        return FormData::create(UTF8Encoding().encode(urlSearchParamsBody().toString(), UnencodableHandling::Entities));
+        return FormData::create(PAL::TextCodecUTF8::encodeUTF8(urlSearchParamsBody().toString()));
     if (isBlob()) {
         auto body = FormData::create();
         body->appendBlob(blobBody().url());
@@ -269,12 +257,10 @@ RefPtr<FormData> FetchBody::bodyAsFormData() const
         return FormData::create(arrayBufferBody().data(), arrayBufferBody().byteLength());
     if (isArrayBufferView())
         return FormData::create(arrayBufferViewBody().baseAddress(), arrayBufferViewBody().byteLength());
-    if (isFormData()) {
-        auto body = makeRef(const_cast<FormData&>(formDataBody()));
-        return body;
-    }
+    if (isFormData())
+        return &const_cast<FormData&>(formDataBody());
     if (auto* data = m_consumer.data())
-        return FormData::create(data->data(), data->size());
+        return FormData::create(data->makeContiguous()->data(), data->size());
 
     ASSERT_NOT_REACHED();
     return nullptr;
@@ -286,7 +272,7 @@ FetchBody::TakenData FetchBody::take()
         auto buffer = m_consumer.takeData();
         if (!buffer)
             return nullptr;
-        return buffer.releaseNonNull();
+        return buffer->makeContiguous();
     }
 
     if (isBlob()) {
@@ -299,9 +285,9 @@ FetchBody::TakenData FetchBody::take()
         return formDataBody();
 
     if (isText())
-        return SharedBuffer::create(UTF8Encoding().encode(textBody(), UnencodableHandling::Entities));
+        return SharedBuffer::create(PAL::TextCodecUTF8::encodeUTF8(textBody()));
     if (isURLSearchParams())
-        return SharedBuffer::create(UTF8Encoding().encode(urlSearchParamsBody().toString(), UnencodableHandling::Entities));
+        return SharedBuffer::create(PAL::TextCodecUTF8::encodeUTF8(urlSearchParamsBody().toString()));
 
     if (isArrayBuffer())
         return SharedBuffer::create(static_cast<const char*>(arrayBufferBody().data()), arrayBufferBody().byteLength());
@@ -313,7 +299,7 @@ FetchBody::TakenData FetchBody::take()
 
 FetchBody FetchBody::clone()
 {
-    FetchBody clone(m_consumer);
+    FetchBody clone(m_consumer.clone());
 
     if (isArrayBuffer())
         clone.m_data = arrayBufferBody();
@@ -327,12 +313,13 @@ FetchBody FetchBody::clone()
         clone.m_data = textBody();
     else if (isURLSearchParams())
         clone.m_data = urlSearchParamsBody();
-
-    if (m_readableStream) {
-        auto clones = m_readableStream->tee();
-        if (clones) {
-            m_readableStream = WTFMove(clones->first);
-            clone.m_readableStream = WTFMove(clones->second);
+    else if (m_readableStream) {
+        auto clones = m_readableStream->tee(true);
+        ASSERT(!clones.hasException());
+        if (!clones.hasException()) {
+            auto pair = clones.releaseReturnValue();
+            m_readableStream = WTFMove(pair[0]);
+            clone.m_readableStream = WTFMove(pair[1]);
         }
     }
     return clone;

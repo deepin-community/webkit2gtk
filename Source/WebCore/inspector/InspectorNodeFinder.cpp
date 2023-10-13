@@ -34,9 +34,9 @@
 
 #include "Attr.h"
 #include "Document.h"
-#include "Element.h"
-#include "Frame.h"
+#include "ElementInlines.h"
 #include "HTMLFrameOwnerElement.h"
+#include "LocalFrame.h"
 #include "NodeList.h"
 #include "NodeTraversal.h"
 #include "XPathNSResolver.h"

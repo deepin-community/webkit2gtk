@@ -35,12 +35,14 @@
 
 namespace JSC {
 
-inline CacheableIdentifier CacheableIdentifier::createFromIdentifierOwnedByCodeBlock(CodeBlock* codeBlock, const Identifier& i)
+template <typename CodeBlockType>
+inline CacheableIdentifier CacheableIdentifier::createFromIdentifierOwnedByCodeBlock(CodeBlockType* codeBlock, const Identifier& i)
 {
     return createFromIdentifierOwnedByCodeBlock(codeBlock, i.impl());
 }
 
-inline CacheableIdentifier CacheableIdentifier::createFromIdentifierOwnedByCodeBlock(CodeBlock* codeBlock, UniquedStringImpl* uid)
+template <typename CodeBlockType>
+inline CacheableIdentifier CacheableIdentifier::createFromIdentifierOwnedByCodeBlock(CodeBlockType* codeBlock, UniquedStringImpl* uid)
 {
     ASSERT_UNUSED(codeBlock, codeBlock->hasIdentifier(uid));
     return CacheableIdentifier(uid);
@@ -115,6 +117,17 @@ inline bool CacheableIdentifier::isStringCell() const
     return isCell() && cell()->isString();
 }
 
+inline void CacheableIdentifier::ensureIsCell(VM& vm)
+{
+    if (!isCell()) {
+        if (uid()->isSymbol())
+            setCellBits(Symbol::create(vm, static_cast<SymbolImpl&>(*uid())));
+        else
+            setCellBits(jsString(vm, String(static_cast<AtomStringImpl*>(uid()))));
+    }
+    ASSERT(isCell());
+}
+
 inline void CacheableIdentifier::setCellBits(JSCell* cell)
 {
     RELEASE_ASSERT(isCacheableIdentifierCell(cell));
@@ -137,11 +150,6 @@ inline void CacheableIdentifier::visitAggregate(Visitor& visitor) const
 inline bool CacheableIdentifier::operator==(const CacheableIdentifier& other) const
 {
     return uid() == other.uid();
-}
-
-inline bool CacheableIdentifier::operator!=(const CacheableIdentifier& other) const
-{
-    return uid() != other.uid();
 }
 
 inline bool CacheableIdentifier::operator==(const Identifier& other) const

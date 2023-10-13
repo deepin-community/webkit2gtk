@@ -36,17 +36,21 @@
 #include "CookieJar.h"
 #include "Document.h"
 #include "FontCache.h"
-#include "Frame.h"
 #include "GCController.h"
+#include "HRTFElevation.h"
 #include "HTMLMediaElement.h"
+#include "HTMLNameCache.h"
 #include "InlineStyleSheetOwner.h"
 #include "InspectorInstrumentation.h"
 #include "LayoutIntegrationLineLayout.h"
+#include "LocalFrame.h"
 #include "Logging.h"
 #include "MemoryCache.h"
 #include "Page.h"
+#include "PerformanceLogging.h"
 #include "RenderTheme.h"
 #include "ScrollingThread.h"
+#include "SelectorQuery.h"
 #include "StyleScope.h"
 #include "StyledElement.h"
 #include "TextPainter.h"
@@ -59,6 +63,7 @@
 
 #if PLATFORM(COCOA)
 #include "ResourceUsageThread.h"
+#include <wtf/spi/darwin/OSVariantSPI.h>
 #endif
 
 namespace WebCore {
@@ -67,24 +72,21 @@ static void releaseNoncriticalMemory(MaintainMemoryCache maintainMemoryCache)
 {
     RenderTheme::singleton().purgeCaches();
 
-    FontCache::singleton().purgeInactiveFontData();
-    FontCache::singleton().clearWidthCaches();
+    FontCache::releaseNoncriticalMemoryInAllFontCaches();
 
-    TextPainter::clearGlyphDisplayLists();
+    GlyphDisplayListCache::singleton().clear();
+    SelectorQueryCache::singleton().clear();
 
     for (auto* document : Document::allDocuments()) {
-        document->clearSelectorQueryCache();
-
-#if ENABLE(LAYOUT_FORMATTING_CONTEXT)
         if (auto* renderView = document->renderView())
             LayoutIntegration::LineLayout::releaseCaches(*renderView);
-#endif
     }
 
     if (maintainMemoryCache == MaintainMemoryCache::No)
         MemoryCache::singleton().pruneDeadResourcesToSize(0);
 
     InlineStyleSheetOwner::clearCache();
+    HTMLNameCache::clear();
 }
 
 static void releaseCriticalMemory(Synchronous synchronous, MaintainBackForwardCache maintainBackForwardCache, MaintainMemoryCache maintainMemoryCache)
@@ -101,6 +103,9 @@ static void releaseCriticalMemory(Synchronous synchronous, MaintainBackForwardCa
     }
 
     CSSValuePool::singleton().drain();
+#if ENABLE(WEB_AUDIO)
+    HRTFElevation::clearCache();
+#endif
 
     Page::forEachPage([](auto& page) {
         page.cookieJar().clearCache();
@@ -112,13 +117,14 @@ static void releaseCriticalMemory(Synchronous synchronous, MaintainBackForwardCa
         document->cachedResourceLoader().garbageCollectDocumentResources();
     }
 
-    GCController::singleton().deleteAllCode(JSC::DeleteAllCodeIfNotCollecting);
+    if (synchronous == Synchronous::Yes)
+        GCController::singleton().deleteAllCode(JSC::PreventCollectionAndDeleteAllCode);
+    else
+        GCController::singleton().deleteAllCode(JSC::DeleteAllCodeIfNotCollecting);
 
 #if ENABLE(VIDEO)
-    for (auto* mediaElement : HTMLMediaElement::allMediaElements()) {
-        if (mediaElement->paused())
-            mediaElement->purgeBufferedDataIfPossible();
-    }
+    for (auto* mediaElement : HTMLMediaElement::allMediaElements())
+        mediaElement->purgeBufferedDataIfPossible();
 #endif
 
     if (synchronous == Synchronous::Yes) {
@@ -173,26 +179,39 @@ void releaseGraphicsMemory(Critical critical, Synchronous synchronous)
     WTF::releaseFastMallocFreeMemory();
 }
 
-#if !RELEASE_LOG_DISABLED
-static unsigned pageCount()
+#if RELEASE_LOG_DISABLED
+void logMemoryStatistics(LogMemoryStatisticsReason) { }
+#else
+static const char* logMemoryStatisticsReasonDescription(LogMemoryStatisticsReason reason)
 {
-    unsigned count = 0;
-    Page::forEachPage([&] (Page& page) {
-        if (!page.isUtilityPage())
-            ++count;
-    });
-    return count;
+    switch (reason) {
+    case LogMemoryStatisticsReason::DebugNotification:
+        return "debug notification";
+    case LogMemoryStatisticsReason::WarningMemoryPressureNotification:
+        return "warning memory pressure notification";
+    case LogMemoryStatisticsReason::CriticalMemoryPressureNotification:
+        return "critical memory pressure notification";
+    case LogMemoryStatisticsReason::OutOfMemoryDeath:
+        return "out of memory death";
+    };
+    RELEASE_ASSERT_NOT_REACHED();
 }
-#endif
 
-void logMemoryStatisticsAtTimeOfDeath()
+void logMemoryStatistics(LogMemoryStatisticsReason reason)
 {
-#if !RELEASE_LOG_DISABLED
+    const char* description = logMemoryStatisticsReasonDescription(reason);
+
+    RELEASE_LOG(MemoryPressure, "WebKit memory usage statistics at time of %" PUBLIC_LOG_STRING ":", description);
+    RELEASE_LOG(MemoryPressure, "Websam state: %" PUBLIC_LOG_STRING, MemoryPressureHandler::processStateDescription().characters());
+    auto stats = PerformanceLogging::memoryUsageStatistics(ShouldIncludeExpensiveComputations::Yes);
+    for (auto& [key, val] : stats)
+        RELEASE_LOG(MemoryPressure, "%" PUBLIC_LOG_STRING ": %zu", key, val);
+
 #if PLATFORM(COCOA)
     auto pageSize = vmPageSize();
     auto pages = pagesPerVMTag();
 
-    RELEASE_LOG(MemoryPressure, "Dirty memory per VM tag at time of death:");
+    RELEASE_LOG(MemoryPressure, "Dirty memory per VM tag at time of %" PUBLIC_LOG_STRING ":", description);
     for (unsigned i = 0; i < 256; ++i) {
         size_t dirty = pages[i].dirty * pageSize;
         if (!dirty)
@@ -200,28 +219,22 @@ void logMemoryStatisticsAtTimeOfDeath()
         String tagName = displayNameForVMTag(i);
         if (!tagName)
             tagName = makeString("Tag ", i);
-        RELEASE_LOG(MemoryPressure, "%16s: %lu MB", tagName.latin1().data(), dirty / MB);
+        RELEASE_LOG(MemoryPressure, "  %" PUBLIC_LOG_STRING ": %lu MB in %zu regions", tagName.latin1().data(), dirty / MB, pages[i].regionCount);
     }
+
+    bool shouldLogJavaScriptObjectCounts = os_variant_allows_internal_security_policies("com.apple.WebKit");
+    if (!shouldLogJavaScriptObjectCounts)
+        return;
 #endif
 
     auto& vm = commonVM();
     JSC::JSLockHolder locker(vm);
-    RELEASE_LOG(MemoryPressure, "Memory usage statistics at time of death:");
-    RELEASE_LOG(MemoryPressure, "GC heap size: %zu", vm.heap.size());
-    RELEASE_LOG(MemoryPressure, "GC heap extra memory size: %zu", vm.heap.extraMemorySize());
-#if ENABLE(RESOURCE_USAGE)
-    RELEASE_LOG(MemoryPressure, "GC heap external memory: %zu", vm.heap.externalMemorySize());
-#endif
-    RELEASE_LOG(MemoryPressure, "Global object count: %zu", vm.heap.globalObjectCount());
-
-    RELEASE_LOG(MemoryPressure, "Page count: %u", pageCount());
-    RELEASE_LOG(MemoryPressure, "Document count: %u", Document::allDocuments().size());
-    RELEASE_LOG(MemoryPressure, "Live JavaScript objects:");
+    RELEASE_LOG(MemoryPressure, "Live JavaScript objects at time of %" PUBLIC_LOG_STRING ":", description);
     auto typeCounts = vm.heap.objectTypeCounts();
     for (auto& it : *typeCounts)
-        RELEASE_LOG(MemoryPressure, "  %s: %d", it.key, it.value);
-#endif
+        RELEASE_LOG(MemoryPressure, "  %" PUBLIC_LOG_STRING ": %d", it.key, it.value);
 }
+#endif
 
 #if !PLATFORM(COCOA)
 void platformReleaseMemory(Critical) { }

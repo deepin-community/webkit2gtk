@@ -1,4 +1,4 @@
-# Copyright (C) 2020 Apple Inc. All rights reserved.
+# Copyright (C) 2020-2023 Apple Inc. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -21,14 +21,14 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
 # THE POSSIBILITY OF SUCH DAMAGE.
 
-#if ENABLE(GPU_PROCESS)
+#if ENABLE(GPU_PROCESS) && ENABLE(VIDEO)
 
-messages -> RemoteMediaPlayerProxy NotRefCounted {
-    PrepareForPlayback(bool privateMode, enum:uint8_t WebCore::MediaPlayerEnums::Preload preload, bool preservesPitch, bool prepareForRendering, float videoContentScale, enum:uint8_t WebCore::DynamicRangeMode mode) -> (std::optional<WebKit::LayerHostingContextID> inlineLayerHostingContextId) Async
+messages -> RemoteMediaPlayerProxy {
+    PrepareForPlayback(bool privateMode, enum:uint8_t WebCore::MediaPlayerEnums::Preload preload, bool preservesPitch, WebCore::MediaPlayerEnums::PitchCorrectionAlgorithm pitchCorrectionAlgorithm, bool prepareForRendering, WebCore::IntSize presentationSize, float videoContentScale, enum:uint8_t WebCore::DynamicRangeMode mode)
 
-    Load(URL url, std::optional<WebKit::SandboxExtension::Handle> sandboxExtension, WebCore::ContentType contentType, String keySystem) -> (struct WebKit::RemoteMediaPlayerConfiguration playerConfiguration) Async
+    Load(URL url, std::optional<WebKit::SandboxExtension::Handle> sandboxExtension, WebCore::ContentType contentType, String keySystem, bool requiresRemotePlayback) -> (struct WebKit::RemoteMediaPlayerConfiguration playerConfiguration)
 #if ENABLE(MEDIA_SOURCE)
-    LoadMediaSource(URL url, WebCore::ContentType contentType, bool webMParserEnabled, WebKit::RemoteMediaSourceIdentifier mediaSourceIdentifier) -> (struct WebKit::RemoteMediaPlayerConfiguration playerConfiguration) Async
+    LoadMediaSource(URL url, WebCore::ContentType contentType, bool webMParserEnabled, WebKit::RemoteMediaSourceIdentifier mediaSourceIdentifier) -> (struct WebKit::RemoteMediaPlayerConfiguration playerConfiguration)
 #endif
     CancelLoad()
 
@@ -54,16 +54,17 @@ messages -> RemoteMediaPlayerProxy NotRefCounted {
     AcceleratedRenderingStateChanged(bool canBeAccelerated)
     SetShouldDisableSleep(bool disable)
     SetRate(double rate)
-    DidLoadingProgress() -> (bool flag) Async
+    DidLoadingProgress() -> (bool flag)
 
 #if ENABLE(VIDEO_PRESENTATION_MODE)
     UpdateVideoFullscreenInlineImage()
     SetVideoFullscreenMode(WebCore::MediaPlayer::VideoFullscreenMode mode)
     SetVideoFullscreenGravity(enum:uint8_t WebCore::MediaPlayerEnums::VideoGravity gravity)
-    VideoFullscreenStandbyChanged()
+    VideoFullscreenStandbyChanged(bool standby)
 #endif
 
     SetBufferingPolicy(WebCore::MediaPlayer::BufferingPolicy policy)
+    SetPresentationSize(WebCore::IntSize size)
 
 #if PLATFORM(COCOA)
     SetVideoInlineSizeFenced(WebCore::FloatSize size, MachSendRight machSendRight)
@@ -105,8 +106,8 @@ messages -> RemoteMediaPlayerProxy NotRefCounted {
     VideoTrackSetSelected(WebKit::TrackPrivateRemoteIdentifier identifier, bool selected)
     TextTrackSetMode(WebKit::TrackPrivateRemoteIdentifier identifier, enum:uint8_t WebCore::InbandTextTrackPrivate::Mode mode)
 
-    PerformTaskAtMediaTime(MediaTime mediaTime, MonotonicTime messageTime) -> (std::optional<MediaTime> mediaTime, std::optional<MonotonicTime> monotonicTime) Async
-    WouldTaintOrigin(struct WebCore::SecurityOriginData origin) -> (std::optional<bool> wouldTaint) Synchronous
+    PerformTaskAtMediaTime(MediaTime mediaTime, MonotonicTime messageTime) -> (std::optional<MediaTime> mediaTime, std::optional<MonotonicTime> monotonicTime)
+    IsCrossOrigin(WebCore::SecurityOriginData origin) -> (std::optional<bool> crossOrigin) Synchronous
 
     SetVideoPlaybackMetricsUpdateInterval(double interval)
 
@@ -123,14 +124,25 @@ messages -> RemoteMediaPlayerProxy NotRefCounted {
 #endif
 
 #if PLATFORM(COCOA)
-    NativeImageForCurrentTime() -> (std::optional<MachSendRight> sendRight) Synchronous
+    NativeImageForCurrentTime() -> (std::optional<MachSendRight> sendRight, WebCore::DestinationColorSpace colorSpace) Synchronous
+    ColorSpace() -> (WebCore::DestinationColorSpace colorSpace) Synchronous
+#if !HAVE(AVSAMPLEBUFFERDISPLAYLAYER_COPYDISPLAYEDPIXELBUFFER)
+    void WillBeAskedToPaintGL()
 #endif
-#if USE(AVFOUNDATION)
-    PixelBufferForCurrentTime() -> (RetainPtr<CVPixelBufferRef> pixelBuffer) Synchronous
 #endif
+    VideoFrameForCurrentTimeIfChanged() -> (std::optional<WebKit::RemoteVideoFrameProxy::Properties> videoFrame, bool changed) Synchronous
 
     PlayAtHostTime(MonotonicTime time)
     PauseAtHostTime(MonotonicTime time)
+
+    StartVideoFrameMetadataGathering()
+    StopVideoFrameMetadataGathering()
+
+    PlayerContentBoxRectChanged(WebCore::LayoutRect contentRect)
+
+    SetShouldDisableHDR(bool shouldDisable)
+
+    RequestHostingContextID() -> (uint32_t contextID)
 }
 
 #endif

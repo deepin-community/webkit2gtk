@@ -41,7 +41,7 @@ void CurlSSLHandle::platformInitialize()
         setCACertData(WTFMove(caCertData));
 
     setCipherList(CertificateStore::cipherSuites());
-    setCurvesList(CertificateStore::supportedGroups());
+    setECCurves(CertificateStore::supportedGroups());
 
     setIgnoreSSLErrors(CertificateStore::shouldIgnoreTLSErrors());
 }

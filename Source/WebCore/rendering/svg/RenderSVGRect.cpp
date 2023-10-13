@@ -1,6 +1,7 @@
 /*
  * Copyright (C) 2011 University of Szeged
  * Copyright (C) 2011 Renata Hodovan <reni@webkit.org>
+ * Copyright (C) 2020, 2021, 2022 Igalia S.L.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -28,6 +29,10 @@
 #include "config.h"
 #include "RenderSVGRect.h"
 
+#if ENABLE(LAYER_BASED_SVG_ENGINE)
+#include "RenderSVGShapeInlines.h"
+#include "SVGElementTypeHelpers.h"
+#include "SVGRectElement.h"
 #include <wtf/IsoMallocInlines.h>
 
 namespace WebCore {
@@ -36,7 +41,6 @@ WTF_MAKE_ISO_ALLOCATED_IMPL(RenderSVGRect);
 
 RenderSVGRect::RenderSVGRect(SVGRectElement& element, RenderStyle&& style)
     : RenderSVGShape(element, WTFMove(style))
-    , m_usePathFallback(false)
 {
 }
 
@@ -55,7 +59,6 @@ void RenderSVGRect::updateShapeFromElement()
     m_innerStrokeRect = FloatRect();
     m_outerStrokeRect = FloatRect();
     clearPath();
-    m_usePathFallback = false;
 
     SVGLengthContext lengthContext(&rectElement());
     FloatSize boundingBoxSize(lengthContext.valueForLength(style().width(), SVGLengthMode::Width), lengthContext.valueForLength(style().height(), SVGLengthMode::Height));
@@ -67,7 +70,6 @@ void RenderSVGRect::updateShapeFromElement()
     if (rectElement().rx().value(lengthContext) > 0 || rectElement().ry().value(lengthContext) > 0 || hasNonScalingStroke()) {
         // Fall back to RenderSVGShape
         RenderSVGShape::updateShapeFromElement();
-        m_usePathFallback = true;
         return;
     }
 
@@ -97,7 +99,7 @@ void RenderSVGRect::updateShapeFromElement()
 
 void RenderSVGRect::fillShape(GraphicsContext& context) const
 {
-    if (m_usePathFallback) {
+    if (hasPath()) {
         RenderSVGShape::fillShape(context);
         return;
     }
@@ -123,7 +125,7 @@ void RenderSVGRect::strokeShape(GraphicsContext& context) const
     if (!style().hasVisibleStroke())
         return;
 
-    if (m_usePathFallback) {
+    if (hasPath()) {
         RenderSVGShape::strokeShape(context);
         return;
     }
@@ -133,20 +135,20 @@ void RenderSVGRect::strokeShape(GraphicsContext& context) const
 
 bool RenderSVGRect::shapeDependentStrokeContains(const FloatPoint& point, PointCoordinateSpace pointCoordinateSpace)
 {
-    // The optimized contains code below does not support non-smooth strokes so we need
+    // The optimized code below does not support non-smooth strokes so we need
     // to fall back to RenderSVGShape::shapeDependentStrokeContains in these cases.
-    if (m_usePathFallback || !hasSmoothStroke()) {
-        if (!hasPath())
-            RenderSVGShape::updateShapeFromElement();
+    if (!hasSmoothStroke() && !hasPath())
+        RenderSVGShape::updateShapeFromElement();
+
+    if (hasPath())
         return RenderSVGShape::shapeDependentStrokeContains(point, pointCoordinateSpace);
-    }
 
     return m_outerStrokeRect.contains(point, FloatRect::InsideOrOnStroke) && !m_innerStrokeRect.contains(point, FloatRect::InsideButNotOnStroke);
 }
 
 bool RenderSVGRect::shapeDependentFillContains(const FloatPoint& point, const WindRule fillRule) const
 {
-    if (m_usePathFallback)
+    if (hasPath())
         return RenderSVGShape::shapeDependentFillContains(point, fillRule);
     return m_fillBoundingBox.contains(point.x(), point.y());
 }
@@ -158,3 +160,5 @@ bool RenderSVGRect::isRenderingDisabled() const
 }
 
 }
+
+#endif // ENABLE(LAYER_BASED_SVG_ENGINE)

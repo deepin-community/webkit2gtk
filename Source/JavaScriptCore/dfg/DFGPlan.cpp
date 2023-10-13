@@ -29,7 +29,6 @@
 #if ENABLE(DFG_JIT)
 
 #include "DFGArgumentsEliminationPhase.h"
-#include "DFGBackwardsPropagationPhase.h"
 #include "DFGByteCodeParser.h"
 #include "DFGCFAPhase.h"
 #include "DFGCFGSimplificationPhase.h"
@@ -51,6 +50,7 @@
 #include "DFGLiveCatchVariablePreservationPhase.h"
 #include "DFGLivenessAnalysisPhase.h"
 #include "DFGLoopPreHeaderCreationPhase.h"
+#include "DFGMovHintRemovalPhase.h"
 #include "DFGOSRAvailabilityAnalysisPhase.h"
 #include "DFGOSREntrypointCreationPhase.h"
 #include "DFGObjectAllocationSinkingPhase.h"
@@ -60,19 +60,21 @@
 #include "DFGPutStackSinkingPhase.h"
 #include "DFGSSAConversionPhase.h"
 #include "DFGSSALoweringPhase.h"
+#include "DFGSpeculativeJIT.h"
 #include "DFGStackLayoutPhase.h"
 #include "DFGStaticExecutionCountEstimationPhase.h"
 #include "DFGStoreBarrierClusteringPhase.h"
 #include "DFGStoreBarrierInsertionPhase.h"
 #include "DFGStrengthReductionPhase.h"
+#include "DFGThunks.h"
 #include "DFGTierUpCheckInjectionPhase.h"
 #include "DFGTypeCheckHoistingPhase.h"
 #include "DFGUnificationPhase.h"
 #include "DFGValidate.h"
+#include "DFGValidateUnlinked.h"
 #include "DFGValueRepReductionPhase.h"
 #include "DFGVarargsForwardingPhase.h"
 #include "DFGVirtualRegisterAllocationPhase.h"
-#include "DFGWatchpointCollectionPhase.h"
 #include "JSCJSValueInlines.h"
 #include "OperandsInlines.h"
 #include "ProfilerDatabase.h"
@@ -113,6 +115,8 @@ Profiler::CompilationKind profilerCompilationKindForMode(JITCompilationMode mode
         return Profiler::DFG;
     case JITCompilationMode::DFG:
         return Profiler::DFG;
+    case JITCompilationMode::UnlinkedDFG:
+        return Profiler::UnlinkedDFG;
     case JITCompilationMode::FTL:
         return Profiler::FTL;
     case JITCompilationMode::FTLForOSREntry:
@@ -199,8 +203,6 @@ Plan::CompilationPath Plan::compileInThreadImpl()
         parse(dfg);
     }
 
-    m_codeBlock->setCalleeSaveRegisters(RegisterSet::dfgCalleeSaveRegisters());
-
     bool changed = false;
 
 #define RUN_PHASE(phase)                                         \
@@ -235,8 +237,6 @@ Plan::CompilationPath Plan::compileInThreadImpl()
         dfg.dump();
     }
 
-    RUN_PHASE(performLiveCatchVariablePreservationPhase);
-
     RUN_PHASE(performCPSRethreading);
     RUN_PHASE(performUnification);
     RUN_PHASE(performPredictionInjection);
@@ -255,7 +255,6 @@ Plan::CompilationPath Plan::compileInThreadImpl()
     if (validationEnabled())
         validate(dfg);
     
-    RUN_PHASE(performBackwardsPropagation);
     RUN_PHASE(performPredictionPropagation);
     RUN_PHASE(performFixup);
     RUN_PHASE(performInvalidationPointInjection);
@@ -319,7 +318,8 @@ Plan::CompilationPath Plan::compileInThreadImpl()
     }
 
     switch (m_mode) {
-    case JITCompilationMode::DFG: {
+    case JITCompilationMode::DFG:
+    case JITCompilationMode::UnlinkedDFG: {
         dfg.m_fixpointState = FixpointConverged;
 
         RUN_PHASE(performTierUpCheckInjection);
@@ -332,17 +332,22 @@ Plan::CompilationPath Plan::compileInThreadImpl()
         RUN_PHASE(performPhantomInsertion);
         RUN_PHASE(performStackLayout);
         RUN_PHASE(performVirtualRegisterAllocation);
-        RUN_PHASE(performWatchpointCollection);
+        if (m_mode == JITCompilationMode::UnlinkedDFG) {
+            if (DFG::canCompileUnlinked(dfg) == DFG::CannotCompile) {
+                m_finalizer = makeUnique<FailedFinalizer>(*this);
+                return FailPath;
+            }
+        }
         dumpAndVerifyGraph(dfg, "Graph after optimization:");
         
         {
             CompilerTimingScope timingScope("DFG", "machine code generation");
 
-            JITCompiler dataFlowJIT(dfg);
+            SpeculativeJIT speculativeJIT(dfg);
             if (m_codeBlock->codeType() == FunctionCode)
-                dataFlowJIT.compileFunction();
+                speculativeJIT.compileFunction();
             else
-                dataFlowJIT.compile();
+                speculativeJIT.compile();
         }
         
         return DFGPath;
@@ -365,13 +370,15 @@ Plan::CompilationPath Plan::compileInThreadImpl()
         RUN_PHASE(performSSALowering);
         
         // Ideally, these would be run to fixpoint with the object allocation sinking phase.
+        if (Options::usePutStackSinking())
+            RUN_PHASE(performPutStackSinking);
         RUN_PHASE(performArgumentsElimination);
         if (Options::usePutStackSinking())
             RUN_PHASE(performPutStackSinking);
         
         RUN_PHASE(performConstantHoisting);
         RUN_PHASE(performGlobalCSE);
-        RUN_PHASE(performLivenessAnalysis);
+        RUN_PHASE(performGraphPackingAndLivenessAnalysis);
         RUN_PHASE(performCFA);
         RUN_PHASE(performConstantFolding);
         RUN_PHASE(performCFGSimplification);
@@ -387,7 +394,7 @@ Plan::CompilationPath Plan::compileInThreadImpl()
         if (changed) {
             // State-at-tail and state-at-head will be invalid if we did strength reduction since
             // it might increase live ranges.
-            RUN_PHASE(performLivenessAnalysis);
+            RUN_PHASE(performGraphPackingAndLivenessAnalysis);
             RUN_PHASE(performCFA);
             RUN_PHASE(performConstantFolding);
             RUN_PHASE(performCFGSimplification);
@@ -398,7 +405,7 @@ Plan::CompilationPath Plan::compileInThreadImpl()
         // wrong with running LICM earlier, if we wanted to put other CFG transforms above this point.
         // Alternatively, we could run loop pre-header creation after SSA conversion - but if we did that
         // then we'd need to do some simple SSA fix-up.
-        RUN_PHASE(performLivenessAnalysis);
+        RUN_PHASE(performGraphPackingAndLivenessAnalysis);
         RUN_PHASE(performCFA);
         RUN_PHASE(performLICM);
 
@@ -409,7 +416,7 @@ Plan::CompilationPath Plan::compileInThreadImpl()
         // by IntegerRangeOptimization.
         //
         // Ideally, the dependencies should be explicit. See https://bugs.webkit.org/show_bug.cgi?id=157534.
-        RUN_PHASE(performLivenessAnalysis);
+        RUN_PHASE(performGraphPackingAndLivenessAnalysis);
         RUN_PHASE(performIntegerRangeOptimization);
         
         RUN_PHASE(performCleanUp);
@@ -420,16 +427,21 @@ Plan::CompilationPath Plan::compileInThreadImpl()
         // about code motion assumes that it's OK to insert GC points in random places.
         dfg.m_fixpointState = FixpointConverged;
 
-        RUN_PHASE(performLivenessAnalysis);
+        RUN_PHASE(performGraphPackingAndLivenessAnalysis);
         RUN_PHASE(performCFA);
         RUN_PHASE(performGlobalStoreBarrierInsertion);
         RUN_PHASE(performStoreBarrierClustering);
+
+        // MovHint removal happens based on the assumption that we no longer inserts random new nodes having new OSR exits.
+        // After this phase, you cannot insert a node having a new OSR exit. (If it does not cause OSR exit, or if it does
+        // not introduce a new OSR exit, then it is totally fine).
+        if (Options::useMovHintRemoval())
+            RUN_PHASE(performMovHintRemoval);
         RUN_PHASE(performCleanUp);
         RUN_PHASE(performDCE); // We rely on this to kill dead code that won't be recognized as dead by B3.
         RUN_PHASE(performStackLayout);
-        RUN_PHASE(performLivenessAnalysis);
+        RUN_PHASE(performGraphPackingAndLivenessAnalysis);
         RUN_PHASE(performOSRAvailabilityAnalysis);
-        RUN_PHASE(performWatchpointCollection);
         
         if (FTL::canCompile(dfg) == FTL::CannotCompile) {
             m_finalizer = makeUnique<FailedFinalizer>(*this);
@@ -536,6 +548,11 @@ CompilationResult Plan::finalize()
     ASSERT(m_vm->heap.isDeferred());
 
     CompilationResult result = [&] {
+        if (m_finalizer->isFailed()) {
+            CODEBLOCK_LOG_EVENT(m_codeBlock, "dfgFinalize", ("failed"));
+            return CompilationFailed;
+        }
+
         if (!isStillValidOnMainThread() || !isStillValid()) {
             CODEBLOCK_LOG_EVENT(m_codeBlock, "dfgFinalize", ("invalidated"));
             return CompilationInvalidated;
@@ -554,8 +571,9 @@ CompilationResult Plan::finalize()
             m_codeBlock->shrinkToFit(locker, CodeBlock::ShrinkMode::LateShrink);
         }
 
-        // Since Plan::reallyAdd could fire watchpoints (see ArrayBufferViewWatchpointAdaptor::add), it is possible that the current CodeBlock is now invalidated.
-        if (!m_codeBlock->jitCode()->dfgCommon()->isStillValid) {
+        // Since Plan::reallyAdd could fire watchpoints (see ArrayBufferViewWatchpointAdaptor::add),
+        // it is possible that the current CodeBlock is now invalidated & jettisoned.
+        if (m_codeBlock->isJettisoned()) {
             CODEBLOCK_LOG_EVENT(m_codeBlock, "dfgFinalize", ("invalidated"));
             return CompilationInvalidated;
         }
@@ -566,7 +584,7 @@ CompilationResult Plan::finalize()
             for (WriteBarrier<JSCell>& reference : m_codeBlock->jitCode()->dfgCommon()->m_weakReferences)
                 trackedReferences.add(reference.get());
             for (StructureID structureID : m_codeBlock->jitCode()->dfgCommon()->m_weakStructureReferences)
-                trackedReferences.add(m_vm->getStructure(structureID));
+                trackedReferences.add(structureID.decode());
             for (WriteBarrier<Unknown>& constant : m_codeBlock->constants())
                 trackedReferences.add(constant.get());
 
@@ -585,7 +603,7 @@ CompilationResult Plan::finalize()
     }();
 
     // We will establish new references from the code block to things. So, we need a barrier.
-    m_vm->heap.writeBarrier(m_codeBlock);
+    m_vm->writeBarrier(m_codeBlock);
 
     m_callback->compilationDidComplete(m_codeBlock, m_profiledDFGCodeBlock, result);
 
@@ -680,6 +698,13 @@ void Plan::cleanMustHandleValuesIfNecessary()
         if (!liveness[local])
             m_mustHandleValues.local(local) = std::nullopt;
     }
+}
+
+std::unique_ptr<JITData> Plan::tryFinalizeJITData(const JITCode& jitCode)
+{
+    auto osrExitThunk = m_vm->getCTIStub(osrExitGenerationThunkGenerator).retagged<OSRExitPtrTag>();
+    auto exits = JITData::ExitVector::createWithSizeAndConstructorArguments(jitCode.m_osrExit.size(), osrExitThunk);
+    return JITData::tryCreate(*m_vm, m_codeBlock, jitCode, WTFMove(exits));
 }
 
 } } // namespace JSC::DFG

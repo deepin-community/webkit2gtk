@@ -30,22 +30,13 @@
 
 #if USE(CAIRO)
 #include <WebCore/BackingStoreBackendCairo.h>
-#elif USE(DIRECT2D)
-#include <WebCore/BackingStoreBackendDirect2D.h>
-#endif
-
-#if USE(DIRECT2D)
-interface ID2D1RenderTarget;
-interface ID3D11Device1;
-interface ID3D11DeviceContext1;
-interface ID3D11Texture2D;
 #endif
 
 namespace WebKit {
 
 class ShareableBitmap;
-class UpdateInfo;
 class WebPageProxy;
+struct UpdateInfo;
 
 class BackingStore {
     WTF_MAKE_FAST_ALLOCATED;
@@ -60,25 +51,17 @@ public:
 
 #if USE(CAIRO)
     typedef cairo_t* PlatformGraphicsContext;
-#elif USE(DIRECT2D)
-    struct DXConnections {
-        ID3D11DeviceContext1* immediateContext { nullptr };
-        ID3D11Texture2D* backBuffer { nullptr };
-    };
-    typedef DXConnections PlatformGraphicsContext;
 #endif
 
     void paint(PlatformGraphicsContext, const WebCore::IntRect&);
-    void incorporateUpdate(const UpdateInfo&);
+    void incorporateUpdate(UpdateInfo&&);
 
 private:
-    void incorporateUpdate(ShareableBitmap*, const UpdateInfo&);
+    void incorporateUpdate(ShareableBitmap*, UpdateInfo&&);
     void scroll(const WebCore::IntRect& scrollRect, const WebCore::IntSize& scrollOffset);
 
 #if USE(CAIRO)
     std::unique_ptr<WebCore::BackingStoreBackendCairo> createBackend();
-#elif USE(DIRECT2D)
-    std::unique_ptr<WebCore::BackingStoreBackendDirect2D> createBackend();
 #endif
 
     WebCore::IntSize m_size;
@@ -86,8 +69,6 @@ private:
     WebPageProxy& m_webPageProxy;
 #if USE(CAIRO)
     std::unique_ptr<WebCore::BackingStoreBackendCairo> m_backend;
-#elif USE(DIRECT2D)
-    std::unique_ptr<WebCore::BackingStoreBackendDirect2D> m_backend;
 #endif
 };
 

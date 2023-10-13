@@ -26,7 +26,7 @@
 #include "config.h"
 #include "RemoteMediaPlayerManagerProxy.h"
 
-#if ENABLE(GPU_PROCESS)
+#if ENABLE(GPU_PROCESS) && ENABLE(VIDEO)
 
 #include "GPUConnectionToWebProcess.h"
 #include "GPUProcess.h"
@@ -34,6 +34,7 @@
 #include "RemoteMediaPlayerManagerProxyMessages.h"
 #include "RemoteMediaPlayerProxy.h"
 #include "RemoteMediaPlayerProxyConfiguration.h"
+#include "ScopedRenderingResourcesRequest.h"
 #include "WebCoreArgumentCoders.h"
 #include <WebCore/MediaPlayer.h>
 #include <WebCore/MediaPlayerPrivate.h>
@@ -49,11 +50,16 @@ namespace WebKit {
 using namespace WebCore;
 
 RemoteMediaPlayerManagerProxy::RemoteMediaPlayerManagerProxy(GPUConnectionToWebProcess& connection)
-    : m_gpuConnectionToWebProcess(makeWeakPtr(connection))
+    : m_gpuConnectionToWebProcess(connection)
 {
 }
 
 RemoteMediaPlayerManagerProxy::~RemoteMediaPlayerManagerProxy()
+{
+    clear();
+}
+
+void RemoteMediaPlayerManagerProxy::clear()
 {
     auto proxies = std::exchange(m_proxies, { });
 
@@ -67,7 +73,7 @@ void RemoteMediaPlayerManagerProxy::createMediaPlayer(MediaPlayerIdentifier iden
     ASSERT(m_gpuConnectionToWebProcess);
     ASSERT(!m_proxies.contains(identifier));
 
-    auto proxy = makeUnique<RemoteMediaPlayerProxy>(*this, identifier, m_gpuConnectionToWebProcess->connection(), engineIdentifier, WTFMove(proxyConfiguration));
+    auto proxy = RemoteMediaPlayerProxy::create(*this, identifier, m_gpuConnectionToWebProcess->connection(), engineIdentifier, WTFMove(proxyConfiguration), m_gpuConnectionToWebProcess->videoFrameObjectHeap(), m_gpuConnectionToWebProcess->webProcessIdentity());
     m_proxies.add(identifier, WTFMove(proxy));
 }
 
@@ -78,7 +84,7 @@ void RemoteMediaPlayerManagerProxy::deleteMediaPlayer(MediaPlayerIdentifier iden
     if (auto proxy = m_proxies.take(identifier))
         proxy->invalidate();
 
-    if (m_gpuConnectionToWebProcess && allowsExitUnderMemoryPressure())
+    if (m_gpuConnectionToWebProcess && !hasOutstandingRenderingResourceUsage())
         m_gpuConnectionToWebProcess->gpuProcess().tryExitIfUnusedAndUnderMemoryPressure();
 }
 
@@ -114,39 +120,6 @@ void RemoteMediaPlayerManagerProxy::supportsTypeAndCodecs(MediaPlayerEnums::Medi
     completionHandler(result);
 }
 
-void RemoteMediaPlayerManagerProxy::originsInMediaCache(MediaPlayerEnums::MediaEngineIdentifier engineIdentifier, const String&& path, CompletionHandler<void(HashSet<WebCore::SecurityOriginData>&&)>&& completionHandler)
-{
-    auto engine = MediaPlayer::mediaEngine(engineIdentifier);
-    if (!engine) {
-        WTFLogAlways("Failed to find media engine.");
-        completionHandler({ });
-        return;
-    }
-
-    completionHandler(engine->originsInMediaCache(path));
-}
-
-void RemoteMediaPlayerManagerProxy::clearMediaCache(MediaPlayerEnums::MediaEngineIdentifier engineIdentifier, const String&&path, WallTime modifiedSince)
-{
-    auto engine = MediaPlayer::mediaEngine(engineIdentifier);
-    if (!engine) {
-        WTFLogAlways("Failed to find media engine.");
-        return;
-    }
-
-    engine->clearMediaCache(path, modifiedSince);
-}
-
-void RemoteMediaPlayerManagerProxy::clearMediaCacheForOrigins(MediaPlayerEnums::MediaEngineIdentifier engineIdentifier, const String&& path, HashSet<WebCore::SecurityOriginData>&& origins)
-{
-    auto engine = MediaPlayer::mediaEngine(engineIdentifier);
-    if (!engine) {
-        WTFLogAlways("Failed to find media engine.");
-        return;
-    }
-    engine->clearMediaCacheForOrigins(path, origins);
-}
-
 void RemoteMediaPlayerManagerProxy::supportsKeySystem(MediaPlayerEnums::MediaEngineIdentifier engineIdentifier, const String&& keySystem, const String&& mimeType, CompletionHandler<void(bool)>&& completionHandler)
 {
     auto engine = MediaPlayer::mediaEngine(engineIdentifier);
@@ -162,14 +135,14 @@ void RemoteMediaPlayerManagerProxy::supportsKeySystem(MediaPlayerEnums::MediaEng
 void RemoteMediaPlayerManagerProxy::didReceivePlayerMessage(IPC::Connection& connection, IPC::Decoder& decoder)
 {
     ASSERT(RunLoop::isMain());
-    if (auto* player = m_proxies.get(makeObjectIdentifier<MediaPlayerIdentifierType>(decoder.destinationID())))
+    if (auto* player = m_proxies.get(ObjectIdentifier<MediaPlayerIdentifierType>(decoder.destinationID())))
         player->didReceiveMessage(connection, decoder);
 }
 
 bool RemoteMediaPlayerManagerProxy::didReceiveSyncPlayerMessage(IPC::Connection& connection, IPC::Decoder& decoder, UniqueRef<IPC::Encoder>& encoder)
 {
     ASSERT(RunLoop::isMain());
-    if (auto* player = m_proxies.get(makeObjectIdentifier<MediaPlayerIdentifierType>(decoder.destinationID())))
+    if (auto* player = m_proxies.get(ObjectIdentifier<MediaPlayerIdentifierType>(decoder.destinationID())))
         return player->didReceiveSyncMessage(connection, decoder, encoder);
     return false;
 }
@@ -181,11 +154,6 @@ RefPtr<MediaPlayer> RemoteMediaPlayerManagerProxy::mediaPlayer(const MediaPlayer
     if (results != m_proxies.end())
         return results->value->mediaPlayer();
     return nullptr;
-}
-
-bool RemoteMediaPlayerManagerProxy::allowsExitUnderMemoryPressure() const
-{
-    return m_proxies.isEmpty();
 }
 
 #if !RELEASE_LOG_DISABLED
@@ -200,6 +168,33 @@ Logger& RemoteMediaPlayerManagerProxy::logger()
 }
 #endif
 
+ShareableBitmap::Handle RemoteMediaPlayerManagerProxy::bitmapImageForCurrentTime(WebCore::MediaPlayerIdentifier identifier)
+{
+    auto player = mediaPlayer(identifier);
+    if (!player)
+        return { };
+
+    auto image = player->nativeImageForCurrentTime();
+    if (!image)
+        return { };
+
+    auto imageSize = image->size();
+    auto bitmap = ShareableBitmap::create({ imageSize, player->colorSpace() });
+    if (!bitmap)
+        return { };
+
+    auto context = bitmap->createGraphicsContext();
+    if (!context)
+        return { };
+
+    context->drawNativeImage(*image, imageSize, FloatRect { { }, imageSize }, FloatRect { { }, imageSize });
+
+    auto bitmapHandle = bitmap->createHandle();
+    if (!bitmapHandle)
+        return { };
+    return WTFMove(*bitmapHandle);
+}
+
 } // namespace WebKit
 
-#endif
+#endif // ENABLE(GPU_PROCESS) && ENABLE(VIDEO)

@@ -28,9 +28,11 @@
 
 #if ENABLE(VIDEO)
 
-#include "HTMLMediaElement.h"
+#include "Document.h"
 #include "InbandTextTrackPrivate.h"
 #include "Logging.h"
+#include "TextTrackCueList.h"
+#include "TextTrackList.h"
 #include "VTTRegionList.h"
 #include <math.h>
 #include <wtf/IsoMallocInlines.h>
@@ -63,14 +65,14 @@ void GenericTextTrackCueMap::remove(TextTrackCue& publicCue)
         m_dataToCueMap.remove(cueIdentifier);
 }
 
-inline InbandGenericTextTrack::InbandGenericTextTrack(Document& document, TextTrackClient& client, InbandTextTrackPrivate& trackPrivate)
-    : InbandTextTrack(document, client, trackPrivate)
+inline InbandGenericTextTrack::InbandGenericTextTrack(Document& document, InbandTextTrackPrivate& trackPrivate)
+    : InbandTextTrack(document, trackPrivate)
 {
 }
 
-Ref<InbandGenericTextTrack> InbandGenericTextTrack::create(Document& document, TextTrackClient& client, InbandTextTrackPrivate& trackPrivate)
+Ref<InbandGenericTextTrack> InbandGenericTextTrack::create(Document& document, InbandTextTrackPrivate& trackPrivate)
 {
-    auto textTrack = adoptRef(*new InbandGenericTextTrack(document, client, trackPrivate));
+    auto textTrack = adoptRef(*new InbandGenericTextTrack(document, trackPrivate));
     textTrack->suspendIfNeeded();
     return textTrack;
 }
@@ -83,8 +85,8 @@ void InbandGenericTextTrack::updateCueFromCueData(TextTrackCueGeneric& cue, Inba
 
     cue.setStartTime(inbandCue.startTime());
     MediaTime endTime = inbandCue.endTime();
-    if (endTime.isPositiveInfinite() && mediaElement())
-        endTime = mediaElement()->durationMediaTime();
+    if (endTime.isPositiveInfinite() && textTrackList() && textTrackList()->duration().isValid())
+        endTime = textTrackList()->duration();
     cue.setEndTime(endTime);
     cue.setText(inbandCue.content());
     cue.setId(inbandCue.id());
@@ -106,11 +108,11 @@ void InbandGenericTextTrack::updateCueFromCueData(TextTrackCueGeneric& cue, Inba
         cue.setHighlightColor(inbandCue.highlightColor());
 
     if (inbandCue.align() == GenericCueData::Alignment::Start)
-        cue.setAlign("start"_s);
+        cue.setAlign(VTTCue::AlignSetting::Start);
     else if (inbandCue.align() == GenericCueData::Alignment::Middle)
-        cue.setAlign("middle"_s);
+        cue.setAlign(VTTCue::AlignSetting::Center);
     else if (inbandCue.align() == GenericCueData::Alignment::End)
-        cue.setAlign("end"_s);
+        cue.setAlign(VTTCue::AlignSetting::End);
     cue.setSnapToLines(false);
 
     cue.didChange();
@@ -138,7 +140,7 @@ void InbandGenericTextTrack::addGenericCue(InbandGenericCue& inbandCue)
 
 void InbandGenericTextTrack::updateGenericCue(InbandGenericCue& inbandCue)
 {
-    auto cue = makeRefPtr(m_cueMap.find(inbandCue.uniqueId()));
+    RefPtr cue = m_cueMap.find(inbandCue.uniqueId());
     if (!cue)
         return;
 
@@ -150,7 +152,7 @@ void InbandGenericTextTrack::updateGenericCue(InbandGenericCue& inbandCue)
 
 void InbandGenericTextTrack::removeGenericCue(InbandGenericCue& inbandCue)
 {
-    auto cue = makeRefPtr(m_cueMap.find(inbandCue.uniqueId()));
+    RefPtr cue = m_cueMap.find(inbandCue.uniqueId());
     if (cue) {
         INFO_LOG(LOGIDENTIFIER, *cue);
         removeCue(*cue);
@@ -184,16 +186,55 @@ void InbandGenericTextTrack::parseWebVTTFileHeader(String&& header)
     parser().parseFileHeader(WTFMove(header));
 }
 
+RefPtr<TextTrackCue> InbandGenericTextTrack::cueToExtend(TextTrackCue& newCue)
+{
+    if (newCue.startMediaTime() < MediaTime::zeroTime() || newCue.endMediaTime() < MediaTime::zeroTime())
+        return nullptr;
+
+    if (!m_cues || m_cues->length() < 2)
+        return nullptr;
+
+    return [this, &newCue]() -> RefPtr<TextTrackCue> {
+        for (size_t i = 0; i < m_cues->length(); ++i) {
+            auto existingCue = m_cues->item(i);
+            ASSERT(existingCue->track() == this);
+
+            if (abs(newCue.startMediaTime() - existingCue->startMediaTime()) > startTimeVariance())
+                continue;
+
+            if (abs(newCue.startMediaTime() - existingCue->endMediaTime()) > startTimeVariance())
+                return nullptr;
+
+            if (existingCue->cueContentsMatch(newCue))
+                return existingCue;
+        }
+
+        return nullptr;
+    }();
+}
+
 void InbandGenericTextTrack::newCuesParsed()
 {
     for (auto& cueData : parser().takeCues()) {
         auto cue = VTTCue::create(document(), cueData);
-        if (hasCue(cue, TextTrackCue::IgnoreDuration)) {
-            INFO_LOG(LOGIDENTIFIER, "ignoring already added cue: ", cue.get());
-            return;
+
+        auto existingCue = cueToExtend(cue);
+        if (!existingCue)
+            existingCue = matchCue(cue, TextTrackCue::IgnoreDuration);
+
+        if (!existingCue) {
+            INFO_LOG(LOGIDENTIFIER, cue.get());
+            addCue(WTFMove(cue));
+            continue;
         }
-        INFO_LOG(LOGIDENTIFIER, cue.get());
-        addCue(WTFMove(cue));
+
+        if (existingCue->endTime() >= cue->endTime()) {
+            INFO_LOG(LOGIDENTIFIER, "ignoring already added cue: ", cue.get());
+            continue;
+        }
+
+        ALWAYS_LOG(LOGIDENTIFIER, "extending endTime of existing cue: ", *existingCue, " to ", cue->endTime());
+        existingCue->setEndTime(cue->endTime());
     }
 }
 
@@ -207,6 +248,7 @@ void InbandGenericTextTrack::newRegionsParsed()
 
 void InbandGenericTextTrack::newStyleSheetsParsed()
 {
+    m_styleSheets = parser().takeStyleSheets();
 }
 
 void InbandGenericTextTrack::fileFailedToParse()

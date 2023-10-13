@@ -33,10 +33,10 @@
 #include "NetworkSessionSoup.h"
 #include "WebCookieManager.h"
 #include "WebKitCachedResolver.h"
+#include "WebKitOverridingResolver.h"
 #include <WebCore/CertificateInfo.h>
 #include <WebCore/NetworkStorageSession.h>
 #include <WebCore/NotImplemented.h>
-#include <WebCore/ResourceHandle.h>
 #include <WebCore/SoupNetworkSession.h>
 #include <libsoup/soup.h>
 #include <wtf/CallbackAggregator.h>
@@ -55,7 +55,7 @@ static CString buildAcceptLanguages(const Vector<String>& languages)
     size_t languagesCount = languages.size();
 
     // Ignore "C" locale.
-    size_t cLocalePosition = languages.find("c");
+    size_t cLocalePosition = languages.find("c"_s);
     if (cLocalePosition != notFound)
         languagesCount--;
 
@@ -128,8 +128,16 @@ void NetworkProcess::platformInitializeNetworkProcess(const NetworkProcessCreati
     GRefPtr<GResolver> cachedResolver = adoptGRef(webkitCachedResolverNew(adoptGRef(g_resolver_get_default())));
     g_resolver_set_default(cachedResolver.get());
 
+    if (!parameters.localhostAliasesForTesting.isEmpty()) {
+        auto overridingResolver = adoptGRef(webkitOverridingResolverNew(cachedResolver.get(), parameters.localhostAliasesForTesting));
+        g_resolver_set_default(overridingResolver.get());
+    }
+
     m_cacheOptions = { NetworkCache::CacheOption::RegisterNotify };
-    supplement<WebCookieManager>()->setHTTPCookieAcceptPolicy(parameters.cookieAcceptPolicy, []() { });
+    // FIXME: NetworkProcess probably does not have session at this point.
+    forEachNetworkSession([&](NetworkSession& session) {
+        supplement<WebCookieManager>()->setHTTPCookieAcceptPolicy(session.sessionID(), parameters.cookieAcceptPolicy, []() { });
+    });
 
     if (!parameters.languages.isEmpty())
         userPreferredLanguagesChanged(parameters.languages);
@@ -155,9 +163,10 @@ void NetworkProcess::setIgnoreTLSErrors(PAL::SessionID sessionID, bool ignoreTLS
         static_cast<NetworkSessionSoup&>(*session).setIgnoreTLSErrors(ignoreTLSErrors);
 }
 
-void NetworkProcess::allowSpecificHTTPSCertificateForHost(const CertificateInfo& certificateInfo, const String& host)
+void NetworkProcess::allowSpecificHTTPSCertificateForHost(PAL::SessionID sessionID, const CertificateInfo& certificateInfo, const String& host)
 {
-    SoupNetworkSession::allowSpecificHTTPSCertificateForHost(certificateInfo, host);
+    if (auto* session = networkSession(sessionID))
+        static_cast<NetworkSessionSoup&>(*session).allowSpecificHTTPSCertificateForHost(certificateInfo, host);
 }
 
 void NetworkProcess::clearDiskCache(WallTime modifiedSince, CompletionHandler<void()>&& completionHandler)
@@ -177,7 +186,7 @@ void NetworkProcess::platformTerminate()
 void NetworkProcess::setNetworkProxySettings(PAL::SessionID sessionID, SoupNetworkProxySettings&& settings)
 {
     if (auto* session = networkSession(sessionID))
-        static_cast<NetworkSessionSoup&>(*session).setProxySettings(WTFMove(settings));
+        static_cast<NetworkSessionSoup&>(*session).setProxySettings(settings);
 }
 
 void NetworkProcess::setPersistentCredentialStorageEnabled(PAL::SessionID sessionID, bool enabled)

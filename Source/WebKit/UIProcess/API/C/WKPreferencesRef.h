@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010, 2012 Apple Inc. All rights reserved.
+ * Copyright (C) 2010-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -75,7 +75,7 @@ WK_EXPORT bool WKPreferencesGetJavaScriptMarkupEnabled(WKPreferencesRef preferen
 WK_EXPORT void WKPreferencesSetLoadsImagesAutomatically(WKPreferencesRef preferences, bool loadsImagesAutomatically);
 WK_EXPORT bool WKPreferencesGetLoadsImagesAutomatically(WKPreferencesRef preferences);
 
-// Defaults to false.
+// Obsolete: Defaults to false.
 WK_EXPORT void WKPreferencesSetLoadsSiteIconsIgnoringImageLoadingPreference(WKPreferencesRef preferences, bool loadsSiteIconsIgnoringImageLoadingPreference);
 WK_EXPORT bool WKPreferencesGetLoadsSiteIconsIgnoringImageLoadingPreference(WKPreferencesRef preferences);
 
@@ -91,9 +91,9 @@ WK_EXPORT bool WKPreferencesGetLocalStorageEnabled(WKPreferencesRef preferences)
 WK_EXPORT void WKPreferencesSetDatabasesEnabled(WKPreferencesRef preferences, bool databasesEnabled);
 WK_EXPORT bool WKPreferencesGetDatabasesEnabled(WKPreferencesRef preferences);
 
-// Defaults to true.
-WK_EXPORT void WKPreferencesSetXSSAuditorEnabled(WKPreferencesRef preferences, bool xssAuditorEnabled);
-WK_EXPORT bool WKPreferencesGetXSSAuditorEnabled(WKPreferencesRef preferences);
+// Defaults to false.
+WK_EXPORT void WKPreferencesSetXSSAuditorEnabled(WKPreferencesRef preferences, bool xssAuditorEnabled) WK_C_API_DEPRECATED;
+WK_EXPORT bool WKPreferencesGetXSSAuditorEnabled(WKPreferencesRef preferences) WK_C_API_DEPRECATED;
 
 // Defaults to false.
 WK_EXPORT void WKPreferencesSetFrameFlatteningEnabled(WKPreferencesRef preferences, bool frameFlatteningEnabled);
@@ -103,9 +103,9 @@ WK_EXPORT bool WKPreferencesGetFrameFlatteningEnabled(WKPreferencesRef preferenc
 WK_EXPORT void WKPreferencesSetPluginsEnabled(WKPreferencesRef preferences, bool pluginsEnabled);
 WK_EXPORT bool WKPreferencesGetPluginsEnabled(WKPreferencesRef preferences);
 
-// Defaults to true.
-WK_EXPORT void WKPreferencesSetJavaEnabled(WKPreferencesRef preferences, bool javaEnabled);
-WK_EXPORT bool WKPreferencesGetJavaEnabled(WKPreferencesRef preferences);
+// Deprecated; Does nothing, always returns false.
+WK_EXPORT void WKPreferencesSetJavaEnabled(WKPreferencesRef preferences, bool javaEnabled) WK_C_API_DEPRECATED;
+WK_EXPORT bool WKPreferencesGetJavaEnabled(WKPreferencesRef preferences) WK_C_API_DEPRECATED;
 
 // Defaults to true.
 WK_EXPORT void WKPreferencesSetJavaScriptCanOpenWindowsAutomatically(WKPreferencesRef preferences, bool javaScriptCanOpenWindowsAutomatically);
@@ -191,9 +191,9 @@ WK_EXPORT bool WKPreferencesGetFullScreenEnabled(WKPreferencesRef preferencesRef
 WK_EXPORT void WKPreferencesSetAVFoundationEnabled(WKPreferencesRef preferencesRef, bool enabled);
 WK_EXPORT bool WKPreferencesGetAVFoundationEnabled(WKPreferencesRef preferencesRef);
 
-// Defaults to false.
-WK_EXPORT void WKPreferencesSetAVFoundationNSURLSessionEnabled(WKPreferencesRef preferencesRef, bool enabled);
-WK_EXPORT bool WKPreferencesGetAVFoundationNSURLSessionEnabled(WKPreferencesRef preferencesRef);
+// Obsolete. Always returns true.
+WK_EXPORT void WKPreferencesSetAVFoundationNSURLSessionEnabled(WKPreferencesRef preferencesRef, bool enabled) WK_C_API_DEPRECATED;
+WK_EXPORT bool WKPreferencesGetAVFoundationNSURLSessionEnabled(WKPreferencesRef preferencesRef) WK_C_API_DEPRECATED;
 
 // Defaults to false
 WK_EXPORT void WKPreferencesSetWebAudioEnabled(WKPreferencesRef preferencesRef, bool enabled);
@@ -271,15 +271,6 @@ WK_EXPORT bool WKPreferencesGetMediaDevicesEnabled(WKPreferencesRef preferencesR
 WK_EXPORT void WKPreferencesSetPeerConnectionEnabled(WKPreferencesRef preferencesRef, bool enabled);
 WK_EXPORT bool WKPreferencesGetPeerConnectionEnabled(WKPreferencesRef preferencesRef);
 
-// This is for backward compatibility with external SDK builds (https://webkit.org/b/189188).
-// FIXME: Remove these API functions.
-WK_EXPORT void WKPreferencesSetWebRTCLegacyAPIEnabled(WKPreferencesRef preferencesRef, bool enabled);
-WK_EXPORT bool WKPreferencesGetWebRTCLegacyAPIEnabled(WKPreferencesRef preferencesRef);
-
-// Defaults to false
-WK_EXPORT void WKPreferencesSetWebRTCMDNSICECandidatesEnabled(WKPreferencesRef preferencesRef, bool enabled);
-WK_EXPORT bool WKPreferencesGetWebRTCMDNSICECandidatesEnabled(WKPreferencesRef preferencesRef);
-
 // Defaults to false.
 WK_EXPORT void WKPreferencesSetSpatialNavigationEnabled(WKPreferencesRef preferencesRef, bool enabled);
 WK_EXPORT bool WKPreferencesGetSpatialNavigationEnabled(WKPreferencesRef preferencesRef);
@@ -354,6 +345,10 @@ WK_EXPORT void WKPreferencesSetRemotePlaybackEnabled(WKPreferencesRef preference
 // Defaults to false.
 WK_EXPORT bool WKPreferencesGetShouldUseServiceWorkerShortTimeout(WKPreferencesRef preferencesRef);
 WK_EXPORT void WKPreferencesSetShouldUseServiceWorkerShortTimeout(WKPreferencesRef preferencesRef, bool enabled);
+
+// Defaults to false.
+WK_EXPORT bool WKPreferencesGetRequestVideoFrameCallbackEnabled(WKPreferencesRef preferencesRef);
+WK_EXPORT void WKPreferencesSetRequestVideoFrameCallbackEnabled(WKPreferencesRef preferencesRef, bool enabled);
 
 #ifdef __cplusplus
 }

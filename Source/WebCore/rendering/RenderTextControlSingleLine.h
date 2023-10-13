@@ -34,7 +34,6 @@ public:
     virtual ~RenderTextControlSingleLine();
 
 protected:
-    void centerRenderer(RenderBox& renderer) const;
     HTMLElement* containerElement() const;
     HTMLElement* innerBlockElement() const;
     HTMLInputElement& inputElement() const;
@@ -59,8 +58,8 @@ private:
     int scrollHeight() const override;
     void setScrollLeft(int, const ScrollPositionChangeOptions&) override;
     void setScrollTop(int, const ScrollPositionChangeOptions&) override;
-    bool scroll(ScrollDirection, ScrollGranularity, float multiplier = 1, Element** stopElement = nullptr, RenderBox* startBox = nullptr, const IntPoint& wheelEventAbsolutePoint = IntPoint()) final;
-    bool logicalScroll(ScrollLogicalDirection, ScrollGranularity, float multiplier = 1, Element** stopElement = 0) final;
+    bool scroll(ScrollDirection, ScrollGranularity, unsigned stepCount = 1, Element** stopElement = nullptr, RenderBox* startBox = nullptr, const IntPoint& wheelEventAbsolutePoint = IntPoint()) final;
+    bool logicalScroll(ScrollLogicalDirection, ScrollGranularity, unsigned stepCount = 1, Element** stopElement = nullptr) final;
 
     int textBlockWidth() const;
     float getAverageCharWidth() override;
@@ -87,10 +86,7 @@ inline HTMLElement* RenderTextControlSingleLine::innerBlockElement() const
 class RenderTextControlInnerBlock final : public RenderBlockFlow {
     WTF_MAKE_ISO_ALLOCATED(RenderTextControlInnerBlock);
 public:
-    RenderTextControlInnerBlock(Element& element, RenderStyle&& style)
-        : RenderBlockFlow(element, WTFMove(style))
-    {
-    }
+    RenderTextControlInnerBlock(Element&, RenderStyle&&);
 
 private:
     bool hasLineIfEmpty() const override { return true; }

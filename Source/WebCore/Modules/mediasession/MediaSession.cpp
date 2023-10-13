@@ -28,55 +28,58 @@
 
 #if ENABLE(MEDIA_SESSION)
 
-#include "DOMWindow.h"
 #include "EventNames.h"
 #include "HTMLMediaElement.h"
 #include "JSDOMPromiseDeferred.h"
 #include "JSMediaPositionState.h"
 #include "JSMediaSessionAction.h"
 #include "JSMediaSessionPlaybackState.h"
+#include "LocalDOMWindow.h"
 #include "Logging.h"
 #include "MediaMetadata.h"
 #include "MediaSessionCoordinator.h"
 #include "Navigator.h"
 #include "Page.h"
 #include "PlatformMediaSessionManager.h"
+#include <wtf/CryptographicallyRandomNumber.h>
 #include <wtf/JSONValues.h>
+#include <wtf/SortedArrayMap.h>
 
 namespace WebCore {
 
 static const void* nextLogIdentifier()
 {
-    static uint64_t logIdentifier = cryptographicallyRandomNumber();
+    static uint64_t logIdentifier = cryptographicallyRandomNumber<uint32_t>();
     return reinterpret_cast<const void*>(++logIdentifier);
 }
 
-static WTFLogChannel& logChannel() { return LogMedia; }
-static const char* logClassName() { return "MediaSession"; }
+#if !RELEASE_LOG_DISABLED
+static WTFLogChannel& logChannel()
+{
+    return LogMedia;
+}
+
+static const char* logClassName()
+{
+    return "MediaSession";
+}
+#endif
 
 static PlatformMediaSession::RemoteControlCommandType platformCommandForMediaSessionAction(MediaSessionAction action)
 {
-    static const auto commandMap = makeNeverDestroyed([] {
-        using ActionToCommandMap = HashMap<MediaSessionAction, PlatformMediaSession::RemoteControlCommandType, WTF::IntHash<MediaSessionAction>, WTF::StrongEnumHashTraits<MediaSessionAction>>;
-
-        return ActionToCommandMap {
-            { MediaSessionAction::Play, PlatformMediaSession::PlayCommand },
-            { MediaSessionAction::Pause, PlatformMediaSession::PauseCommand },
-            { MediaSessionAction::Seekforward, PlatformMediaSession::SkipForwardCommand },
-            { MediaSessionAction::Seekbackward, PlatformMediaSession::SkipBackwardCommand },
-            { MediaSessionAction::Previoustrack, PlatformMediaSession::PreviousTrackCommand },
-            { MediaSessionAction::Nexttrack, PlatformMediaSession::NextTrackCommand },
-            { MediaSessionAction::Stop, PlatformMediaSession::StopCommand },
-            { MediaSessionAction::Seekto, PlatformMediaSession::SeekToPlaybackPositionCommand },
-            { MediaSessionAction::Skipad, PlatformMediaSession::NextTrackCommand },
-        };
-    }());
-
-    auto it = commandMap.get().find(action);
-    if (it != commandMap.get().end())
-        return it->value;
-
-    return PlatformMediaSession::NoCommand;
+    static constexpr std::pair<MediaSessionAction, PlatformMediaSession::RemoteControlCommandType> mappings[] {
+        { MediaSessionAction::Play, PlatformMediaSession::PlayCommand },
+        { MediaSessionAction::Pause, PlatformMediaSession::PauseCommand },
+        { MediaSessionAction::Seekbackward, PlatformMediaSession::SkipBackwardCommand },
+        { MediaSessionAction::Seekforward, PlatformMediaSession::SkipForwardCommand },
+        { MediaSessionAction::Previoustrack, PlatformMediaSession::PreviousTrackCommand },
+        { MediaSessionAction::Nexttrack, PlatformMediaSession::NextTrackCommand },
+        { MediaSessionAction::Skipad, PlatformMediaSession::NextTrackCommand },
+        { MediaSessionAction::Stop, PlatformMediaSession::StopCommand },
+        { MediaSessionAction::Seekto, PlatformMediaSession::SeekToPlaybackPositionCommand },
+    };
+    static constexpr SortedArrayMap map { mappings };
+    return map.get(action, PlatformMediaSession::NoCommand);
 }
 
 static std::optional<std::pair<PlatformMediaSession::RemoteControlCommandType, PlatformMediaSession::RemoteCommandArgument>> platformCommandForMediaSessionAction(const MediaSessionActionDetails& actionDetails)
@@ -135,12 +138,12 @@ Ref<MediaSession> MediaSession::create(Navigator& navigator)
 
 MediaSession::MediaSession(Navigator& navigator)
     : ActiveDOMObject(navigator.scriptExecutionContext())
-    , m_navigator(makeWeakPtr(navigator))
+    , m_navigator(navigator)
 #if ENABLE(MEDIA_SESSION_COORDINATOR)
     , m_coordinator(MediaSessionCoordinator::create(navigator.scriptExecutionContext()))
 #endif
 {
-    m_logger = makeRefPtr(Document::sharedLogger());
+    m_logger = &Document::sharedLogger();
     m_logIdentifier = nextLogIdentifier();
 
 #if ENABLE(MEDIA_SESSION_COORDINATOR)
@@ -171,6 +174,11 @@ void MediaSession::stop()
 #if ENABLE(MEDIA_SESSION_COORDINATOR)
     m_coordinator->close();
 #endif
+}
+
+bool MediaSession::virtualHasPendingActivity() const
+{
+    return hasActiveActionHandlers();
 }
 
 void MediaSession::setMetadata(RefPtr<MediaMetadata>&& metadata)
@@ -226,11 +234,8 @@ void MediaSession::setPlaybackState(MediaSessionPlaybackState state)
 
     ALWAYS_LOG(LOGIDENTIFIER, state);
 
-    auto currentPosition = this->currentPosition();
-    if (m_positionState && currentPosition) {
-        m_positionState->position = *currentPosition;
-        m_timeAtLastPositionUpdate = MonotonicTime::now();
-    }
+    updateReportedPosition();
+
     m_playbackState = state;
     notifyPlaybackStateObservers();
 }
@@ -239,15 +244,22 @@ void MediaSession::setActionHandler(MediaSessionAction action, RefPtr<MediaSessi
 {
     if (handler) {
         ALWAYS_LOG(LOGIDENTIFIER, "adding ", action);
-        m_actionHandlers.set(action, handler);
+        {
+            Locker lock { m_actionHandlersLock };
+            m_actionHandlers.set(action, handler);
+        }
         auto platformCommand = platformCommandForMediaSessionAction(action);
         if (platformCommand != PlatformMediaSession::NoCommand)
             PlatformMediaSessionManager::sharedManager().addSupportedCommand(platformCommand);
     } else {
-        if (m_actionHandlers.contains(action)) {
-            ALWAYS_LOG(LOGIDENTIFIER, "removing ", action);
-            m_actionHandlers.remove(action);
+        bool containedAction;
+        {
+            Locker lock { m_actionHandlersLock };
+            containedAction = m_actionHandlers.remove(action);
         }
+
+        if (containedAction)
+            ALWAYS_LOG(LOGIDENTIFIER, "removing ", action);
         PlatformMediaSessionManager::sharedManager().removeSupportedCommand(platformCommandForMediaSessionAction(action));
     }
 
@@ -268,7 +280,12 @@ void MediaSession::callActionHandler(const MediaSessionActionDetails& actionDeta
 
 bool MediaSession::callActionHandler(const MediaSessionActionDetails& actionDetails, TriggerGestureIndicator triggerGestureIndicator)
 {
-    if (auto handler = m_actionHandlers.get(actionDetails.action)) {
+    RefPtr<MediaSessionActionHandler> handler;
+    {
+        Locker lock { m_actionHandlersLock };
+        handler = m_actionHandlers.get(actionDetails.action);
+    }
+    if (handler) {
         std::optional<UserGestureIndicator> maybeGestureIndicator;
         if (triggerGestureIndicator == TriggerGestureIndicator::Yes)
             maybeGestureIndicator.emplace(ProcessingUserGesture, document());
@@ -353,7 +370,7 @@ void MediaSession::removeObserver(Observer& observer)
 void MediaSession::forEachObserver(const Function<void(Observer&)>& apply)
 {
     ASSERT(isMainThread());
-    auto protectedThis = makeRef(*this);
+    Ref protectedThis { *this };
     m_observers.forEach(apply);
 }
 
@@ -392,6 +409,29 @@ RefPtr<HTMLMediaElement> MediaSession::activeMediaElement() const
         return nullptr;
 
     return HTMLMediaElement::bestMediaElementForRemoteControls(MediaElementSession::PlaybackControlsPurpose::MediaSession, doc);
+}
+
+void MediaSession::updateReportedPosition()
+{
+    auto currentPosition = this->currentPosition();
+    if (m_positionState && currentPosition) {
+        m_lastReportedPosition = m_positionState->position = *currentPosition;
+        m_timeAtLastPositionUpdate = MonotonicTime::now();
+    }
+}
+
+void MediaSession::willBeginPlayback()
+{
+    updateReportedPosition();
+    m_playbackState = MediaSessionPlaybackState::Playing;
+    notifyPositionStateObservers();
+}
+
+void MediaSession::willPausePlayback()
+{
+    updateReportedPosition();
+    m_playbackState = MediaSessionPlaybackState::Paused;
+    notifyPositionStateObservers();
 }
 
 #if ENABLE(MEDIA_SESSION_COORDINATOR)

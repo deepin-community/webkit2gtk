@@ -30,7 +30,6 @@
 #include "CompositingRunLoop.h"
 #include "CoordinatedGraphicsScene.h"
 #include "ThreadedDisplayRefreshMonitor.h"
-#include <WebCore/CoordinatedGraphicsState.h>
 #include <WebCore/GLContext.h>
 #include <WebCore/IntSize.h>
 #include <WebCore/TextureMapper.h>
@@ -41,9 +40,6 @@
 
 namespace WebKit {
 
-class CoordinatedGraphicsScene;
-class CoordinatedGraphicsSceneClient;
-
 class ThreadedCompositor : public CoordinatedGraphicsSceneClient, public ThreadSafeRefCounted<ThreadedCompositor> {
     WTF_MAKE_NONCOPYABLE(ThreadedCompositor);
     WTF_MAKE_FAST_ALLOCATED;
@@ -51,33 +47,39 @@ public:
     class Client {
     public:
         virtual uint64_t nativeSurfaceHandleForCompositing() = 0;
+        virtual void didCreateGLContext() = 0;
+        virtual void willDestroyGLContext() = 0;
         virtual void didDestroyGLContext() = 0;
 
         virtual void resize(const WebCore::IntSize&) = 0;
         virtual void willRenderFrame() = 0;
         virtual void didRenderFrame() = 0;
+        virtual void displayDidRefresh(WebCore::PlatformDisplayID) = 0;
     };
 
     static Ref<ThreadedCompositor> create(Client&, ThreadedDisplayRefreshMonitor::Client&, WebCore::PlatformDisplayID, const WebCore::IntSize&, float scaleFactor, WebCore::TextureMapper::PaintFlags);
     virtual ~ThreadedCompositor();
 
-    void setScaleFactor(float);
     void setScrollPosition(const WebCore::IntPoint&, float scale);
     void setViewportSize(const WebCore::IntSize&, float scale);
 
-    void updateSceneState(const WebCore::CoordinatedGraphicsState&);
+    void updateSceneState(const RefPtr<Nicosia::Scene>&);
     void updateScene();
+    void updateSceneWithoutRendering();
 
     void invalidate();
 
     void forceRepaint();
 
-    RefPtr<WebCore::DisplayRefreshMonitor> displayRefreshMonitor(WebCore::PlatformDisplayID);
+    WebCore::DisplayRefreshMonitor& displayRefreshMonitor() const;
 
     void frameComplete();
+    void targetRefreshRateDidChange(unsigned);
 
     void suspend();
     void resume();
+
+    RunLoop& compositingRunLoop() const { return m_compositingRunLoop->runLoop(); }
 
 private:
     ThreadedCompositor(Client&, ThreadedDisplayRefreshMonitor::Client&, WebCore::PlatformDisplayID, const WebCore::IntSize&, float scaleFactor, WebCore::TextureMapper::PaintFlags);
@@ -89,6 +91,8 @@ private:
     void sceneUpdateFinished();
 
     void createGLContext();
+
+    void displayUpdateFired();
 
     Client& m_client;
     RefPtr<CoordinatedGraphicsScene> m_scene;
@@ -106,10 +110,16 @@ private:
         WebCore::IntPoint scrollPosition;
         float scaleFactor { 1 };
         bool needsResize { false };
-        Vector<WebCore::CoordinatedGraphicsState> states;
+        Vector<RefPtr<Nicosia::Scene>> states;
 
         bool clientRendersNextFrame { false };
     } m_attributes;
+
+    struct {
+        WebCore::PlatformDisplayID displayID;
+        WebCore::DisplayUpdate displayUpdate;
+        std::unique_ptr<RunLoop::Timer> updateTimer;
+    } m_display;
 
     Ref<ThreadedDisplayRefreshMonitor> m_displayRefreshMonitor;
 };

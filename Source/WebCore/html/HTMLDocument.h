@@ -27,17 +27,18 @@
 namespace WebCore {
 
 class HTMLDocument : public Document {
-    WTF_MAKE_ISO_ALLOCATED(HTMLDocument);
+    WTF_MAKE_ISO_ALLOCATED_EXPORT(HTMLDocument, WEBCORE_EXPORT);
 public:
-    static Ref<HTMLDocument> create(Frame*, const Settings&, const URL&);
-    static Ref<HTMLDocument> createSynthesizedDocument(Frame&, const URL&);
+    static Ref<HTMLDocument> create(LocalFrame*, const Settings&, const URL&, ScriptExecutionContextIdentifier = { });
+    static Ref<HTMLDocument> createSynthesizedDocument(LocalFrame&, const URL&);
     virtual ~HTMLDocument();
 
     WEBCORE_EXPORT int width();
     WEBCORE_EXPORT int height();
     
-    std::optional<Variant<RefPtr<WindowProxy>, RefPtr<Element>, RefPtr<HTMLCollection>>> namedItem(const AtomString&);
+    std::optional<std::variant<RefPtr<WindowProxy>, RefPtr<Element>, RefPtr<HTMLCollection>>> namedItem(const AtomString&);
     Vector<AtomString> supportedPropertyNames() const;
+    bool isSupportedPropertyName(const AtomString&) const;
 
     Element* documentNamedItem(const AtomStringImpl& name) const { return m_documentNamedItem.getElementByDocumentNamedItem(name, *this); }
     bool hasDocumentNamedItem(const AtomStringImpl& name) const { return m_documentNamedItem.contains(name); }
@@ -54,7 +55,7 @@ public:
     static bool isCaseSensitiveAttribute(const QualifiedName&);
 
 protected:
-    HTMLDocument(Frame*, const Settings&, const URL&, DocumentClassFlags = 0, unsigned constructionFlags = 0);
+    WEBCORE_EXPORT HTMLDocument(LocalFrame*, const Settings&, const URL&, ScriptExecutionContextIdentifier, DocumentClasses = { }, OptionSet<ConstructionFlag> = { });
 
 private:
     bool isFrameSet() const final;
@@ -65,9 +66,11 @@ private:
     TreeScopeOrderedMap m_windowNamedItem;
 };
 
-inline Ref<HTMLDocument> HTMLDocument::create(Frame* frame, const Settings& settings, const URL& url)
+inline Ref<HTMLDocument> HTMLDocument::create(LocalFrame* frame, const Settings& settings, const URL& url, ScriptExecutionContextIdentifier identifier)
 {
-    return adoptRef(*new HTMLDocument(frame, settings, url, HTMLDocumentClass));
+    auto document = adoptRef(*new HTMLDocument(frame, settings, url, identifier, { DocumentClass::HTML }));
+    document->addToContextsMap();
+    return document;
 }
 
 } // namespace WebCore

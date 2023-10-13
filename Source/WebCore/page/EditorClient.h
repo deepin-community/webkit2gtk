@@ -33,17 +33,21 @@
 #include "UndoStep.h"
 #include <wtf/Forward.h>
 #include <wtf/Vector.h>
+#include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
+enum class DOMPasteAccessCategory : uint8_t;
 enum class DOMPasteAccessResponse : uint8_t;
 
+class SharedBuffer;
+class Document;
 class DocumentFragment;
 class Element;
-class Frame;
 class KeyboardEvent;
+class LocalFrame;
 class Node;
-class SharedBuffer;
+class FragmentedSharedBuffer;
 class StyleProperties;
 class TextCheckerClient;
 class VisibleSelection;
@@ -52,7 +56,7 @@ struct GapRects;
 struct GrammarDetail;
 struct SimpleRange;
 
-class EditorClient {
+class EditorClient : public CanMakeWeakPtr<EditorClient> {
 public:
     virtual ~EditorClient() = default;
 
@@ -78,7 +82,7 @@ public:
     virtual bool shouldMoveRangeAfterDelete(const SimpleRange&, const SimpleRange&) = 0;
 
 #if ENABLE(ATTACHMENT_ELEMENT)
-    virtual void registerAttachmentIdentifier(const String& /* identifier */, const String& /* contentType */, const String& /* preferredFileName */, Ref<SharedBuffer>&&) { }
+    virtual void registerAttachmentIdentifier(const String& /* identifier */, const String& /* contentType */, const String& /* preferredFileName */, Ref<FragmentedSharedBuffer>&&) { }
     virtual void registerAttachmentIdentifier(const String& /* identifier */, const String& /* contentType */, const String& /* filePath */) { }
     virtual void registerAttachments(Vector<SerializedAttachmentData>&&) { }
     virtual void registerAttachmentIdentifier(const String& /* identifier */) { }
@@ -91,7 +95,7 @@ public:
 
     virtual void didBeginEditing() = 0;
     virtual void respondToChangedContents() = 0;
-    virtual void respondToChangedSelection(Frame*) = 0;
+    virtual void respondToChangedSelection(LocalFrame*) = 0;
     virtual void didEndUserTriggeredSelectionChanges() = 0;
     virtual void updateEditorStateAfterLayoutIfEditabilityChanged() = 0;
     virtual void didEndEditing() = 0;
@@ -101,11 +105,11 @@ public:
     virtual void requestCandidatesForSelection(const VisibleSelection&) { }
     virtual void handleAcceptedCandidateWithSoftSpaces(TextCheckingResult) { }
 
-    virtual DOMPasteAccessResponse requestDOMPasteAccess(const String& originIdentifier) = 0;
+    virtual DOMPasteAccessResponse requestDOMPasteAccess(DOMPasteAccessCategory, const String& originIdentifier) = 0;
 
     // Notify an input method that a composition was voluntarily discarded by WebCore, so that it could clean up too.
     // This function is not called when a composition is closed per a request from an input method.
-    virtual void discardedComposition(Frame*) = 0;
+    virtual void discardedComposition(const Document&) = 0;
     virtual void canceledComposition() = 0;
     virtual void didUpdateComposition() = 0;
 
@@ -113,8 +117,8 @@ public:
     virtual void registerRedoStep(UndoStep&) = 0;
     virtual void clearUndoRedoOperations() = 0;
 
-    virtual bool canCopyCut(Frame*, bool defaultValue) const = 0;
-    virtual bool canPaste(Frame*, bool defaultValue) const = 0;
+    virtual bool canCopyCut(LocalFrame*, bool defaultValue) const = 0;
+    virtual bool canPaste(LocalFrame*, bool defaultValue) const = 0;
     virtual bool canUndo() const = 0;
     virtual bool canRedo() const = 0;
     
@@ -125,12 +129,12 @@ public:
     virtual void handleInputMethodKeydown(KeyboardEvent&) = 0;
     virtual void didDispatchInputMethodKeydown(KeyboardEvent&) { }
     
-    virtual void textFieldDidBeginEditing(Element*) = 0;
-    virtual void textFieldDidEndEditing(Element*) = 0;
-    virtual void textDidChangeInTextField(Element*) = 0;
-    virtual bool doTextFieldCommandFromEvent(Element*, KeyboardEvent*) = 0;
-    virtual void textWillBeDeletedInTextField(Element*) = 0;
-    virtual void textDidChangeInTextArea(Element*) = 0;
+    virtual void textFieldDidBeginEditing(Element&) = 0;
+    virtual void textFieldDidEndEditing(Element&) = 0;
+    virtual void textDidChangeInTextField(Element&) = 0;
+    virtual bool doTextFieldCommandFromEvent(Element&, KeyboardEvent*) = 0;
+    virtual void textWillBeDeletedInTextField(Element&) = 0;
+    virtual void textDidChangeInTextArea(Element&) = 0;
     virtual void overflowScrollPositionChanged() = 0;
     virtual void subFrameScrollPositionChanged() = 0;
 
@@ -188,8 +192,6 @@ public:
     virtual bool supportsGlobalSelection() { return false; }
 
     virtual bool performTwoStepDrop(DocumentFragment&, const SimpleRange& destination, bool isMove) = 0;
-
-    virtual bool canShowFontPanel() const = 0;
 
     virtual bool shouldAllowSingleClickToChangeSelection(Node&, const VisibleSelection&) const { return true; }
 

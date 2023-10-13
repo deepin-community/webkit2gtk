@@ -28,6 +28,7 @@
 #if ENABLE(APPLE_PAY)
 
 #include "ApplePayInstallmentConfigurationWebCore.h"
+#include "ApplePayLaterAvailability.h"
 #include "ApplePayLineItem.h"
 #include "ApplePaySetupConfiguration.h"
 #include "ApplePayShippingContactEditingMode.h"
@@ -39,18 +40,18 @@
 #include <wtf/HashSet.h>
 #include <wtf/text/StringHash.h>
 
-#if USE(APPLE_INTERNAL_SDK)
-#include <WebKitAdditions/MockPaymentCoordinatorAdditions.h>
-#endif
-
 namespace WebCore {
 
+class ApplePaySessionPaymentRequest;
 class Page;
+struct ApplePayDetailsUpdateBase;
 struct ApplePayPaymentMethod;
 
 class MockPaymentCoordinator final : public PaymentCoordinatorClient {
+    WTF_MAKE_FAST_ALLOCATED;
 public:
     explicit MockPaymentCoordinator(Page&);
+    ~MockPaymentCoordinator();
 
     void setCanMakePayments(bool canMakePayments) { m_canMakePayments = canMakePayments; }
     void setCanMakePaymentsWithActiveCard(bool canMakePaymentsWithActiveCard) { m_canMakePaymentsWithActiveCard = canMakePaymentsWithActiveCard; }
@@ -73,9 +74,6 @@ public:
     const MockPaymentContactFields& requiredBillingContactFields() const { return m_requiredBillingContactFields; }
     const MockPaymentContactFields& requiredShippingContactFields() const { return m_requiredShippingContactFields; }
 
-    bool supportsUnrestrictedApplePay() const final { return m_supportsUnrestrictedApplePay; }
-    void setSupportsUnrestrictedApplePay(bool supports) { m_supportsUnrestrictedApplePay = supports; }
-    
 #if ENABLE(APPLE_PAY_INSTALLMENTS)
     ApplePayInstallmentConfiguration installmentConfiguration() const { return m_installmentConfiguration; }
 #endif
@@ -89,11 +87,33 @@ public:
     std::optional<ApplePayShippingContactEditingMode> shippingContactEditingMode() const { return m_shippingContactEditingMode; }
 #endif
 
+#if ENABLE(APPLE_PAY_RECURRING_PAYMENTS)
+    const std::optional<ApplePayRecurringPaymentRequest>& recurringPaymentRequest() const { return m_recurringPaymentRequest; }
+#endif
+
+#if ENABLE(APPLE_PAY_AUTOMATIC_RELOAD_PAYMENTS)
+    const std::optional<ApplePayAutomaticReloadPaymentRequest>& automaticReloadPaymentRequest() const { return m_automaticReloadPaymentRequest; }
+#endif
+
+#if ENABLE(APPLE_PAY_MULTI_MERCHANT_PAYMENTS)
+    const std::optional<Vector<ApplePayPaymentTokenContext>>& multiTokenContexts() const { return m_multiTokenContexts; }
+#endif
+
+#if ENABLE(APPLE_PAY_DEFERRED_PAYMENTS)
+    const std::optional<ApplePayDeferredPaymentRequest>& deferredPaymentRequest() const { return m_deferredPaymentRequest; }
+#endif
+
+#if ENABLE(APPLE_PAY_LATER_AVAILABILITY)
+    const std::optional<ApplePayLaterAvailability> applePayLaterAvailability() const { return m_applePayLaterAvailability; }
+#endif
+
+    bool installmentConfigurationReturnsNil() const;
+
     void ref() const { }
     void deref() const { }
 
 private:
-    std::optional<String> validatedPaymentNetwork(const String&) final;
+    std::optional<String> validatedPaymentNetwork(const String&) const final;
     bool canMakePayments() final;
     void canMakePaymentsWithActiveCard(const String&, const String&, CompletionHandler<void(bool)>&&) final;
     void openPaymentSetup(const String&, const String&, CompletionHandler<void(bool)>&&) final;
@@ -105,10 +125,9 @@ private:
 #if ENABLE(APPLE_PAY_COUPON_CODE)
     void completeCouponCodeChange(std::optional<ApplePayCouponCodeUpdate>&&) final;
 #endif
-    void completePaymentSession(std::optional<PaymentAuthorizationResult>&&) final;
+    void completePaymentSession(ApplePayPaymentAuthorizationResult&&) final;
     void abortPaymentSession() final;
     void cancelPaymentSession() final;
-    void paymentCoordinatorDestroyed() final;
 
     bool isMockPaymentCoordinator() const final { return true; }
 
@@ -128,7 +147,6 @@ private:
     HashSet<String, ASCIICaseInsensitiveHash> m_availablePaymentNetworks;
     MockPaymentContactFields m_requiredBillingContactFields;
     MockPaymentContactFields m_requiredShippingContactFields;
-    bool m_supportsUnrestrictedApplePay { true };
 #if ENABLE(APPLE_PAY_INSTALLMENTS)
     ApplePayInstallmentConfiguration m_installmentConfiguration;
 #endif
@@ -142,8 +160,24 @@ private:
     ApplePaySetupConfiguration m_setupConfiguration;
     Vector<Ref<ApplePaySetupFeature>> m_setupFeatures;
 
-#if defined(MockPaymentCoordinatorAdditions_members)
-    MockPaymentCoordinatorAdditions_members
+#if ENABLE(APPLE_PAY_RECURRING_PAYMENTS)
+    std::optional<ApplePayRecurringPaymentRequest> m_recurringPaymentRequest;
+#endif
+
+#if ENABLE(APPLE_PAY_AUTOMATIC_RELOAD_PAYMENTS)
+    std::optional<ApplePayAutomaticReloadPaymentRequest> m_automaticReloadPaymentRequest;
+#endif
+
+#if ENABLE(APPLE_PAY_MULTI_MERCHANT_PAYMENTS)
+    std::optional<Vector<ApplePayPaymentTokenContext>> m_multiTokenContexts;
+#endif
+
+#if ENABLE(APPLE_PAY_DEFERRED_PAYMENTS)
+    std::optional<ApplePayDeferredPaymentRequest> m_deferredPaymentRequest;
+#endif
+
+#if ENABLE(APPLE_PAY_LATER_AVAILABILITY)
+    std::optional<ApplePayLaterAvailability> m_applePayLaterAvailability;
 #endif
 };
 

@@ -45,17 +45,16 @@
 #include "ApplePayShippingMethodSelectedEvent.h"
 #include "ApplePayShippingMethodUpdate.h"
 #include "ApplePayValidateMerchantEvent.h"
-#include "DOMWindow.h"
 #include "Document.h"
 #include "DocumentLoader.h"
 #include "EventNames.h"
-#include "Frame.h"
 #include "JSDOMPromiseDeferred.h"
 #include "LinkIconCollector.h"
 #include "LinkIconType.h"
+#include "LocalDOMWindow.h"
+#include "LocalFrame.h"
 #include "Page.h"
 #include "PageConsoleClient.h"
-#include "PaymentAuthorizationStatus.h"
 #include "PaymentContact.h"
 #include "PaymentCoordinator.h"
 #include "PaymentMerchantSession.h"
@@ -68,8 +67,8 @@
 #include <wtf/IsoMallocInlines.h>
 #include <wtf/RunLoop.h>
 
-#if USE(APPLE_INTERNAL_SDK)
-#include <WebKitAdditions/ApplePaySessionAdditions.cpp>
+#if ENABLE(APPLE_PAY_DEFERRED_PAYMENTS)
+#include <wtf/DateMath.h>
 #endif
 
 namespace WebCore {
@@ -142,6 +141,132 @@ static ExceptionOr<Vector<ApplePayShippingMethod>> convertAndValidate(Vector<App
     return WTFMove(result);
 }
 
+#if ENABLE(APPLE_PAY_RECURRING_PAYMENTS)
+
+static ExceptionOr<ApplePayRecurringPaymentRequest> convertAndValidate(ApplePayRecurringPaymentRequest&& recurringPaymentRequest)
+{
+    auto& regularBilling = recurringPaymentRequest.regularBilling;
+    if (regularBilling.paymentTiming != ApplePayPaymentTiming::Recurring)
+        return Exception(TypeError, "'regularBilling' must be a 'recurring' line item."_s);
+    if (!regularBilling.label)
+        return Exception(TypeError, "Missing label for 'regularBilling'."_s);
+    if (!isValidDecimalMonetaryValue(regularBilling.amount) && regularBilling.type != ApplePayLineItem::Type::Pending)
+        return Exception(TypeError, makeString('"', regularBilling.amount, "\" is not a valid amount."));
+
+    if (auto& trialBilling = recurringPaymentRequest.trialBilling) {
+        if (trialBilling->paymentTiming != ApplePayPaymentTiming::Recurring)
+            return Exception(TypeError, "'trialBilling' must be a 'recurring' line item."_s);
+        if (!trialBilling->label)
+            return Exception(TypeError, "Missing label for 'trialBilling'."_s);
+        if (!isValidDecimalMonetaryValue(trialBilling->amount) && trialBilling->type != ApplePayLineItem::Type::Pending)
+            return Exception(TypeError, makeString('"', trialBilling->amount, "\" is not a valid amount."));
+    }
+
+    if (auto& managementURL = recurringPaymentRequest.managementURL; !URL { managementURL }.isValid())
+        return Exception(TypeError, makeString('"', managementURL, "\" is not a valid URL."));
+
+    if (auto& tokenNotificationURL = recurringPaymentRequest.tokenNotificationURL; !tokenNotificationURL.isNull() && !URL { tokenNotificationURL }.isValid())
+        return Exception(TypeError, makeString('"', tokenNotificationURL, "\" is not a valid URL."));
+
+    return WTFMove(recurringPaymentRequest);
+}
+
+#endif // ENABLE(APPLE_PAY_RECURRING_PAYMENTS)
+
+#if ENABLE(APPLE_PAY_AUTOMATIC_RELOAD_PAYMENTS)
+
+static ExceptionOr<ApplePayAutomaticReloadPaymentRequest> convertAndValidate(ApplePayAutomaticReloadPaymentRequest&& automaticReloadPaymentRequest)
+{
+    auto& automaticReloadBilling = automaticReloadPaymentRequest.automaticReloadBilling;
+    if (automaticReloadBilling.paymentTiming != ApplePayPaymentTiming::AutomaticReload)
+        return Exception(TypeError, "'automaticReloadBilling' must be an 'automaticReload' line item."_s);
+    if (!automaticReloadBilling.label)
+        return Exception(TypeError, "Missing label for 'automaticReloadBilling'."_s);
+    if (!isValidDecimalMonetaryValue(automaticReloadBilling.amount) && automaticReloadBilling.type != ApplePayLineItem::Type::Pending)
+        return Exception(TypeError, makeString('"', automaticReloadBilling.amount, "\" is not a valid amount."));
+    if (!isValidDecimalMonetaryValue(automaticReloadBilling.automaticReloadPaymentThresholdAmount))
+        return Exception(TypeError, makeString('"', automaticReloadBilling.automaticReloadPaymentThresholdAmount, "\" is not a valid automaticReloadPaymentThresholdAmount."));
+
+    if (auto& managementURL = automaticReloadPaymentRequest.managementURL; !URL { managementURL }.isValid())
+        return Exception(TypeError, makeString('"', managementURL, "\" is not a valid URL."));
+
+    if (auto& tokenNotificationURL = automaticReloadPaymentRequest.tokenNotificationURL; !tokenNotificationURL.isNull() && !URL { tokenNotificationURL }.isValid())
+        return Exception(TypeError, makeString('"', tokenNotificationURL, "\" is not a valid URL."));
+
+    return WTFMove(automaticReloadPaymentRequest);
+}
+
+#endif // ENABLE(APPLE_PAY_AUTOMATIC_RELOAD_PAYMENTS)
+
+#if ENABLE(APPLE_PAY_MULTI_MERCHANT_PAYMENTS)
+
+static ExceptionOr<ApplePayPaymentTokenContext> convertAndValidate(ApplePayPaymentTokenContext&& tokenContext)
+{
+    if (!isValidDecimalMonetaryValue(tokenContext.amount))
+        return Exception { TypeError, makeString("\"" + tokenContext.amount, "\" is not a valid amount.") };
+
+    return WTFMove(tokenContext);
+}
+
+static ExceptionOr<Vector<ApplePayPaymentTokenContext>> convertAndValidate(Vector<ApplePayPaymentTokenContext>&& tokenContexts)
+{
+    Vector<ApplePayPaymentTokenContext> result;
+    result.reserveInitialCapacity(tokenContexts.size());
+
+    for (auto& tokenContext : tokenContexts) {
+        auto convertedTokenContext = convertAndValidate(WTFMove(tokenContext));
+        if (convertedTokenContext.hasException())
+            return convertedTokenContext.releaseException();
+        result.uncheckedAppend(convertedTokenContext.releaseReturnValue());
+    }
+
+    return WTFMove(result);
+}
+
+#endif // ENABLE(APPLE_PAY_MULTI_MERCHANT_PAYMENTS)
+
+#if ENABLE(APPLE_PAY_DEFERRED_PAYMENTS)
+
+ExceptionOr<void> ApplePayDeferredPaymentRequest::validate() const
+{
+    if (deferredBilling.paymentTiming != ApplePayPaymentTiming::Deferred)
+        return Exception(TypeError, "'deferredBilling' must be a 'deferred' line item."_s);
+    if (!deferredBilling.label)
+        return Exception(TypeError, "Missing label for 'deferredBilling'."_s);
+    if (!isValidDecimalMonetaryValue(deferredBilling.amount) && deferredBilling.type != ApplePayLineItem::Type::Pending)
+        return Exception(TypeError, makeString('"', deferredBilling.amount, "\" is not a valid amount."));
+
+    if (!URL { managementURL }.isValid())
+        return Exception(TypeError, makeString('"', managementURL, "\" is not a valid URL."));
+
+    if (std::isnan(freeCancellationDate)) {
+        if (!freeCancellationDateTimeZone.isEmpty())
+            return Exception(TypeError, "Unexpected 'freeCancellationDateTimeZone' when 'freeCancellationDate' is not set."_s);
+    } else if (freeCancellationDateTimeZone.isEmpty())
+        return Exception(TypeError, "Missing 'freeCancellationDateTimeZone' when 'freeCancellationDate' is set."_s);
+    else if (!isTimeZoneValid(freeCancellationDateTimeZone))
+        return Exception(TypeError, makeString('"', freeCancellationDateTimeZone, "\" is not a valid time zone."));
+
+    if (paymentDescription.isEmpty())
+        return Exception(TypeError, "Missing 'paymentDescription'."_s);
+
+    if (!tokenNotificationURL.isNull() && !URL { tokenNotificationURL }.isValid())
+        return Exception(TypeError, makeString('"', tokenNotificationURL, "\" is not a valid URL."));
+
+    return { };
+}
+
+ExceptionOr<ApplePayDeferredPaymentRequest> ApplePayDeferredPaymentRequest::convertAndValidate() &&
+{
+    auto validity = validate();
+    if (validity.hasException())
+        return validity.releaseException();
+
+    return WTFMove(*this);
+}
+
+#endif // ENABLE(APPLE_PAY_DEFERRED_PAYMENTS)
+
 static ExceptionOr<ApplePaySessionPaymentRequest> convertAndValidate(Document& document, unsigned version, ApplePayPaymentRequest&& paymentRequest, const PaymentCoordinator& paymentCoordinator)
 {
     auto convertedRequest = convertAndValidate(document, version, paymentRequest, paymentCoordinator);
@@ -171,65 +296,109 @@ static ExceptionOr<ApplePaySessionPaymentRequest> convertAndValidate(Document& d
         result.setShippingMethods(shippingMethods.releaseReturnValue());
     }
 
-#if defined(ApplePaySessionAdditions_convertAndValidate_request)
-    ApplePaySessionAdditions_convertAndValidate_request
+#if ENABLE(APPLE_PAY_RECURRING_PAYMENTS)
+    if (paymentRequest.recurringPaymentRequest) {
+        auto recurringPaymentRequest = convertAndValidate(WTFMove(*paymentRequest.recurringPaymentRequest));
+        if (recurringPaymentRequest.hasException())
+            return recurringPaymentRequest.releaseException();
+        result.setRecurringPaymentRequest(recurringPaymentRequest.releaseReturnValue());
+    }
+#endif
+
+#if ENABLE(APPLE_PAY_AUTOMATIC_RELOAD_PAYMENTS)
+    if (paymentRequest.automaticReloadPaymentRequest) {
+        auto automaticReloadPaymentRequest = convertAndValidate(WTFMove(*paymentRequest.automaticReloadPaymentRequest));
+        if (automaticReloadPaymentRequest.hasException())
+            return automaticReloadPaymentRequest.releaseException();
+        result.setAutomaticReloadPaymentRequest(automaticReloadPaymentRequest.releaseReturnValue());
+    }
+#endif
+
+#if ENABLE(APPLE_PAY_MULTI_MERCHANT_PAYMENTS)
+    if (paymentRequest.multiTokenContexts) {
+        auto multiTokenContexts = convertAndValidate(WTFMove(*paymentRequest.multiTokenContexts));
+        if (multiTokenContexts.hasException())
+            return multiTokenContexts.releaseException();
+        result.setMultiTokenContexts(multiTokenContexts.releaseReturnValue());
+    }
+#endif
+
+#if ENABLE(APPLE_PAY_DEFERRED_PAYMENTS)
+    if (paymentRequest.deferredPaymentRequest) {
+        auto deferredPaymentRequest = WTFMove(*paymentRequest.deferredPaymentRequest).convertAndValidate();
+        if (deferredPaymentRequest.hasException())
+            return deferredPaymentRequest.releaseException();
+        result.setDeferredPaymentRequest(deferredPaymentRequest.releaseReturnValue());
+    }
 #endif
 
     // FIXME: Merge this validation into the validation we are doing above.
-    auto validatedPaymentRequest = PaymentRequestValidator::validate(result);
+    constexpr OptionSet fieldsToValidate = {
+        PaymentRequestValidator::Field::MerchantCapabilities,
+        PaymentRequestValidator::Field::SupportedNetworks,
+        PaymentRequestValidator::Field::CountryCode,
+        PaymentRequestValidator::Field::CurrencyCode,
+        PaymentRequestValidator::Field::Total,
+        PaymentRequestValidator::Field::ShippingMethods,
+    };
+    auto validatedPaymentRequest = PaymentRequestValidator::validate(result, fieldsToValidate);
     if (validatedPaymentRequest.hasException())
         return validatedPaymentRequest.releaseException();
 
     return WTFMove(result);
 }
 
-static ExceptionOr<PaymentAuthorizationResult> convertAndValidate(ApplePayPaymentAuthorizationResult&& result)
+#if HAVE(APPLE_PAY_PAYMENT_ORDER_DETAILS)
+
+static ExceptionOr<ApplePayPaymentOrderDetails> convertAndValidate(ApplePayPaymentOrderDetails&& orderDetails)
 {
-    PaymentAuthorizationResult convertedResult;
+    if (auto& webServiceURL = orderDetails.webServiceURL; !URL { webServiceURL }.isValid())
+        return Exception(TypeError, makeString('"', webServiceURL, "\" is not a valid URL."));
 
+    return WTFMove(orderDetails);
+}
+
+#endif // HAVE(APPLE_PAY_PAYMENT_ORDER_DETAILS)
+
+static ExceptionOr<ApplePayPaymentAuthorizationResult> convertAndValidate(ApplePayPaymentAuthorizationResult&& result)
+{
     switch (result.status) {
-    case ApplePaySession::STATUS_SUCCESS:
-        convertedResult.status = PaymentAuthorizationStatus::Success;
+    case ApplePayPaymentAuthorizationResult::Success:
+    case ApplePayPaymentAuthorizationResult::Failure:
+    case ApplePayPaymentAuthorizationResult::PINRequired:
+    case ApplePayPaymentAuthorizationResult::PINIncorrect:
+    case ApplePayPaymentAuthorizationResult::PINLockout:
         break;
 
-    case ApplePaySession::STATUS_FAILURE:
-        convertedResult.status = PaymentAuthorizationStatus::Failure;
+    case ApplePayPaymentAuthorizationResult::InvalidBillingPostalAddress:
+        result.status = ApplePayPaymentAuthorizationResult::Failure;
+        result.errors.insert(0, ApplePayError::create(ApplePayErrorCode::BillingContactInvalid, std::nullopt, nullString()));
         break;
 
-    case ApplePaySession::STATUS_INVALID_BILLING_POSTAL_ADDRESS:
-        convertedResult.status = PaymentAuthorizationStatus::Failure;
-        convertedResult.errors.append(ApplePayError::create(ApplePayErrorCode::BillingContactInvalid, std::nullopt, nullString()));
+    case ApplePayPaymentAuthorizationResult::InvalidShippingPostalAddress:
+        result.status = ApplePayPaymentAuthorizationResult::Failure;
+        result.errors.insert(0, ApplePayError::create(ApplePayErrorCode::ShippingContactInvalid, ApplePayErrorContactField::PostalAddress, nullString()));
         break;
 
-    case ApplePaySession::STATUS_INVALID_SHIPPING_POSTAL_ADDRESS:
-        convertedResult.status = PaymentAuthorizationStatus::Failure;
-        convertedResult.errors.append(ApplePayError::create(ApplePayErrorCode::ShippingContactInvalid, ApplePayErrorContactField::PostalAddress, nullString()));
-        break;
-
-    case ApplePaySession::STATUS_INVALID_SHIPPING_CONTACT:
-        convertedResult.status = PaymentAuthorizationStatus::Failure;
-        convertedResult.errors.append(ApplePayError::create(ApplePayErrorCode::ShippingContactInvalid, std::nullopt, nullString()));
-        break;
-
-    case ApplePaySession::STATUS_PIN_REQUIRED:
-        convertedResult.status = PaymentAuthorizationStatus::PINRequired;
-        break;
-
-    case ApplePaySession::STATUS_PIN_INCORRECT:
-        convertedResult.status = PaymentAuthorizationStatus::PINIncorrect;
-        break;
-
-    case ApplePaySession::STATUS_PIN_LOCKOUT:
-        convertedResult.status = PaymentAuthorizationStatus::PINLockout;
+    case ApplePayPaymentAuthorizationResult::InvalidShippingContact:
+        result.status = ApplePayPaymentAuthorizationResult::Failure;
+        result.errors.insert(0, ApplePayError::create(ApplePayErrorCode::ShippingContactInvalid, std::nullopt, nullString()));
         break;
 
     default:
         return Exception { InvalidAccessError };
     }
 
-    convertedResult.errors.appendVector(WTFMove(result.errors));
+#if HAVE(APPLE_PAY_PAYMENT_ORDER_DETAILS)
+    if (auto orderDetails = WTFMove(result.orderDetails)) {
+        auto convertedOrderDetails = convertAndValidate(WTFMove(*orderDetails));
+        if (convertedOrderDetails.hasException())
+            return convertedOrderDetails.releaseException();
+        result.orderDetails = convertedOrderDetails.releaseReturnValue();
+    }
+#endif
 
-    return WTFMove(convertedResult);
+    return WTFMove(result);
 }
 
 static ExceptionOr<ApplePayPaymentMethodUpdate> convertAndValidate(ApplePayPaymentMethodUpdate&& update)
@@ -313,16 +482,18 @@ ExceptionOr<Ref<ApplePaySession>> ApplePaySession::create(Document& document, un
         return canCall.releaseException();
 
     if (!UserGestureIndicator::processingUserGesture())
-        return Exception { InvalidAccessError, "Must create a new ApplePaySession from a user gesture handler." };
+        return Exception { InvalidAccessError, "Must create a new ApplePaySession from a user gesture handler."_s };
 
     if (!document.page())
-        return Exception { InvalidAccessError, "Frame is detached" };
+        return Exception { InvalidAccessError, "Frame is detached"_s };
 
     auto convertedPaymentRequest = convertAndValidate(document, version, WTFMove(paymentRequest), document.page()->paymentCoordinator());
     if (convertedPaymentRequest.hasException())
         return convertedPaymentRequest.releaseException();
 
-    return adoptRef(*new ApplePaySession(document, version, convertedPaymentRequest.releaseReturnValue()));
+    auto session = adoptRef(*new ApplePaySession(document, version, convertedPaymentRequest.releaseReturnValue()));
+    session->suspendIfNeeded();
+    return session;
 }
 
 ApplePaySession::ApplePaySession(Document& document, unsigned version, ApplePaySessionPaymentRequest&& paymentRequest)
@@ -331,7 +502,6 @@ ApplePaySession::ApplePaySession(Document& document, unsigned version, ApplePayS
     , m_version { version }
 {
     ASSERT(document.page()->paymentCoordinator().supportsVersion(document, version));
-    suspendIfNeeded();
 }
 
 ApplePaySession::~ApplePaySession() = default;
@@ -371,7 +541,7 @@ ExceptionOr<bool> ApplePaySession::canMakePayments(Document& document)
     if (!page)
         return Exception { InvalidAccessError };
 
-    return page->paymentCoordinator().canMakePayments(document);
+    return page->paymentCoordinator().canMakePayments();
 }
 
 ExceptionOr<void> ApplePaySession::canMakePaymentsWithActiveCard(Document& document, const String& merchantIdentifier, Ref<DeferredPromise>&& passedPromise)
@@ -387,7 +557,7 @@ ExceptionOr<void> ApplePaySession::canMakePaymentsWithActiveCard(Document& docum
             return Exception { InvalidAccessError };
 
         auto& paymentCoordinator = page->paymentCoordinator();
-        bool canMakePayments = paymentCoordinator.canMakePayments(document);
+        bool canMakePayments = paymentCoordinator.canMakePayments();
 
         RunLoop::main().dispatch([promise, canMakePayments]() mutable {
             promise->resolve<IDLBoolean>(canMakePayments);
@@ -414,7 +584,7 @@ ExceptionOr<void> ApplePaySession::openPaymentSetup(Document& document, const St
         return canCall.releaseException();
 
     if (!UserGestureIndicator::processingUserGesture())
-        return Exception { InvalidAccessError, "Must call ApplePaySession.openPaymentSetup from a user gesture handler." };
+        return Exception { InvalidAccessError, "Must call ApplePaySession.openPaymentSetup from a user gesture handler."_s };
 
     auto* page = document.page();
     if (!page)
@@ -433,13 +603,13 @@ ExceptionOr<void> ApplePaySession::openPaymentSetup(Document& document, const St
 ExceptionOr<void> ApplePaySession::begin(Document& document)
 {
     if (!canBegin())
-        return Exception { InvalidAccessError, "Payment session is already active." };
+        return Exception { InvalidAccessError, "Payment session is already active."_s };
 
     if (paymentCoordinator().hasActiveSession())
-        return Exception { InvalidAccessError, "Page already has an active payment session." };
+        return Exception { InvalidAccessError, "Page already has an active payment session."_s };
 
     if (!paymentCoordinator().beginPaymentSession(document, *this, m_paymentRequest))
-        return Exception { InvalidAccessError, "There is already has an active payment session." };
+        return Exception { InvalidAccessError, "There is already has an active payment session."_s };
 
     m_state = State::Active;
 
@@ -474,6 +644,11 @@ ExceptionOr<void> ApplePaySession::completeMerchantValidation(JSC::JSGlobalObjec
         window.printErrorMessage(errorMessage);
         return Exception { InvalidAccessError };
     }
+
+    // PaymentMerchantSession::fromJS() may run JS, which may abort the request so we need to
+    // make sure we still have an active session.
+    if (!paymentCoordinator().hasActiveSession())
+        return Exception { InvalidStateError };
 
     m_merchantValidationState = MerchantValidationState::ValidationComplete;
     paymentCoordinator().completeMerchantValidation(*merchantSession);
@@ -555,7 +730,7 @@ ExceptionOr<void> ApplePaySession::completePayment(ApplePayPaymentAuthorizationR
         return convertedResultOrException.releaseException();
 
     auto&& convertedResult = convertedResultOrException.releaseReturnValue();
-    bool isFinalState = isFinalStateResult(convertedResult);
+    bool isFinalState = convertedResult.isFinalState();
 
     paymentCoordinator().completePaymentSession(WTFMove(convertedResult));
 

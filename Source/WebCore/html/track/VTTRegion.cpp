@@ -36,11 +36,11 @@
 
 #include "DOMRect.h"
 #include "DOMTokenList.h"
-#include "ElementChildIterator.h"
+#include "ElementChildIteratorInlines.h"
 #include "HTMLDivElement.h"
-#include "HTMLParserIdioms.h"
 #include "Logging.h"
 #include "RenderElement.h"
+#include "ShadowPseudoIds.h"
 #include "VTTCue.h"
 #include "VTTScanner.h"
 #include "WebVTTParser.h"
@@ -126,7 +126,7 @@ ExceptionOr<void> VTTRegion::setViewportAnchorY(double value)
 
 static const AtomString& upKeyword()
 {
-    static MainThreadNeverDestroyed<const AtomString> upKeyword("up", AtomString::ConstructFromLiteral);
+    static MainThreadNeverDestroyed<const AtomString> upKeyword("up"_s);
     return upKeyword;
 }
 
@@ -163,7 +163,7 @@ void VTTRegion::setRegionSettings(const String& inputString)
     VTTScanner input(inputString);
 
     while (!input.isAtEnd()) {
-        input.skipWhile<WebVTTParser::isValidSettingDelimiter>();
+        input.skipWhile<isTabOrSpace>();
         if (input.isAtEnd())
             break;
 
@@ -172,7 +172,7 @@ void VTTRegion::setRegionSettings(const String& inputString)
 
         // Verify that we're looking at a ':'.
         if (name == None || !input.scan(':')) {
-            input.skipUntil<isHTMLSpace<UChar>>();
+            input.skipUntil<isASCIIWhitespace<UChar>>();
             continue;
         }
 
@@ -206,12 +206,12 @@ static inline bool parsedEntireRun(const VTTScanner& input, const VTTScanner::Ru
 
 void VTTRegion::parseSettingValue(RegionSetting setting, VTTScanner& input)
 {
-    VTTScanner::Run valueRun = input.collectUntil<isHTMLSpace<UChar>>();
+    VTTScanner::Run valueRun = input.collectUntil<isASCIIWhitespace<UChar>>();
 
     switch (setting) {
     case Id: {
         String stringValue = input.extractString(valueRun);
-        if (stringValue.find("-->") == notFound)
+        if (stringValue.find("-->"_s) == notFound)
             m_id = stringValue;
         break;
     }
@@ -262,23 +262,9 @@ void VTTRegion::parseSettingValue(RegionSetting setting, VTTScanner& input)
 
 const AtomString& VTTRegion::textTrackCueContainerScrollingClass()
 {
-    static MainThreadNeverDestroyed<const AtomString> trackRegionCueContainerScrollingClass("scrolling", AtomString::ConstructFromLiteral);
+    static MainThreadNeverDestroyed<const AtomString> trackRegionCueContainerScrollingClass("scrolling"_s);
 
     return trackRegionCueContainerScrollingClass;
-}
-
-const AtomString& VTTRegion::textTrackCueContainerShadowPseudoId()
-{
-    static MainThreadNeverDestroyed<const AtomString> trackRegionCueContainerPseudoId("-webkit-media-text-track-region-container", AtomString::ConstructFromLiteral);
-
-    return trackRegionCueContainerPseudoId;
-}
-
-const AtomString& VTTRegion::textTrackRegionShadowPseudoId()
-{
-    static MainThreadNeverDestroyed<const AtomString> trackRegionShadowPseudoId("-webkit-media-text-track-region", AtomString::ConstructFromLiteral);
-
-    return trackRegionShadowPseudoId;
 }
 
 void VTTRegion::appendTextTrackCueBox(Ref<TextTrackCueBox>&& displayBox)
@@ -341,8 +327,8 @@ void VTTRegion::willRemoveTextTrackCueBox(VTTCueBox* box)
 HTMLDivElement& VTTRegion::getDisplayTree()
 {
     if (!m_regionDisplayTree) {
-        m_regionDisplayTree = HTMLDivElement::create(downcast<Document>(*m_scriptExecutionContext));
-        m_regionDisplayTree->setPseudo(textTrackRegionShadowPseudoId());
+        m_regionDisplayTree = HTMLDivElement::create(downcast<Document>(*scriptExecutionContext()));
+        m_regionDisplayTree->setPseudo(ShadowPseudoIds::webkitMediaTextTrackRegion());
         m_recalculateStyles = true;
     }
 
@@ -388,8 +374,8 @@ void VTTRegion::prepareRegionDisplayTree()
     // The cue container is used to wrap the cues and it is the object which is
     // gradually scrolled out as multiple cues are appended to the region.
     if (!m_cueContainer) {
-        m_cueContainer = HTMLDivElement::create(downcast<Document>(*m_scriptExecutionContext));
-        m_cueContainer->setPseudo(textTrackCueContainerShadowPseudoId());
+        m_cueContainer = HTMLDivElement::create(downcast<Document>(*scriptExecutionContext()));
+        m_cueContainer->setPseudo(ShadowPseudoIds::webkitMediaTextTrackRegionContainer());
         m_regionDisplayTree->appendChild(*m_cueContainer);
     }
     m_cueContainer->setInlineStyleProperty(CSSPropertyTop, 0.0f, CSSUnitType::CSS_PX);

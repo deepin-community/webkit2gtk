@@ -33,6 +33,7 @@
 #include "IntRect.h"
 #include "LayoutRect.h"
 #include <cmath>
+#include <float.h>
 #include <wtf/Assertions.h>
 #include <wtf/MathExtras.h>
 #include <wtf/text/TextStream.h>
@@ -213,7 +214,7 @@ static bool inverse(const TransformationMatrix::Matrix4& matrix, TransformationM
     // then the inverse matrix is not unique.
     double det = determinant4x4(matrix);
 
-    if (fabs(det) < SMALL_NUMBER)
+    if (std::abs(det) < SMALL_NUMBER)
         return false;
 
     // Scale the adjoint matrix to get the inverse
@@ -389,7 +390,8 @@ static bool decompose4(const TransformationMatrix::Matrix4& mat, TransformationM
         // rightHandSide by the inverse. (This is the easiest way, not
         // necessarily the best.)
         TransformationMatrix::Matrix4 inversePerspectiveMatrix, transposedInversePerspectiveMatrix;
-        inverse(perspectiveMatrix, inversePerspectiveMatrix);
+        if (!inverse(perspectiveMatrix, inversePerspectiveMatrix))
+            return false;
         transposeMatrix4(inversePerspectiveMatrix, transposedInversePerspectiveMatrix);
 
         Vector4 perspectivePoint;
@@ -578,7 +580,6 @@ TransformationMatrix::TransformationMatrix(const AffineTransform& t)
 {
     setMatrix(t.a(), t.b(), t.c(), t.d(), t.e(), t.f());
 }
-
 
 // FIXME: Once https://bugs.webkit.org/show_bug.cgi?id=220856 is addressed we can reuse this function in TransformationMatrix::recompose4().
 TransformationMatrix TransformationMatrix::fromQuaternion(double qx, double qy, double qz, double qw)
@@ -907,6 +908,13 @@ TransformationMatrix& TransformationMatrix::scale3d(double sx, double sy, double
     return *this;
 }
 
+static double roundEpsilonToZero(double val)
+{
+    if (-DBL_EPSILON < val && val < DBL_EPSILON)
+        return 0.0f;
+    return val;
+}
+
 TransformationMatrix& TransformationMatrix::rotate3d(double x, double y, double z, double angle)
 {
     // Normalize the axis of rotation
@@ -923,8 +931,8 @@ TransformationMatrix& TransformationMatrix::rotate3d(double x, double y, double 
     // Angles are in degrees. Switch to radians.
     angle = deg2rad(angle);
 
-    double sinTheta = sin(angle);
-    double cosTheta = cos(angle);
+    double sinTheta = roundEpsilonToZero(sin(angle));
+    double cosTheta = roundEpsilonToZero(cos(angle));
 
     TransformationMatrix mat;
 
@@ -1000,8 +1008,8 @@ TransformationMatrix& TransformationMatrix::rotate(double angle)
         return *this;
 
     angle = deg2rad(angle);
-    double sinZ = sin(angle);
-    double cosZ = cos(angle);
+    double sinZ = roundEpsilonToZero(sin(angle));
+    double cosZ = roundEpsilonToZero(cos(angle));
     multiply({ cosZ, sinZ, -sinZ, cosZ, 0, 0 });
     return *this;
 }
@@ -1015,8 +1023,8 @@ TransformationMatrix& TransformationMatrix::rotate3d(double rx, double ry, doubl
 
     TransformationMatrix mat;
 
-    double sinTheta = sin(rz);
-    double cosTheta = cos(rz);
+    double sinTheta = roundEpsilonToZero(sin(rz));
+    double cosTheta = roundEpsilonToZero(cos(rz));
 
     mat.m_matrix[0][0] = cosTheta;
     mat.m_matrix[0][1] = sinTheta;
@@ -1155,6 +1163,17 @@ TransformationMatrix TransformationMatrix::rectToRect(const FloatRect& from, con
                                 to.height() / from.height(),
                                 to.x() - from.x(),
                                 to.y() - from.y());
+}
+
+TransformationMatrix& TransformationMatrix::zoom(double zoomFactor)
+{
+    m_matrix[0][3] /= zoomFactor;
+    m_matrix[1][3] /= zoomFactor;
+    m_matrix[2][3] /= zoomFactor;
+    m_matrix[3][0] *= zoomFactor;
+    m_matrix[3][1] *= zoomFactor;
+    m_matrix[3][2] *= zoomFactor;
+    return *this;
 }
 
 // this = mat * this.
@@ -1533,6 +1552,17 @@ TransformationMatrix& TransformationMatrix::multiply(const TransformationMatrix&
     return *this;
 }
 
+TransformationMatrix& TransformationMatrix::multiplyAffineTransform(const AffineTransform& matrix)
+{
+    if (matrix.isIdentity())
+        return *this;
+
+    if (matrix.isIdentityOrTranslation())
+        return translate(matrix.e(), matrix.f());
+
+    return multiply(matrix.toTransformationMatrix());
+}
+
 void TransformationMatrix::multVecMatrix(double x, double y, double& resultX, double& resultY) const
 {
     resultX = m_matrix[3][0] + x * m_matrix[0][0] + y * m_matrix[1][0];
@@ -1563,7 +1593,7 @@ bool TransformationMatrix::isInvertible() const
     if (type == Type::IdentityOrTranslation)
         return true;
 
-    return fabs(type == Type::Affine ? (m11() * m22() - m12() * m21()) : WebCore::determinant4x4(m_matrix)) >= SMALL_NUMBER;
+    return std::abs(type == Type::Affine ? (m11() * m22() - m12() * m21()) : WebCore::determinant4x4(m_matrix)) >= SMALL_NUMBER;
 }
 
 std::optional<TransformationMatrix> TransformationMatrix::inverse() const
@@ -1589,7 +1619,7 @@ std::optional<TransformationMatrix> TransformationMatrix::inverse() const
         double e = m41();
         double f = m42();
         double determinant = a * d - b * c;
-        if (fabs(determinant) < SMALL_NUMBER)
+        if (std::abs(determinant) < SMALL_NUMBER)
             return std::nullopt;
 
         double inverseDeterminant = 1 / determinant;
@@ -1635,13 +1665,24 @@ AffineTransform TransformationMatrix::toAffineTransform() const
                            m_matrix[1][1], m_matrix[3][0], m_matrix[3][1]);
 }
 
-static inline void blendFloat(double& from, double to, double progress)
+static inline void blendFloat(double& from, double to, double progress, CompositeOperation compositeOperation)
 {
-    if (from != to)
+    switch (compositeOperation) {
+    case CompositeOperation::Replace:
         from = from + (to - from) * progress;
+        break;
+    case CompositeOperation::Accumulate:
+        ASSERT(progress == 1.0);
+        from += to - 1;
+        break;
+    case CompositeOperation::Add:
+        ASSERT(progress == 1.0);
+        from += to;
+        break;
+    }
 }
 
-void TransformationMatrix::blend2(const TransformationMatrix& from, double progress)
+void TransformationMatrix::blend2(const TransformationMatrix& from, double progress, CompositeOperation compositeOperation)
 {
     Decomposed2Type fromDecomp;
     Decomposed2Type toDecomp;
@@ -1664,27 +1705,53 @@ void TransformationMatrix::blend2(const TransformationMatrix& from, double progr
     if (!toDecomp.angle)
         toDecomp.angle = 360;
 
-    if (fabs(fromDecomp.angle - toDecomp.angle) > 180) {
+    if (std::abs(fromDecomp.angle - toDecomp.angle) > 180) {
         if (fromDecomp.angle > toDecomp.angle)
             fromDecomp.angle -= 360;
         else
             toDecomp.angle -= 360;
     }
-
-    blendFloat(fromDecomp.m11, toDecomp.m11, progress);
-    blendFloat(fromDecomp.m12, toDecomp.m12, progress);
-    blendFloat(fromDecomp.m21, toDecomp.m21, progress);
-    blendFloat(fromDecomp.m22, toDecomp.m22, progress);
-    blendFloat(fromDecomp.translateX, toDecomp.translateX, progress);
-    blendFloat(fromDecomp.translateY, toDecomp.translateY, progress);
-    blendFloat(fromDecomp.scaleX, toDecomp.scaleX, progress);
-    blendFloat(fromDecomp.scaleY, toDecomp.scaleY, progress);
-    blendFloat(fromDecomp.angle, toDecomp.angle, progress);
-
+    
+    // When compositeOperation is accumulate, if the decomposed function is a 1-based value (for affine matrix these properties are
+    // m11, m22, scaleX and scaleY), use one based accumulation. Otherwise, use behavior for add.
+    auto operationForNonOneBasedValues = compositeOperation == CompositeOperation::Accumulate ? CompositeOperation::Add : compositeOperation;
+    blendFloat(fromDecomp.m11, toDecomp.m11, progress, compositeOperation);
+    blendFloat(fromDecomp.m12, toDecomp.m12, progress, operationForNonOneBasedValues);
+    blendFloat(fromDecomp.m21, toDecomp.m21, progress, operationForNonOneBasedValues);
+    blendFloat(fromDecomp.m22, toDecomp.m22, progress, compositeOperation);
+    blendFloat(fromDecomp.translateX, toDecomp.translateX, progress, operationForNonOneBasedValues);
+    blendFloat(fromDecomp.translateY, toDecomp.translateY, progress, operationForNonOneBasedValues);
+    blendFloat(fromDecomp.scaleX, toDecomp.scaleX, progress, compositeOperation);
+    blendFloat(fromDecomp.scaleY, toDecomp.scaleY, progress, compositeOperation);
+    blendFloat(fromDecomp.angle, toDecomp.angle, progress, operationForNonOneBasedValues);
     recompose2(fromDecomp);
 }
 
-void TransformationMatrix::blend4(const TransformationMatrix& from, double progress)
+// Compute quaternion multiplication
+static void accumulateQuaternion(double qa[4], const double qb[4])
+{
+    auto qx = (qb[3] * qa[0]) + (qb[0] * qa[3]) + (qb[1] * qa[2]) - (qb[2] * qa[1]);
+    auto qy = (qb[3] * qa[1]) + (qb[1] * qa[3]) + (qb[2] * qa[0]) - (qb[0] * qa[2]);
+    auto qz = (qb[3] * qa[2]) + (qb[2] * qa[3]) + (qb[0] * qa[1]) - (qb[1] * qa[0]);
+    auto qw = (qb[3] * qa[3]) - (qb[0] * qa[0]) - (qb[1] * qa[1]) - (qb[2] * qa[2]);
+    qa[0] = qx; qa[1] = qy; qa[2] = qz; qa[3] = qw;
+}
+
+static void interpolateQuaternion(TransformationMatrix::Decomposed4Type& fromDecomp, TransformationMatrix::Decomposed4Type& toDecomp, double progress, CompositeOperation compositeOperation)
+{
+    double qa[4] = { fromDecomp.quaternionX, fromDecomp.quaternionY, fromDecomp.quaternionZ, fromDecomp.quaternionW };
+    double qb[4] = { toDecomp.quaternionX, toDecomp.quaternionY, toDecomp.quaternionZ, toDecomp.quaternionW };
+    if (compositeOperation == CompositeOperation::Accumulate)
+        accumulateQuaternion(qa, qb);
+    else
+        slerp(qa, qb, progress);
+    fromDecomp.quaternionX = qa[0];
+    fromDecomp.quaternionY = qa[1];
+    fromDecomp.quaternionZ = qa[2];
+    fromDecomp.quaternionW = qa[3];
+    
+}
+void TransformationMatrix::blend4(const TransformationMatrix& from, double progress, CompositeOperation compositeOperation)
 {
     Decomposed4Type fromDecomp;
     Decomposed4Type toDecomp;
@@ -1693,43 +1760,47 @@ void TransformationMatrix::blend4(const TransformationMatrix& from, double progr
             *this = from;
         return;
     }
+    
+    // When compositeOperation is accumulate, if the decomposed function is a 1-based value (for non-affine matrix these properties are
+    // scaleX, scaleY, scaleZ, and perspectiveW), use one based accumulation. Otherwise, use behavior for add.
+    auto operationForNonOneBasedValues = compositeOperation == CompositeOperation::Accumulate ? CompositeOperation::Add : compositeOperation;
 
-    blendFloat(fromDecomp.scaleX, toDecomp.scaleX, progress);
-    blendFloat(fromDecomp.scaleY, toDecomp.scaleY, progress);
-    blendFloat(fromDecomp.scaleZ, toDecomp.scaleZ, progress);
-    blendFloat(fromDecomp.skewXY, toDecomp.skewXY, progress);
-    blendFloat(fromDecomp.skewXZ, toDecomp.skewXZ, progress);
-    blendFloat(fromDecomp.skewYZ, toDecomp.skewYZ, progress);
-    blendFloat(fromDecomp.translateX, toDecomp.translateX, progress);
-    blendFloat(fromDecomp.translateY, toDecomp.translateY, progress);
-    blendFloat(fromDecomp.translateZ, toDecomp.translateZ, progress);
-    blendFloat(fromDecomp.perspectiveX, toDecomp.perspectiveX, progress);
-    blendFloat(fromDecomp.perspectiveY, toDecomp.perspectiveY, progress);
-    blendFloat(fromDecomp.perspectiveZ, toDecomp.perspectiveZ, progress);
-    blendFloat(fromDecomp.perspectiveW, toDecomp.perspectiveW, progress);
-
-    slerp(&fromDecomp.quaternionX, &toDecomp.quaternionX, progress);
+    blendFloat(fromDecomp.scaleX, toDecomp.scaleX, progress, compositeOperation);
+    blendFloat(fromDecomp.scaleY, toDecomp.scaleY, progress, compositeOperation);
+    blendFloat(fromDecomp.scaleZ, toDecomp.scaleZ, progress, compositeOperation);
+    blendFloat(fromDecomp.skewXY, toDecomp.skewXY, progress, operationForNonOneBasedValues);
+    blendFloat(fromDecomp.skewXZ, toDecomp.skewXZ, progress, operationForNonOneBasedValues);
+    blendFloat(fromDecomp.skewYZ, toDecomp.skewYZ, progress, operationForNonOneBasedValues);
+    blendFloat(fromDecomp.translateX, toDecomp.translateX, progress, operationForNonOneBasedValues);
+    blendFloat(fromDecomp.translateY, toDecomp.translateY, progress, operationForNonOneBasedValues);
+    blendFloat(fromDecomp.translateZ, toDecomp.translateZ, progress, operationForNonOneBasedValues);
+    blendFloat(fromDecomp.perspectiveX, toDecomp.perspectiveX, progress, operationForNonOneBasedValues);
+    blendFloat(fromDecomp.perspectiveY, toDecomp.perspectiveY, progress, operationForNonOneBasedValues);
+    blendFloat(fromDecomp.perspectiveZ, toDecomp.perspectiveZ, progress, operationForNonOneBasedValues);
+    blendFloat(fromDecomp.perspectiveW, toDecomp.perspectiveW, progress, compositeOperation);
+    interpolateQuaternion(fromDecomp, toDecomp, progress, compositeOperation);
 
     recompose4(fromDecomp);
 }
 
-void TransformationMatrix::blend(const TransformationMatrix& from, double progress)
+void TransformationMatrix::blend(const TransformationMatrix& from, double progress, CompositeOperation compositeOperation)
 {
-    if (!progress) {
+    
+    if (!progress && compositeOperation == CompositeOperation::Replace) {
         *this = from;
         return;
     }
 
-    if (progress == 1)
+    if (progress == 1 && compositeOperation == CompositeOperation::Replace)
         return;
 
     if (from.isIdentity() && isIdentity())
         return;
 
     if (from.isAffine() && isAffine())
-        blend2(from, progress);
+        blend2(from, progress, compositeOperation);
     else
-        blend4(from, progress);
+        blend4(from, progress, compositeOperation);
 }
 
 bool TransformationMatrix::decompose2(Decomposed2Type& decomp) const
@@ -1889,7 +1960,7 @@ bool TransformationMatrix::isBackFaceVisible() const
     double determinant = WebCore::determinant4x4(m_matrix);
 
     // If the matrix is not invertible, then we assume its backface is not visible.
-    if (fabs(determinant) < SMALL_NUMBER)
+    if (std::abs(determinant) < SMALL_NUMBER)
         return false;
 
     double cofactor33 = determinant3x3(m11(), m12(), m14(), m21(), m22(), m24(), m41(), m42(), m44());

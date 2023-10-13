@@ -31,7 +31,13 @@
 #include <wtf/RefPtr.h>
 #include <wtf/text/WTFString.h>
 
+#if HAVE(SECURE_ACTION_CONTEXT)
+OBJC_CLASS DDSecureActionContext;
+using WKDDActionContext = DDSecureActionContext;
+#else
 OBJC_CLASS DDActionContext;
+using WKDDActionContext = DDActionContext;
+#endif
 
 namespace IPC {
 class Decoder;
@@ -40,9 +46,27 @@ class Encoder;
 
 namespace WebCore {
 class HitTestResult;
+class LocalFrame;
+class NavigationAction;
 }
 
 namespace WebKit {
+
+#if PLATFORM(MAC)
+struct WebHitTestResultPlatformData {
+    struct DetectedDataActionContext {
+        RetainPtr<WKDDActionContext> context;
+        struct MarkableTraits {
+            static bool isEmptyValue(const DetectedDataActionContext& context) { return !context.context; }
+            static DetectedDataActionContext emptyValue() { return { nullptr }; }
+        };
+    };
+    Markable<DetectedDataActionContext> detectedDataActionContext;
+    WebCore::FloatRect detectedDataBoundingBox;
+    RefPtr<WebCore::TextIndicator> detectedDataTextIndicator;
+    WebCore::PageOverlay::PageOverlayID detectedDataOriginatingPageOverlay;
+};
+#endif
 
 struct WebHitTestResultData {
     String absoluteImageURL;
@@ -54,7 +78,7 @@ struct WebHitTestResultData {
     String linkSuggestedFilename;
     bool isContentEditable;
     WebCore::IntRect elementBoundingBox;
-    enum class IsScrollbar { No, Vertical, Horizontal };
+    enum class IsScrollbar : uint8_t { No, Vertical, Horizontal };
     IsScrollbar isScrollbar;
     bool isSelected;
     bool isTextNode;
@@ -63,45 +87,40 @@ struct WebHitTestResultData {
 
     String lookupText;
     String toolTipText;
+    String imageText;
     RefPtr<SharedMemory> imageSharedMemory;
-    uint64_t imageSize;
     RefPtr<ShareableBitmap> imageBitmap;
+    String sourceImageMIMEType;
 
 #if PLATFORM(MAC)
-    RetainPtr<DDActionContext> detectedDataActionContext;
+    WebHitTestResultPlatformData platformData;
 #endif
-    WebCore::FloatRect detectedDataBoundingBox;
-    RefPtr<WebCore::TextIndicator> detectedDataTextIndicator;
-    WebCore::PageOverlay::PageOverlayID detectedDataOriginatingPageOverlay;
-
+    
     WebCore::DictionaryPopupInfo dictionaryPopupInfo;
 
     RefPtr<WebCore::TextIndicator> linkTextIndicator;
 
     WebHitTestResultData();
+    WebHitTestResultData(WebHitTestResultData&&) = default;
+    WebHitTestResultData(const WebHitTestResultData&) = default;
+    WebHitTestResultData& operator=(WebHitTestResultData&&) = default;
+    WebHitTestResultData& operator=(const WebHitTestResultData&) = default;
     WebHitTestResultData(const WebCore::HitTestResult&, const String& toolTipText);
     WebHitTestResultData(const WebCore::HitTestResult&, bool includeImage);
+    WebHitTestResultData(const String& absoluteImageURL, const String& absolutePDFURL, const String& absoluteLinkURL, const String& absoluteMediaURL, const String& linkLabel, const String& linkTitle, const String& linkSuggestedFilename, bool isContentEditable, const WebCore::IntRect& elementBoundingBox, const WebKit::WebHitTestResultData::IsScrollbar&, bool isSelected, bool isTextNode, bool isOverTextInsideFormControlElement, bool isDownloadableMedia, const String& lookupText, const String& toolTipText, const String& imageText, std::optional<WebKit::SharedMemory::Handle>&& imageHandle, const RefPtr<WebKit::ShareableBitmap>& imageBitmap, const String& sourceImageMIMEType,
+#if PLATFORM(MAC)
+        const WebHitTestResultPlatformData&,
+#endif
+        const WebCore::DictionaryPopupInfo&, const RefPtr<WebCore::TextIndicator>&);
     ~WebHitTestResultData();
 
-    void encode(IPC::Encoder&) const;
-    void platformEncode(IPC::Encoder&) const;
-    static WARN_UNUSED_RETURN bool decode(IPC::Decoder&, WebHitTestResultData&);
-    static WARN_UNUSED_RETURN bool platformDecode(IPC::Decoder&, WebHitTestResultData&);
-
     WebCore::IntRect elementBoundingBoxInWindowCoordinates(const WebCore::HitTestResult&);
+
+    std::optional<WebKit::SharedMemory::Handle> getImageSharedMemoryHandle() const;
+
+#if PLATFORM(MAC) || HAVE(UIKIT_WITH_MOUSE_SUPPORT)
+    static std::optional<WebHitTestResultData> fromNavigationActionAndLocalFrame(const WebCore::NavigationAction&, WebCore::LocalFrame*);
+#endif
 };
 
 } // namespace WebKit
-
-namespace WTF {
-
-template<> struct EnumTraits<WebKit::WebHitTestResultData::IsScrollbar> {
-    using values = EnumValues<
-    WebKit::WebHitTestResultData::IsScrollbar,
-    WebKit::WebHitTestResultData::IsScrollbar::No,
-    WebKit::WebHitTestResultData::IsScrollbar::Vertical,
-    WebKit::WebHitTestResultData::IsScrollbar::Horizontal
-    >;
-};
-
-} // namespace WTF

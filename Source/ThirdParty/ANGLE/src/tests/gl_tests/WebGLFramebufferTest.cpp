@@ -14,7 +14,7 @@
 namespace angle
 {
 
-class WebGLFramebufferTest : public ANGLETest
+class WebGLFramebufferTest : public ANGLETest<>
 {
   protected:
     WebGLFramebufferTest()
@@ -472,7 +472,7 @@ TEST_P(WebGLFramebufferTest, TestAttachments)
             // Attach color renderbuffer with internalformat == RGB5_A1.
             // This particular format seems to be bugged on NVIDIA Retina. http://crbug.com/635081
             // TODO(jmadill): Figure out if we can add a format workaround.
-            if (!(IsNVIDIA() && IsOSX() && IsOpenGL()))
+            if (!(IsNVIDIA() && IsMac() && IsOpenGL()))
             {
                 testColorRenderbuffer(width, height, GL_RGB5_A1, allowedStatusForGoodCase);
             }
@@ -791,12 +791,6 @@ void WebGLFramebufferTest::testDrawingMissingAttachment()
 // Determine if we can attach both color and depth or color and depth_stencil
 TEST_P(WebGLFramebufferTest, CheckValidColorDepthCombination)
 {
-    // In FL9_3, we don't have a good way to handle non-color framebuffer rendering.
-    if (IsD3D11_FL93())
-    {
-        ignoreD3D11SDKLayersWarnings();
-    }
-
     GLenum depthFormat     = GL_NONE;
     GLenum depthAttachment = GL_NONE;
 

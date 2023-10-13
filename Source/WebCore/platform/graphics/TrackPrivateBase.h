@@ -29,21 +29,13 @@
 
 #if ENABLE(VIDEO)
 
+#include "TrackPrivateBaseClient.h"
 #include <wtf/LoggerHelper.h>
 #include <wtf/MediaTime.h>
 #include <wtf/ThreadSafeRefCounted.h>
 #include <wtf/text/AtomString.h>
 
 namespace WebCore {
-
-class TrackPrivateBaseClient {
-public:
-    virtual ~TrackPrivateBaseClient() = default;
-    virtual void idChanged(const AtomString&) = 0;
-    virtual void labelChanged(const AtomString&) = 0;
-    virtual void languageChanged(const AtomString&) = 0;
-    virtual void willRemove() = 0;
-};
 
 class WEBCORE_EXPORT TrackPrivateBase
     : public ThreadSafeRefCounted<TrackPrivateBase, WTF::DestructionThread::Main>
@@ -73,6 +65,11 @@ public:
         if (auto* client = this->client())
             client->willRemove();
     }
+    
+    bool operator==(const TrackPrivateBase&) const;
+
+    enum class Type { Video, Audio, Text };
+    virtual Type type() const = 0;
 
 #if !RELEASE_LOG_DISABLED
     virtual void setLogger(const Logger&, const void*);

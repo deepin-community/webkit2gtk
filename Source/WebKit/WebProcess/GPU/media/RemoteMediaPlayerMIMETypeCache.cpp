@@ -26,8 +26,9 @@
 #include "config.h"
 #include "RemoteMediaPlayerMIMETypeCache.h"
 
-#if ENABLE(GPU_PROCESS)
+#if ENABLE(GPU_PROCESS) && ENABLE(VIDEO)
 
+#include "Logging.h"
 #include "RemoteMediaPlayerManager.h"
 #include "RemoteMediaPlayerManagerProxyMessages.h"
 #include <wtf/Vector.h>
@@ -43,28 +44,27 @@ RemoteMediaPlayerMIMETypeCache::RemoteMediaPlayerMIMETypeCache(RemoteMediaPlayer
 
 void RemoteMediaPlayerMIMETypeCache::addSupportedTypes(const Vector<String>& newTypes)
 {
-    if (!m_supportedTypesCache)
-        m_supportedTypesCache = HashSet<String, ASCIICaseInsensitiveHash> { };
-
-    for (auto& type : newTypes)
-        m_supportedTypesCache->add(type);
+    m_supportedTypesCache.add(newTypes.begin(), newTypes.end());
 }
 
 bool RemoteMediaPlayerMIMETypeCache::isEmpty() const
 {
-    return m_supportedTypesCache && m_supportedTypesCache->isEmpty();
+    return m_hasPopulatedSupportedTypesCacheFromGPUProcess && m_supportedTypesCache.isEmpty();
 }
 
 HashSet<String, ASCIICaseInsensitiveHash>& RemoteMediaPlayerMIMETypeCache::supportedTypes()
 {
-    if (m_supportedTypesCache)
-        return *m_supportedTypesCache;
-
-    Vector<String> types;
-    if (m_manager.gpuProcessConnection().connection().sendSync(Messages::RemoteMediaPlayerManagerProxy::GetSupportedTypes(m_engineIdentifier), Messages::RemoteMediaPlayerManagerProxy::GetSupportedTypes::Reply(types), 0))
-        addSupportedTypes(types);
-
-    return *m_supportedTypesCache;
+    ASSERT(isMainRunLoop());
+    if (!m_hasPopulatedSupportedTypesCacheFromGPUProcess) {
+        auto sendResult = m_manager.gpuProcessConnection().connection().sendSync(Messages::RemoteMediaPlayerManagerProxy::GetSupportedTypes(m_engineIdentifier), 0);
+        if (sendResult.succeeded()) {
+            auto& [types] = sendResult.reply();
+            addSupportedTypes(types);
+            m_hasPopulatedSupportedTypesCacheFromGPUProcess = true;
+        } else
+            RELEASE_LOG_ERROR(Media, "RemoteMediaPlayerMIMETypeCache::supportedTypes: Sync IPC to the GPUProcess failed with error %" PUBLIC_LOG_STRING, IPC::errorAsString(sendResult.error));
+    }
+    return m_supportedTypesCache;
 }
 
 MediaPlayerEnums::SupportsType RemoteMediaPlayerMIMETypeCache::supportsTypeAndCodecs(const MediaEngineSupportParameters& parameters)
@@ -72,7 +72,7 @@ MediaPlayerEnums::SupportsType RemoteMediaPlayerMIMETypeCache::supportsTypeAndCo
     if (parameters.type.raw().isEmpty())
         return MediaPlayerEnums::SupportsType::MayBeSupported;
 
-    SupportedTypesAndCodecsKey searchKey { parameters.type.raw(), parameters.isMediaSource, parameters.isMediaStream };
+    SupportedTypesAndCodecsKey searchKey { parameters.type.raw(), parameters.isMediaSource, parameters.isMediaStream, parameters.requiresRemotePlayback };
 
     if (m_supportsTypeAndCodecsCache) {
         auto it = m_supportsTypeAndCodecsCache->find(searchKey);
@@ -83,8 +83,9 @@ MediaPlayerEnums::SupportsType RemoteMediaPlayerMIMETypeCache::supportsTypeAndCo
     if (!m_supportsTypeAndCodecsCache)
         m_supportsTypeAndCodecsCache = HashMap<SupportedTypesAndCodecsKey, MediaPlayerEnums::SupportsType> { };
 
-    MediaPlayerEnums::SupportsType result = MediaPlayerEnums::SupportsType::IsNotSupported;
-    if (m_manager.gpuProcessConnection().connection().sendSync(Messages::RemoteMediaPlayerManagerProxy::SupportsTypeAndCodecs(m_engineIdentifier, parameters), Messages::RemoteMediaPlayerManagerProxy::SupportsTypeAndCodecs::Reply(result), 0))
+    auto sendResult = m_manager.gpuProcessConnection().connection().sendSync(Messages::RemoteMediaPlayerManagerProxy::SupportsTypeAndCodecs(m_engineIdentifier, parameters), 0);
+    auto [result] = sendResult.takeReplyOr(MediaPlayerEnums::SupportsType::IsNotSupported);
+    if (sendResult.succeeded())
         m_supportsTypeAndCodecsCache->add(searchKey, result);
 
     return result;
@@ -92,4 +93,4 @@ MediaPlayerEnums::SupportsType RemoteMediaPlayerMIMETypeCache::supportsTypeAndCo
 
 }
 
-#endif // ENABLE(GPU_PROCESS)
+#endif // ENABLE(GPU_PROCESS) && ENABLE(VIDEO)

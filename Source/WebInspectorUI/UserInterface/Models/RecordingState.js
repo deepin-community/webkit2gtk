@@ -35,17 +35,12 @@ WI.RecordingState = class RecordingState
 
     static fromContext(type, context, options = {})
     {
-        if (type !== WI.Recording.Type.Canvas2D)
+        if (!WI.Recording.is2D(type))
             return null;
 
         let matrix = context.getTransform();
 
         let data = {};
-
-        if (WI.ImageUtilities.supportsCanvasPathDebugging()) {
-            data.currentX = context.currentX;
-            data.currentY = context.currentY;
-        }
 
         data.direction = context.direction;
         data.fillStyle = context.fillStyle;
@@ -72,15 +67,16 @@ WI.RecordingState = class RecordingState
         data.webkitLineDash = context.webkitLineDash;
         data.webkitLineDashOffset = context.webkitLineDashOffset;
 
-        if (WI.ImageUtilities.supportsCanvasPathDebugging())
-            data.setPath = [context.getPath()];
+        data.currentX = context.currentX;
+        data.currentY = context.currentY;
+        data.setPath = [context.getPath()];
 
         return new WI.RecordingState(data, options);
     }
 
     static async swizzleInitialState(recording, initialState)
     {
-        if (recording.type === WI.Recording.Type.Canvas2D) {
+        if (WI.Recording.is2D(recording.type)) {
             let swizzledState = {};
 
             for (let [name, value] of Object.entries(initialState)) {

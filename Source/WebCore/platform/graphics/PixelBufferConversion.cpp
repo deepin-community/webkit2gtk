@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2021-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -45,25 +45,26 @@ static inline vImage_CGImageFormat makeVImageCGImageFormat(const PixelBufferForm
         switch (format.pixelFormat) {
         case PixelFormat::RGBA8:
             if (format.alphaFormat == AlphaPremultiplication::Premultiplied)
-                return std::make_tuple(8u, 32u, kCGBitmapByteOrder32Big | kCGImageAlphaPremultipliedLast);
+                return std::make_tuple(8u, 32u, static_cast<CGBitmapInfo>(kCGBitmapByteOrder32Big) | static_cast<CGBitmapInfo>(kCGImageAlphaPremultipliedLast));
             else
-                return std::make_tuple(8u, 32u, kCGBitmapByteOrder32Big | kCGImageAlphaLast);
+                return std::make_tuple(8u, 32u, static_cast<CGBitmapInfo>(kCGBitmapByteOrder32Big) | static_cast<CGBitmapInfo>(kCGImageAlphaLast));
 
         case PixelFormat::BGRA8:
             if (format.alphaFormat == AlphaPremultiplication::Premultiplied)
-                return std::make_tuple(8u, 32u, kCGBitmapByteOrder32Little | kCGImageAlphaPremultipliedFirst);
+                return std::make_tuple(8u, 32u, static_cast<CGBitmapInfo>(kCGBitmapByteOrder32Little) | static_cast<CGBitmapInfo>(kCGImageAlphaPremultipliedFirst));
             else
-                return std::make_tuple(8u, 32u, kCGBitmapByteOrder32Little | kCGImageAlphaFirst);
+                return std::make_tuple(8u, 32u, static_cast<CGBitmapInfo>(kCGBitmapByteOrder32Little) | static_cast<CGBitmapInfo>(kCGImageAlphaFirst));
 
+        case PixelFormat::BGRX8:
         case PixelFormat::RGB10:
         case PixelFormat::RGB10A8:
             break;
         }
 
-        // We currently only support 8 bit pixel formats for these conversions.
+        // We currently only support 8 bit pixel formats with alpha for these conversions.
 
         ASSERT_NOT_REACHED();
-        return std::make_tuple(8u, 32u, kCGBitmapByteOrder32Little | kCGImageAlphaFirst);
+        return std::make_tuple(8u, 32u, static_cast<CGBitmapInfo>(kCGBitmapByteOrder32Little) | static_cast<CGBitmapInfo>(kCGImageAlphaFirst));
     }(format);
 
     vImage_CGImageFormat result;
@@ -236,12 +237,12 @@ static void convertImagePixelsUnaccelerated(const ConstPixelBufferConversionView
 
 void convertImagePixels(const ConstPixelBufferConversionView& source, const PixelBufferConversionView& destination, const IntSize& destinationSize)
 {
-    // We don't currently support converting pixel data with non-8-bit buffers.
+    // We currently only support converting between RGBA8 and BGRA8.
     ASSERT(source.format.pixelFormat == PixelFormat::RGBA8 || source.format.pixelFormat == PixelFormat::BGRA8);
     ASSERT(destination.format.pixelFormat == PixelFormat::RGBA8 || destination.format.pixelFormat == PixelFormat::BGRA8);
 
 #if USE(ACCELERATE) && USE(CG)
-    if (source.format.alphaFormat == destination.format.alphaFormat && source.format.pixelFormat == destination.format.pixelFormat) {
+    if (source.format.alphaFormat == destination.format.alphaFormat && source.format.pixelFormat == destination.format.pixelFormat && source.format.colorSpace == destination.format.colorSpace) {
         // FIXME: Can thes both just use per-row memcpy?
         if (source.format.alphaFormat == AlphaPremultiplication::Premultiplied)
             convertImagePixelsUnaccelerated<convertSinglePixelPremultipliedToPremultiplied<PixelFormatConversion::None>>(source, destination, destinationSize);
@@ -253,6 +254,13 @@ void convertImagePixels(const ConstPixelBufferConversionView& source, const Pixe
     // FIXME: We don't currently support converting pixel data between different color spaces in the non-accelerated path.
     // This could be added using conversion functions from ColorConversion.h.
     ASSERT(source.format.colorSpace == destination.format.colorSpace);
+
+    if (source.format.alphaFormat == destination.format.alphaFormat && source.format.pixelFormat == destination.format.pixelFormat) {
+        memcpy(destination.rows, source.rows, source.bytesPerRow * destinationSize.height());
+        return;
+    }
+
+    // FIXME: In Linux platform the following paths could be optimized with ORC.
 
     if (source.format.alphaFormat == destination.format.alphaFormat) {
         if (source.format.pixelFormat == destination.format.pixelFormat) {
@@ -280,6 +288,19 @@ void convertImagePixels(const ConstPixelBufferConversionView& source, const Pixe
         }
     }
 #endif
+}
+
+void copyRows(unsigned sourceBytesPerRow, const uint8_t* source, unsigned destinationBytesPerRow, uint8_t* destination, unsigned rows, unsigned copyBytesPerRow)
+{
+    if (sourceBytesPerRow == destinationBytesPerRow && copyBytesPerRow == sourceBytesPerRow)
+        std::copy(source, source + copyBytesPerRow * rows, destination);
+    else {
+        for (unsigned row = 0; row < rows; ++row) {
+            std::copy(source, source + copyBytesPerRow, destination);
+            source += sourceBytesPerRow;
+            destination += destinationBytesPerRow;
+        }
+    }
 }
 
 }

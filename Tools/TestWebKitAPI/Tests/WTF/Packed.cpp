@@ -66,7 +66,7 @@ TEST(WTF_Packed, AssignAndGet)
 {
     {
         PackedPtr<uint8_t> key { nullptr };
-        static_assert(OS_CONSTANT(EFFECTIVE_ADDRESS_WIDTH) != 64, "");
+        static_assert(OS_CONSTANT(EFFECTIVE_ADDRESS_WIDTH) != 64);
         uint8_t* candidates[] = {
             0,
             bitwise_cast<uint8_t*>(static_cast<uintptr_t>((1ULL << (OS_CONSTANT(EFFECTIVE_ADDRESS_WIDTH) / 2)) - 1)),
@@ -96,7 +96,7 @@ TEST(WTF_Packed, PackedAlignedPtr)
     }
     {
         PackedAlignedPtr<uint8_t, 16> key { nullptr };
-#if (OS(IOS) || OS(TVOS) || OS(WATCHOS)) && CPU(ARM64)
+#if (OS(IOS) || OS(TVOS) || OS(WATCHOS) || OS(VISION)) && CPU(ARM64) && !PLATFORM(IOS_FAMILY_SIMULATOR)
         EXPECT_EQ(sizeof(key), 4U);
 #else
         EXPECT_LE(sizeof(key), 6U);

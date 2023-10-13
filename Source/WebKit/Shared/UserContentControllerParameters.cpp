@@ -29,6 +29,7 @@
 #include "ArgumentCoders.h"
 #include "Decoder.h"
 #include "Encoder.h"
+#include "WebCompiledContentRuleListData.h"
 
 namespace WebKit {
 
@@ -72,7 +73,7 @@ std::optional<UserContentControllerParameters> UserContentControllerParameters::
         return std::nullopt;
     
 #if ENABLE(CONTENT_EXTENSIONS)
-    std::optional<Vector<std::pair<String, WebCompiledContentRuleListData>>> contentRuleLists;
+    std::optional<Vector<std::pair<WebCompiledContentRuleListData, URL>>> contentRuleLists;
     decoder >> contentRuleLists;
     if (!contentRuleLists)
         return std::nullopt;

@@ -22,7 +22,7 @@
 
 messages -> WebProcessProxy LegacyReceiver {
     UpdateBackForwardItem(struct WebKit::BackForwardListItemState backForwardListItemState)
-    DidDestroyFrame(WebCore::FrameIdentifier frameID) 
+    DidDestroyFrame(WebCore::FrameIdentifier frameID, WebKit::WebPageProxyIdentifier pageID) 
 
     DidDestroyUserGestureToken(uint64_t userGestureTokenID) 
 
@@ -31,19 +31,10 @@ messages -> WebProcessProxy LegacyReceiver {
     EnableSuddenTermination()
     DisableSuddenTermination()
 
-    # Plugin messages.
-#if ENABLE(NETSCAPE_PLUGIN_API)
-    GetPlugins(bool refresh) -> (Vector<WebCore::PluginInfo> plugins, Vector<WebCore::PluginInfo> applicationPlugins, struct std::optional<Vector<WebCore::SupportedPluginIdentifier>> supportedPluginIdentifiers) Synchronous
-    GetPluginProcessConnection(uint64_t pluginProcessToken) -> (IPC::Attachment connectionHandle, bool supportsAsynchronousInitialization) Synchronous
-#endif
     GetNetworkProcessConnection() -> (struct WebKit::NetworkProcessConnectionInfo connectionInfo) Synchronous
 
 #if ENABLE(GPU_PROCESS)
-    GetGPUProcessConnection(struct WebKit::GPUProcessConnectionParameters parameters) -> (struct WebKit::GPUProcessConnectionInfo connectionInfo) Synchronous
-#endif
-
-#if ENABLE(WEB_AUTHN)
-    GetWebAuthnProcessConnection() -> (struct WebKit::WebAuthnProcessConnectionInfo connectionInfo) Synchronous
+    CreateGPUProcessConnection(IPC::Connection::Handle connectionHandle, struct WebKit::GPUProcessConnectionParameters parameters) AllowedWhenWaitingForSyncReply
 #endif
 
     SetIsHoldingLockedFiles(bool isHoldingLockedFiles)
@@ -56,7 +47,6 @@ messages -> WebProcessProxy LegacyReceiver {
     DidReceiveBackgroundResponsivenessPing()
 
     MemoryPressureStatusChanged(bool isUnderMemoryPressure)
-    DidExceedInactiveMemoryLimitWhileActive()
 
     DidCollectPrewarmInformation(WebCore::RegistrableDomain domain, struct WebCore::PrewarmInformation prewarmInformation)
 
@@ -77,11 +67,8 @@ messages -> WebProcessProxy LegacyReceiver {
 
 #if PLATFORM(GTK) || PLATFORM(WPE)
     SendMessageToWebContext(struct WebKit::UserMessage userMessage)
-    SendMessageToWebContextWithReply(struct WebKit::UserMessage userMessage) -> (struct WebKit::UserMessage replyMessage) Async
+    SendMessageToWebContextWithReply(struct WebKit::UserMessage userMessage) -> (struct WebKit::UserMessage replyMessage)
 #endif
-
-    DidCreateSleepDisabler(WebCore::SleepDisablerIdentifier identifier, String reason, bool display)
-    DidDestroySleepDisabler(WebCore::SleepDisablerIdentifier identifier)
 
     CreateSpeechRecognitionServer(WebCore::PageIdentifier identifier)
     DestroySpeechRecognitionServer(WebCore::PageIdentifier identifier)
@@ -96,4 +83,12 @@ messages -> WebProcessProxy LegacyReceiver {
     SetCaptionDisplayMode(WebCore::CaptionUserPreferences::CaptionDisplayMode mode)
     SetCaptionLanguage(String language)
 #endif
+
+    GetNotifications(URL registrationURL, String tag) -> (Vector<WebCore::NotificationData> result)
+    SetAppBadge(std::optional<WebKit::WebPageProxyIdentifier> pageIdentifier, WebCore::SecurityOriginData origin, std::optional<uint64_t> badge)
+    SetClientBadge(WebKit::WebPageProxyIdentifier pageIdentifier, WebCore::SecurityOriginData origin, std::optional<uint64_t> badge)
+
+    PostMessageToRemote(WebCore::FrameIdentifier identifier, std::optional<WebCore::SecurityOriginData> target, struct WebCore::MessageWithMessagePorts message)
+
+    RenderTreeAsText(WebCore::FrameIdentifier identifier, size_t baseIndent, OptionSet<WebCore::RenderAsTextFlag> behavior) -> (String renderTreeDump) Synchronous
 }

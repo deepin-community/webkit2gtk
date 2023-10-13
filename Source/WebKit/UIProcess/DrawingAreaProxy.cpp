@@ -30,6 +30,7 @@
 #include "DrawingAreaProxyMessages.h"
 #include "WebPageProxy.h"
 #include "WebProcessProxy.h"
+#include <WebCore/ScrollView.h>
 
 #if PLATFORM(COCOA)
 #include <wtf/MachSendRight.h>
@@ -38,11 +39,10 @@
 namespace WebKit {
 using namespace WebCore;
 
-DrawingAreaProxy::DrawingAreaProxy(DrawingAreaType type, WebPageProxy& webPageProxy, WebProcessProxy& process)
+DrawingAreaProxy::DrawingAreaProxy(DrawingAreaType type, WebPageProxy& webPageProxy)
     : m_type(type)
     , m_identifier(DrawingAreaIdentifier::generate())
     , m_webPageProxy(webPageProxy)
-    , m_process(makeRef(process))
     , m_size(webPageProxy.viewSize())
 #if PLATFORM(MAC)
     , m_viewExposedRectChangedTimer(RunLoop::main(), this, &DrawingAreaProxy::viewExposedRectChangedTimerFired)
@@ -50,16 +50,29 @@ DrawingAreaProxy::DrawingAreaProxy(DrawingAreaType type, WebPageProxy& webPagePr
 {
 }
 
-DrawingAreaProxy::~DrawingAreaProxy()
+DrawingAreaProxy::~DrawingAreaProxy() = default;
+
+void DrawingAreaProxy::startReceivingMessages(WebProcessProxy& process)
 {
-    if (m_startedReceivingMessages)
-        process().removeMessageReceiver(Messages::DrawingAreaProxy::messageReceiverName(), m_identifier);
+    for (auto& name : messageReceiverNames())
+        process.addMessageReceiver(name, m_identifier, *this);
 }
 
-void DrawingAreaProxy::startReceivingMessages()
+void DrawingAreaProxy::stopReceivingMessages(WebProcessProxy& process)
 {
-    m_startedReceivingMessages = true;
-    process().addMessageReceiver(Messages::DrawingAreaProxy::messageReceiverName(), m_identifier, *this);
+    for (auto& name : messageReceiverNames())
+        process.removeMessageReceiver(name, m_identifier);
+}
+
+std::span<IPC::ReceiverName> DrawingAreaProxy::messageReceiverNames() const
+{
+    static std::array<IPC::ReceiverName, 1> name { Messages::DrawingAreaProxy::messageReceiverName() };
+    return { name };
+}
+
+DelegatedScrollingMode DrawingAreaProxy::delegatedScrollingMode() const
+{
+    return DelegatedScrollingMode::NotDelegated;
 }
 
 bool DrawingAreaProxy::setSize(const IntSize& size, const IntSize& scrollDelta)
@@ -80,16 +93,6 @@ MachSendRight DrawingAreaProxy::createFence()
 }
 #endif
 
-IPC::Connection* DrawingAreaProxy::messageSenderConnection() const
-{
-    return process().connection();
-}
-
-bool DrawingAreaProxy::sendMessage(UniqueRef<IPC::Encoder>&& encoder, OptionSet<IPC::SendOption> sendOptions, std::optional<std::pair<CompletionHandler<void(IPC::Decoder*)>, uint64_t>>&& asyncReplyInfo)
-{
-    return process().sendMessage(WTFMove(encoder), sendOptions, WTFMove(asyncReplyInfo));
-}
-
 #if PLATFORM(MAC)
 void DrawingAreaProxy::didChangeViewExposedRect()
 {
@@ -109,7 +112,7 @@ void DrawingAreaProxy::viewExposedRectChangedTimerFired()
     if (viewExposedRect == m_lastSentViewExposedRect)
         return;
 
-    send(Messages::DrawingArea::SetViewExposedRect(viewExposedRect));
+    m_webPageProxy.send(Messages::DrawingArea::SetViewExposedRect(viewExposedRect), m_identifier);
     m_lastSentViewExposedRect = viewExposedRect;
 }
 #endif // PLATFORM(MAC)

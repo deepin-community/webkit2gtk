@@ -20,7 +20,7 @@
  * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
  * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 #pragma once
@@ -28,6 +28,7 @@
 #if ENABLE(MEDIA_SOURCE)
 
 #include "MediaSourcePrivate.h"
+#include <wtf/LoggerHelper.h>
 #include <wtf/MediaTime.h>
 
 namespace WebCore {
@@ -51,7 +52,7 @@ public:
     bool hasVideo() const;
 
     MediaTime duration();
-    std::unique_ptr<PlatformTimeRanges> buffered();
+    const PlatformTimeRanges& buffered();
 
     MockMediaPlayerMediaSource& player() const { return m_player; }
 
@@ -95,7 +96,7 @@ private:
     friend class MockSourceBufferPrivate;
 
     MockMediaPlayerMediaSource& m_player;
-    Ref<MediaSourcePrivateClient> m_client;
+    WeakPtr<MediaSourcePrivateClient> m_client;
     Vector<RefPtr<MockSourceBufferPrivate>> m_sourceBuffers;
     Vector<MockSourceBufferPrivate*> m_activeSourceBuffers;
     bool m_isEnded { false };

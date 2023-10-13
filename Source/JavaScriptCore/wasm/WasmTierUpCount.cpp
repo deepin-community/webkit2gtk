@@ -34,15 +34,20 @@ namespace JSC { namespace Wasm {
 
 TierUpCount::TierUpCount()
 {
-    setNewThreshold(Options::thresholdForOMGOptimizeAfterWarmUp(), nullptr);
+    setNewThreshold(Options::thresholdForOMGOptimizeAfterWarmUp());
 }
 
 TierUpCount::~TierUpCount() = default;
 
-OSREntryData& TierUpCount::addOSREntryData(uint32_t functionIndex, uint32_t loopIndex)
+OSREntryData& TierUpCount::addOSREntryData(uint32_t functionIndex, uint32_t loopIndex, StackMap&& stackMap)
 {
-    m_osrEntryData.append(makeUnique<OSREntryData>(functionIndex, loopIndex));
+    m_osrEntryData.append(makeUnique<OSREntryData>(functionIndex, loopIndex, WTFMove(stackMap)));
     return *m_osrEntryData.last().get();
+}
+
+OSREntryData& TierUpCount::osrEntryData(uint32_t loopIndex)
+{
+    return *m_osrEntryData[loopIndex];
 }
 
 } } // namespace JSC::Wasm

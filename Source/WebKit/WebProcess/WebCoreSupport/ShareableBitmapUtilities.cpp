@@ -28,14 +28,16 @@
 
 #include "ShareableBitmap.h"
 #include <WebCore/CachedImage.h>
-#include <WebCore/Frame.h>
 #include <WebCore/FrameSnapshotting.h>
 #include <WebCore/GeometryUtilities.h>
 #include <WebCore/GraphicsContext.h>
 #include <WebCore/ImageBuffer.h>
 #include <WebCore/IntSize.h>
+#include <WebCore/LocalFrame.h>
 #include <WebCore/PlatformScreen.h>
+#include <WebCore/RenderElementInlines.h>
 #include <WebCore/RenderImage.h>
+#include <WebCore/RenderVideo.h>
 
 namespace WebKit {
 using namespace WebCore;
@@ -43,7 +45,11 @@ using namespace WebCore;
 RefPtr<ShareableBitmap> createShareableBitmap(RenderImage& renderImage, CreateShareableBitmapFromImageOptions&& options)
 {
     Ref frame = renderImage.frame();
-    auto colorSpaceForBitmap = screenColorSpace(frame->mainFrame().view());
+    auto* localMainFrame = dynamicDowncast<LocalFrame>(frame->mainFrame());
+    if (!localMainFrame)
+        return { };
+
+    auto colorSpaceForBitmap = screenColorSpace(localMainFrame->view());
     if (!renderImage.isMedia() && !renderImage.opacity() && options.useSnapshotForTransparentImages == UseSnapshotForTransparentImages::Yes) {
         auto snapshotRect = renderImage.absoluteBoundingBoxRect();
         if (snapshotRect.isEmpty())
@@ -58,7 +64,7 @@ RefPtr<ShareableBitmap> createShareableBitmap(RenderImage& renderImage, CreateSh
         if (!snapshotImage)
             return { };
 
-        auto bitmap = ShareableBitmap::createShareable(snapshotRect.size(), { WTFMove(colorSpaceForBitmap) });
+        auto bitmap = ShareableBitmap::create({ snapshotRect.size(), WTFMove(colorSpaceForBitmap) });
         if (!bitmap)
             return { };
 
@@ -69,6 +75,31 @@ RefPtr<ShareableBitmap> createShareableBitmap(RenderImage& renderImage, CreateSh
         context->drawImage(*snapshotImage, { FloatPoint::zero(), snapshotRect.size() });
         return bitmap;
     }
+
+#if ENABLE(VIDEO)
+    if (is<RenderVideo>(renderImage)) {
+        auto& renderVideo = downcast<RenderVideo>(renderImage);
+        Ref video = renderVideo.videoElement();
+        auto image = video->nativeImageForCurrentTime();
+        if (!image)
+            return { };
+
+        auto imageSize = image->size();
+        if (imageSize.isEmpty() || imageSize.width() <= 1 || imageSize.height() <= 1)
+            return { };
+
+        auto bitmap = ShareableBitmap::create({ imageSize, WTFMove(colorSpaceForBitmap) });
+        if (!bitmap)
+            return { };
+
+        auto context = bitmap->createGraphicsContext();
+        if (!context)
+            return { };
+
+        context->drawNativeImage(*image, imageSize, FloatRect { { }, imageSize }, FloatRect { { }, imageSize });
+        return bitmap;
+    }
+#endif // ENABLE(VIDEO)
 
     auto* cachedImage = renderImage.cachedImage();
     if (!cachedImage || cachedImage->errorOccurred())
@@ -88,7 +119,7 @@ RefPtr<ShareableBitmap> createShareableBitmap(RenderImage& renderImage, CreateSh
     }
 
     // FIXME: Only select ExtendedColor on images known to need wide gamut.
-    auto sharedBitmap = ShareableBitmap::createShareable(IntSize(bitmapSize), { WTFMove(colorSpaceForBitmap) });
+    auto sharedBitmap = ShareableBitmap::create({ IntSize(bitmapSize), WTFMove(colorSpaceForBitmap) });
     if (!sharedBitmap)
         return { };
 

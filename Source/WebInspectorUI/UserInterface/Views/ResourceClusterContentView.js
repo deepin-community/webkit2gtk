@@ -97,8 +97,25 @@ WI.ResourceClusterContentView = class ResourceClusterContentView extends WI.Clus
     restoreFromCookie(cookie)
     {
         let contentView = this._showContentViewForIdentifier(cookie[WI.ResourceClusterContentView.ContentViewIdentifierCookieKey]);
-        if (typeof contentView.revealPosition === "function" && "lineNumber" in cookie && "columnNumber" in cookie)
-            contentView.revealPosition(new WI.SourceCodePosition(cookie.lineNumber, cookie.columnNumber));
+
+        if (contentView.revealPosition) {
+            let textRangeToSelect = null;
+            if (!isNaN(cookie.startLine) && !isNaN(cookie.startColumn) && !isNaN(cookie.endLine) && !isNaN(cookie.endColumn))
+                textRangeToSelect = new WI.TextRange(cookie.startLine, cookie.startColumn, cookie.endLine, cookie.endColumn);
+
+            let position = null;
+            if (!isNaN(cookie.lineNumber) && !isNaN(cookie.columnNumber))
+                position = new WI.SourceCodePosition(cookie.lineNumber, cookie.columnNumber);
+            else if (textRangeToSelect)
+                position = textRangeToSelect.startPosition();
+
+            let scrollOffset = null;
+            if (!isNaN(cookie.scrollOffsetX) && !isNaN(cookie.scrollOffsetY))
+                scrollOffset = new WI.Point(cookie.scrollOffsetX, cookie.scrollOffsetY);
+
+            if (position)
+                contentView.revealPosition(position, {...cookie, textRangeToSelect, scrollOffset});
+        }
     }
 
     showRequest()
@@ -108,20 +125,11 @@ WI.ResourceClusterContentView = class ResourceClusterContentView extends WI.Clus
         return this._showContentViewForIdentifier(ResourceClusterContentView.Identifier.Request);
     }
 
-    showResponse(positionToReveal, textRangeToSelect, forceUnformatted)
+    showResponse()
     {
         this._shownInitialContent = true;
 
-        if (!this._resource.finished) {
-            this._positionToReveal = positionToReveal;
-            this._textRangeToSelect = textRangeToSelect;
-            this._forceUnformatted = forceUnformatted;
-        }
-
-        let responseContentView = this._showContentViewForIdentifier(ResourceClusterContentView.Identifier.Response);
-        if (typeof responseContentView.revealPosition === "function")
-            responseContentView.revealPosition(positionToReveal, textRangeToSelect, forceUnformatted);
-        return responseContentView;
+        return this._showContentViewForIdentifier(ResourceClusterContentView.Identifier.Response);
     }
 
     // Private
@@ -144,11 +152,16 @@ WI.ResourceClusterContentView = class ResourceClusterContentView extends WI.Clus
         if (this._responseContentView)
             return this._responseContentView;
 
+        let typeFromMIMEType = WI.Resource.typeFromMIMEType(this._resource.mimeType);
+
+        // COMPATIBILITY (macOS 13.3, iOS 16.3): Images inspected as the main resource used to have a resource type of Document.
+        if (typeFromMIMEType === WI.Resource.Type.Image && this._resource.type === WI.Resource.Type.Document)
+            return this._contentViewForResourceType(WI.Resource.Type.Image);
+
         this._responseContentView = this._contentViewForResourceType(this._resource.type);
         if (this._responseContentView)
             return this._responseContentView;
 
-        let typeFromMIMEType = WI.Resource.typeFromMIMEType(this._resource.mimeType);
         this._responseContentView = this._contentViewForResourceType(typeFromMIMEType);
         if (this._responseContentView)
             return this._responseContentView;
@@ -395,15 +408,6 @@ WI.ResourceClusterContentView = class ResourceClusterContentView extends WI.Clus
     _resourceLoadingDidFinish(event)
     {
         this._tryEnableCustomResponseContentViews();
-
-        if ("_positionToReveal" in this) {
-            if (this._contentViewContainer.currentContentView === this._responseContentView)
-                this._responseContentView.revealPosition(this._positionToReveal, this._textRangeToSelect, this._forceUnformatted);
-
-            delete this._positionToReveal;
-            delete this._textRangeToSelect;
-            delete this._forceUnformatted;
-        }
     }
 
     _canUseJSONContentViewForContent(content)

@@ -1,5 +1,6 @@
 /*
- * Copyright (C) 2004-2007, 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2004-2022 Apple Inc. All rights reserved.
+ * Copyright (C) 2015 Google Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,9 +29,9 @@
 
 #include "AXObjectCache.h"
 #include "CachedImage.h"
-#include "Document.h"
+#include "DocumentInlines.h"
 #include "Editor.h"
-#include "Frame.h"
+#include "ElementInlines.h"
 #include "HTMLBodyElement.h"
 #include "HTMLDListElement.h"
 #include "HTMLDivElement.h"
@@ -45,11 +46,13 @@
 #include "HTMLTableElement.h"
 #include "HTMLTextFormControlElement.h"
 #include "HTMLUListElement.h"
+#include "LocalFrame.h"
 #include "NodeTraversal.h"
 #include "PositionIterator.h"
 #include "Range.h"
 #include "RenderBlock.h"
 #include "RenderElement.h"
+#include "RenderStyleInlines.h"
 #include "RenderTableCell.h"
 #include "RenderTextControlSingleLine.h"
 #include "ShadowRoot.h"
@@ -121,7 +124,7 @@ static bool isEditableToAccessibility(const Node& node)
 
 static bool computeEditability(const Node& node, EditableType editableType, Node::ShouldUpdateStyle shouldUpdateStyle)
 {
-    if (node.computeEditability(Node::UserSelectAllIsAlwaysNonEditable, shouldUpdateStyle) != Node::Editability::ReadOnly)
+    if (node.computeEditability(Node::UserSelectAllTreatment::NotEditable, shouldUpdateStyle) != Node::Editability::ReadOnly)
         return true;
 
     switch (editableType) {
@@ -201,7 +204,7 @@ Position nextCandidate(const Position& position)
     return { };
 }
 
-Position nextVisuallyDistinctCandidate(const Position& position)
+Position nextVisuallyDistinctCandidate(const Position& position, SkipDisplayContents skipDisplayContents)
 {
     // FIXME: Use PositionIterator instead.
     Position nextPosition = position;
@@ -211,8 +214,13 @@ Position nextVisuallyDistinctCandidate(const Position& position)
         if (nextPosition.isCandidate() && nextPosition.downstream() != downstreamStart)
             return nextPosition;
         if (auto* node = nextPosition.containerNode()) {
-            if (!node->renderer())
+            if (!node->renderer()) {
+                if (skipDisplayContents == SkipDisplayContents::No) {
+                    if (auto* element = dynamicDowncast<Element>(node); element && element->hasDisplayContents())
+                        continue;
+                }
                 nextPosition = lastPositionInOrAfterNode(node);
+            }
         }
     }
     return { };
@@ -320,8 +328,7 @@ bool isInline(const Node* node)
 // knowing about these kinds of special cases.
 Element* enclosingBlock(Node* node, EditingBoundaryCrossingRule rule)
 {
-    Node* enclosingNode = enclosingNodeOfType(firstPositionInOrBeforeNode(node), isBlock, rule);
-    return is<Element>(enclosingNode) ? downcast<Element>(enclosingNode) : nullptr;
+    return dynamicDowncast<Element>(enclosingNodeOfType(firstPositionInOrBeforeNode(node), isBlock, rule));
 }
 
 TextDirection directionOfEnclosingBlock(const Position& position)
@@ -356,7 +363,7 @@ bool isAmbiguousBoundaryCharacter(UChar character)
     return character == '\'' || character == '@' || character == rightSingleQuotationMark || character == hebrewPunctuationGershayim;
 }
 
-String stringWithRebalancedWhitespace(const String& string, bool startIsStartOfParagraph, bool endIsEndOfParagraph)
+String stringWithRebalancedWhitespace(const String& string, bool startIsStartOfParagraph, bool shouldEmitNBSPbeforeEnd)
 {
     StringBuilder rebalancedString;
 
@@ -369,7 +376,8 @@ String stringWithRebalancedWhitespace(const String& string, bool startIsStartOfP
             continue;
         }
         LChar selectedWhitespaceCharacter;
-        if (previousCharacterWasSpace || (!i && startIsStartOfParagraph) || (i == length - 1 && endIsEndOfParagraph)) {
+        // We need to ensure there is no next sibling text node. See https://bugs.webkit.org/show_bug.cgi?id=123163
+        if (previousCharacterWasSpace || (!i && startIsStartOfParagraph) || (i == length - 1 && shouldEmitNBSPbeforeEnd)) {
             selectedWhitespaceCharacter = noBreakSpace;
             previousCharacterWasSpace = false;
         } else {
@@ -550,7 +558,7 @@ Node* highestNodeToRemoveInPruning(Node* node)
 {
     Node* previousNode = nullptr;
     auto* rootEditableElement = node ? node->rootEditableElement() : nullptr;
-    for (auto currentNode = makeRefPtr(node); currentNode; currentNode = currentNode->parentNode()) {
+    for (RefPtr currentNode = node; currentNode; currentNode = currentNode->parentNode()) {
         if (auto* renderer = currentNode->renderer()) {
             if (!renderer->canHaveChildren() || hasARenderedDescendant(currentNode.get(), previousNode) || rootEditableElement == currentNode.get())
                 return previousNode;
@@ -611,29 +619,6 @@ Node* enclosingListChild(Node *node)
     return nullptr;
 }
 
-static HTMLElement* embeddedSublist(Node* listItem)
-{
-    // Check the DOM so that we'll find collapsed sublists without renderers.
-    for (Node* n = listItem->firstChild(); n; n = n->nextSibling()) {
-        if (isListHTMLElement(n))
-            return downcast<HTMLElement>(n);
-    }
-    return nullptr;
-}
-
-static Node* appendedSublist(Node* listItem)
-{
-    // Check the DOM so that we'll find collapsed sublists without renderers.
-    for (Node* n = listItem->nextSibling(); n; n = n->nextSibling()) {
-        if (isListHTMLElement(n))
-            return downcast<HTMLElement>(n);
-        if (isListItem(listItem))
-            return nullptr;
-    }
-    
-    return nullptr;
-}
-
 // FIXME: This function should not need to call isStartOfParagraph/isEndOfParagraph.
 Node* enclosingEmptyListItem(const VisiblePosition& position)
 {
@@ -646,9 +631,6 @@ Node* enclosingEmptyListItem(const VisiblePosition& position)
     VisiblePosition lastInListChild(lastPositionInOrAfterNode(listChildNode));
 
     if (firstInListChild != position || lastInListChild != position)
-        return nullptr;
-
-    if (embeddedSublist(listChildNode) || appendedSublist(listChildNode))
         return nullptr;
 
     return listChildNode;
@@ -692,9 +674,8 @@ static Node* previousNodeConsideringAtomicNodes(const Node* node)
             n = n->lastChild();
         return n;
     }
-    if (node->parentNode())
-        return node->parentNode();
-    return nullptr;
+    
+    return node->parentNode();
 }
 
 static Node* nextNodeConsideringAtomicNodes(const Node* node)
@@ -782,9 +763,9 @@ bool isEmptyTableCell(const Node* node)
 Ref<HTMLElement> createDefaultParagraphElement(Document& document)
 {
     switch (document.editor().defaultParagraphSeparator()) {
-    case EditorParagraphSeparatorIsDiv:
+    case EditorParagraphSeparator::div:
         return HTMLDivElement::create(document);
-    case EditorParagraphSeparatorIsP:
+    case EditorParagraphSeparator::p:
         break;
     }
     return HTMLParagraphElement::create(document);
@@ -820,16 +801,16 @@ static Ref<Element> createTabSpanElement(Document& document, Text& tabTextNode)
     auto spanElement = HTMLSpanElement::create(document);
 
     spanElement->setAttributeWithoutSynchronization(classAttr, AppleTabSpanClass);
-    spanElement->setAttribute(styleAttr, "white-space:pre");
+    spanElement->setAttribute(styleAttr, "white-space:pre"_s);
 
     spanElement->appendChild(tabTextNode);
 
     return spanElement;
 }
 
-Ref<Element> createTabSpanElement(Document& document, const String& tabText)
+Ref<Element> createTabSpanElement(Document& document, String&& tabText)
 {
-    return createTabSpanElement(document, document.createTextNode(tabText));
+    return createTabSpanElement(document, document.createTextNode(WTFMove(tabText)));
 }
 
 Ref<Element> createTabSpanElement(Document& document)
@@ -888,7 +869,7 @@ bool isMailBlockquote(const Node* node)
     ASSERT(node);
     if (!node->hasTagName(blockquoteTag))
         return false;
-    return downcast<HTMLElement>(*node).attributeWithoutSynchronization(typeAttr) == "cite";
+    return downcast<HTMLElement>(*node).attributeWithoutSynchronization(typeAttr) == "cite"_s;
 }
 
 int caretMinOffset(const Node& node)
@@ -993,12 +974,12 @@ int indexForVisiblePosition(const VisiblePosition& visiblePosition, RefPtr<Conta
 }
 
 // FIXME: Merge this function with the one above.
-int indexForVisiblePosition(Node& node, const VisiblePosition& visiblePosition, bool forSelectionPreservation)
+int indexForVisiblePosition(Node& node, const VisiblePosition& visiblePosition, TextIteratorBehaviors behaviors)
 {
+    if (visiblePosition.isNull())
+        return 0;
+
     auto range = makeSimpleRange(makeBoundaryPointBeforeNodeContents(node), visiblePosition);
-    TextIteratorBehaviors behaviors;
-    if (forSelectionPreservation)
-        behaviors.add(TextIteratorBehavior::EmitsCharactersBetweenAllVisiblePositions);
     return range ? characterCount(*range, behaviors) : 0;
 }
 
@@ -1012,11 +993,11 @@ VisiblePosition visiblePositionForPositionWithOffset(const VisiblePosition& posi
     return visiblePositionForIndex(startIndex + offset, root.get());
 }
 
-VisiblePosition visiblePositionForIndex(int index, ContainerNode* scope)
+VisiblePosition visiblePositionForIndex(int index, Node* scope, TextIteratorBehaviors behaviors)
 {
     if (!scope)
         return { };
-    return { makeDeprecatedLegacyPosition(resolveCharacterLocation(makeRangeSelectingNodeContents(*scope), index, TextIteratorBehavior::EmitsCharactersBetweenAllVisiblePositions)) };
+    return { makeDeprecatedLegacyPosition(resolveCharacterLocation(makeRangeSelectingNodeContents(*scope), index, behaviors)) };
 }
 
 VisiblePosition visiblePositionForIndexUsingCharacterIterator(Node& node, int index)

@@ -81,11 +81,11 @@ public:
 
 private:
     // GraphicsLayerClient
-    void paintContents(const WebCore::GraphicsLayer*, WebCore::GraphicsContext&, const WebCore::FloatRect& rectToPaint, WebCore::GraphicsLayerPaintBehavior) override;
+    void paintContents(const WebCore::GraphicsLayer*, WebCore::GraphicsContext&, const WebCore::FloatRect& rectToPaint, OptionSet<WebCore::GraphicsLayerPaintBehavior>) override;
     float deviceScaleFactor() const override;
 
     void initialize();
-    HWND window();
+    GLNativeWindowType window();
     bool enabled();
     void compositeLayersToContext();
     void flushAndRenderLayers();
@@ -106,6 +106,7 @@ private:
     WebCore::TextureMapperFPSCounter m_fpsCounter;
     WebCore::Timer m_layerFlushTimer;
     bool m_notifyAfterScheduledLayerFlush { false };
+    bool m_isSuspended { false };
 };
 
 } // namespace WebKit

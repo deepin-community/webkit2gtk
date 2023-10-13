@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2010-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,13 +29,11 @@
 #include "InjectedBundleRangeHandle.h"
 #include "ShareableBitmap.h"
 #include "WebFrame.h"
-#include "WebFrameLoaderClient.h"
 #include "WebImage.h"
+#include "WebLocalFrameLoaderClient.h"
 #include <JavaScriptCore/APICast.h>
 #include <WebCore/Document.h>
-#include <WebCore/Frame.h>
 #include <WebCore/FrameLoader.h>
-#include <WebCore/FrameView.h>
 #include <WebCore/GraphicsContext.h>
 #include <WebCore/HTMLFrameElement.h>
 #include <WebCore/HTMLIFrameElement.h>
@@ -46,11 +44,13 @@
 #include <WebCore/HTMLTextAreaElement.h>
 #include <WebCore/IntRect.h>
 #include <WebCore/JSNode.h>
+#include <WebCore/LocalFrame.h>
+#include <WebCore/LocalFrameView.h>
 #include <WebCore/Node.h>
 #include <WebCore/Page.h>
 #include <WebCore/Position.h>
 #include <WebCore/Range.h>
-#include <WebCore/RenderObject.h>
+#include <WebCore/RenderElement.h>
 #include <WebCore/SimpleRange.h>
 #include <WebCore/Text.h>
 #include <WebCore/VisiblePosition.h>
@@ -146,7 +146,7 @@ IntRect InjectedBundleNodeHandle::renderRect(bool* isReplaced)
     return m_node->pixelSnappedRenderRect(isReplaced);
 }
 
-static RefPtr<WebImage> imageForRect(FrameView* frameView, const IntRect& paintingRect, const std::optional<float>& bitmapWidth, SnapshotOptions options)
+static RefPtr<WebImage> imageForRect(LocalFrameView* frameView, const IntRect& paintingRect, const std::optional<float>& bitmapWidth, SnapshotOptions options)
 {
     if (paintingRect.isEmpty())
         return nullptr;
@@ -167,22 +167,20 @@ static RefPtr<WebImage> imageForRect(FrameView* frameView, const IntRect& painti
     if (bitmapSize.isEmpty())
         return nullptr;
 
-    auto snapshot = WebImage::create(bitmapSize, snapshotOptionsToImageOptions(options));
+    auto snapshot = WebImage::create(bitmapSize, snapshotOptionsToImageOptions(options), DestinationColorSpace::SRGB());
     if (!snapshot)
         return nullptr;
 
-    auto graphicsContext = snapshot->bitmap().createGraphicsContext();
-    if (!graphicsContext)
-        return nullptr;
+    auto& graphicsContext = snapshot->context();
 
-    graphicsContext->clearRect(IntRect(IntPoint(), bitmapSize));
-    graphicsContext->applyDeviceScaleFactor(deviceScaleFactor);
-    graphicsContext->scale(bitmapScaleFactor);
-    graphicsContext->translate(-paintingRect.location());
+    graphicsContext.clearRect(IntRect(IntPoint(), bitmapSize));
+    graphicsContext.applyDeviceScaleFactor(deviceScaleFactor);
+    graphicsContext.scale(bitmapScaleFactor);
+    graphicsContext.translate(-paintingRect.location());
 
-    FrameView::SelectionInSnapshot shouldPaintSelection = FrameView::IncludeSelection;
+    auto shouldPaintSelection = LocalFrameView::IncludeSelection;
     if (options & SnapshotOptionsExcludeSelectionHighlighting)
-        shouldPaintSelection = FrameView::ExcludeSelection;
+        shouldPaintSelection = LocalFrameView::ExcludeSelection;
 
     auto paintBehavior = frameView->paintBehavior() | PaintBehavior::FlattenCompositingLayers | PaintBehavior::Snapshotting;
     if (options & SnapshotOptionsForceBlackText)
@@ -192,7 +190,7 @@ static RefPtr<WebImage> imageForRect(FrameView* frameView, const IntRect& painti
 
     auto oldPaintBehavior = frameView->paintBehavior();
     frameView->setPaintBehavior(paintBehavior);
-    frameView->paintContentsForSnapshot(*graphicsContext.get(), paintingRect, shouldPaintSelection, FrameView::DocumentCoordinates);
+    frameView->paintContentsForSnapshot(graphicsContext, paintingRect, shouldPaintSelection, LocalFrameView::DocumentCoordinates);
     frameView->setPaintBehavior(oldPaintBehavior);
 
     return snapshot;
@@ -203,11 +201,11 @@ RefPtr<WebImage> InjectedBundleNodeHandle::renderedImage(SnapshotOptions options
     if (!m_node)
         return nullptr;
 
-    Frame* frame = m_node->document().frame();
+    auto* frame = m_node->document().frame();
     if (!frame)
         return nullptr;
 
-    FrameView* frameView = frame->view();
+    auto* frameView = frame->view();
     if (!frameView)
         return nullptr;
 
@@ -273,6 +271,14 @@ bool InjectedBundleNodeHandle::isHTMLInputElementAutoFilledAndViewable() const
     return downcast<HTMLInputElement>(*m_node).isAutoFilledAndViewable();
 }
 
+bool InjectedBundleNodeHandle::isHTMLInputElementAutoFilledAndObscured() const
+{
+    if (!is<HTMLInputElement>(m_node))
+        return false;
+
+    return downcast<HTMLInputElement>(*m_node).isAutoFilledAndObscured();
+}
+
 void InjectedBundleNodeHandle::setHTMLInputElementAutoFilled(bool filled)
 {
     if (!is<HTMLInputElement>(m_node))
@@ -287,6 +293,14 @@ void InjectedBundleNodeHandle::setHTMLInputElementAutoFilledAndViewable(bool aut
         return;
 
     downcast<HTMLInputElement>(*m_node).setAutoFilledAndViewable(autoFilledAndViewable);
+}
+
+void InjectedBundleNodeHandle::setHTMLInputElementAutoFilledAndObscured(bool autoFilledAndObscured)
+{
+    if (!is<HTMLInputElement>(m_node))
+        return;
+
+    downcast<HTMLInputElement>(*m_node).setAutoFilledAndObscured(autoFilledAndObscured);
 }
 
 bool InjectedBundleNodeHandle::isHTMLInputElementAutoFillButtonEnabled() const
@@ -382,7 +396,7 @@ bool InjectedBundleNodeHandle::isSelectableTextNode() const
         return false;
 
     auto renderer = m_node->renderer();
-    return renderer && renderer->style().userSelect() != UserSelect::None;
+    return renderer && renderer->style().effectiveUserSelect() != UserSelect::None;
 }
 
 RefPtr<InjectedBundleNodeHandle> InjectedBundleNodeHandle::htmlTableCellElementCellAbove()
@@ -398,19 +412,7 @@ RefPtr<WebFrame> InjectedBundleNodeHandle::documentFrame()
     if (!m_node || !m_node->isDocumentNode())
         return nullptr;
 
-    Frame* frame = downcast<Document>(*m_node).frame();
-    if (!frame)
-        return nullptr;
-
-    return WebFrame::fromCoreFrame(*frame);
-}
-
-RefPtr<WebFrame> InjectedBundleNodeHandle::htmlFrameElementContentFrame()
-{
-    if (!is<HTMLFrameElement>(m_node))
-        return nullptr;
-
-    Frame* frame = downcast<HTMLFrameElement>(*m_node).contentFrame();
+    auto* frame = downcast<Document>(*m_node).frame();
     if (!frame)
         return nullptr;
 
@@ -419,10 +421,11 @@ RefPtr<WebFrame> InjectedBundleNodeHandle::htmlFrameElementContentFrame()
 
 RefPtr<WebFrame> InjectedBundleNodeHandle::htmlIFrameElementContentFrame()
 {
-    if (!is<HTMLIFrameElement>(m_node))
+    auto* iframeElement = dynamicDowncast<HTMLIFrameElement>(m_node.get());
+    if (!iframeElement)
         return nullptr;
 
-    Frame* frame = downcast<HTMLIFrameElement>(*m_node).contentFrame();
+    auto* frame = dynamicDowncast<LocalFrame>(iframeElement->contentFrame());
     if (!frame)
         return nullptr;
 

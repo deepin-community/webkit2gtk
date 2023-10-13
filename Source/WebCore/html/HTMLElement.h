@@ -22,6 +22,9 @@
 
 #pragma once
 
+#include "ColorTypes.h"
+#include "Document.h"
+#include "HTMLNames.h"
 #include "InputMode.h"
 #include "StyledElement.h"
 
@@ -31,14 +34,26 @@
 
 namespace WebCore {
 
+class ElementInternals;
+class FormListedElement;
 class FormAssociatedElement;
-class FormNamedItem;
+class HTMLFormControlElement;
 class HTMLFormElement;
 class VisibleSelection;
+
 struct SimpleRange;
 struct TextRecognitionResult;
 
 enum class EnterKeyHint : uint8_t;
+enum class PageIsEditable : bool;
+enum class FireEvents : bool { No, Yes };
+enum class FocusPreviousElement : bool { No, Yes };
+enum class PopoverVisibilityState : bool;
+enum class PopoverState : uint8_t {
+    None,
+    Auto,
+    Manual,
+};
 
 #if PLATFORM(IOS_FAMILY)
 enum class SelectionRenderingBehavior : bool;
@@ -51,8 +66,8 @@ public:
 
     WEBCORE_EXPORT String title() const final;
 
-    WEBCORE_EXPORT ExceptionOr<void> setInnerText(const String&);
-    WEBCORE_EXPORT ExceptionOr<void> setOuterText(const String&);
+    WEBCORE_EXPORT ExceptionOr<void> setInnerText(String&&);
+    WEBCORE_EXPORT ExceptionOr<void> setOuterText(String&&);
 
     virtual bool hasCustomFocusLogic() const;
     bool supportsFocus() const override;
@@ -60,7 +75,7 @@ public:
     WEBCORE_EXPORT String contentEditable() const;
     WEBCORE_EXPORT ExceptionOr<void> setContentEditable(const String&);
 
-    static Editability editabilityFromContentEditableAttr(const Node&);
+    static Editability editabilityFromContentEditableAttr(const Node&, PageIsEditable);
 
     virtual bool draggable() const;
     WEBCORE_EXPORT void setDraggable(bool);
@@ -78,26 +93,25 @@ public:
 
     String accessKeyLabel() const;
 
-    RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) override;
     bool rendererIsEverNeeded() final;
-
-    WEBCORE_EXPORT virtual HTMLFormElement* form() const;
 
     WEBCORE_EXPORT const AtomString& dir() const;
     WEBCORE_EXPORT void setDir(const AtomString&);
 
     bool hasDirectionAuto() const;
-    TextDirection directionalityIfhasDirAutoAttribute(bool& isAuto) const;
+
+    std::optional<TextDirection> directionalityIfDirIsAuto() const;
 
     virtual bool isTextControlInnerTextElement() const { return false; }
     virtual bool isSearchFieldResultsButtonElement() const { return false; }
 
-    bool willRespondToMouseMoveEvents() override;
-    bool willRespondToMouseWheelEvents() override;
-    bool willRespondToMouseClickEvents() override;
+    bool willRespondToMouseMoveEvents() const override;
+    bool willRespondToMouseClickEventsWithEditability(Editability) const override;
 
+    // Represents "labelable element": https://html.spec.whatwg.org/multipage/forms.html#category-label
     virtual bool isLabelable() const { return false; }
-    virtual FormNamedItem* asFormNamedItem();
+    WEBCORE_EXPORT RefPtr<NodeList> labels();
+
     virtual FormAssociatedElement* asFormAssociatedElement();
 
     virtual bool isInteractiveContent() const { return false; }
@@ -108,7 +122,7 @@ public:
 
     // Only some element types can be disabled: https://html.spec.whatwg.org/multipage/scripting.html#concept-element-disabled
     bool canBeActuallyDisabled() const;
-    bool isActuallyDisabled() const;
+    virtual bool isActuallyDisabled() const;
 
 #if ENABLE(AUTOCAPITALIZE)
     WEBCORE_EXPORT virtual AutocapitalizeType autocapitalizeType() const;
@@ -128,21 +142,22 @@ public:
 
     WEBCORE_EXPORT EnterKeyHint canonicalEnterKeyHint() const;
     String enterKeyHint() const;
-    void setEnterKeyHint(const String& value);
+    void setEnterKeyHint(const AtomString& value);
 
     WEBCORE_EXPORT static bool shouldExtendSelectionToTargetNode(const Node& targetNode, const VisibleSelection& selectionBeforeUpdate);
-    WEBCORE_EXPORT bool hasImageOverlay() const;
-    WEBCORE_EXPORT bool isImageOverlayDataDetectorResult() const;
-    WEBCORE_EXPORT static bool isInsideImageOverlay(const SimpleRange&);
-    WEBCORE_EXPORT static bool isInsideImageOverlay(const Node&);
-    WEBCORE_EXPORT static bool isImageOverlayText(const Node&);
-    WEBCORE_EXPORT static bool isImageOverlayText(const Node*);
 
-#if ENABLE(IMAGE_ANALYSIS)
-    IntRect containerRectForTextRecognition();
-    enum class CacheTextRecognitionResults : bool { No, Yes };
-    WEBCORE_EXPORT void updateWithTextRecognitionResult(const TextRecognitionResult&, CacheTextRecognitionResults = CacheTextRecognitionResults::Yes);
-#endif
+    WEBCORE_EXPORT ExceptionOr<Ref<ElementInternals>> attachInternals();
+
+    void queuePopoverToggleEventTask(PopoverVisibilityState oldState, PopoverVisibilityState newState);
+    ExceptionOr<void> showPopover(const HTMLFormControlElement* = nullptr);
+    ExceptionOr<void> hidePopover();
+    ExceptionOr<void> hidePopoverInternal(FocusPreviousElement, FireEvents);
+    ExceptionOr<bool> togglePopover(std::optional<bool> force);
+
+    PopoverState popoverState() const;
+    const AtomString& popover() const;
+    void setPopover(const AtomString& value) { setAttributeWithoutSynchronization(HTMLNames::popoverAttr, value); };
+    void popoverAttributeChanged(const AtomString& value);
 
 #if PLATFORM(IOS_FAMILY)
     static SelectionRenderingBehavior selectionRenderingBehavior(const Node*);
@@ -151,28 +166,35 @@ public:
 protected:
     HTMLElement(const QualifiedName& tagName, Document&, ConstructionType);
 
-    void addHTMLLengthToStyle(MutableStyleProperties&, CSSPropertyID, StringView value);
+    enum class AllowZeroValue : bool { No, Yes };
+    void addHTMLLengthToStyle(MutableStyleProperties&, CSSPropertyID, StringView value, AllowZeroValue = AllowZeroValue::Yes);
     void addHTMLMultiLengthToStyle(MutableStyleProperties&, CSSPropertyID, StringView value);
     void addHTMLPixelsToStyle(MutableStyleProperties&, CSSPropertyID, StringView value);
     void addHTMLNumberToStyle(MutableStyleProperties&, CSSPropertyID, StringView value);
 
-    void addHTMLColorToStyle(MutableStyleProperties&, CSSPropertyID, const String& color);
+    static std::optional<SRGBA<uint8_t>> parseLegacyColorValue(StringView);
+    void addHTMLColorToStyle(MutableStyleProperties&, CSSPropertyID, const AtomString& color);
 
     void applyAspectRatioFromWidthAndHeightAttributesToStyle(StringView widthAttribute, StringView heightAttribute, MutableStyleProperties&);
+    void applyAspectRatioWithoutDimensionalRulesFromWidthAndHeightAttributesToStyle(StringView widthAttribute, StringView heightAttribute, MutableStyleProperties&);
+    void addParsedWidthAndHeightToAspectRatioList(double width, double height, MutableStyleProperties&);
+    
     void applyAlignmentAttributeToStyle(const AtomString&, MutableStyleProperties&);
     void applyBorderAttributeToStyle(const AtomString&, MutableStyleProperties&);
 
     bool matchesReadWritePseudoClass() const override;
-    void parseAttribute(const QualifiedName&, const AtomString&) override;
+    void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) override;
+    Node::InsertedIntoAncestorResult insertedIntoAncestor(InsertionType , ContainerNode& parentOfInsertedTree) override;
+    void removedFromAncestor(RemovalType, ContainerNode& oldParentOfRemovedTree) override;
     bool hasPresentationalHintsForAttribute(const QualifiedName&) const override;
     void collectPresentationalHintsForAttribute(const QualifiedName&, const AtomString&, MutableStyleProperties&) override;
     unsigned parseBorderWidthAttribute(const AtomString&) const;
 
     void childrenChanged(const ChildChange&) override;
-    void calculateAndAdjustDirectionality();
+    void updateTextDirectionalityAfterTelephoneInputTypeChange();
+    void updateEffectiveDirectionalityOfDirAuto();
 
-    typedef HashMap<AtomStringImpl*, AtomString> EventHandlerNameMap;
-    template<size_t tableSize> static void populateEventHandlerNameMap(EventHandlerNameMap&, const QualifiedName* const (&table)[tableSize]);
+    using EventHandlerNameMap = HashMap<AtomStringImpl*, AtomString>;
     static const AtomString& eventNameForEventHandlerAttribute(const QualifiedName& attributeName, const EventHandlerNameMap&);
 
 private:
@@ -181,28 +203,26 @@ private:
     void mapLanguageAttributeToLocale(const AtomString&, MutableStyleProperties&);
 
     void dirAttributeChanged(const AtomString&);
+    void updateEffectiveDirectionality(std::optional<TextDirection>);
     void adjustDirectionalityIfNeededAfterChildAttributeChanged(Element* child);
     void adjustDirectionalityIfNeededAfterChildrenChanged(Element* beforeChange, ChildChange::Type);
-    TextDirection directionality(Node** strongDirectionalityTextNode= 0) const;
 
-    static void populateEventHandlerNameMap(EventHandlerNameMap&, const QualifiedName* const table[], size_t tableSize);
-    static EventHandlerNameMap createEventHandlerNameMap();
+    struct TextDirectionWithStrongDirectionalityNode {
+        TextDirection direction;
+        RefPtr<Node> strongDirectionalityNode;
+    };
+    TextDirectionWithStrongDirectionalityNode computeDirectionalityFromText() const;
 
     enum class AllowPercentage : bool { No, Yes };
     enum class UseCSSPXAsUnitType : bool { No, Yes };
     enum class IsMultiLength : bool { No, Yes };
-    void addHTMLLengthToStyle(MutableStyleProperties&, CSSPropertyID, StringView value, AllowPercentage, UseCSSPXAsUnitType, IsMultiLength);
+    void addHTMLLengthToStyle(MutableStyleProperties&, CSSPropertyID, StringView value, AllowPercentage, UseCSSPXAsUnitType, IsMultiLength, AllowZeroValue = AllowZeroValue::Yes);
 };
 
 inline HTMLElement::HTMLElement(const QualifiedName& tagName, Document& document, ConstructionType type = CreateHTMLElement)
     : StyledElement(tagName, document, type)
 {
     ASSERT(tagName.localName().impl());
-}
-
-template<size_t tableSize> inline void HTMLElement::populateEventHandlerNameMap(EventHandlerNameMap& map, const QualifiedName* const (&table)[tableSize])
-{
-    populateEventHandlerNameMap(map, table, tableSize);
 }
 
 inline bool Node::hasTagName(const HTMLQualifiedName& name) const

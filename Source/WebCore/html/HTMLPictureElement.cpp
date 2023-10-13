@@ -26,7 +26,7 @@
 #include "config.h"
 #include "HTMLPictureElement.h"
 
-#include "ElementChildIterator.h"
+#include "ElementChildIteratorInlines.h"
 #include "HTMLAnchorElement.h"
 #include "HTMLImageElement.h"
 #include "ImageLoader.h"
@@ -45,12 +45,6 @@ HTMLPictureElement::HTMLPictureElement(const QualifiedName& tagName, Document& d
 
 HTMLPictureElement::~HTMLPictureElement()
 {
-}
-
-void HTMLPictureElement::didMoveToNewDocument(Document& oldDocument, Document& newDocument)
-{
-    HTMLElement::didMoveToNewDocument(oldDocument, newDocument);
-    sourcesChanged();
 }
 
 Ref<HTMLPictureElement> HTMLPictureElement::create(const QualifiedName& tagName, Document& document)

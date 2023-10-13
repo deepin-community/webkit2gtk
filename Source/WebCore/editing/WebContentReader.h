@@ -26,7 +26,7 @@
 #pragma once
 
 #include "DocumentFragment.h"
-#include "Frame.h"
+#include "LocalFrame.h"
 #include "Pasteboard.h"
 #include "SimpleRange.h"
 #include "markup.h"
@@ -37,9 +37,9 @@ class ArchiveResource;
 
 class FrameWebContentReader : public PasteboardWebContentReader {
 public:
-    Frame& frame;
+    LocalFrame& frame;
 
-    FrameWebContentReader(Frame& frame)
+    FrameWebContentReader(LocalFrame& frame)
         : frame(frame)
     {
     }
@@ -57,7 +57,7 @@ public:
     RefPtr<DocumentFragment> fragment;
     bool madeFragmentFromPlainText;
 
-    WebContentReader(Frame& frame, const SimpleRange& context, bool allowPlainText)
+    WebContentReader(LocalFrame& frame, const SimpleRange& context, bool allowPlainText)
         : FrameWebContentReader(frame)
         , context(context)
         , allowPlainText(allowPlainText)
@@ -72,7 +72,7 @@ private:
     bool readFilePath(const String&, PresentationSize preferredPresentationSize = { }, const String& contentType = { }) override;
     bool readFilePaths(const Vector<String>&) override;
     bool readHTML(const String&) override;
-    bool readImage(Ref<SharedBuffer>&&, const String& type, PresentationSize preferredPresentationSize = { }) override;
+    bool readImage(Ref<FragmentedSharedBuffer>&&, const String& type, PresentationSize preferredPresentationSize = { }) override;
     bool readURL(const URL&, const String& title) override;
     bool readPlainText(const String&) override;
 #endif
@@ -81,7 +81,7 @@ private:
     bool readWebArchive(SharedBuffer&) override;
     bool readRTFD(SharedBuffer&) override;
     bool readRTF(SharedBuffer&) override;
-    bool readDataBuffer(SharedBuffer&, const String& type, const String& name, PresentationSize preferredPresentationSize = { }) override;
+    bool readDataBuffer(SharedBuffer&, const String& type, const AtomString& name, PresentationSize preferredPresentationSize = { }) override;
 #endif
 };
 
@@ -89,7 +89,7 @@ class WebContentMarkupReader final : public FrameWebContentReader {
 public:
     String markup;
 
-    explicit WebContentMarkupReader(Frame& frame)
+    explicit WebContentMarkupReader(LocalFrame& frame)
         : FrameWebContentReader(frame)
     {
     }
@@ -99,7 +99,7 @@ private:
     bool readFilePath(const String&, PresentationSize = { }, const String& = { }) override { return false; }
     bool readFilePaths(const Vector<String>&) override { return false; }
     bool readHTML(const String&) override;
-    bool readImage(Ref<SharedBuffer>&&, const String&, PresentationSize = { }) override { return false; }
+    bool readImage(Ref<FragmentedSharedBuffer>&&, const String&, PresentationSize = { }) override { return false; }
     bool readURL(const URL&, const String&) override { return false; }
     bool readPlainText(const String&) override { return false; }
 #endif
@@ -108,7 +108,7 @@ private:
     bool readWebArchive(SharedBuffer&) override;
     bool readRTFD(SharedBuffer&) override;
     bool readRTF(SharedBuffer&) override;
-    bool readDataBuffer(SharedBuffer&, const String&, const String&, PresentationSize = { }) override { return false; }
+    bool readDataBuffer(SharedBuffer&, const String&, const AtomString&, PresentationSize = { }) override { return false; }
 #endif
 };
 
@@ -118,7 +118,7 @@ struct FragmentAndResources {
     Vector<Ref<ArchiveResource>> resources;
 };
 
-RefPtr<DocumentFragment> createFragmentAndAddResources(Frame&, NSAttributedString *);
+RefPtr<DocumentFragment> createFragmentAndAddResources(LocalFrame&, NSAttributedString *);
 #endif
 
 }

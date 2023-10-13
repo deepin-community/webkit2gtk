@@ -26,19 +26,26 @@
 #include "config.h"
 #include "MessageSender.h"
 
+#include "Connection.h"
+
 namespace IPC {
 
 MessageSender::~MessageSender() = default;
 
-bool MessageSender::sendMessage(UniqueRef<Encoder>&& encoder, OptionSet<SendOption> sendOptions, std::optional<std::pair<CompletionHandler<void(IPC::Decoder*)>, uint64_t>>&& asyncReplyInfo)
+bool MessageSender::sendMessage(UniqueRef<Encoder>&& encoder, OptionSet<SendOption> sendOptions)
 {
     auto* connection = messageSenderConnection();
     ASSERT(connection);
+    // FIXME: Propagate errors out.
+    return connection->sendMessage(WTFMove(encoder), sendOptions) == Error::NoError;
+}
 
-    if (asyncReplyInfo)
-        IPC::addAsyncReplyHandler(*connection, asyncReplyInfo->second, WTFMove(asyncReplyInfo->first));
-
-    return connection->sendMessage(WTFMove(encoder), sendOptions);
+bool MessageSender::sendMessageWithAsyncReply(UniqueRef<Encoder>&& encoder, AsyncReplyHandler replyHandler, OptionSet<SendOption> sendOptions)
+{
+    auto* connection = messageSenderConnection();
+    ASSERT(connection);
+    // FIXME: Propagate errors out.
+    return connection->sendMessageWithAsyncReply(WTFMove(encoder), WTFMove(replyHandler), sendOptions) == Error::NoError;
 }
 
 } // namespace IPC

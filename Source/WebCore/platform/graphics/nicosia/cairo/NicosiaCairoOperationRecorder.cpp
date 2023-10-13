@@ -1,6 +1,7 @@
 /*
  * Copyright (C) 2018 Metrological Group B.V.
  * Copyright (C) 2018 Igalia S.L.
+ * Copyright (C) 2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,6 +31,9 @@
 #include "NicosiaCairoOperationRecorder.h"
 
 #include "CairoOperations.h"
+#include "DecomposedGlyphs.h"
+#include "Filter.h"
+#include "FilterResults.h"
 #include "FloatRoundedRect.h"
 #include "Gradient.h"
 #include "ImageBuffer.h"
@@ -37,7 +41,7 @@
 #include <type_traits>
 #include <wtf/text/TextStream.h>
 
-#if PLATFORM(WPE) || PLATFORM(GTK)
+#if USE(THEME_ADWAITA)
 #include "ThemeAdwaita.h"
 #endif
 
@@ -82,9 +86,9 @@ CairoOperationRecorder::CairoOperationRecorder(PaintingOperations& commandList)
     m_stateStack.append({ { }, { }, FloatRect::infiniteRect() });
 }
 
-void CairoOperationRecorder::updateState(const GraphicsContextState& state, GraphicsContextState::StateChangeFlags flags)
+void CairoOperationRecorder::didUpdateState(GraphicsContextState& state)
 {
-    if (flags & GraphicsContextState::StrokeThicknessChange) {
+    if (state.changes().contains(GraphicsContextState::Change::StrokeThickness)) {
         struct StrokeThicknessChange final : PaintingOperation, OperationData<float> {
             virtual ~StrokeThicknessChange() = default;
 
@@ -99,10 +103,10 @@ void CairoOperationRecorder::updateState(const GraphicsContextState& state, Grap
             }
         };
 
-        append(createCommand<StrokeThicknessChange>(state.strokeThickness));
+        append(createCommand<StrokeThicknessChange>(state.strokeThickness()));
     }
 
-    if (flags & GraphicsContextState::StrokeStyleChange) {
+    if (state.changes().contains(GraphicsContextState::Change::StrokeStyle)) {
         struct StrokeStyleChange final : PaintingOperation, OperationData<StrokeStyle> {
             virtual ~StrokeStyleChange() = default;
 
@@ -117,10 +121,10 @@ void CairoOperationRecorder::updateState(const GraphicsContextState& state, Grap
             }
         };
 
-        append(createCommand<StrokeStyleChange>(state.strokeStyle));
+        append(createCommand<StrokeStyleChange>(state.strokeStyle()));
     }
 
-    if (flags & GraphicsContextState::CompositeOperationChange) {
+    if (state.changes().contains(GraphicsContextState::Change::CompositeMode)) {
         struct CompositeOperationChange final : PaintingOperation, OperationData<CompositeOperator, BlendMode> {
             virtual ~CompositeOperationChange() = default;
 
@@ -135,10 +139,10 @@ void CairoOperationRecorder::updateState(const GraphicsContextState& state, Grap
             }
         };
 
-        append(createCommand<CompositeOperationChange>(state.compositeOperator, state.blendMode));
+        append(createCommand<CompositeOperationChange>(state.compositeMode().operation, state.compositeMode().blendMode));
     }
 
-    if (flags & GraphicsContextState::ShouldAntialiasChange) {
+    if (state.changes().contains(GraphicsContextState::Change::ShouldAntialias)) {
         struct ShouldAntialiasChange final : PaintingOperation, OperationData<bool> {
             virtual ~ShouldAntialiasChange() = default;
 
@@ -153,8 +157,10 @@ void CairoOperationRecorder::updateState(const GraphicsContextState& state, Grap
             }
         };
 
-        append(createCommand<ShouldAntialiasChange>(state.shouldAntialias));
+        append(createCommand<ShouldAntialiasChange>(state.shouldAntialias()));
     }
+
+    state.didApplyChanges();
 }
 
 void CairoOperationRecorder::setLineCap(LineCap lineCap)
@@ -292,7 +298,7 @@ void CairoOperationRecorder::fillRect(const FloatRect& rect, Gradient& gradient)
     };
 
     auto& state = this->state();
-    append(createCommand<FillRect>(rect, gradient.createPattern(1.0, state.fillGradientSpaceTransform)));
+    append(createCommand<FillRect>(rect, gradient.createPattern(1.0, state.fillBrush().gradientSpaceTransform())));
 }
 
 void CairoOperationRecorder::fillRect(const FloatRect& rect, const Color& color, CompositeOperator compositeOperator, BlendMode blendMode)
@@ -316,7 +322,7 @@ void CairoOperationRecorder::fillRect(const FloatRect& rect, const Color& color,
     };
 
     auto& state = this->state();
-    append(createCommand<FillRect>(rect, color, compositeOperator, blendMode, Cairo::ShadowState(state), state.compositeOperator));
+    append(createCommand<FillRect>(rect, color, compositeOperator, blendMode, Cairo::ShadowState(state), state.compositeMode().operation));
 }
 
 void CairoOperationRecorder::fillRoundedRect(const FloatRoundedRect& roundedRect, const Color& color, BlendMode blendMode)
@@ -346,7 +352,7 @@ void CairoOperationRecorder::fillRoundedRect(const FloatRoundedRect& roundedRect
     };
 
     auto& state = this->state();
-    append(createCommand<FillRoundedRect>(roundedRect, color, state.compositeOperator, blendMode, Cairo::ShadowState(state)));
+    append(createCommand<FillRoundedRect>(roundedRect, color, state.compositeMode().operation, blendMode, Cairo::ShadowState(state)));
 }
 
 void CairoOperationRecorder::fillRectWithRoundedHole(const FloatRect& rect, const FloatRoundedRect& roundedHoleRect, const Color& color)
@@ -400,7 +406,7 @@ void CairoOperationRecorder::fillEllipse(const FloatRect& rect)
         void execute(PaintingOperationReplay& replayer) override
         {
             Path path;
-            path.addEllipse(arg<0>());
+            path.addEllipseInRect(arg<0>());
             Cairo::fillPath(contextForReplay(replayer), path, arg<1>(), arg<2>());
         }
 
@@ -465,7 +471,7 @@ void CairoOperationRecorder::strokeEllipse(const FloatRect& rect)
         void execute(PaintingOperationReplay& replayer) override
         {
             Path path;
-            path.addEllipse(arg<0>());
+            path.addEllipseInRect(arg<0>());
             Cairo::strokePath(contextForReplay(replayer), path, arg<1>(), arg<2>());
         }
 
@@ -500,13 +506,13 @@ void CairoOperationRecorder::clearRect(const FloatRect& rect)
 
 void CairoOperationRecorder::drawGlyphs(const Font& font, const GlyphBufferGlyph* glyphs, const GlyphBufferAdvance* advances, unsigned numGlyphs, const FloatPoint& point, FontSmoothingMode fontSmoothing)
 {
-    struct DrawGlyphs final : PaintingOperation, OperationData<Cairo::FillSource, Cairo::StrokeSource, Cairo::ShadowState, FloatPoint, RefPtr<cairo_scaled_font_t>, float, Vector<cairo_glyph_t>, float, TextDrawingModeFlags, float, FloatSize, Color, FontSmoothingMode> {
+    struct DrawGlyphs final : PaintingOperation, OperationData<Cairo::FillSource, Cairo::StrokeSource, Cairo::ShadowState, FloatPoint, RefPtr<cairo_scaled_font_t>, float, Vector<cairo_glyph_t>, float, TextDrawingModeFlags, float, std::optional<GraphicsDropShadow>, FontSmoothingMode> {
         virtual ~DrawGlyphs() = default;
 
         void execute(PaintingOperationReplay& replayer) override
         {
             Cairo::drawGlyphs(contextForReplay(replayer), arg<0>(), arg<1>(), arg<2>(), arg<3>(), arg<4>().get(),
-                arg<5>(), arg<6>(), arg<7>(), arg<8>(), arg<9>(), arg<10>(), arg<11>(), arg<12>());
+                arg<5>(), arg<6>(), arg<7>(), arg<8>(), arg<9>(), arg<10>(), arg<11>());
         }
 
         void dump(TextStream& ts) override
@@ -532,16 +538,83 @@ void CairoOperationRecorder::drawGlyphs(const Font& font, const GlyphBufferGlyph
     append(createCommand<DrawGlyphs>(Cairo::FillSource(state), Cairo::StrokeSource(state),
         Cairo::ShadowState(state), point,
         RefPtr<cairo_scaled_font_t>(font.platformData().scaledFont()),
-        font.syntheticBoldOffset(), WTFMove(cairoGlyphs), xOffset, state.textDrawingMode,
-        state.strokeThickness, state.shadowOffset, state.shadowColor, fontSmoothing));
+        font.syntheticBoldOffset(), WTFMove(cairoGlyphs), xOffset, state.textDrawingMode(),
+        state.strokeThickness(), state.dropShadow(), fontSmoothing));
 }
 
-void CairoOperationRecorder::drawImageBuffer(ImageBuffer&, const FloatRect&, const FloatRect&, const ImagePaintingOptions&)
+void CairoOperationRecorder::drawDecomposedGlyphs(const Font& font, const DecomposedGlyphs& decomposedGlyphs)
 {
-    // FIXME: Not implemented.
+    auto positionedGlyphs = decomposedGlyphs.positionedGlyphs();
+    return drawGlyphs(font, positionedGlyphs.glyphs.data(), positionedGlyphs.advances.data(), positionedGlyphs.glyphs.size(), positionedGlyphs.localAnchor, positionedGlyphs.smoothingMode);
 }
 
-void CairoOperationRecorder::drawNativeImage(NativeImage& nativeImage, const FloatSize& imageSize, const FloatRect& destRect, const FloatRect& srcRect, const ImagePaintingOptions& options)
+void CairoOperationRecorder::drawImageBuffer(ImageBuffer& buffer, const FloatRect& destRect, const FloatRect& srcRect, const ImagePaintingOptions& options)
+{
+    struct DrawImageBuffer final : PaintingOperation, OperationData<RefPtr<cairo_surface_t>, FloatRect, FloatRect, ImagePaintingOptions, float, Cairo::ShadowState> {
+        virtual ~DrawImageBuffer() = default;
+
+        void execute(PaintingOperationReplay& replayer) override
+        {
+            Cairo::drawPlatformImage(contextForReplay(replayer), arg<0>().get(), arg<1>(), arg<2>(), arg<3>(), arg<4>(), arg<5>());
+        }
+
+        void dump(TextStream& ts) override
+        {
+            ts << indent << "DrawImageBuffer<>\n";
+        }
+    };
+
+    RefPtr<Image> image = buffer.copyImage(DontCopyBackingStore);
+    if (!image)
+        return;
+
+    auto nativeImage = image->nativeImageForCurrentFrame();
+    if (!nativeImage)
+        return;
+
+    auto& state = this->state();
+    append(createCommand<DrawImageBuffer>(nativeImage->platformImage(), destRect, srcRect, ImagePaintingOptions(options, state.imageInterpolationQuality()), state.alpha(), Cairo::ShadowState(state)));
+}
+
+void CairoOperationRecorder::drawFilteredImageBuffer(ImageBuffer* srcImage, const FloatRect& srcRect, Filter& filter, FilterResults& results)
+{
+    struct DrawFilteredImageBuffer final : PaintingOperation, OperationData<RefPtr<cairo_surface_t>, FloatRect, FloatRect, FloatSize, ImagePaintingOptions, float, Cairo::ShadowState> {
+        virtual ~DrawFilteredImageBuffer() = default;
+
+        void execute(PaintingOperationReplay& replayer) override
+        {
+            Cairo::scale(contextForReplay(replayer), { 1 / arg<3>().width(), 1 / arg<3>().height() });
+            Cairo::drawPlatformImage(contextForReplay(replayer), arg<0>().get(), arg<1>(), arg<2>(), arg<4>(), arg<5>(), arg<6>());
+            Cairo::scale(contextForReplay(replayer), arg<3>());
+        }
+
+        void dump(TextStream& ts) override
+        {
+            ts << indent << "DrawFilteredImageBuffer<>\n";
+        }
+    };
+
+    auto result = filter.apply(srcImage, srcRect, results);
+    if (!result)
+        return;
+
+    auto imageBuffer = result->imageBuffer();
+    if (!imageBuffer)
+        return;
+
+    RefPtr<Image> image = imageBuffer->copyImage(DontCopyBackingStore);
+    if (!image)
+        return;
+
+    auto nativeImage = image->nativeImageForCurrentFrame();
+    if (!nativeImage)
+        return;
+
+    auto& state = this->state();
+    append(createCommand<DrawFilteredImageBuffer>(nativeImage->platformImage(), FloatRect(result->absoluteImageRect()), FloatRect({ } , imageBuffer->logicalSize()), filter.filterScale(), ImagePaintingOptions(state.imageInterpolationQuality()), state.alpha(), Cairo::ShadowState(state)));
+}
+
+void CairoOperationRecorder::drawNativeImageInternal(NativeImage& nativeImage, const FloatSize& imageSize, const FloatRect& destRect, const FloatRect& srcRect, const ImagePaintingOptions& options)
 {
     struct DrawNativeImage final : PaintingOperation, OperationData<RefPtr<cairo_surface_t>, FloatRect, FloatRect, ImagePaintingOptions, float, Cairo::ShadowState> {
         virtual ~DrawNativeImage() = default;
@@ -559,17 +632,17 @@ void CairoOperationRecorder::drawNativeImage(NativeImage& nativeImage, const Flo
 
     UNUSED_PARAM(imageSize);
     auto& state = this->state();
-    append(createCommand<DrawNativeImage>(nativeImage.platformImage(), destRect, srcRect, ImagePaintingOptions(options, state.imageInterpolationQuality), state.alpha, Cairo::ShadowState(state)));
+    append(createCommand<DrawNativeImage>(nativeImage.platformImage(), destRect, srcRect, ImagePaintingOptions(options, state.imageInterpolationQuality()), state.alpha(), Cairo::ShadowState(state)));
 }
 
-void CairoOperationRecorder::drawPattern(NativeImage& nativeImage, const FloatSize& imageSize, const FloatRect& destRect, const FloatRect& tileRect, const AffineTransform& patternTransform, const FloatPoint& phase, const FloatSize& spacing, const ImagePaintingOptions& options)
+void CairoOperationRecorder::drawPattern(NativeImage& nativeImage, const FloatRect& destRect, const FloatRect& tileRect, const AffineTransform& patternTransform, const FloatPoint& phase, const FloatSize& spacing, const ImagePaintingOptions& options)
 {
-    struct DrawPattern final : PaintingOperation, OperationData<RefPtr<cairo_surface_t>, IntSize, FloatRect, FloatRect, AffineTransform, FloatPoint, ImagePaintingOptions> {
+    struct DrawPattern final : PaintingOperation, OperationData<RefPtr<cairo_surface_t>, IntSize, FloatRect, FloatRect, AffineTransform, FloatPoint, FloatSize, ImagePaintingOptions> {
         virtual ~DrawPattern() = default;
 
         void execute(PaintingOperationReplay& replayer) override
         {
-            Cairo::drawPattern(contextForReplay(replayer), arg<0>().get(), arg<1>(), arg<2>(), arg<3>(), arg<4>(), arg<5>(), arg<6>());
+            Cairo::drawPattern(contextForReplay(replayer), arg<0>().get(), arg<1>(), arg<2>(), arg<3>(), arg<4>(), arg<5>(), arg<6>(), arg<7>());
         }
 
         void dump(TextStream& ts) override
@@ -579,7 +652,7 @@ void CairoOperationRecorder::drawPattern(NativeImage& nativeImage, const FloatSi
     };
 
     UNUSED_PARAM(spacing);
-    append(createCommand<DrawPattern>(nativeImage.platformImage(), IntSize(imageSize), destRect, tileRect, patternTransform, phase, options));
+    append(createCommand<DrawPattern>(nativeImage.platformImage(), nativeImage.size(), destRect, tileRect, patternTransform, phase, spacing, options));
 }
 
 void CairoOperationRecorder::drawRect(const FloatRect& rect, float borderThickness)
@@ -599,7 +672,7 @@ void CairoOperationRecorder::drawRect(const FloatRect& rect, float borderThickne
     };
 
     auto& state = this->state();
-    append(createCommand<DrawRect>(rect, borderThickness, state.fillColor, state.strokeStyle, state.strokeColor));
+    append(createCommand<DrawRect>(rect, borderThickness, state.fillBrush().color(), state.strokeStyle(), state.strokeBrush().color()));
 }
 
 void CairoOperationRecorder::drawLine(const FloatPoint& point1, const FloatPoint& point2)
@@ -618,11 +691,11 @@ void CairoOperationRecorder::drawLine(const FloatPoint& point1, const FloatPoint
         }
     };
 
-    if (strokeStyle() == NoStroke)
+    if (strokeStyle() == StrokeStyle::NoStroke)
         return;
 
     auto& state = this->state();
-    append(createCommand<DrawLine>(point1, point2, state.strokeStyle, state.strokeColor, state.strokeThickness, state.shouldAntialias));
+    append(createCommand<DrawLine>(point1, point2, state.strokeStyle(), state.strokeBrush().color(), state.strokeThickness(), state.shouldAntialias()));
 }
 
 void CairoOperationRecorder::drawLinesForText(const FloatPoint& point, float thickness, const DashArray& widths, bool printing, bool doubleUnderlines, StrokeStyle)
@@ -645,7 +718,7 @@ void CairoOperationRecorder::drawLinesForText(const FloatPoint& point, float thi
         return;
 
     auto& state = this->state();
-    append(createCommand<DrawLinesForText>(point, thickness, widths, printing, doubleUnderlines, state.strokeColor));
+    append(createCommand<DrawLinesForText>(point, thickness, widths, printing, doubleUnderlines, state.strokeBrush().color()));
 }
 
 void CairoOperationRecorder::drawDotsForDocumentMarker(const FloatRect& rect, DocumentMarkerLineStyle style)
@@ -684,14 +757,14 @@ void CairoOperationRecorder::drawEllipse(const FloatRect& rect)
     };
 
     auto& state = this->state();
-    append(createCommand<DrawEllipse>(rect, state.fillColor, state.strokeStyle, state.strokeColor, state.strokeThickness));
+    append(createCommand<DrawEllipse>(rect, state.fillBrush().color(), state.strokeStyle(), state.strokeBrush().color(), state.strokeThickness()));
 }
 
-void CairoOperationRecorder::drawFocusRing(const Path& path, float width, float offset, const Color& color)
+void CairoOperationRecorder::drawFocusRing(const Path& path, float outlineWidth, const Color& color)
 {
-#if PLATFORM(WPE) || PLATFORM(GTK)
+#if USE(THEME_ADWAITA)
     ThemeAdwaita::paintFocus(*this, path, color);
-    UNUSED_PARAM(width);
+    UNUSED_PARAM(outlineWidth);
 #else
     struct DrawFocusRing final : PaintingOperation, OperationData<Path, float, Color> {
         virtual ~DrawFocusRing() = default;
@@ -707,16 +780,15 @@ void CairoOperationRecorder::drawFocusRing(const Path& path, float width, float 
         }
     };
 
-    append(createCommand<DrawFocusRing>(path, width, color));
+    append(createCommand<DrawFocusRing>(path, outlineWidth, color));
 #endif
-    UNUSED_PARAM(offset);
 }
 
-void CairoOperationRecorder::drawFocusRing(const Vector<FloatRect>& rects, float width, float offset, const Color& color)
+void CairoOperationRecorder::drawFocusRing(const Vector<FloatRect>& rects, float outlineOffset, float outlineWidth, const Color& color)
 {
-#if PLATFORM(WPE) || PLATFORM(GTK)
+#if USE(THEME_ADWAITA)
     ThemeAdwaita::paintFocus(*this, rects, color);
-    UNUSED_PARAM(width);
+    UNUSED_PARAM(outlineWidth);
 #else
     struct DrawFocusRing final : PaintingOperation, OperationData<Vector<FloatRect>, float, Color> {
         virtual ~DrawFocusRing() = default;
@@ -732,9 +804,9 @@ void CairoOperationRecorder::drawFocusRing(const Vector<FloatRect>& rects, float
         }
     };
 
-    append(createCommand<DrawFocusRing>(rects, width, color));
+    append(createCommand<DrawFocusRing>(rects, outlineWidth, color));
 #endif
-    UNUSED_PARAM(offset);
+    UNUSED_PARAM(outlineOffset);
 }
 
 void CairoOperationRecorder::save()
@@ -976,6 +1048,11 @@ void CairoOperationRecorder::endTransparencyLayer()
     append(createCommand<EndTransparencyLayer>());
 }
 
+void CairoOperationRecorder::resetClip()
+{
+    ASSERT_NOT_REACHED("resetClip is not supported on Cairo");
+}
+
 void CairoOperationRecorder::clip(const FloatRect& rect)
 {
     struct Clip final : PaintingOperation, OperationData<FloatRect> {
@@ -1096,20 +1173,9 @@ void CairoOperationRecorder::applyDeviceScaleFactor(float)
 {
 }
 
-FloatRect CairoOperationRecorder::roundToDevicePixels(const FloatRect& rect, GraphicsContext::RoundingMode)
-{
-    return rect;
-}
-
 void CairoOperationRecorder::append(std::unique_ptr<PaintingOperation>&& command)
 {
     m_commandList.append(WTFMove(command));
-}
-
-GraphicsContext::ClipToDrawingCommandsResult CairoOperationRecorder::clipToDrawingCommands(const FloatRect&, const DestinationColorSpace&, Function<void(GraphicsContext&)>&&)
-{
-    // FIXME: Not implemented.
-    return ClipToDrawingCommandsResult::Success;
 }
 
 #if ENABLE(VIDEO)

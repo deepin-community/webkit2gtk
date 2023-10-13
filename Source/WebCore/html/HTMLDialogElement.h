@@ -39,7 +39,7 @@ public:
     const String& returnValue() const { return m_returnValue; }
     void setReturnValue(String&& value) { m_returnValue = WTFMove(value); }
 
-    void show();
+    ExceptionOr<void> show();
     ExceptionOr<void> showModal();
     void close(const String&);
 
@@ -47,11 +47,17 @@ public:
 
     void queueCancelTask();
 
+    void runFocusingSteps();
+
 private:
     HTMLDialogElement(const QualifiedName&, Document&);
 
+    void removedFromAncestor(RemovalType, ContainerNode& oldParentOfRemovedTree) final;
+    void setIsModal(bool newValue);
+
     String m_returnValue;
     bool m_isModal { false };
+    WeakPtr<Element, WeakPtrImplWithEventTargetData> m_previouslyFocusedElement;
 };
 
 } // namespace WebCore

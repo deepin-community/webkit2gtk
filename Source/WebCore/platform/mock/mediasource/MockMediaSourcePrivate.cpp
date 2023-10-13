@@ -20,7 +20,7 @@
  * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
  * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 #include "config.h"
@@ -52,7 +52,7 @@ MockMediaSourcePrivate::MockMediaSourcePrivate(MockMediaPlayerMediaSource& paren
 #endif
 {
 #if !RELEASE_LOG_DISABLED
-    m_client->setLogIdentifier(m_player.mediaPlayerLogIdentifier());
+    client.setLogIdentifier(m_player.mediaPlayerLogIdentifier());
 #endif
 }
 
@@ -85,17 +85,21 @@ void MockMediaSourcePrivate::removeSourceBuffer(SourceBufferPrivate* buffer)
 
 MediaTime MockMediaSourcePrivate::duration()
 {
-    return m_client->duration();
+    if (m_client)
+        return m_client->duration();
+    return MediaTime::invalidTime();
 }
 
-std::unique_ptr<PlatformTimeRanges> MockMediaSourcePrivate::buffered()
+const PlatformTimeRanges& MockMediaSourcePrivate::buffered()
 {
-    return m_client->buffered();
+    if (m_client)
+        return m_client->buffered();
+    return PlatformTimeRanges::emptyRanges();
 }
 
-void MockMediaSourcePrivate::durationChanged(const MediaTime&)
+void MockMediaSourcePrivate::durationChanged(const MediaTime& duration)
 {
-    m_player.updateDuration(duration());
+    m_player.updateDuration(duration);
 }
 
 void MockMediaSourcePrivate::markEndOfStream(EndOfStreamStatus status)
@@ -161,7 +165,8 @@ bool MockMediaSourcePrivate::hasVideo() const
 
 void MockMediaSourcePrivate::seekToTime(const MediaTime& time)
 {
-    m_client->seekToTime(time);
+    if (m_client)
+        m_client->seekToTime(time);
 }
 
 MediaTime MockMediaSourcePrivate::seekToTime(const MediaTime& targetTime, const MediaTime& negativeThreshold, const MediaTime& positiveThreshold)

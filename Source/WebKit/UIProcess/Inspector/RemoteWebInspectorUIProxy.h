@@ -27,6 +27,7 @@
 
 #include "APIObject.h"
 #include "MessageReceiver.h"
+#include <WebCore/Color.h>
 #include <WebCore/FloatRect.h>
 #include <WebCore/InspectorFrontendClient.h>
 #include <wtf/Forward.h>
@@ -40,6 +41,8 @@ OBJC_CLASS NSWindow;
 OBJC_CLASS WKInspectorViewController;
 OBJC_CLASS WKRemoteWebInspectorUIProxyObjCAdapter;
 OBJC_CLASS WKWebView;
+#elif PLATFORM(GTK)
+#include <wtf/glib/GWeakPtr.h>
 #endif
 
 namespace WebCore {
@@ -85,9 +88,11 @@ public:
 
     void invalidate();
 
-    void load(Ref<API::DebuggableInfo>&&, const String& backendCommandsURL);
+    void initialize(Ref<API::DebuggableInfo>&&, const String& backendCommandsURL);
     void closeFromBackend();
     void show();
+    void showConsole();
+    void showResources();
 
     void sendMessageToFrontend(const String& message);
 
@@ -108,7 +113,7 @@ public:
     void updateWindowTitle(const CString&);
 #endif
 
-#if PLATFORM(WIN_CAIRO)
+#if PLATFORM(WIN)
     LRESULT sizeChange();
     LRESULT onClose();
 
@@ -129,13 +134,16 @@ private:
     void reopen();
     void resetState();
     void bringToFront();
-    void save(const String& filename, const String& content, bool base64Encoded, bool forceSaveAs);
-    void append(const String& filename, const String& content);
+    void save(Vector<WebCore::InspectorFrontendClient::SaveData>&&, bool forceSaveAs);
+    void load(const String& path, CompletionHandler<void(const String&)>&&);
+    void pickColorFromScreen(CompletionHandler<void(const std::optional<WebCore::Color>&)>&&);
     void setSheetRect(const WebCore::FloatRect&);
     void setForcedAppearance(WebCore::InspectorFrontendClient::Appearance);
     void startWindowDrag();
     void openURLExternally(const String& url);
+    void revealFileExternally(const String& path);
     void showCertificate(const WebCore::CertificateInfo&);
+    void setInspectorPageDeveloperExtrasEnabled(bool);
     void sendMessageToBackend(const String& message);
 
     void createFrontendPageAndWindow();
@@ -146,12 +154,14 @@ private:
     void platformCloseFrontendPageAndWindow();
     void platformResetState();
     void platformBringToFront();
-    void platformSave(const String& filename, const String& content, bool base64Encoded, bool forceSaveAs);
-    void platformAppend(const String& filename, const String& content);
+    void platformSave(Vector<WebCore::InspectorFrontendClient::SaveData>&&, bool forceSaveAs);
+    void platformLoad(const String& path, CompletionHandler<void(const String&)>&&);
+    void platformPickColorFromScreen(CompletionHandler<void(const std::optional<WebCore::Color>&)>&&);
     void platformSetSheetRect(const WebCore::FloatRect&);
     void platformSetForcedAppearance(WebCore::InspectorFrontendClient::Appearance);
     void platformStartWindowDrag();
     void platformOpenURLExternally(const String& url);
+    void platformRevealFileExternally(const String& path);
     void platformShowCertificate(const WebCore::CertificateInfo&);
 
     RemoteWebInspectorUIProxyClient* m_client { nullptr };
@@ -172,10 +182,10 @@ private:
     WebCore::FloatRect m_sheetRect;
 #endif
 #if PLATFORM(GTK)
-    GtkWidget* m_webView { nullptr };
-    GtkWidget* m_window { nullptr };
+    GWeakPtr<GtkWidget> m_webView;
+    GWeakPtr<GtkWidget> m_window;
 #endif
-#if PLATFORM(WIN_CAIRO)
+#if PLATFORM(WIN)
     HWND m_frontendHandle;
     RefPtr<WebView> m_webView;
 #endif

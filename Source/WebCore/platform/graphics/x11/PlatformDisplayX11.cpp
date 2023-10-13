@@ -27,6 +27,8 @@
 #include "PlatformDisplayX11.h"
 
 #include "GLContext.h"
+#include "XErrorTrapper.h"
+#include <cstdlib>
 
 #if PLATFORM(X11)
 #include <X11/Xatom.h>
@@ -35,19 +37,15 @@
 #if PLATFORM(GTK)
 #include <X11/Xutil.h>
 #include <X11/extensions/Xdamage.h>
+#if USE(GTK4)
+#include <gdk/x11/gdkx.h>
+#else
+#include <gdk/gdkx.h>
+#endif
 #endif
 
 #if USE(EGL)
-#include <EGL/egl.h>
-#include <EGL/eglext.h>
-#endif
-
-#if USE(GLX)
-#include <GL/glx.h>
-#endif
-
-#if USE(LCMS)
-#include <lcms2.h>
+#include <epoxy/egl.h>
 #endif
 
 namespace WebCore {
@@ -58,43 +56,88 @@ std::unique_ptr<PlatformDisplay> PlatformDisplayX11::create()
     if (!display)
         return nullptr;
 
-    return std::unique_ptr<PlatformDisplayX11>(new PlatformDisplayX11(display, NativeDisplayOwned::Yes));
+    return std::unique_ptr<PlatformDisplayX11>(new PlatformDisplayX11(display));
 }
 
-std::unique_ptr<PlatformDisplay> PlatformDisplayX11::create(Display* display)
+#if PLATFORM(GTK)
+std::unique_ptr<PlatformDisplay> PlatformDisplayX11::create(GdkDisplay* display)
 {
-    return std::unique_ptr<PlatformDisplayX11>(new PlatformDisplayX11(display, NativeDisplayOwned::No));
+    return std::unique_ptr<PlatformDisplayX11>(new PlatformDisplayX11(display));
+}
+#endif
+
+PlatformDisplayX11::PlatformDisplayX11(Display* display)
+    : m_display(display)
+{
 }
 
-PlatformDisplayX11::PlatformDisplayX11(Display* display, NativeDisplayOwned displayOwned)
-    : PlatformDisplay(displayOwned)
-    , m_display(display)
+#if PLATFORM(GTK)
+PlatformDisplayX11::PlatformDisplayX11(GdkDisplay* display)
+    : PlatformDisplay(display)
+    , m_display(display ? GDK_DISPLAY_XDISPLAY(display) : nullptr)
 {
 }
+#endif
 
 PlatformDisplayX11::~PlatformDisplayX11()
 {
-#if USE(EGL) || USE(GLX)
-    // Clear the sharing context before releasing the display.
-    m_sharingGLContext = nullptr;
+#if USE(EGL)
+    ASSERT(!m_sharingGLContext);
 #endif
-    if (m_nativeDisplayOwned == NativeDisplayOwned::Yes)
+
+#if PLATFORM(GTK)
+    bool nativeDisplayOwned = !m_sharedDisplay;
+#else
+    bool nativeDisplayOwned = true;
+#endif
+    if (nativeDisplayOwned && m_display)
         XCloseDisplay(m_display);
 }
 
+#if PLATFORM(GTK)
+void PlatformDisplayX11::sharedDisplayDidClose()
+{
+    PlatformDisplay::sharedDisplayDidClose();
+    m_display = nullptr;
+}
+#endif
+
 #if USE(EGL)
+#if PLATFORM(GTK)
+EGLDisplay PlatformDisplayX11::gtkEGLDisplay()
+{
+    if (m_eglDisplay != EGL_NO_DISPLAY)
+        return m_eglDisplayOwned ? EGL_NO_DISPLAY : m_eglDisplay;
+
+    if (!m_sharedDisplay)
+        return EGL_NO_DISPLAY;
+
+#if USE(GTK4)
+    m_eglDisplay = gdk_x11_display_get_egl_display(m_sharedDisplay.get());
+    if (m_eglDisplay != EGL_NO_DISPLAY) {
+        m_eglDisplayOwned = false;
+        PlatformDisplay::initializeEGLDisplay();
+        return m_eglDisplay;
+    }
+#endif
+
+    return EGL_NO_DISPLAY;
+}
+#endif
+
 void PlatformDisplayX11::initializeEGLDisplay()
 {
-#if defined(EGL_KHR_platform_x11)
-    const char* extensions = eglQueryString(nullptr, EGL_EXTENSIONS);
-    if (GLContext::isExtensionSupported(extensions, "EGL_KHR_platform_base")) {
-        if (auto* getPlatformDisplay = reinterpret_cast<PFNEGLGETPLATFORMDISPLAYEXTPROC>(eglGetProcAddress("eglGetPlatformDisplay")))
-            m_eglDisplay = getPlatformDisplay(EGL_PLATFORM_X11_KHR, m_display, nullptr);
-    } else if (GLContext::isExtensionSupported(extensions, "EGL_EXT_platform_base")) {
-        if (auto* getPlatformDisplay = reinterpret_cast<PFNEGLGETPLATFORMDISPLAYEXTPROC>(eglGetProcAddress("eglGetPlatformDisplayEXT")))
-            m_eglDisplay = getPlatformDisplay(EGL_PLATFORM_X11_KHR, m_display, nullptr);
-    } else
+#if PLATFORM(GTK)
+    if (gtkEGLDisplay() != EGL_NO_DISPLAY)
+        return;
 #endif
+
+    const char* extensions = eglQueryString(nullptr, EGL_EXTENSIONS);
+    if (GLContext::isExtensionSupported(extensions, "EGL_KHR_platform_base"))
+        m_eglDisplay = eglGetPlatformDisplay(EGL_PLATFORM_X11_KHR, m_display, nullptr);
+    else if (GLContext::isExtensionSupported(extensions, "EGL_EXT_platform_base"))
+        m_eglDisplay = eglGetPlatformDisplayEXT(EGL_PLATFORM_X11_KHR, m_display, nullptr);
+    else
         m_eglDisplay = eglGetDisplay(m_display);
 
     PlatformDisplay::initializeEGLDisplay();
@@ -134,27 +177,6 @@ bool PlatformDisplayX11::supportsXDamage(std::optional<int>& damageEventBase, st
     return m_supportsXDamage.value();
 }
 
-bool PlatformDisplayX11::supportsGLX(std::optional<int>& glxErrorBase) const
-{
-#if USE(GLX)
-    if (!m_supportsGLX) {
-        m_supportsGLX = false;
-        if (m_display) {
-            int eventBase, errorBase;
-            m_supportsGLX = glXQueryExtension(m_display, &errorBase, &eventBase);
-            if (m_supportsGLX.value())
-                m_glxErrorBase = errorBase;
-        }
-    }
-
-    glxErrorBase = m_glxErrorBase;
-    return m_supportsGLX.value();
-#else
-    UNUSED_PARAM(glxErrorBase);
-    return false;
-#endif
-}
-
 void* PlatformDisplayX11::visual() const
 {
     if (m_visual)
@@ -184,7 +206,7 @@ void* PlatformDisplayX11::visual() const
 cmsHPROFILE PlatformDisplayX11::colorProfile() const
 {
     if (m_iccProfile)
-        return m_iccProfile;
+        return m_iccProfile.get();
 
     Atom iccAtom = XInternAtom(m_display, "_ICC_PROFILE", False);
     Atom type;
@@ -210,13 +232,32 @@ cmsHPROFILE PlatformDisplayX11::colorProfile() const
         }
 
         if (dataSize)
-            m_iccProfile = cmsOpenProfileFromMem(data, dataSize);
+            m_iccProfile = LCMSProfilePtr(cmsOpenProfileFromMem(data, dataSize));
     }
 
     if (data)
         XFree(data);
 
-    return m_iccProfile ? m_iccProfile : PlatformDisplay::colorProfile();
+    return m_iccProfile ? m_iccProfile.get() : PlatformDisplay::colorProfile();
+}
+#endif
+
+#if USE(ATSPI)
+String PlatformDisplayX11::platformAccessibilityBusAddress() const
+{
+    Atom atspiBusAtom = XInternAtom(m_display, "AT_SPI_BUS", False);
+    Atom type;
+    int format;
+    unsigned long itemCount, bytesAfter;
+    unsigned char* data = nullptr;
+    XErrorTrapper trapper(m_display, XErrorTrapper::Policy::Ignore);
+    XGetWindowProperty(m_display, RootWindowOfScreen(DefaultScreenOfDisplay(m_display)), atspiBusAtom, 0L, 8192, False, XA_STRING, &type, &format, &itemCount, &bytesAfter, &data);
+
+    String atspiBusAddress = String::fromUTF8(reinterpret_cast<char*>(data));
+    if (data)
+        XFree(data);
+
+    return atspiBusAddress;
 }
 #endif
 

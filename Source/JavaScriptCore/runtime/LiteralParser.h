@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2009 Apple Inc. All rights reserved.
+ * Copyright (C) 2009-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,6 +25,8 @@
 
 #pragma once
 
+#include "ArgList.h"
+#include "GetVM.h"
 #include "Identifier.h"
 #include "JSCJSValue.h"
 #include <array>
@@ -33,7 +35,7 @@
 
 namespace JSC {
 
-enum ParserMode : uint8_t { StrictJSON, NonStrictJSON, JSONP };
+enum ParserMode : uint8_t { StrictJSON, SloppyJSON, JSONP };
 
 enum JSONPPathEntryType : uint8_t {
     JSONPPathEntryTypeDeclareVar, // var pathEntryName = JSON
@@ -52,7 +54,7 @@ enum TokenType : uint8_t {
     TokLBracket, TokRBracket, TokLBrace, TokRBrace,
     TokString, TokIdentifier, TokNumber, TokColon,
     TokLParen, TokRParen, TokComma, TokTrue, TokFalse,
-    TokNull, TokEnd, TokDot, TokAssign, TokSemi, TokError };
+    TokNull, TokEnd, TokDot, TokAssign, TokSemi, TokError, TokErrorSpace };
 
 struct JSONPPathEntry {
     Identifier m_pathEntryName;
@@ -68,24 +70,19 @@ struct JSONPData {
 template <typename CharType>
 struct LiteralParserToken {
 private:
-WTF_MAKE_NONCOPYABLE(LiteralParserToken<CharType>);
+WTF_MAKE_NONCOPYABLE(LiteralParserToken);
 
 public:
     LiteralParserToken() = default;
 
     TokenType type;
-    const CharType* start;
-    const CharType* end;
+    unsigned stringIs8Bit : 1; // Only used for TokString.
+    unsigned stringOrIdentifierLength : 31;
     union {
-        double numberToken;
-        struct {
-            union {
-                const LChar* stringToken8;
-                const UChar* stringToken16;
-            };
-            unsigned stringIs8Bit : 1;
-            unsigned stringLength : 31;
-        };
+        double numberToken; // Only used for TokNumber.
+        const CharType* identifierStart;
+        const LChar* stringStart8;
+        const UChar* stringStart16;
     };
 };
 
@@ -106,18 +103,24 @@ public:
     String getErrorMessage()
     { 
         if (!m_lexer.getErrorMessage().isEmpty())
-            return "JSON Parse error: " + m_lexer.getErrorMessage();
+            return "JSON Parse error: "_s + m_lexer.getErrorMessage();
         if (!m_parseErrorMessage.isEmpty())
-            return "JSON Parse error: " + m_parseErrorMessage;
+            return "JSON Parse error: "_s + m_parseErrorMessage;
         return "JSON Parse error: Unable to parse JSON string"_s;
     }
     
     JSValue tryLiteralParse()
     {
         m_lexer.next();
-        JSValue result = parse(m_mode == StrictJSON ? StartParseExpression : StartParseStatement);
-        if (m_lexer.currentToken()->type == TokSemi)
-            m_lexer.next();
+        JSValue result;
+        VM& vm = getVM(m_globalObject);
+        if (m_mode == StrictJSON)
+            result = parseRecursivelyEntry(vm);
+        else {
+            result = parse(vm, StartParseStatement);
+            if (m_lexer.currentToken()->type == TokSemi)
+                m_lexer.next();
+        }
         if (m_lexer.currentToken()->type != TokEnd)
             return JSValue();
         return result;
@@ -138,7 +141,7 @@ private:
         TokenType next();
         
 #if !ASSERT_ENABLED
-        typedef const LiteralParserToken<CharType>* LiteralParserTokenPtr;
+        using LiteralParserTokenPtr = const LiteralParserToken<CharType>*;
 
         LiteralParserTokenPtr currentToken()
         {
@@ -193,19 +196,26 @@ private:
     };
     
     class StackGuard;
-    JSValue parse(ParserState);
+    JSValue parseRecursivelyEntry(VM&);
+    JSValue parseRecursively(VM&, uint8_t* stackLimit);
+    JSValue parse(VM&, ParserState);
 
-    template<typename LiteralCharType>
-    ALWAYS_INLINE Identifier makeIdentifier(const LiteralCharType* characters, size_t length);
+    JSValue parsePrimitiveValue(VM&);
 
-    JSGlobalObject* m_globalObject;
-    CodeBlock* m_nullOrCodeBlock;
+    ALWAYS_INLINE Identifier makeIdentifier(VM&, typename Lexer::LiteralParserTokenPtr);
+    ALWAYS_INLINE JSString* makeJSString(VM&, typename Lexer::LiteralParserTokenPtr);
+
+    void setErrorMessageForToken(TokenType);
+
+    JSGlobalObject* const m_globalObject;
+    CodeBlock* const m_nullOrCodeBlock;
     typename LiteralParser<CharType>::Lexer m_lexer;
-    ParserMode m_mode;
+    const ParserMode m_mode;
     String m_parseErrorMessage;
-    static constexpr unsigned maximumCachableCharacter = 128;
-    std::array<uint8_t, maximumCachableCharacter> m_recentIdentifiersIndex { };
-    Vector<Identifier, maximumCachableCharacter> m_recentIdentifiers;
+    HashSet<JSObject*> m_visitedUnderscoreProto;
+    MarkedArgumentBuffer m_objectStack;
+    Vector<ParserState, 16, UnsafeVectorOverflow> m_stateStack;
+    Vector<Identifier, 16, UnsafeVectorOverflow> m_identifierStack;
 };
 
 } // namespace JSC

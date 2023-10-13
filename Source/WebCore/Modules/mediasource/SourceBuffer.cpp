@@ -34,8 +34,12 @@
 
 #if ENABLE(MEDIA_SOURCE)
 
+#include "AudioTrack.h"
 #include "AudioTrackList.h"
+#include "AudioTrackPrivate.h"
 #include "BufferSource.h"
+#include "BufferedChangeEvent.h"
+#include "ContentTypeUtilities.h"
 #include "Event.h"
 #include "EventNames.h"
 #include "HTMLMediaElement.h"
@@ -44,54 +48,59 @@
 #include "Logging.h"
 #include "MediaDescription.h"
 #include "MediaSource.h"
+#include "SharedBuffer.h"
 #include "SourceBufferList.h"
 #include "SourceBufferPrivate.h"
 #include "TextTrackList.h"
 #include "TimeRanges.h"
+#include "VideoTrack.h"
 #include "VideoTrackList.h"
+#include "VideoTrackPrivate.h"
+#include "WebCoreOpaqueRoot.h"
 #include <JavaScriptCore/JSCInlines.h>
 #include <JavaScriptCore/JSLock.h>
 #include <JavaScriptCore/VM.h>
 #include <limits>
 #include <wtf/CheckedArithmetic.h>
 #include <wtf/IsoMallocInlines.h>
+#include <wtf/StringPrintStream.h>
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
 WTF_MAKE_ISO_ALLOCATED_IMPL(SourceBuffer);
 
-static const double ExponentialMovingAverageCoefficient = 0.1;
+static const double ExponentialMovingAverageCoefficient = 0.2;
 
-Ref<SourceBuffer> SourceBuffer::create(Ref<SourceBufferPrivate>&& sourceBufferPrivate, MediaSource* source)
+Ref<SourceBuffer> SourceBuffer::create(Ref<SourceBufferPrivate>&& sourceBufferPrivate, MediaSource& source)
 {
     auto sourceBuffer = adoptRef(*new SourceBuffer(WTFMove(sourceBufferPrivate), source));
     sourceBuffer->suspendIfNeeded();
     return sourceBuffer;
 }
 
-SourceBuffer::SourceBuffer(Ref<SourceBufferPrivate>&& sourceBufferPrivate, MediaSource* source)
-    : ActiveDOMObject(source->scriptExecutionContext())
+SourceBuffer::SourceBuffer(Ref<SourceBufferPrivate>&& sourceBufferPrivate, MediaSource& source)
+    : ActiveDOMObject(source.scriptExecutionContext())
     , m_private(WTFMove(sourceBufferPrivate))
-    , m_source(source)
+    , m_source(&source)
+    , m_opaqueRootProvider([this] { return opaqueRoot(); })
     , m_appendBufferTimer(*this, &SourceBuffer::appendBufferTimerFired)
     , m_appendWindowStart(MediaTime::zeroTime())
     , m_appendWindowEnd(MediaTime::positiveInfiniteTime())
     , m_appendState(WaitingForSegment)
-    , m_timeOfBufferingMonitor(MonotonicTime::now())
+    , m_timeOfBufferingMonitor(MonotonicTime::fromRawSeconds(0))
     , m_pendingRemoveStart(MediaTime::invalidTime())
     , m_pendingRemoveEnd(MediaTime::invalidTime())
     , m_removeTimer(*this, &SourceBuffer::removeTimerFired)
+    , m_buffered(TimeRanges::create())
 #if !RELEASE_LOG_DISABLED
     , m_logger(m_private->sourceBufferLogger())
     , m_logIdentifier(m_private->sourceBufferLogIdentifier())
 #endif
 {
-    ASSERT(m_source);
     ALWAYS_LOG(LOGIDENTIFIER);
 
-    m_private->setClient(this);
-    m_private->setIsAttached(true);
+    m_private->setClient(*this);
 }
 
 SourceBuffer::~SourceBuffer()
@@ -99,11 +108,10 @@ SourceBuffer::~SourceBuffer()
     ASSERT(isRemoved());
     ALWAYS_LOG(LOGIDENTIFIER);
 
-    m_private->setIsAttached(false);
-    m_private->setClient(nullptr);
+    m_private->detach();
 }
 
-ExceptionOr<Ref<TimeRanges>> SourceBuffer::buffered() const
+ExceptionOr<Ref<TimeRanges>> SourceBuffer::buffered()
 {
     // Section 3.1 buffered attribute steps.
     // https://dvcs.w3.org/hg/html-media/raw-file/default/media-source/media-source.html#attributes-1
@@ -112,8 +120,11 @@ ExceptionOr<Ref<TimeRanges>> SourceBuffer::buffered() const
     if (isRemoved())
         return Exception { InvalidStateError };
 
-    // 2. Return a new static normalized TimeRanges object for the media segments buffered.
-    return m_private->buffered()->copy();
+    // 5. If intersection ranges does not contain the exact same range information as the current value of this attribute, then update the current value of this attribute to intersection ranges.
+    // Handled by sourceBufferPrivateBufferedChanged().
+
+    // 6. Return the current value of this attribute.
+    return Ref { m_buffered };
 }
 
 double SourceBuffer::timestampOffset() const
@@ -214,6 +225,7 @@ ExceptionOr<void> SourceBuffer::setAppendWindowEnd(double newValue)
 
 ExceptionOr<void> SourceBuffer::appendBuffer(const BufferSource& data)
 {
+    monitorBufferingRate();
     return appendBufferInternal(static_cast<const unsigned char*>(data.data()), data.length());
 }
 
@@ -274,7 +286,9 @@ ExceptionOr<void> SourceBuffer::abort()
 
 ExceptionOr<void> SourceBuffer::remove(double start, double end)
 {
-    return remove(MediaTime::createWithDouble(start), MediaTime::createWithDouble(end));
+    // Limit timescale to 1/1000 of microsecond so samples won't accidentally overlap with removal range by precision lost (e.g. by 0.000000000000X [sec]).
+    static const uint32_t timescale = 1000000000;
+    return remove(MediaTime::createWithDouble(start, timescale), MediaTime::createWithDouble(end, timescale));
 }
 
 ExceptionOr<void> SourceBuffer::remove(const MediaTime& start, const MediaTime& end)
@@ -349,6 +363,11 @@ ExceptionOr<void> SourceBuffer::changeType(const String& type)
     // the types specified (currently or previously) of SourceBuffer objects in the sourceBuffers attribute of
     // the parent media source, then throw a NotSupportedError exception and abort these steps.
     ContentType contentType(type);
+
+    auto& settings = document().settings();
+    if (!contentTypeMeetsContainerAndCodecTypeRequirements(contentType, settings.allowedMediaContainerTypes(), settings.allowedMediaCodecTypes()))
+        return Exception { NotSupportedError };
+
     if (!m_private->canSwitchToType(contentType))
         return Exception { NotSupportedError };
 
@@ -393,7 +412,7 @@ void SourceBuffer::abortIfUpdating()
 
     // 4.1. Abort the buffer append algorithm if it is running.
     m_appendBufferTimer.stop();
-    m_pendingAppendData.clear();
+    m_pendingAppendData = nullptr;
     m_private->abort();
 
     // 4.2. Set the updating attribute to false.
@@ -414,7 +433,7 @@ MediaTime SourceBuffer::highestPresentationTimestamp() const
 void SourceBuffer::readyStateChanged()
 {
     if (!isRemoved())
-        m_private->updateBufferedFromTrackBuffers(m_source->isEnded());
+        m_private->clientReadyStateChanged(m_source->isEnded());
 }
 
 void SourceBuffer::removedFromMediaSource()
@@ -426,7 +445,7 @@ void SourceBuffer::removedFromMediaSource()
 
     m_private->clearTrackBuffers();
     m_private->removedFromMediaSource();
-    m_private->setIsAttached(false);
+    m_private->detach();
     m_source = nullptr;
 }
 
@@ -477,13 +496,15 @@ ExceptionOr<void> SourceBuffer::appendBufferInternal(const unsigned char* data, 
     if (isRemoved() || m_updating)
         return Exception { InvalidStateError };
 
+    DEBUG_LOG(LOGIDENTIFIER, "size = ", size, ", buffered = ", m_private->buffered());
+
     // 3. If the readyState attribute of the parent media source is in the "ended" state then run the following steps:
     // 3.1. Set the readyState attribute of the parent media source to "open"
     // 3.2. Queue a task to fire a simple event named sourceopen at the parent media source .
     m_source->openIfInEndedState();
 
     // 4. Run the coded frame eviction algorithm.
-    m_private->evictCodedFrames(size, maximumBufferSize(), m_source->currentTime(), m_source->duration(), m_source->isEnded());
+    m_private->evictCodedFrames(size, maximumBufferSize(), m_source->currentTime(), m_source->isEnded());
 
     // 5. If the buffer full flag equals true, then throw a QuotaExceededError exception and abort these step.
     if (m_private->isBufferFullFor(size, maximumBufferSize())) {
@@ -493,7 +514,8 @@ ExceptionOr<void> SourceBuffer::appendBufferInternal(const unsigned char* data, 
 
     // NOTE: Return to 3.2 appendBuffer()
     // 3. Add data to the end of the input buffer.
-    m_pendingAppendData.append(data, size);
+    ASSERT(!m_pendingAppendData);
+    m_pendingAppendData = SharedBuffer::create(data, size);
 
     // 4. Set the updating attribute to true.
     m_updating = true;
@@ -523,18 +545,14 @@ void SourceBuffer::appendBufferTimerFired()
     // https://dvcs.w3.org/hg/html-media/raw-file/tip/media-source/media-source.html#sourcebuffer-segment-parser-loop
     // When the segment parser loop algorithm is invoked, run the following steps:
 
+    RefPtr<SharedBuffer> appendData = WTFMove(m_pendingAppendData);
     // 1. Loop Top: If the input buffer is empty, then jump to the need more data step below.
-    if (!m_pendingAppendData.size()) {
-        sourceBufferPrivateAppendComplete(AppendResult::AppendSucceeded);
+    if (!appendData || !appendData->size()) {
+        sourceBufferPrivateAppendComplete(AppendResult::Succeeded);
         return;
     }
 
-    // Manually clear out the m_pendingAppendData Vector, in case the platform implementation
-    // rejects appending the buffer for whatever reason.
-    // FIXME: The implementation should guarantee the move from this Vector, and we should
-    // assert here to confirm that. See https://bugs.webkit.org/show_bug.cgi?id=178003.
-    m_private->append(WTFMove(m_pendingAppendData));
-    m_pendingAppendData.clear();
+    m_private->append(appendData.releaseNonNull());
 }
 
 void SourceBuffer::sourceBufferPrivateAppendComplete(AppendResult result)
@@ -560,7 +578,7 @@ void SourceBuffer::sourceBufferPrivateAppendComplete(AppendResult result)
 
     // NOTE: return to Section 3.5.5
     // 2.If the segment parser loop algorithm in the previous step was aborted, then abort this algorithm.
-    if (result != AppendResult::AppendSucceeded)
+    if (result != AppendResult::Succeeded)
         return;
 
     // 3. Set the updating attribute to false.
@@ -573,9 +591,10 @@ void SourceBuffer::sourceBufferPrivateAppendComplete(AppendResult result)
     scheduleEvent(eventNames().updateendEvent);
 
     m_source->monitorSourceBuffers();
+    monitorBufferingRate();
     m_private->reenqueueMediaIfNeeded(m_source->currentTime());
 
-    DEBUG_LOG(LOGIDENTIFIER);
+    ALWAYS_LOG(LOGIDENTIFIER, "buffered = ", m_private->buffered(), ", totalBufferSize: ", m_private->totalTrackBufferSizeInBytes());
 }
 
 void SourceBuffer::sourceBufferPrivateDidReceiveRenderingError(int64_t error)
@@ -604,7 +623,10 @@ void SourceBuffer::removeTimerFired()
 
     // 6. Run the coded frame removal algorithm with start and end as the start and end of the removal range.
 
-    m_private->removeCodedFrames(m_pendingRemoveStart, m_pendingRemoveEnd, m_source->currentTime(), m_source->isEnded(), [this, protectedThis = makeRef(*this)] {
+    m_private->removeCodedFrames(m_pendingRemoveStart, m_pendingRemoveEnd, m_source->currentTime(), m_source->isEnded(), [this, protectedThis = Ref { *this }] {
+        if (isRemoved())
+            return;
+
         // 7. Set the updating attribute to false.
         m_updating = false;
         m_pendingRemoveStart = MediaTime::invalidTime();
@@ -615,6 +637,8 @@ void SourceBuffer::removeTimerFired()
 
         // 9. Queue a task to fire a simple event named updateend at this SourceBuffer object.
         scheduleEvent(eventNames().updateendEvent);
+
+        m_source->monitorSourceBuffers();
     });
 }
 
@@ -627,27 +651,37 @@ uint64_t SourceBuffer::maximumBufferSize() const
     if (!element)
         return 0;
 
+    size_t platformMaximumBufferSize = m_private->platformMaximumBufferSize();
+    if (platformMaximumBufferSize)
+        return platformMaximumBufferSize;
+
     return element->maximumSourceBufferSize(*this);
 }
 
 VideoTrackList& SourceBuffer::videoTracks()
 {
-    if (!m_videoTracks)
-        m_videoTracks = VideoTrackList::create(makeWeakPtr((isRemoved() ? nullptr : m_source->mediaElement())), scriptExecutionContext());
+    if (!m_videoTracks) {
+        m_videoTracks = VideoTrackList::create(scriptExecutionContext());
+        m_videoTracks->setOpaqueRootObserver(m_opaqueRootProvider);
+    }
     return *m_videoTracks;
 }
 
 AudioTrackList& SourceBuffer::audioTracks()
 {
-    if (!m_audioTracks)
-        m_audioTracks = AudioTrackList::create(makeWeakPtr((isRemoved() ? nullptr : m_source->mediaElement())), scriptExecutionContext());
+    if (!m_audioTracks) {
+        m_audioTracks = AudioTrackList::create(scriptExecutionContext());
+        m_audioTracks->setOpaqueRootObserver(m_opaqueRootProvider);
+    }
     return *m_audioTracks;
 }
 
 TextTrackList& SourceBuffer::textTracks()
 {
-    if (!m_textTracks)
-        m_textTracks = TextTrackList::create(makeWeakPtr((isRemoved() ? nullptr : m_source->mediaElement())), scriptExecutionContext());
+    if (!m_textTracks) {
+        m_textTracks = TextTrackList::create(scriptExecutionContext());
+        m_textTracks->setOpaqueRootObserver(m_opaqueRootProvider);
+    }
     return *m_textTracks;
 }
 
@@ -662,10 +696,10 @@ void SourceBuffer::setActive(bool active)
         m_source->sourceBufferDidChangeActiveState(*this, active);
 }
 
-void SourceBuffer::sourceBufferPrivateDidReceiveInitializationSegment(InitializationSegment&& segment, CompletionHandler<void()>&& completionHandler)
+void SourceBuffer::sourceBufferPrivateDidReceiveInitializationSegment(InitializationSegment&& segment, CompletionHandler<void(ReceiveResult)>&& completionHandler)
 {
     if (isRemoved()) {
-        completionHandler();
+        completionHandler(ReceiveResult::BufferRemoved);
         return;
     }
 
@@ -689,8 +723,8 @@ void SourceBuffer::sourceBufferPrivateDidReceiveInitializationSegment(Initializa
     // 2. If the initialization segment has no audio, video, or text tracks, then run the append error algorithm
     // with the decode error parameter set to true and abort these steps.
     if (segment.audioTracks.isEmpty() && segment.videoTracks.isEmpty() && segment.textTracks.isEmpty()) {
-        appendError(true);
-        completionHandler();
+        // appendError will be called once sourceBufferPrivateAppendComplete gets called once the completionHandler is run.
+        completionHandler(ReceiveResult::AppendError);
         return;
     }
 
@@ -699,8 +733,8 @@ void SourceBuffer::sourceBufferPrivateDidReceiveInitializationSegment(Initializa
         // 3.1. Verify the following properties. If any of the checks fail then run the append error algorithm
         // with the decode error parameter set to true and abort these steps.
         if (!validateInitializationSegment(segment)) {
-            appendError(true);
-            completionHandler();
+            // appendError will be called once sourceBufferPrivateAppendComplete gets called once the completionHandler is run.
+            completionHandler(ReceiveResult::AppendError);
             return;
         }
 
@@ -757,7 +791,7 @@ void SourceBuffer::sourceBufferPrivateDidReceiveInitializationSegment(Initializa
             ASSERT(textTrack);
             downcast<InbandTextTrack>(*textTrack).setPrivate(*textTrackInfo.track);
         }
-        
+
         if (!trackIdPairs.isEmpty())
             m_private->updateTrackIds(WTFMove(trackIdPairs));
 
@@ -773,13 +807,32 @@ void SourceBuffer::sourceBufferPrivateDidReceiveInitializationSegment(Initializa
         // 5.1 If the initialization segment contains tracks with codecs the user agent does not support,
         // then run the append error algorithm with the decode error parameter set to true and abort these steps.
         // NOTE: This check is the responsibility of the SourceBufferPrivate.
+        // appendError will be called once sourceBufferPrivateAppendComplete gets called once the completionHandler is run.
+        if (auto& allowedMediaAudioCodecIDs = document().settings().allowedMediaAudioCodecIDs()) {
+            for (auto& audioTrackInfo : segment.audioTracks) {
+                if (audioTrackInfo.description && allowedMediaAudioCodecIDs->contains(FourCC::fromString(audioTrackInfo.description->codec())))
+                    continue;
+                completionHandler(ReceiveResult::AppendError);
+                return;
+            }
+        }
+
+        if (auto& allowedMediaVideoCodecIDs = document().settings().allowedMediaVideoCodecIDs()) {
+            for (auto& videoTrackInfo : segment.videoTracks) {
+                if (videoTrackInfo.description && allowedMediaVideoCodecIDs->contains(FourCC::fromString(videoTrackInfo.description->codec())))
+                    continue;
+                completionHandler(ReceiveResult::AppendError);
+                return;
+            }
+        }
 
         // 5.2 For each audio track in the initialization segment, run following steps:
         for (auto& audioTrackInfo : segment.audioTracks) {
             // FIXME: Implement steps 5.2.1-5.2.8.1 as per Editor's Draft 09 January 2015, and reorder this
             // 5.2.1 Let new audio track be a new AudioTrack object.
             // 5.2.2 Generate a unique ID and assign it to the id property on new video track.
-            auto newAudioTrack = AudioTrack::create(*this, *audioTrackInfo.track);
+            auto newAudioTrack = AudioTrack::create(scriptExecutionContext(), *audioTrackInfo.track);
+            newAudioTrack->addClient(*this);
             newAudioTrack->setSourceBuffer(this);
 
             // 5.2.3 If audioTracks.length equals 0, then run the following steps:
@@ -801,7 +854,7 @@ void SourceBuffer::sourceBufferPrivateDidReceiveInitializationSegment(Initializa
             // 5.2.7 Queue a task to fire a trusted event named addtrack, that does not bubble and is
             // not cancelable, and that uses the TrackEvent interface, at the AudioTrackList object
             // referenced by the audioTracks attribute on the HTMLMediaElement.
-            m_source->mediaElement()->ensureAudioTracks().append(newAudioTrack.copyRef());
+            m_source->mediaElement()->addAudioTrack(newAudioTrack.copyRef());
 
             m_audioCodecs.append(audioTrackInfo.description->codec());
 
@@ -814,7 +867,8 @@ void SourceBuffer::sourceBufferPrivateDidReceiveInitializationSegment(Initializa
             // FIXME: Implement steps 5.3.1-5.3.8.1 as per Editor's Draft 09 January 2015, and reorder this
             // 5.3.1 Let new video track be a new VideoTrack object.
             // 5.3.2 Generate a unique ID and assign it to the id property on new video track.
-            auto newVideoTrack = VideoTrack::create(*this, *videoTrackInfo.track);
+            auto newVideoTrack = VideoTrack::create(scriptExecutionContext(), *videoTrackInfo.track);
+            newVideoTrack->addClient(*this);
             newVideoTrack->setSourceBuffer(this);
 
             // 5.3.3 If videoTracks.length equals 0, then run the following steps:
@@ -836,7 +890,7 @@ void SourceBuffer::sourceBufferPrivateDidReceiveInitializationSegment(Initializa
             // 5.3.7 Queue a task to fire a trusted event named addtrack, that does not bubble and is
             // not cancelable, and that uses the TrackEvent interface, at the VideoTrackList object
             // referenced by the videoTracks attribute on the HTMLMediaElement.
-            m_source->mediaElement()->ensureVideoTracks().append(newVideoTrack.copyRef());
+            m_source->mediaElement()->addVideoTrack(newVideoTrack.copyRef());
 
             m_videoCodecs.append(videoTrackInfo.description->codec());
 
@@ -851,7 +905,8 @@ void SourceBuffer::sourceBufferPrivateDidReceiveInitializationSegment(Initializa
             // FIXME: Implement steps 5.4.1-5.4.8.1 as per Editor's Draft 09 January 2015, and reorder this
             // 5.4.1 Let new text track be a new TextTrack object with its properties populated with the
             // appropriate information from the initialization segment.
-            auto newTextTrack = InbandTextTrack::create(document(), *this, textTrackPrivate);
+            auto newTextTrack = InbandTextTrack::create(document(), textTrackPrivate);
+            newTextTrack->addClient(*this);
 
             // 5.4.2 If the mode property on new text track equals "showing" or "hidden", then set active
             // track flag to true.
@@ -868,7 +923,7 @@ void SourceBuffer::sourceBufferPrivateDidReceiveInitializationSegment(Initializa
             // 5.4.6 Queue a task to fire a trusted event named addtrack, that does not bubble and is
             // not cancelable, and that uses the TrackEvent interface, at the TextTrackList object
             // referenced by the textTracks attribute on the HTMLMediaElement.
-            m_source->mediaElement()->ensureTextTracks().append(newTextTrack.copyRef());
+            m_source->mediaElement()->addTextTrack(newTextTrack.copyRef());
 
             m_textCodecs.append(textTrackInfo.description->codec());
 
@@ -890,14 +945,15 @@ void SourceBuffer::sourceBufferPrivateDidReceiveInitializationSegment(Initializa
     // (Note: Issue #155 adds this step after step 5:)
     // 6. Set  pending initialization segment for changeType flag  to false.
     m_pendingInitializationSegmentForChangeType = false;
-    completionHandler();
 
     // 6. If the HTMLMediaElement.readyState attribute is HAVE_NOTHING, then run the following steps:
     if (m_private->readyState() == MediaPlayer::ReadyState::HaveNothing) {
         // 6.1 If one or more objects in sourceBuffers have first initialization segment flag set to false, then abort these steps.
         for (auto& sourceBuffer : *m_source->sourceBuffers()) {
-            if (!sourceBuffer->m_receivedFirstInitializationSegment)
+            if (!sourceBuffer->m_receivedFirstInitializationSegment) {
+                completionHandler(ReceiveResult::Succeeded);
                 return;
+            }
         }
 
         // 6.2 Set the HTMLMediaElement.readyState attribute to HAVE_METADATA.
@@ -910,6 +966,8 @@ void SourceBuffer::sourceBufferPrivateDidReceiveInitializationSegment(Initializa
     // attribute to HAVE_METADATA.
     if (activeTrackFlag && m_private->readyState() > MediaPlayer::ReadyState::HaveCurrentData)
         m_private->setReadyState(MediaPlayer::ReadyState::HaveMetadata);
+
+    completionHandler(ReceiveResult::Succeeded);
 }
 
 bool SourceBuffer::validateInitializationSegment(const InitializationSegment& segment)
@@ -960,11 +1018,6 @@ bool SourceBuffer::validateInitializationSegment(const InitializationSegment& se
     }
 
     return true;
-}
-
-void SourceBuffer::sourceBufferPrivateAppendError(bool decodeError)
-{
-    appendError(decodeError);
 }
 
 void SourceBuffer::appendError(bool decodeError)
@@ -1023,9 +1076,24 @@ void SourceBuffer::videoTrackSelectedChanged(VideoTrack& track)
 
     if (m_videoTracks && m_videoTracks->contains(track))
         m_videoTracks->scheduleChangeEvent();
+}
 
-    if (!isRemoved())
-        m_source->mediaElement()->videoTrackSelectedChanged(track);
+void SourceBuffer::videoTrackKindChanged(VideoTrack& track)
+{
+    if (m_videoTracks && m_videoTracks->contains(track))
+        m_videoTracks->scheduleChangeEvent();
+}
+
+void SourceBuffer::videoTrackLabelChanged(VideoTrack& track)
+{
+    if (m_videoTracks && m_videoTracks->contains(track))
+        m_videoTracks->scheduleChangeEvent();
+}
+
+void SourceBuffer::videoTrackLanguageChanged(VideoTrack& track)
+{
+    if (m_videoTracks && m_videoTracks->contains(track))
+        m_videoTracks->scheduleChangeEvent();
 }
 
 void SourceBuffer::audioTrackEnabledChanged(AudioTrack& track)
@@ -1050,9 +1118,24 @@ void SourceBuffer::audioTrackEnabledChanged(AudioTrack& track)
 
     if (m_audioTracks && m_audioTracks->contains(track))
         m_audioTracks->scheduleChangeEvent();
+}
 
-    if (!isRemoved())
-        m_source->mediaElement()->audioTrackEnabledChanged(track);
+void SourceBuffer::audioTrackKindChanged(AudioTrack& track)
+{
+    if (m_audioTracks && m_audioTracks->contains(track))
+        m_audioTracks->scheduleChangeEvent();
+}
+
+void SourceBuffer::audioTrackLabelChanged(AudioTrack& track)
+{
+    if (m_audioTracks && m_audioTracks->contains(track))
+        m_audioTracks->scheduleChangeEvent();
+}
+
+void SourceBuffer::audioTrackLanguageChanged(AudioTrack& track)
+{
+    if (m_audioTracks && m_audioTracks->contains(track))
+        m_audioTracks->scheduleChangeEvent();
 }
 
 void SourceBuffer::textTrackModeChanged(TextTrack& track)
@@ -1077,39 +1160,18 @@ void SourceBuffer::textTrackModeChanged(TextTrack& track)
 
     if (m_textTracks && m_textTracks->contains(track))
         m_textTracks->scheduleChangeEvent();
-
-    if (!isRemoved())
-        m_source->mediaElement()->textTrackModeChanged(track);
-}
-
-void SourceBuffer::textTrackAddCue(TextTrack& track, TextTrackCue& cue)
-{
-    if (!isRemoved())
-        m_source->mediaElement()->textTrackAddCue(track, cue);
-}
-
-void SourceBuffer::textTrackAddCues(TextTrack& track, const TextTrackCueList& cueList)
-{
-    if (!isRemoved())
-        m_source->mediaElement()->textTrackAddCues(track, cueList);
-}
-
-void SourceBuffer::textTrackRemoveCue(TextTrack& track, TextTrackCue& cue)
-{
-    if (!isRemoved())
-        m_source->mediaElement()->textTrackRemoveCue(track, cue);
-}
-
-void SourceBuffer::textTrackRemoveCues(TextTrack& track, const TextTrackCueList& cueList)
-{
-    if (!isRemoved())
-        m_source->mediaElement()->textTrackRemoveCues(track, cueList);
 }
 
 void SourceBuffer::textTrackKindChanged(TextTrack& track)
 {
-    if (!isRemoved())
-        m_source->mediaElement()->textTrackKindChanged(track);
+    if (m_textTracks && m_textTracks->contains(track))
+        m_textTracks->scheduleChangeEvent();
+}
+
+void SourceBuffer::textTrackLanguageChanged(TextTrack& track)
+{
+    if (m_textTracks && m_textTracks->contains(track))
+        m_textTracks->scheduleChangeEvent();
 }
 
 void SourceBuffer::sourceBufferPrivateDidParseSample(double frameDuration)
@@ -1117,10 +1179,17 @@ void SourceBuffer::sourceBufferPrivateDidParseSample(double frameDuration)
     m_bufferedSinceLastMonitor += frameDuration;
 }
 
-void SourceBuffer::sourceBufferPrivateDurationChanged(const MediaTime& duration)
+void SourceBuffer::sourceBufferPrivateDurationChanged(const MediaTime& duration, CompletionHandler<void()>&& completionHandler)
 {
-    if (!isRemoved())
-        m_source->setDurationInternal(duration);
+    if (isRemoved()) {
+        completionHandler();
+        return;
+    }
+
+    m_source->setDurationInternal(duration);
+    if (m_textTracks)
+        m_textTracks->setDuration(duration);
+    completionHandler();
 }
 
 void SourceBuffer::sourceBufferPrivateHighestPresentationTimestampChanged(const MediaTime& timestamp)
@@ -1142,6 +1211,12 @@ void SourceBuffer::sourceBufferPrivateStreamEndedWithDecodeError()
 
 void SourceBuffer::monitorBufferingRate()
 {
+    // We avoid the first update of m_averageBufferRate on purpose, but in exchange we get a more accurate m_timeOfBufferingMonitor initial time.
+    if (!m_timeOfBufferingMonitor) {
+        m_timeOfBufferingMonitor = MonotonicTime::now();
+        return;
+    }
+
     MonotonicTime now = MonotonicTime::now();
     Seconds interval = now - m_timeOfBufferingMonitor;
     double rateSinceLastMonitor = m_bufferedSinceLastMonitor / interval.seconds();
@@ -1154,7 +1229,7 @@ void SourceBuffer::monitorBufferingRate()
     DEBUG_LOG(LOGIDENTIFIER, m_averageBufferRate);
 }
 
-bool SourceBuffer::canPlayThroughRange(PlatformTimeRanges& ranges)
+bool SourceBuffer::canPlayThroughRange(const PlatformTimeRanges& ranges)
 {
     if (isRemoved())
         return false;
@@ -1188,7 +1263,12 @@ void SourceBuffer::sourceBufferPrivateReportExtraMemoryCost(uint64_t extraMemory
 
 void SourceBuffer::reportExtraMemoryAllocated(uint64_t extraMemory)
 {
-    uint64_t extraMemoryCost = m_pendingAppendData.capacity() + extraMemory;
+    uint64_t extraMemoryCost = extraMemory;
+    if (m_pendingAppendData)
+        extraMemoryCost += m_pendingAppendData->size();
+
+    m_extraMemoryCost = extraMemoryCost;
+
     if (extraMemoryCost <= m_reportedExtraMemoryCost)
         return;
 
@@ -1276,11 +1356,26 @@ void SourceBuffer::setShouldGenerateTimestamps(bool flag)
     m_private->setShouldGenerateTimestamps(flag);
 }
 
-void SourceBuffer::sourceBufferPrivateBufferedDirtyChanged(bool flag)
+void SourceBuffer::sourceBufferPrivateBufferedChanged(const PlatformTimeRanges& ranges, CompletionHandler<void()>&& completionHandler)
 {
-    m_bufferedDirty = flag;
-    if (!isRemoved())
-        m_source->sourceBufferDidChangeBufferedDirty(*this, flag);
+    ASSERT(ranges != m_buffered->ranges(), "sourceBufferPrivateBufferedChanged should only be called if the ranges did change");
+#if ENABLE(MANAGED_MEDIA_SOURCE)
+    if (isManaged()) {
+        auto addedRanges = ranges;
+        addedRanges -= m_buffered->ranges();
+        auto addedTimeRanges = addedRanges.length() ? RefPtr { TimeRanges::create(WTFMove(addedRanges)) } : nullptr;
+
+        auto removedRanges = m_buffered->ranges();
+        removedRanges -= ranges;
+        auto removedTimeRanges = removedRanges.length() ? RefPtr { TimeRanges::create(WTFMove(removedRanges)) } : nullptr;
+
+        ASSERT(addedTimeRanges || removedTimeRanges, "Can't generate an empty dictionary");
+        queueTaskToDispatchEvent(*this, TaskSource::MediaElement, BufferedChangeEvent::create(WTFMove(addedTimeRanges), WTFMove(removedTimeRanges)));
+    }
+#endif
+    m_buffered = TimeRanges::create(ranges);
+    setBufferedDirty(true);
+    completionHandler();
 }
 
 bool SourceBuffer::isBufferedDirty() const
@@ -1290,13 +1385,36 @@ bool SourceBuffer::isBufferedDirty() const
 
 void SourceBuffer::setBufferedDirty(bool flag)
 {
+    if (m_bufferedDirty == flag)
+        return;
     m_bufferedDirty = flag;
+    if (flag && m_source)
+        m_source->sourceBufferBufferedChanged();
 }
 
 void SourceBuffer::setMediaSourceEnded(bool isEnded)
 {
     m_private->setMediaSourceEnded(isEnded);
 }
+
+size_t SourceBuffer::memoryCost() const
+{
+    return sizeof(SourceBuffer) + m_extraMemoryCost;
+}
+
+WebCoreOpaqueRoot SourceBuffer::opaqueRoot()
+{
+    return WebCoreOpaqueRoot { this };
+}
+
+#if ENABLE(MANAGED_MEDIA_SOURCE)
+void SourceBuffer::memoryPressure()
+{
+    if (!isManaged())
+        return;
+    m_private->memoryPressure(maximumBufferSize(), m_source->currentTime(), m_source->isEnded());
+}
+#endif
 
 #if !RELEASE_LOG_DISABLED
 WTFLogChannel& SourceBuffer::logChannel() const

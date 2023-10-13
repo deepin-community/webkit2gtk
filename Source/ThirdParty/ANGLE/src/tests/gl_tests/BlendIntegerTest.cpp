@@ -9,7 +9,7 @@
 
 using namespace angle;
 
-class BlendIntegerTest : public ANGLETest
+class BlendIntegerTest : public ANGLETest<>
 {
   protected:
     BlendIntegerTest()
@@ -304,7 +304,7 @@ TEST_P(BlendIntegerTest, MRTSigned)
     ANGLE_SKIP_TEST_IF(IsVulkan() && IsWindows() && IsIntel());
 
     // http://anglebug.com/5125
-    ANGLE_SKIP_TEST_IF(IsOpenGL() && IsOSX() && IsIntel());
+    ANGLE_SKIP_TEST_IF(IsOpenGL() && IsMac() && IsIntel());
 
     // http://anglebug.com/5126
     ANGLE_SKIP_TEST_IF(IsVulkan() && IsAdreno());
@@ -319,7 +319,7 @@ TEST_P(BlendIntegerTest, MRTUnsigned)
     ANGLE_SKIP_TEST_IF(IsVulkan() && IsWindows() && IsIntel());
 
     // http://anglebug.com/5125
-    ANGLE_SKIP_TEST_IF(IsOpenGL() && IsOSX() && IsIntel());
+    ANGLE_SKIP_TEST_IF(IsOpenGL() && IsMac() && IsIntel());
 
     // http://anglebug.com/5126
     ANGLE_SKIP_TEST_IF(IsVulkan() && IsAdreno());
@@ -329,4 +329,5 @@ TEST_P(BlendIntegerTest, MRTUnsigned)
 
 // Use this to select which configurations (e.g. which renderer, which GLES major version) these
 // tests should be run against.
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(BlendIntegerTest);
 ANGLE_INSTANTIATE_TEST_ES3(BlendIntegerTest);

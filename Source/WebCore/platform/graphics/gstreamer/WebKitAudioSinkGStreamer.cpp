@@ -183,7 +183,7 @@ static bool webKitAudioSinkConfigure(WebKitAudioSink* sink)
 #endif
 
     const char* value = g_getenv("WEBKIT_GST_ENABLE_AUDIO_MIXER");
-    if (value && equal(value, "1")) {
+    if (value && !strcmp(value, "1")) {
         if (!GStreamerAudioMixer::isAvailable()) {
             GST_WARNING("Internal audio mixing request cannot be fulfilled.");
             return false;
@@ -293,17 +293,26 @@ static GstStateChangeReturn webKitAudioSinkChangeState(GstElement* element, GstS
     return result;
 }
 
+static void webKitAudioSinkConstructed(GObject* object)
+{
+    GST_CALL_PARENT(G_OBJECT_CLASS, constructed, (object));
+
+    GST_OBJECT_FLAG_SET(GST_OBJECT_CAST(object), GST_ELEMENT_FLAG_SINK);
+    gst_bin_set_suppressed_flags(GST_BIN_CAST(object), static_cast<GstElementFlags>(GST_ELEMENT_FLAG_SOURCE | GST_ELEMENT_FLAG_SINK));
+}
+
 static void webkit_audio_sink_class_init(WebKitAudioSinkClass* klass)
 {
     GObjectClass* oklass = G_OBJECT_CLASS(klass);
     oklass->set_property = webKitAudioSinkSetProperty;
     oklass->get_property = webKitAudioSinkGetProperty;
+    oklass->constructed = webKitAudioSinkConstructed;
 
     g_object_class_install_property(oklass, PROP_VOLUME,
-        g_param_spec_double("volume", "Volume", "The audio volume, 1.0=100%", 0, 10, 1,
+        g_param_spec_double("volume", nullptr, nullptr, 0, 10, 1,
             static_cast<GParamFlags>(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS)));
     g_object_class_install_property(oklass, PROP_MUTE,
-        g_param_spec_boolean("mute", "Mute", "Mute the audio channel without changing the volume", FALSE,
+        g_param_spec_boolean("mute", nullptr, nullptr, FALSE,
             static_cast<GParamFlags>(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS)));
 
     GstElementClass* eklass = GST_ELEMENT_CLASS(klass);
@@ -324,5 +333,7 @@ GstElement* webkitAudioSinkNew()
     }
     return sink;
 }
+
+#undef GST_CAT_DEFAULT
 
 #endif // USE(GSTREAMER)

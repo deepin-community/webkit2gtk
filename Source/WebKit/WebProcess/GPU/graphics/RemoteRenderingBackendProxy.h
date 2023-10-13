@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,29 +28,31 @@
 #if ENABLE(GPU_PROCESS)
 
 #include "GPUProcessConnection.h"
-#include "GPUProcessWakeupMessageArguments.h"
 #include "IPCSemaphore.h"
 #include "ImageBufferBackendHandle.h"
+#include "MarkSurfacesAsVolatileRequestIdentifier.h"
 #include "MessageReceiver.h"
 #include "MessageSender.h"
+#include "RemoteDisplayListRecorderMessages.h"
 #include "RemoteRenderingBackendCreationParameters.h"
+#include "RemoteRenderingBackendMessages.h"
 #include "RemoteResourceCacheProxy.h"
+#include "RemoteSerializedImageBufferIdentifier.h"
 #include "RenderingBackendIdentifier.h"
 #include "RenderingUpdateID.h"
-#include <WebCore/DisplayList.h>
+#include "SharedMemory.h"
+#include "StreamClientConnection.h"
 #include <WebCore/RenderingResourceIdentifier.h>
 #include <WebCore/Timer.h>
+#include <span>
 #include <wtf/Deque.h>
+#include <wtf/HashMap.h>
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
-namespace DisplayList {
-class DisplayList;
-class Item;
-}
-
 class DestinationColorSpace;
+class Filter;
 class FloatSize;
 class PixelBuffer;
 
@@ -61,101 +63,137 @@ enum class RenderingMode : bool;
 
 namespace WebKit {
 
-class DisplayListWriterHandle;
 class WebPage;
+class RemoteImageBufferProxy;
+class RemoteSerializedImageBufferProxy;
+
+class RemoteImageBufferProxyFlushState;
 
 class RemoteRenderingBackendProxy
-    : public IPC::MessageSender
-    , private IPC::MessageReceiver
-    , public GPUProcessConnection::Client {
+    : public IPC::Connection::Client, SerialFunctionDispatcher {
 public:
     static std::unique_ptr<RemoteRenderingBackendProxy> create(WebPage&);
+    static std::unique_ptr<RemoteRenderingBackendProxy> create(const RemoteRenderingBackendCreationParameters&, SerialFunctionDispatcher&);
 
     ~RemoteRenderingBackendProxy();
 
-    using GPUProcessConnection::Client::weakPtrFactory;
-    using WeakValueType = GPUProcessConnection::Client::WeakValueType;
+    const RemoteRenderingBackendCreationParameters& parameters() const { return m_parameters; }
 
     RemoteResourceCacheProxy& remoteResourceCacheProxy() { return m_remoteResourceCacheProxy; }
-    WebCore::DisplayList::ItemBufferHandle createItemBuffer(size_t capacity, WebCore::RenderingResourceIdentifier destinationBufferIdentifier);
 
-    void didAppendData(const WebCore::DisplayList::ItemBufferHandle&, size_t numberOfBytes, WebCore::DisplayList::DidChangeItemBuffer, WebCore::RenderingResourceIdentifier destinationImageBuffer);
-    void willAppendItem(WebCore::RenderingResourceIdentifier);
-    void sendDeferredWakeupMessageIfNeeded();
-
-    SharedMemory* sharedMemoryForGetPixelBuffer(size_t dataSize, IPC::Timeout);
-    bool waitForGetPixelBufferToComplete(IPC::Timeout);
-    void destroyGetPixelBufferSharedMemory();
+    void transferImageBuffer(std::unique_ptr<RemoteSerializedImageBufferProxy>, WebCore::ImageBuffer&);
+    void moveToSerializedBuffer(WebCore::RenderingResourceIdentifier);
+    void moveToImageBuffer(WebCore::RenderingResourceIdentifier);
 
     void createRemoteImageBuffer(WebCore::ImageBuffer&);
-        
-    // IPC::MessageSender.
-    IPC::Connection* messageSenderConnection() const override;
-    uint64_t messageSenderDestinationID() const override;
+    bool isCached(const WebCore::ImageBuffer&) const;
 
     // IPC::MessageReceiver
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) override;
+    bool didReceiveSyncMessage(IPC::Connection&, IPC::Decoder&, UniqueRef<IPC::Encoder>&) override;
 
     // Messages to be sent.
-    RefPtr<WebCore::ImageBuffer> createImageBuffer(const WebCore::FloatSize&, WebCore::RenderingMode, float resolutionScale, const WebCore::DestinationColorSpace&, WebCore::PixelFormat);
-    String getDataURLForImageBuffer(const String& mimeType, std::optional<double> quality, WebCore::PreserveResolution, WebCore::RenderingResourceIdentifier);
-    Vector<uint8_t> getDataForImageBuffer(const String& mimeType, std::optional<double> quality, WebCore::RenderingResourceIdentifier);
-    WebCore::DisplayList::FlushIdentifier flushDisplayListAndCommit(const WebCore::DisplayList::DisplayList&, WebCore::RenderingResourceIdentifier);
+    RefPtr<WebCore::ImageBuffer> createImageBuffer(const WebCore::FloatSize&, WebCore::RenderingMode, WebCore::RenderingPurpose, float resolutionScale, const WebCore::DestinationColorSpace&, WebCore::PixelFormat, bool avoidBackendSizeCheck = false);
+    bool getPixelBufferForImageBuffer(WebCore::RenderingResourceIdentifier, const WebCore::PixelBufferFormat& destinationFormat, const WebCore::IntRect& srcRect, std::span<uint8_t> result);
+    void putPixelBufferForImageBuffer(WebCore::RenderingResourceIdentifier, const WebCore::PixelBuffer&, const WebCore::IntRect& srcRect, const WebCore::IntPoint& destPoint, WebCore::AlphaPremultiplication destFormat);
     RefPtr<ShareableBitmap> getShareableBitmap(WebCore::RenderingResourceIdentifier, WebCore::PreserveResolution);
-    void cacheNativeImage(const ShareableBitmap::Handle&, WebCore::RenderingResourceIdentifier);
-    void cacheFont(Ref<WebCore::Font>&&);
-    void deleteAllFonts();
-    void releaseRemoteResource(WebCore::RenderingResourceIdentifier, uint64_t useCount);
+    RefPtr<WebCore::Image> getFilteredImage(WebCore::RenderingResourceIdentifier, WebCore::Filter&);
+    void cacheNativeImage(ShareableBitmap::Handle&&, WebCore::RenderingResourceIdentifier);
+    void cacheFont(const WebCore::Font::Attributes&, const WebCore::FontPlatformData::Attributes&, std::optional<WebCore::RenderingResourceIdentifier>);
+    void cacheFontCustomPlatformData(Ref<const WebCore::FontCustomPlatformData>&&);
+    void cacheDecomposedGlyphs(Ref<WebCore::DecomposedGlyphs>&&);
+    void cacheGradient(Ref<WebCore::Gradient>&&);
+    void cacheFilter(Ref<WebCore::Filter>&&);
+    void releaseAllRemoteResources();
+    void releaseAllImageResources();
+    void releaseRenderingResource(WebCore::RenderingResourceIdentifier);
+    void markSurfacesVolatile(Vector<WebCore::RenderingResourceIdentifier>&&, CompletionHandler<void(bool madeAllVolatile)>&&);
+
+    struct BufferSet {
+        RefPtr<WebCore::ImageBuffer> front;
+        RefPtr<WebCore::ImageBuffer> back;
+        RefPtr<WebCore::ImageBuffer> secondaryBack;
+    };
+    
+    struct LayerPrepareBuffersData {
+        BufferSet buffers;
+        bool supportsPartialRepaint { true };
+        bool hasEmptyDirtyRegion { false };
+    };
+    
+#if PLATFORM(COCOA)
+    struct SwapBuffersResult {
+        BufferSet buffers;
+        SwapBuffersDisplayRequirement displayRequirement;
+    };
+
+    Vector<SwapBuffersResult> prepareBuffersForDisplay(const Vector<LayerPrepareBuffersData>&);
+#endif
 
     void finalizeRenderingUpdate();
+    void didPaintLayers();
+
     RenderingUpdateID renderingUpdateID() const { return m_renderingUpdateID; }
     unsigned delayedRenderingUpdateCount() const { return m_renderingUpdateID - m_didRenderingUpdateID; }
-
-    enum class DidReceiveBackendCreationResult : bool {
-        ReceivedAnyResponse,
-        TimeoutOrIPCFailure
-    };
-    DidReceiveBackendCreationResult waitForDidCreateImageBufferBackend();
-    bool waitForDidFlush();
 
     RenderingBackendIdentifier renderingBackendIdentifier() const;
 
     RenderingBackendIdentifier ensureBackendCreated();
 
-    bool isGPUProcessConnectionClosed() const { return !m_gpuProcessConnection; }
+    bool isGPUProcessConnectionClosed() const { return !m_streamConnection; }
 
+    void didInitialize(IPC::Semaphore&& wakeUpSemaphore, IPC::Semaphore&& clientWaitSemaphore);
+
+    IPC::StreamClientConnection& streamConnection();
+    IPC::Connection* connection() { return m_connection.get(); }
+
+    template<typename T, typename C>
+    void sendToStreamWithAsyncReply(T&& message, C&& completionHandler)
+    {
+        streamConnection().sendWithAsyncReply(WTFMove(message), WTFMove(completionHandler), renderingBackendIdentifier(), Seconds::infinity());
+    }
+
+    SerialFunctionDispatcher& dispatcher() { return m_dispatcher; }
+
+    static constexpr Seconds defaultTimeout = 15_s;
 private:
-    explicit RemoteRenderingBackendProxy(WebPage&);
+    explicit RemoteRenderingBackendProxy(const RemoteRenderingBackendCreationParameters&, SerialFunctionDispatcher&);
 
-    // GPUProcessConnection::Client
-    void gpuProcessConnectionDidClose(GPUProcessConnection&) final;
+    template<typename T> auto send(T&& message);
+    template<typename T> auto sendSync(T&& message);
 
-    GPUProcessConnection& ensureGPUProcessConnection();
+    // Connection::Client
+    void didClose(IPC::Connection&) final;
+    void didReceiveInvalidMessage(IPC::Connection&, IPC::MessageName) final { }
+    void disconnectGPUProcess();
+    void ensureGPUProcessConnection();
+
+    bool dispatchMessage(IPC::Connection&, IPC::Decoder&);
+    bool dispatchSyncMessage(IPC::Connection&, IPC::Decoder&, UniqueRef<IPC::Encoder>&);
+
+    // Returns std::nullopt if no update is needed or allocation failed.
+    // Returns handle if that should be sent to the receiver process.
+    std::optional<SharedMemory::Handle> updateSharedMemoryForGetPixelBuffer(size_t dataSize);
+    void destroyGetPixelBufferSharedMemory();
 
     // Messages to be received.
-    void didCreateImageBufferBackend(ImageBufferBackendHandle, WebCore::RenderingResourceIdentifier);
-    void didFlush(WebCore::DisplayList::FlushIdentifier, WebCore::RenderingResourceIdentifier);
+    void didCreateImageBufferBackend(ImageBufferBackendHandle&&, WebCore::RenderingResourceIdentifier);
     void didFinalizeRenderingUpdate(RenderingUpdateID didRenderingUpdateID);
+    void didMarkLayersAsVolatile(MarkSurfacesAsVolatileRequestIdentifier, const Vector<WebCore::RenderingResourceIdentifier>& markedVolatileBufferIdentifiers, bool didMarkAllLayerAsVolatile);
 
-    RefPtr<DisplayListWriterHandle> mostRecentlyUsedDisplayListHandle();
-    RefPtr<DisplayListWriterHandle> findReusableDisplayListHandle(size_t capacity);
-
-    void sendWakeupMessage(const GPUProcessWakeupMessageArguments&);
-
+    // SerialFunctionDispatcher
+    void dispatch(Function<void()>&& function) final { m_dispatcher.dispatch(WTFMove(function)); }
+#if ASSERT_ENABLED
+    void assertIsCurrent() const final { m_dispatcher.assertIsCurrent(); }
+#endif
+    RefPtr<IPC::Connection> m_connection;
+    RefPtr<IPC::StreamClientConnection> m_streamConnection;
     RemoteRenderingBackendCreationParameters m_parameters;
-    WeakPtr<GPUProcessConnection> m_gpuProcessConnection;
     RemoteResourceCacheProxy m_remoteResourceCacheProxy { *this };
-
-    HashMap<WebCore::DisplayList::ItemBufferIdentifier, RefPtr<DisplayListWriterHandle>> m_sharedDisplayListHandles;
-    Deque<WebCore::DisplayList::ItemBufferIdentifier> m_identifiersOfReusableHandles;
-    std::optional<WebCore::RenderingResourceIdentifier> m_currentDestinationImageBufferIdentifier;
-    std::optional<GPUProcessWakeupMessageArguments> m_deferredWakeupMessageArguments;
-    unsigned m_remainingItemsToAppendBeforeSendingWakeup { 0 };
-
-    std::optional<IPC::Semaphore> m_getPixelBufferSemaphore;
     RefPtr<SharedMemory> m_getPixelBufferSharedMemory;
-    uint64_t m_getPixelBufferSharedMemoryLength { 0 };
     WebCore::Timer m_destroyGetPixelBufferSharedMemoryTimer { *this, &RemoteRenderingBackendProxy::destroyGetPixelBufferSharedMemory };
+    HashMap<MarkSurfacesAsVolatileRequestIdentifier, CompletionHandler<void(bool)>> m_markAsVolatileRequests;
+    SerialFunctionDispatcher& m_dispatcher;
 
     RenderingUpdateID m_renderingUpdateID;
     RenderingUpdateID m_didRenderingUpdateID;

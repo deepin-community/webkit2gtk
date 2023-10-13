@@ -28,11 +28,12 @@
 #if ENABLE(ENCRYPTED_MEDIA)
 
 #include "Document.h"
-#include "Frame.h"
 #include "JSDOMPromiseDeferred.h"
 #include "JSMediaKeySystemAccess.h"
+#include "LocalFrame.h"
 #include "Logging.h"
 #include "MediaKeySystemController.h"
+#include "Page.h"
 #include "PlatformMediaSessionManager.h"
 #include "Settings.h"
 #include "WindowEventLoop.h"
@@ -62,20 +63,20 @@ MediaKeySystemRequest::~MediaKeySystemRequest()
 
 SecurityOrigin* MediaKeySystemRequest::topLevelDocumentOrigin() const
 {
-    if (!m_scriptExecutionContext)
-        return nullptr;
-    return &m_scriptExecutionContext->topOrigin();
+    auto* context = scriptExecutionContext();
+    return context ? &context->topOrigin() : nullptr;
 }
 
 void MediaKeySystemRequest::start()
 {
-    ASSERT(m_scriptExecutionContext);
-    if (!m_scriptExecutionContext) {
+    auto* context = scriptExecutionContext();
+    ASSERT(context);
+    if (!context) {
         deny();
         return;
     }
 
-    auto& document = downcast<Document>(*m_scriptExecutionContext);
+    auto& document = downcast<Document>(*context);
     auto* controller = MediaKeySystemController::from(document.page());
     if (!controller) {
         deny();
@@ -96,7 +97,7 @@ void MediaKeySystemRequest::allow(CompletionHandler<void()>&& completionHandler)
 
 void MediaKeySystemRequest::deny(const String& message)
 {
-    if (!m_scriptExecutionContext)
+    if (!scriptExecutionContext())
         return;
 
     ExceptionCode code = NotSupportedError;
@@ -108,7 +109,7 @@ void MediaKeySystemRequest::deny(const String& message)
 
 void MediaKeySystemRequest::stop()
 {
-    auto& document = downcast<Document>(*m_scriptExecutionContext);
+    auto& document = downcast<Document>(*scriptExecutionContext());
     if (auto* controller = MediaKeySystemController::from(document.page()))
         controller->cancelMediaKeySystemRequest(*this);
 }
@@ -120,7 +121,7 @@ const char* MediaKeySystemRequest::activeDOMObjectName() const
 
 Document* MediaKeySystemRequest::document() const
 {
-    return downcast<Document>(m_scriptExecutionContext);
+    return downcast<Document>(scriptExecutionContext());
 }
 
 } // namespace WebCore

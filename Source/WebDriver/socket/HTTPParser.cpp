@@ -101,7 +101,7 @@ HTTPParser::Process HTTPParser::handlePhase()
 HTTPParser::Process HTTPParser::abortProcess(const char* message)
 {
     if (message)
-        LOG_ERROR(message);
+        LOG_ERROR("%s", message);
 
     m_phase = Phase::Error;
 
@@ -140,11 +140,11 @@ bool HTTPParser::readLine(String& line)
 
 size_t HTTPParser::expectedBodyLength() const
 {
-    if (m_message.method == "HEAD")
+    if (m_message.method == "HEAD"_s)
         return 0;
 
-    const char* name = "content-length:";
-    const size_t nameLength = std::strlen(name);
+    constexpr auto name = "content-length:"_s;
+    const size_t nameLength = name.length();
 
     for (const auto& header : m_message.requestHeaders) {
         if (header.startsWithIgnoringASCIICase(name))

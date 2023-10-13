@@ -32,6 +32,7 @@
 #include <JavaScriptCore/JSObjectRef.h>
 #include <JavaScriptCore/JSStringRef.h>
 #include <algorithm>
+#include <utility>
 
 inline void JSRetain(JSClassRef context) { JSClassRetain(context); }
 inline void JSRelease(JSClassRef context) { JSClassRelease(context); }
@@ -174,19 +175,4 @@ template<typename T, typename U> inline bool operator==(const JSRetainPtr<T>& a,
 template<typename T, typename U> inline bool operator==(T* a, const JSRetainPtr<U>& b) 
 {
     return a == b.get(); 
-}
-
-template<typename T, typename U> inline bool operator!=(const JSRetainPtr<T>& a, const JSRetainPtr<U>& b)
-{ 
-    return a.get() != b.get(); 
-}
-
-template<typename T, typename U> inline bool operator!=(const JSRetainPtr<T>& a, U* b)
-{
-    return a.get() != b; 
-}
-
-template<typename T, typename U> inline bool operator!=(T* a, const JSRetainPtr<U>& b)
-{ 
-    return a != b.get(); 
 }

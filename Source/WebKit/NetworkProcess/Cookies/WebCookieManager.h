@@ -57,7 +57,7 @@ public:
 
     static const char* supplementName();
 
-    void setHTTPCookieAcceptPolicy(WebCore::HTTPCookieAcceptPolicy, CompletionHandler<void()>&&);
+    void setHTTPCookieAcceptPolicy(PAL::SessionID, WebCore::HTTPCookieAcceptPolicy, CompletionHandler<void()>&&);
 
 #if USE(SOUP)
     void setCookiePersistentStorage(PAL::SessionID, const String& storagePath, SoupCookiePersistentStorageType);
@@ -72,8 +72,8 @@ private:
     void getHostnamesWithCookies(PAL::SessionID, CompletionHandler<void(Vector<String>&&)>&&);
 
     void deleteCookie(PAL::SessionID, const WebCore::Cookie&, CompletionHandler<void()>&&);
-    void deleteCookiesForHostnames(PAL::SessionID, const Vector<String>&);
-    void deleteAllCookies(PAL::SessionID);
+    void deleteCookiesForHostnames(PAL::SessionID, const Vector<String>&, CompletionHandler<void()>&&);
+    void deleteAllCookies(PAL::SessionID, CompletionHandler<void()>&&);
     void deleteAllCookiesModifiedSince(PAL::SessionID, WallTime, CompletionHandler<void()>&&);
 
     void setCookie(PAL::SessionID, const Vector<WebCore::Cookie>&, CompletionHandler<void()>&&);
@@ -81,8 +81,12 @@ private:
     void getAllCookies(PAL::SessionID, CompletionHandler<void(Vector<WebCore::Cookie>&&)>&&);
     void getCookies(PAL::SessionID, const URL&, CompletionHandler<void(Vector<WebCore::Cookie>&&)>&&);
 
-    void platformSetHTTPCookieAcceptPolicy(WebCore::HTTPCookieAcceptPolicy, CompletionHandler<void()>&&);
+    void platformSetHTTPCookieAcceptPolicy(PAL::SessionID, WebCore::HTTPCookieAcceptPolicy, CompletionHandler<void()>&&);
     void getHTTPCookieAcceptPolicy(PAL::SessionID, CompletionHandler<void(WebCore::HTTPCookieAcceptPolicy)>&&);
+
+#if USE(SOUP)
+    void replaceCookies(PAL::SessionID, const Vector<WebCore::Cookie>&, CompletionHandler<void()>&&);
+#endif
 
     void startObservingCookieChanges(PAL::SessionID);
     void stopObservingCookieChanges(PAL::SessionID);

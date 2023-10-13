@@ -26,8 +26,10 @@
 #include "DOMHighResTimeStamp.h"
 #include "EventInit.h"
 #include "EventInterfaces.h"
+#include "EventOptions.h"
 #include "ExceptionOr.h"
 #include "ScriptWrappable.h"
+#include <wtf/CheckedPtr.h>
 #include <wtf/MonotonicTime.h>
 #include <wtf/TypeCasts.h>
 #include <wtf/text/AtomString.h>
@@ -45,10 +47,10 @@ class ScriptExecutionContext;
 class Event : public ScriptWrappable, public RefCounted<Event> {
     WTF_MAKE_ISO_ALLOCATED(Event);
 public:
-    enum class IsTrusted : uint8_t { No, Yes };
-    enum class CanBubble : uint8_t { No, Yes };
-    enum class IsCancelable : uint8_t { No, Yes };
-    enum class IsComposed : uint8_t { No, Yes };
+    using IsTrusted = EventIsTrusted;
+    using CanBubble = EventCanBubble;
+    using IsCancelable = EventIsCancelable;
+    using IsComposed = EventIsComposed;
 
     enum PhaseType : uint8_t {
         NONE = 0,
@@ -69,7 +71,7 @@ public:
 
     const AtomString& type() const { return m_type; }
     void setType(const AtomString& type) { m_type = type; }
-    
+
     EventTarget* target() const { return m_target.get(); }
     void setTarget(RefPtr<EventTarget>&&);
 
@@ -87,8 +89,8 @@ public:
     DOMHighResTimeStamp timeStampForBindings(ScriptExecutionContext&) const;
     MonotonicTime timeStamp() const { return m_createTime; }
 
-    void setEventPath(const EventPath& path) { m_eventPath = &path; }
-    Vector<EventTarget*> composedPath() const;
+    void setEventPath(const EventPath&);
+    Vector<Ref<EventTarget>> composedPath() const;
 
     void stopPropagation() { m_propagationStopped = true; }
     void stopImmediatePropagation() { m_immediatePropagationStopped = true; }
@@ -112,6 +114,7 @@ public:
     virtual bool isMouseEvent() const { return false; }
     virtual bool isPointerEvent() const { return false; }
     virtual bool isTextEvent() const { return false; }
+    virtual bool isToggleEvent() const { return false; }
     virtual bool isTouchEvent() const { return false; }
     virtual bool isUIEvent() const { return false; }
     virtual bool isVersionChangeEvent() const { return false; }
@@ -145,7 +148,7 @@ public:
     bool isBeingDispatched() const { return eventPhase(); }
 
     virtual EventTarget* relatedTarget() const { return nullptr; }
-    virtual void setRelatedTarget(EventTarget*) { }
+    virtual void setRelatedTarget(RefPtr<EventTarget>&&) { }
 
     virtual String debugDescription() const;
 
@@ -156,6 +159,8 @@ protected:
     Event(const AtomString& type, const EventInit&, IsTrusted);
 
     virtual void receivedTarget() { }
+
+    bool isConstructedFromInitializer() const { return m_isConstructedFromInitializer; }
 
 private:
     explicit Event(MonotonicTime createTime, const AtomString& type, IsTrusted, CanBubble, IsCancelable, IsComposed);
@@ -178,10 +183,14 @@ private:
 
     unsigned m_eventPhase : 2;
 
+    // We consult this flag since the EventInit dictionary takes priority in initializing event attribute values.
+    // See step 4 of https://dom.spec.whatwg.org/#inner-event-creation-steps
+    unsigned m_isConstructedFromInitializer : 1 { false };
+
     AtomString m_type;
 
     RefPtr<EventTarget> m_currentTarget;
-    const EventPath* m_eventPath { nullptr };
+    CheckedPtr<const EventPath> m_eventPath;
     RefPtr<EventTarget> m_target;
     MonotonicTime m_createTime;
 

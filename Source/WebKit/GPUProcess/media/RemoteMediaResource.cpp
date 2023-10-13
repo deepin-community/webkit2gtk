@@ -26,11 +26,12 @@
 #include "config.h"
 #include "RemoteMediaResource.h"
 
-#if ENABLE(GPU_PROCESS)
+#if ENABLE(GPU_PROCESS) && ENABLE(VIDEO)
 
 #include "RemoteMediaPlayerProxy.h"
 #include "RemoteMediaResourceManager.h"
 #include <WebCore/ResourceResponse.h>
+#include <WebCore/SharedBuffer.h>
 
 namespace WebKit {
 
@@ -42,8 +43,8 @@ Ref<RemoteMediaResource> RemoteMediaResource::create(RemoteMediaResourceManager&
 }
 
 RemoteMediaResource::RemoteMediaResource(RemoteMediaResourceManager& remoteMediaResourceManager, RemoteMediaPlayerProxy& remoteMediaPlayerProxy, RemoteMediaResourceIdentifier identifier)
-    : m_remoteMediaResourceManager(makeWeakPtr(remoteMediaResourceManager))
-    , m_remoteMediaPlayerProxy(makeWeakPtr(remoteMediaPlayerProxy))
+    : m_remoteMediaResourceManager(remoteMediaResourceManager)
+    , m_remoteMediaPlayerProxy(remoteMediaPlayerProxy)
     , m_id(identifier)
 {
 }
@@ -72,10 +73,10 @@ bool RemoteMediaResource::didPassAccessControlCheck() const
 void RemoteMediaResource::responseReceived(const ResourceResponse& response, bool didPassAccessControlCheck, CompletionHandler<void(ShouldContinuePolicyCheck)>&& completionHandler)
 {
     if (!m_client)
-        return;
+        return completionHandler(ShouldContinuePolicyCheck::No);
 
     m_didPassAccessControlCheck = didPassAccessControlCheck;
-    m_client->responseReceived(*this, response, [protectedThis = makeRef(*this), completionHandler = WTFMove(completionHandler)](auto shouldContinue) mutable {
+    m_client->responseReceived(*this, response, [protectedThis = Ref { *this }, completionHandler = WTFMove(completionHandler)](auto shouldContinue) mutable {
         ASSERT(isMainRunLoop());
         if (shouldContinue == ShouldContinuePolicyCheck::No)
             protectedThis->stop();
@@ -88,6 +89,8 @@ void RemoteMediaResource::redirectReceived(ResourceRequest&& request, const Reso
 {
     if (m_client)
         m_client->redirectReceived(*this, WTFMove(request), response, WTFMove(completionHandler));
+    else
+        completionHandler({ });
 }
 
 void RemoteMediaResource::dataSent(uint64_t bytesSent, uint64_t totalBytesToBeSent)
@@ -96,10 +99,10 @@ void RemoteMediaResource::dataSent(uint64_t bytesSent, uint64_t totalBytesToBeSe
         m_client->dataSent(*this, bytesSent, totalBytesToBeSent);
 }
 
-void RemoteMediaResource::dataReceived(const uint8_t* data, int64_t length)
+void RemoteMediaResource::dataReceived(const SharedBuffer& data)
 {
     if (m_client)
-        m_client->dataReceived(*this, data, length);
+        m_client->dataReceived(*this, data);
 }
 
 void RemoteMediaResource::accessControlCheckFailed(const ResourceError& error)
@@ -123,4 +126,4 @@ void RemoteMediaResource::loadFinished(const NetworkLoadMetrics& metrics)
 
 } // namespace WebKit
 
-#endif
+#endif // ENABLE(GPU_PROCESS) && ENABLE(VIDEO)

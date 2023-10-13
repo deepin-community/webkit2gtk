@@ -91,6 +91,7 @@ typedef const struct OpaqueWKContextMenuListener* WKContextMenuListenerRef;
 typedef const struct OpaqueWKCookieManager* WKCookieManagerRef;
 typedef const struct OpaqueWKCredential* WKCredentialRef;
 typedef const struct OpaqueWKDownload* WKDownloadRef;
+typedef const struct OpaqueWKExperimentalFeature* WKFeatureRef;
 typedef const struct OpaqueWKFormSubmissionListener* WKFormSubmissionListenerRef;
 typedef const struct OpaqueWKFrameHandle* WKFrameHandleRef;
 typedef const struct OpaqueWKFrameInfo* WKFrameInfoRef;
@@ -104,6 +105,7 @@ typedef const struct OpaqueWKHTTPCookieStore* WKHTTPCookieStoreRef;
 typedef const struct OpaqueWKHitTestResult* WKHitTestResultRef;
 typedef const struct OpaqueWKIconDatabase* WKIconDatabaseRef;
 typedef const struct OpaqueWKInspector* WKInspectorRef;
+typedef const struct OpaqueWKInternalDebugFeature* WKInternalDebugFeatureRef;
 typedef const struct OpaqueWKKeyValueStorageManager* WKKeyValueStorageManagerRef;
 typedef const struct OpaqueWKMessageListener* WKMessageListenerRef;
 typedef const struct OpaqueWKNavigationAction* WKNavigationActionRef;
@@ -144,6 +146,7 @@ typedef const struct OpaqueWKWindowFeatures* WKWindowFeaturesRef;
 typedef const struct OpaqueWKSpeechRecognitionPermissionCallback* WKSpeechRecognitionPermissionCallbackRef;
 typedef const struct OpaqueWKMediaKeySystemPermissionRequest* WKMediaKeySystemPermissionRequestRef;
 typedef const struct OpaqueWKMediaKeySystemPermissionCallback* WKMediaKeySystemPermissionCallbackRef;
+typedef const struct OpaqueWKQueryPermissionResultCallback* WKQueryPermissionResultCallbackRef;
 
 /* WebKit2 Bundle types */
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2012-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -74,7 +74,7 @@ public:
     void shrink();
     void assertNoUnswept();
     size_t cellSize() const { return m_cellSize; }
-    const CellAttributes& attributes() const { return m_attributes; }
+    CellAttributes attributes() const { return m_attributes; }
     bool needsDestruction() const { return m_attributes.destruction == NeedsDestruction; }
     DestructionMode destruction() const { return m_attributes.destruction; }
     HeapCell::Kind cellKind() const { return m_attributes.cellKind; }
@@ -87,7 +87,7 @@ public:
     RefPtr<SharedTask<MarkedBlock::Handle*()>> parallelNotEmptyBlockSource();
     
     void addBlock(MarkedBlock::Handle*);
-    enum class WillDeleteBlock { No, Yes };
+    enum class WillDeleteBlock : bool { No, Yes };
     // If WillDeleteBlock::Yes is passed then the block will be left in an invalid state. We do this, however, to avoid potentially paging in / decompressing old blocks to update their handle just before freeing them.
     void removeBlock(MarkedBlock::Handle*, WillDeleteBlock = WillDeleteBlock::No);
 

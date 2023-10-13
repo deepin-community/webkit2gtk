@@ -26,6 +26,7 @@
 #include "NamedNodeMap.h"
 
 #include "Attr.h"
+#include "ElementInlines.h"
 #include "HTMLElement.h"
 #include <wtf/IsoMallocInlines.h>
 
@@ -48,6 +49,11 @@ void NamedNodeMap::deref()
 RefPtr<Attr> NamedNodeMap::getNamedItem(const AtomString& name) const
 {
     return m_element.getAttributeNode(name);
+}
+
+bool NamedNodeMap::isSupportedPropertyName(const AtomString& name) const
+{
+    return m_element.hasAttribute(name);
 }
 
 RefPtr<Attr> NamedNodeMap::getNamedItemNS(const AtomString& namespaceURI, const AtomString& localName) const

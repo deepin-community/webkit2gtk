@@ -127,14 +127,9 @@ public:
     T& operator*() { return get(); }
     T& operator->() { return get(); }
 
-    bool operator==(const GCSegmentedArrayIterator& other)
+    bool operator==(const GCSegmentedArrayIterator& other) const
     {
         return m_currentSegment == other.m_currentSegment && m_currentOffset == other.m_currentOffset;
-    }
-
-    bool operator!=(const GCSegmentedArrayIterator& other)
-    {
-        return !(*this == other);
     }
 
     GCSegmentedArrayIterator& operator++()

@@ -30,76 +30,49 @@
 
 #include "ArgumentCoders.h"
 #include <WebCore/SharedBuffer.h>
+#include <wtf/CheckedArithmetic.h>
 
 namespace WebKit {
 using namespace WebCore;
 
-ShareableResource::Handle::Handle() = default;
+ShareableResourceHandle::ShareableResourceHandle() = default;
 
-void ShareableResource::Handle::encode(IPC::Encoder& encoder) const
+void ShareableResourceHandle::encode(IPC::Encoder& encoder) &&
 {
-    encoder << SharedMemory::IPCHandle { WTFMove(m_handle), m_size };
+    encoder << WTFMove(m_handle);
     encoder << m_offset;
+    encoder << m_size;
 }
 
-bool ShareableResource::Handle::decode(IPC::Decoder& decoder, Handle& handle)
+bool ShareableResourceHandle::decode(IPC::Decoder& decoder, ShareableResourceHandle& handle)
 {
-    SharedMemory::IPCHandle ipcHandle;
-    if (!decoder.decode(ipcHandle))
+    SharedMemory::Handle memoryHandle;
+    if (UNLIKELY(!decoder.decode(memoryHandle)))
         return false;
-    if (!decoder.decode(handle.m_offset))
+    if (UNLIKELY(!decoder.decode(handle.m_offset)))
         return false;
-
-    handle.m_size = ipcHandle.dataSize;
-    handle.m_handle = WTFMove(ipcHandle.handle);
+    if (UNLIKELY(!decoder.decode(handle.m_size)))
+        return false;
+    auto neededSize = Checked<unsigned> { handle.m_offset } + handle.m_size;
+    if (UNLIKELY(neededSize.hasOverflowed()))
+        return false;
+    if (memoryHandle.size() < neededSize)
+        return false;
+    handle.m_handle = WTFMove(memoryHandle);
     return true;
 }
 
-#if USE(CF)
-static void shareableResourceDeallocate(void *ptr, void *info)
-{
-    static_cast<ShareableResource*>(info)->deref(); // Balanced by ref() in createShareableResourceDeallocator()
-}
-    
-static RetainPtr<CFAllocatorRef> createShareableResourceDeallocator(ShareableResource* resource)
-{
-    CFAllocatorContext context = { 0,
-        resource,
-        NULL, // retain
-        NULL, // release
-        NULL, // copyDescription
-        NULL, // allocate
-        NULL, // reallocate
-        shareableResourceDeallocate,
-        NULL, // preferredSize
-    };
-
-    return adoptCF(CFAllocatorCreate(kCFAllocatorDefault, &context));
-}
-#endif
-
 RefPtr<SharedBuffer> ShareableResource::wrapInSharedBuffer()
 {
-    ref(); // Balanced by deref when SharedBuffer is deallocated.
-
-#if USE(CF)
-    auto deallocator = createShareableResourceDeallocator(this);
-    auto cfData = adoptCF(CFDataCreateWithBytesNoCopy(kCFAllocatorDefault, data(), static_cast<CFIndex>(size()), deallocator.get()));
-    return SharedBuffer::create(cfData.get());
-#elif USE(GLIB)
-    GRefPtr<GBytes> bytes = adoptGRef(g_bytes_new_with_free_func(data(), size(), [](void* data) {
-        static_cast<ShareableResource*>(data)->deref();
-    }, this));
-    return SharedBuffer::create(bytes.get());
-#else
-    ASSERT_NOT_REACHED();
-    return nullptr;
-#endif
+    return SharedBuffer::create(DataSegment::Provider {
+        [self = Ref { *this }]() { return self->data(); },
+        [self = Ref { *this }]() { return self->size(); }
+    });
 }
 
-RefPtr<SharedBuffer> ShareableResource::Handle::tryWrapInSharedBuffer() const
+RefPtr<SharedBuffer> ShareableResourceHandle::tryWrapInSharedBuffer() &&
 {
-    RefPtr<ShareableResource> resource = ShareableResource::map(*this);
+    RefPtr<ShareableResource> resource = ShareableResource::map(WTFMove(*this));
     if (!resource) {
         LOG_ERROR("Failed to recreate ShareableResource from handle.");
         return nullptr;
@@ -122,9 +95,9 @@ RefPtr<ShareableResource> ShareableResource::create(Ref<SharedMemory>&& sharedMe
     return adoptRef(*new ShareableResource(WTFMove(sharedMemory), offset, size));
 }
 
-RefPtr<ShareableResource> ShareableResource::map(const Handle& handle)
+RefPtr<ShareableResource> ShareableResource::map(Handle&& handle)
 {
-    auto sharedMemory = SharedMemory::map(handle.m_handle, SharedMemory::Protection::ReadOnly);
+    auto sharedMemory = SharedMemory::map(WTFMove(handle.m_handle), SharedMemory::Protection::ReadOnly);
     if (!sharedMemory)
         return nullptr;
 
@@ -138,19 +111,19 @@ ShareableResource::ShareableResource(Ref<SharedMemory>&& sharedMemory, unsigned 
 {
 }
 
-ShareableResource::~ShareableResource()
-{
-}
+ShareableResource::~ShareableResource() = default;
 
-bool ShareableResource::createHandle(Handle& handle)
+auto ShareableResource::createHandle() -> std::optional<Handle>
 {
-    if (!m_sharedMemory->createHandle(handle.m_handle, SharedMemory::Protection::ReadOnly))
-        return false;
+    auto memoryHandle = m_sharedMemory->createHandle(SharedMemory::Protection::ReadOnly);
+    if (!memoryHandle)
+        return std::nullopt;
 
+    Handle handle;
+    handle.m_handle = WTFMove(*memoryHandle);
     handle.m_offset = m_offset;
     handle.m_size = m_size;
-
-    return true;
+    return { WTFMove(handle) };
 }
 
 const uint8_t* ShareableResource::data() const
@@ -162,7 +135,7 @@ unsigned ShareableResource::size() const
 {
     return m_size;
 }
-    
+
 } // namespace WebKit
 
 #endif // ENABLE(SHAREABLE_RESOURCE)

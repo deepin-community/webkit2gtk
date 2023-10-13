@@ -27,13 +27,15 @@
 #include "IdleCallbackController.h"
 
 #include "Document.h"
+#include "FrameDestructionObserverInlines.h"
 #include "IdleDeadline.h"
+#include "Timer.h"
 #include "WindowEventLoop.h"
 
 namespace WebCore {
 
 IdleCallbackController::IdleCallbackController(Document& document)
-    : m_document(makeWeakPtr(document))
+    : m_document(document)
 {
 
 }
@@ -71,7 +73,7 @@ void IdleCallbackController::removeIdleCallback(int signedIdentifier)
 
 void IdleCallbackController::queueTaskToStartIdlePeriod()
 {
-    m_document->eventLoop().queueTask(TaskSource::IdleTask, [protectedDocument = makeRef(*m_document), this] {
+    m_document->eventLoop().queueTask(TaskSource::IdleTask, [protectedDocument = Ref { *m_document }, this] {
         RELEASE_ASSERT(protectedDocument->idleCallbackController() == this);
         startIdlePeriod();
     });
@@ -92,7 +94,9 @@ void IdleCallbackController::startIdlePeriod()
         m_runnableIdleCallbacks.append({ request.identifier, WTFMove(request.callback) });
     m_idleRequestCallbacks.clear();
 
-    ASSERT(!m_runnableIdleCallbacks.isEmpty());
+    if (m_runnableIdleCallbacks.isEmpty())
+        return;
+
     queueTaskToInvokeIdleCallbacks(deadline);
 
     m_lastDeadline = deadline;
@@ -100,7 +104,7 @@ void IdleCallbackController::startIdlePeriod()
 
 void IdleCallbackController::queueTaskToInvokeIdleCallbacks(MonotonicTime deadline)
 {
-    m_document->eventLoop().queueTask(TaskSource::IdleTask, [protectedDocument = makeRef(*m_document), deadline, this] {
+    m_document->eventLoop().queueTask(TaskSource::IdleTask, [protectedDocument = Ref { *m_document }, deadline, this] {
         RELEASE_ASSERT(protectedDocument->idleCallbackController() == this);
         invokeIdleCallbacks(deadline);
     });

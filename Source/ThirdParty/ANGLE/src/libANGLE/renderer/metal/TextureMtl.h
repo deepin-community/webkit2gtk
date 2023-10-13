@@ -17,6 +17,7 @@
 #include "libANGLE/renderer/metal/RenderTargetMtl.h"
 #include "libANGLE/renderer/metal/SurfaceMtl.h"
 #include "libANGLE/renderer/metal/mtl_command_buffer.h"
+#include "libANGLE/renderer/metal/mtl_context_device.h"
 #include "libANGLE/renderer/metal/mtl_resources.h"
 namespace rx
 {
@@ -117,7 +118,8 @@ class TextureMtl : public TextureImpl
                                            gl::MemoryObject *memoryObject,
                                            GLuint64 offset,
                                            GLbitfield createFlags,
-                                           GLbitfield usageFlags) override;
+                                           GLbitfield usageFlags,
+                                           const void *imageCreateInfoPNext) override;
 
     angle::Result setEGLImageTarget(const gl::Context *context,
                                     gl::TextureType type,
@@ -153,6 +155,7 @@ class TextureMtl : public TextureImpl
                                         bool fixedSampleLocations) override;
 
     angle::Result initializeContents(const gl::Context *context,
+                                     GLenum binding,
                                      const gl::ImageIndex &imageIndex) override;
 
     // The texture's data is initially initialized and stored in an array
@@ -167,6 +170,14 @@ class TextureMtl : public TextureImpl
                                gl::Sampler *sampler, /** nullable */
                                int textureSlotIndex,
                                int samplerSlotIndex);
+
+    angle::Result bindToShaderImage(const gl::Context *context,
+                                    mtl::RenderCommandEncoder *cmdEncoder,
+                                    gl::ShaderType shaderType,
+                                    int textureSlotIndex,
+                                    int level,
+                                    int layer,
+                                    GLenum format);
 
     const mtl::Format &getFormat() const { return mFormat; }
     const mtl::TextureRef &getNativeTexture() const { return mNativeTexture; }
@@ -314,8 +325,10 @@ class TextureMtl : public TextureImpl
 
     angle::Result generateMipmapCPU(const gl::Context *context);
 
+    bool needsFormatViewForPixelLocalStorage(const ShPixelLocalStorageOptions &) const;
+
     mtl::Format mFormat;
-    SurfaceMtl *mBoundSurface = nil;
+    egl::Surface *mBoundSurface = nullptr;
     // The real texture used by Metal draw calls.
     mtl::TextureRef mNativeTexture         = nil;
     id<MTLSamplerState> mMetalSamplerState = nil;
@@ -336,16 +349,17 @@ class TextureMtl : public TextureImpl
     std::map<int, gl::TexLevelArray<RenderTargetMtl>> mPerLayerRenderTargets;
     std::map<int, gl::TexLevelArray<mtl::TextureRef>> mImplicitMSTextures;
 
+    // Views for glBindImageTexture.
+    std::map<MTLPixelFormat, gl::TexLevelArray<mtl::TextureRef>> mShaderImageViews;
+
     // Mipmap views are indexed by native level (ignored base level):
     mtl::NativeTexLevelArray mNativeLevelViews;
 
-    // The swizzled view used for shader sampling.
-    mtl::TextureRef mNativeSwizzleSamplingView;
+    // The swizzled or stencil view used for shader sampling.
+    mtl::TextureRef mNativeSwizzleStencilSamplingView;
 
     GLuint mCurrentBaseLevel = 0;
     GLuint mCurrentMaxLevel  = 1000;
-
-    bool mIsPow2 = false;
 };
 
 }  // namespace rx

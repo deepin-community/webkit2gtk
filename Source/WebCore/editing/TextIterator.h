@@ -27,7 +27,8 @@
 
 #include "CharacterRange.h"
 #include "FindOptions.h"
-#include "LayoutIntegrationRunIterator.h"
+#include "InlineIteratorLogicalOrderTraversal.h"
+#include "InlineIteratorTextBox.h"
 #include "SimpleRange.h"
 #include "TextIteratorBehavior.h"
 #include <wtf/Vector.h>
@@ -49,13 +50,13 @@ WEBCORE_EXPORT bool hasAnyPlainText(const SimpleRange&, TextIteratorBehaviors = 
 WEBCORE_EXPORT String plainTextReplacingNoBreakSpace(const SimpleRange&, TextIteratorBehaviors = { }, bool isDisplayString = false);
 
 // Find within the document, based on the text from the text iterator.
-SimpleRange findPlainText(const SimpleRange&, const String&, FindOptions);
+WEBCORE_EXPORT SimpleRange findPlainText(const SimpleRange&, const String&, FindOptions);
 WEBCORE_EXPORT SimpleRange findClosestPlainText(const SimpleRange&, const String&, FindOptions, uint64_t targetCharacterOffset);
 bool containsPlainText(const String& document, const String&, FindOptions); // Lets us use the search algorithm on a string.
 WEBCORE_EXPORT String foldQuoteMarks(const String&);
 
 // FIXME: Move this somewhere else in the editing directory. It doesn't belong in the header with TextIterator.
-bool isRendererReplacedElement(RenderObject*);
+bool isRendererReplacedElement(RenderObject*, TextIteratorBehaviors = { });
 
 // FIXME: Move each iterator class into a separate header file.
 
@@ -120,6 +121,7 @@ private:
     void handleTextNodeFirstLetter(RenderTextFragment&);
     void emitCharacter(UChar, Node& characterNode, Node* offsetBaseNode, int textStartOffset, int textEndOffset);
     void emitText(Text& textNode, RenderText&, int textStartOffset, int textEndOffset);
+    void revertToRemainingTextRun();
 
     Node* baseNodeForEmittingNewLine() const;
 
@@ -149,10 +151,12 @@ private:
 
     // Used when there is still some pending text from the current node; when these are false and null, we go back to normal iterating.
     Node* m_nodeForAdditionalNewline { nullptr };
-    LayoutIntegration::TextRunIterator m_textRun;
+    InlineIterator::TextBoxIterator m_textRun;
+    InlineIterator::TextLogicalOrderCache m_textRunLogicalOrderCache;
 
     // Used when iterating over :first-letter text to save pointer to remaining text box.
-    LayoutIntegration::TextRunIterator m_remainingTextRun;
+    InlineIterator::TextBoxIterator m_remainingTextRun;
+    InlineIterator::TextLogicalOrderCache m_remainingTextRunLogicalOrderCache;
 
     // Used to point to RenderText object for :first-letter.
     RenderText* m_firstLetterText { nullptr };
@@ -288,6 +292,14 @@ private:
     // Did we have to look ahead in the text iterator to confirm the current chunk?
     bool m_didLookAhead { true };
 };
+
+constexpr TextIteratorBehaviors findIteratorOptions(FindOptions options = { })
+{
+    TextIteratorBehaviors iteratorOptions { TextIteratorBehavior::EntersTextControls, TextIteratorBehavior::ClipsToFrameAncestors, TextIteratorBehavior::EntersImageOverlays };
+    if (!options.contains(DoNotTraverseFlatTree))
+        iteratorOptions.add(TextIteratorBehavior::TraversesFlatTree);
+    return iteratorOptions;
+}
 
 inline CharacterRange characterRange(const BoundaryPoint& start, const SimpleRange& range, TextIteratorBehaviors behaviors)
 {

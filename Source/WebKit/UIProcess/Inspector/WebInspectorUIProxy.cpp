@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2010-2021 Apple Inc. All rights reserved.
  * Portions Copyright (c) 2011 Motorola Mobility, Inc.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -32,6 +32,7 @@
 #include "APIProcessPoolConfiguration.h"
 #include "APIUIClient.h"
 #include "InspectorBrowserAgent.h"
+#include "MessageSenderInlines.h"
 #include "WebAutomationSession.h"
 #include "WebFrameProxy.h"
 #include "WebInspectorInterruptDispatcherMessages.h"
@@ -48,7 +49,7 @@
 #include <WebCore/CertificateInfo.h>
 #include <WebCore/MockRealtimeMediaSourceCenter.h>
 #include <WebCore/NotImplemented.h>
-#include <WebCore/TextEncoding.h>
+#include <pal/text/TextEncoding.h>
 #include <wtf/SetForScope.h>
 
 #if PLATFORM(GTK)
@@ -67,6 +68,7 @@ const unsigned WebInspectorUIProxy::initialWindowHeight = 650;
 WebInspectorUIProxy::WebInspectorUIProxy(WebPageProxy& inspectedPage)
     : m_inspectedPage(&inspectedPage)
     , m_inspectorClient(makeUnique<API::InspectorClient>())
+    , m_inspectedPageIdentifier(inspectedPage.identifier())
 #if PLATFORM(MAC)
     , m_closeFrontendAfterInactivityTimer(RunLoop::main(), this, &WebInspectorUIProxy::closeFrontendAfterInactivityTimerFired)
 #endif
@@ -225,18 +227,20 @@ void WebInspectorUIProxy::updateForNewPageProcess(WebPageProxy& inspectedPage)
     ASSERT(!m_inspectedPage);
 
     m_inspectedPage = &inspectedPage;
+    m_inspectedPageIdentifier = m_inspectedPage->identifier();
+
     m_inspectedPage->process().addMessageReceiver(Messages::WebInspectorUIProxy::messageReceiverName(), m_inspectedPage->webPageID(), *this);
 
     if (m_inspectorPage)
         m_inspectorPage->send(Messages::WebInspectorUI::UpdateConnection());
 }
 
-void WebInspectorUIProxy::setFrontendConnection(IPC::Attachment connectionIdentifier)
+void WebInspectorUIProxy::setFrontendConnection(IPC::Connection::Handle&& connectionIdentifier)
 {
     if (!m_inspectedPage)
         return;
 
-    m_inspectedPage->send(Messages::WebInspector::SetFrontendConnection(connectionIdentifier));
+    m_inspectedPage->send(Messages::WebInspector::SetFrontendConnection(WTFMove(connectionIdentifier)));
 }
 
 void WebInspectorUIProxy::showConsole()
@@ -391,8 +395,8 @@ void WebInspectorUIProxy::toggleElementSelection()
 bool WebInspectorUIProxy::isMainOrTestInspectorPage(const URL& url)
 {
     // Use URL so we can compare the paths and protocols.
-    URL mainPageURL(URL(), WebInspectorUIProxy::inspectorPageURL());
-    if (url.protocol() == mainPageURL.protocol() && decodeURLEscapeSequences(url.path()) == decodeURLEscapeSequences(mainPageURL.path()))
+    URL mainPageURL { WebInspectorUIProxy::inspectorPageURL() };
+    if (url.protocol() == mainPageURL.protocol() && PAL::decodeURLEscapeSequences(url.path()) == PAL::decodeURLEscapeSequences(mainPageURL.path()))
         return true;
 
     // We might not have a Test URL in Production builds.
@@ -400,8 +404,8 @@ bool WebInspectorUIProxy::isMainOrTestInspectorPage(const URL& url)
     if (testPageURLString.isNull())
         return false;
 
-    URL testPageURL(URL(), testPageURLString);
-    return url.protocol() == testPageURL.protocol() && decodeURLEscapeSequences(url.path()) == decodeURLEscapeSequences(testPageURL.path());
+    URL testPageURL { testPageURLString };
+    return url.protocol() == testPageURL.protocol() && PAL::decodeURLEscapeSequences(url.path()) == PAL::decodeURLEscapeSequences(testPageURL.path());
 }
 
 void WebInspectorUIProxy::createFrontendPage()
@@ -419,7 +423,7 @@ void WebInspectorUIProxy::createFrontendPage()
     // Make sure the inspected page has a running WebProcess so we can inspect it.
     m_inspectedPage->launchInitialProcessIfNecessary();
 
-    m_inspectorPage->process().addMessageReceiver(Messages::WebInspectorUIProxy::messageReceiverName(), m_inspectedPage->identifier(), *this);
+    m_inspectorPage->process().addMessageReceiver(Messages::WebInspectorUIProxy::messageReceiverName(), m_inspectedPageIdentifier, *this);
 
 #if ENABLE(INSPECTOR_EXTENSIONS)
     m_extensionController = WebInspectorUIExtensionControllerProxy::create(*m_inspectorPage);
@@ -446,7 +450,7 @@ void WebInspectorUIProxy::openLocalInspectorFrontend(bool canAttach, bool underT
     if (!m_inspectorPage)
         return;
 
-    m_inspectorPage->send(Messages::WebInspectorUI::EstablishConnection(m_inspectedPage->identifier(), infoForLocalDebuggable(), m_underTest, inspectionLevel()));
+    m_inspectorPage->send(Messages::WebInspectorUI::EstablishConnection(m_inspectedPageIdentifier, infoForLocalDebuggable(), m_underTest, inspectionLevel()));
 
     ASSERT(!m_isActiveFrontend);
     m_isActiveFrontend = true;
@@ -486,7 +490,7 @@ void WebInspectorUIProxy::openLocalInspectorFrontend(bool canAttach, bool underT
     if (!m_inspectorPage)
         return;
 
-    m_inspectorPage->loadRequest(URL(URL(), m_underTest ? WebInspectorUIProxy::inspectorTestPageURL() : WebInspectorUIProxy::inspectorPageURL()));
+    m_inspectorPage->loadRequest(URL { m_underTest ? WebInspectorUIProxy::inspectorTestPageURL() : WebInspectorUIProxy::inspectorPageURL() });
 }
 
 void WebInspectorUIProxy::open()
@@ -497,17 +501,17 @@ void WebInspectorUIProxy::open()
     if (!m_inspectorPage)
         return;
 
-#if PLATFORM(GTK)
-    SetForScope<bool> isOpening(m_isOpening, true);
-#endif
+    SetForScope isOpening(m_isOpening, true);
 
     m_isVisible = true;
     m_inspectorPage->send(Messages::WebInspectorUI::SetIsVisible(m_isVisible));
 
-    if (m_isAttached)
+    if (m_isAttached && platformCanAttach(m_canAttach))
         platformAttach();
-    else
+    else {
+        m_isAttached = false;
         platformCreateFrontendWindow();
+    }
 
     platformBringToFront();
 }
@@ -526,10 +530,11 @@ void WebInspectorUIProxy::closeFrontendPageAndWindow()
     if (m_closing)
         return;
     
-    SetForScope<bool> reentrancyProtector(m_closing, true);
+    SetForScope reentrancyProtector(m_closing, true);
     
     // Notify WebKit client when a local inspector closes so it can clear _WKInspectorDelegate and perform other cleanup.
-    m_inspectedPage->uiClient().willCloseLocalInspector(*m_inspectedPage, *this);
+    if (m_inspectedPage)
+        m_inspectedPage->uiClient().willCloseLocalInspector(*m_inspectedPage, *this);
 
     m_isVisible = false;
     m_isProfilingPage = false;
@@ -539,12 +544,12 @@ void WebInspectorUIProxy::closeFrontendPageAndWindow()
     untrackInspectorPage(m_inspectorPage);
 
     m_inspectorPage->send(Messages::WebInspectorUI::SetIsVisible(m_isVisible));
-    m_inspectorPage->process().removeMessageReceiver(Messages::WebInspectorUIProxy::messageReceiverName(), m_inspectedPage->identifier());
+    m_inspectorPage->process().removeMessageReceiver(Messages::WebInspectorUIProxy::messageReceiverName(), m_inspectedPageIdentifier);
 
-    if (m_isActiveFrontend) {
-        m_isActiveFrontend = false;
+    if (m_inspectedPage && m_isActiveFrontend)
         m_inspectedPage->inspectorController().disconnectFrontend(*this);
-    }
+
+    m_isActiveFrontend = false;
 
     if (m_isAttached)
         platformDetach();
@@ -607,11 +612,6 @@ void WebInspectorUIProxy::bringToFront()
         open();
 }
 
-void WebInspectorUIProxy::bringInspectedPageToFront()
-{
-    platformBringInspectedPageToFront();
-}
-
 void WebInspectorUIProxy::attachAvailabilityChanged(bool available)
 {
     bool previousCanAttach = m_canAttach;
@@ -638,6 +638,11 @@ void WebInspectorUIProxy::openURLExternally(const String& url)
         m_inspectorClient->openURLExternally(*this, url);
 }
 
+void WebInspectorUIProxy::revealFileExternally(const String& path)
+{
+    platformRevealFileExternally(path);
+}
+
 void WebInspectorUIProxy::inspectedURLChanged(const String& urlString)
 {
     platformInspectedURLChanged(urlString);
@@ -646,6 +651,14 @@ void WebInspectorUIProxy::inspectedURLChanged(const String& urlString)
 void WebInspectorUIProxy::showCertificate(const CertificateInfo& certificateInfo)
 {
     platformShowCertificate(certificateInfo);
+}
+
+void WebInspectorUIProxy::setInspectorPageDeveloperExtrasEnabled(bool enabled)
+{
+    if (!m_inspectorPage)
+        return;
+
+    m_inspectorPage->preferences().setDeveloperExtrasEnabled(enabled);
 }
 
 void WebInspectorUIProxy::elementSelectionChanged(bool active)
@@ -694,6 +707,16 @@ void WebInspectorUIProxy::setDeveloperPreferenceOverride(WebCore::InspectorClien
     ASSERT_NOT_REACHED();
 }
 
+#if ENABLE(INSPECTOR_NETWORK_THROTTLING)
+
+void WebInspectorUIProxy::setEmulatedConditions(std::optional<int64_t>&& bytesPerSecondLimit)
+{
+    if (m_inspectedPage)
+        m_inspectedPage->websiteDataStore().setEmulatedConditions(WTFMove(bytesPerSecondLimit));
+}
+
+#endif // ENABLE(INSPECTOR_NETWORK_THROTTLING)
+
 void WebInspectorUIProxy::setDiagnosticLoggingAvailable(bool available)
 {
 #if ENABLE(INSPECTOR_TELEMETRY)
@@ -703,28 +726,42 @@ void WebInspectorUIProxy::setDiagnosticLoggingAvailable(bool available)
 #endif
 }
 
-void WebInspectorUIProxy::save(const String& filename, const String& content, bool base64Encoded, bool forceSaveAs)
+void WebInspectorUIProxy::save(Vector<InspectorFrontendClient::SaveData>&& saveDatas, bool forceSaveAs)
 {
     if (!m_inspectedPage->preferences().developerExtrasEnabled())
         return;
 
-    ASSERT(!filename.isEmpty());
-    if (filename.isEmpty())
+    ASSERT(!saveDatas.isEmpty());
+    if (saveDatas.isEmpty())
         return;
 
-    platformSave(filename, content, base64Encoded, forceSaveAs);
+    ASSERT(!saveDatas[0].url.isEmpty());
+    if (saveDatas[0].url.isEmpty())
+        return;
+
+    platformSave(WTFMove(saveDatas), forceSaveAs);
 }
 
-void WebInspectorUIProxy::append(const String& filename, const String& content)
+void WebInspectorUIProxy::load(const String& path, CompletionHandler<void(const String&)>&& completionHandler)
 {
     if (!m_inspectedPage->preferences().developerExtrasEnabled())
         return;
 
-    ASSERT(!filename.isEmpty());
-    if (filename.isEmpty())
+    ASSERT(!path.isEmpty());
+    if (path.isEmpty())
         return;
 
-    platformAppend(filename, content);
+    platformLoad(path, WTFMove(completionHandler));
+}
+
+void WebInspectorUIProxy::pickColorFromScreen(CompletionHandler<void(const std::optional<WebCore::Color> &)>&& completionHandler)
+{
+    if (!m_inspectedPage->preferences().developerExtrasEnabled()) {
+        completionHandler({ });
+        return;
+    }
+
+    platformPickColorFromScreen(WTFMove(completionHandler));
 }
 
 bool WebInspectorUIProxy::shouldOpenAttached()
@@ -801,6 +838,11 @@ void WebInspectorUIProxy::platformSetForcedAppearance(InspectorFrontendClient::A
     notImplemented();
 }
 
+void WebInspectorUIProxy::platformRevealFileExternally(const String&)
+{
+    notImplemented();
+}
+
 void WebInspectorUIProxy::platformInspectedURLChanged(const String&)
 {
     notImplemented();
@@ -811,26 +853,21 @@ void WebInspectorUIProxy::platformShowCertificate(const CertificateInfo&)
     notImplemented();
 }
 
-void WebInspectorUIProxy::platformSave(const String& suggestedURL, const String& content, bool base64Encoded, bool forceSaveDialog)
+void WebInspectorUIProxy::platformSave(Vector<WebCore::InspectorFrontendClient::SaveData>&&, bool /* forceSaveAs */)
 {
     notImplemented();
 }
 
-void WebInspectorUIProxy::platformAppend(const String& suggestedURL, const String& content)
+void WebInspectorUIProxy::platformLoad(const String& path, CompletionHandler<void(const String&)>&& completionHandler)
 {
     notImplemented();
+    completionHandler(nullString());
 }
 
-unsigned WebInspectorUIProxy::platformInspectedWindowHeight()
+void WebInspectorUIProxy::platformPickColorFromScreen(CompletionHandler<void(const std::optional<WebCore::Color>&)>&& completionHandler)
 {
     notImplemented();
-    return 0;
-}
-
-unsigned WebInspectorUIProxy::platformInspectedWindowWidth()
-{
-    notImplemented();
-    return 0;
+    completionHandler({ });
 }
 
 void WebInspectorUIProxy::platformAttach()

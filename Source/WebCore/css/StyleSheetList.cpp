@@ -34,7 +34,7 @@ namespace WebCore {
 using namespace HTMLNames;
 
 StyleSheetList::StyleSheetList(Document& document)
-    : m_document(makeWeakPtr(document))
+    : m_document(document)
 {
 }
 
@@ -101,6 +101,11 @@ CSSStyleSheet* StyleSheetList::namedItem(const AtomString& name) const
     if (is<HTMLStyleElement>(element))
         return downcast<HTMLStyleElement>(element)->sheet();
     return nullptr;
+}
+
+bool StyleSheetList::isSupportedPropertyName(const AtomString& name) const
+{
+    return namedItem(name);
 }
 
 Vector<AtomString> StyleSheetList::supportedPropertyNames()

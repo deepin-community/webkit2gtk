@@ -1,7 +1,7 @@
 /*
  *  Copyright (C) 2000 Harri Porten (porten@kde.org)
  *  Copyright (C) 2006 Jon Shier (jshier@iastate.edu)
- *  Copyright (C) 2003-2019 Apple Inc. All rights reseved.
+ *  Copyright (C) 2003-2022 Apple Inc. All rights reseved.
  *  Copyright (C) 2006 Alexey Proskuryakov (ap@webkit.org)
  *
  *  This library is free software; you can redistribute it and/or
@@ -26,7 +26,7 @@
 #include "JSDOMBinding.h"
 #include "JSDOMBindingSecurity.h"
 #include "JSDOMExceptionHandling.h"
-#include "JSDOMWindowCustom.h"
+#include "JSLocalDOMWindowCustom.h"
 #include "RuntimeApplicationChecks.h"
 #include "WebCoreJSClientData.h"
 #include <JavaScriptCore/JSFunction.h>
@@ -43,7 +43,7 @@ static bool getOwnPropertySlotCommon(JSLocation& thisObject, JSGlobalObject& lex
     auto* window = thisObject.wrapped().window();
 
     // When accessing Location cross-domain, functions are always the native built-in ones.
-    // See JSDOMWindow::getOwnPropertySlotDelegate for additional details.
+    // See JSLocalDOMWindow::getOwnPropertySlotDelegate for additional details.
 
     // Our custom code is only needed to implement the Window cross-domain scheme, so if access is
     // allowed, return false so the normal lookup will take place.
@@ -63,7 +63,7 @@ static bool getOwnPropertySlotCommon(JSLocation& thisObject, JSGlobalObject& lex
 
     // Getting location.href cross origin needs to throw. However, getOwnPropertyDescriptor() needs to return
     // a descriptor that has a setter but no getter.
-    if (slot.internalMethodType() == PropertySlot::InternalMethodType::GetOwnProperty && propertyName == static_cast<JSVMClientData*>(vm.clientData)->builtinNames().hrefPublicName()) {
+    if (slot.internalMethodType() == PropertySlot::InternalMethodType::GetOwnProperty && propertyName == builtinNames(vm).hrefPublicName()) {
         auto* entry = JSLocation::info()->staticPropHashTable->entry(propertyName);
         auto* getterSetter = thisObject.globalObject()->createCrossOriginGetterSetter(&lexicalGlobalObject, propertyName, nullptr, entry->propertyPutter());
         slot.setGetterSlot(&thisObject, PropertyAttribute::Accessor | PropertyAttribute::DontEnum, getterSetter);
@@ -120,8 +120,8 @@ bool JSLocation::put(JSCell* cell, JSGlobalObject* lexicalGlobalObject, Property
     // So fall through to the access check for those.
     String errorMessage;
     if (!BindingSecurity::shouldAllowAccessToDOMWindow(*lexicalGlobalObject, thisObject->wrapped().window(), errorMessage)) {
-        if (propertyName == static_cast<JSVMClientData*>(vm.clientData)->builtinNames().hrefPublicName()) {
-            auto* setter = s_info.staticPropHashTable->entry(propertyName)->propertyPutter();
+        if (propertyName == builtinNames(vm).hrefPublicName()) {
+            auto setter = s_info.staticPropHashTable->entry(propertyName)->propertyPutter();
             scope.release();
             setter(lexicalGlobalObject, JSValue::encode(putPropertySlot.thisValue()), JSValue::encode(value), propertyName);
             return true;

@@ -32,19 +32,23 @@ namespace WebCore {
 class XMLDocument : public Document {
     WTF_MAKE_ISO_ALLOCATED(XMLDocument);
 public:
-    static Ref<XMLDocument> create(Frame* frame, const Settings& settings, const URL& url)
+    static Ref<XMLDocument> create(LocalFrame* frame, const Settings& settings, const URL& url)
     {
-        return adoptRef(*new XMLDocument(frame, settings, url));
+        auto document = adoptRef(*new XMLDocument(frame, settings, url, { DocumentClass::XML }));
+        document->addToContextsMap();
+        return document;
     }
 
-    static Ref<XMLDocument> createXHTML(Frame* frame, const Settings& settings, const URL& url)
+    static Ref<XMLDocument> createXHTML(LocalFrame* frame, const Settings& settings, const URL& url)
     {
-        return adoptRef(*new XMLDocument(frame, settings, url, XHTMLDocumentClass));
+        auto document = adoptRef(*new XMLDocument(frame, settings, url, { DocumentClass::XML, DocumentClass::XHTML }));
+        document->addToContextsMap();
+        return document;
     }
 
 protected:
-    XMLDocument(Frame* frame, const Settings& settings, const URL& url, unsigned documentClasses = DefaultDocumentClass)
-        : Document(frame, settings, url, XMLDocumentClass | documentClasses)
+    XMLDocument(LocalFrame* frame, const Settings& settings, const URL& url, DocumentClasses documentClasses = { })
+        : Document(frame, settings, url, documentClasses | DocumentClasses(DocumentClass::XML))
     {
     }
 };

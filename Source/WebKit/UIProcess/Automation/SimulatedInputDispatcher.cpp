@@ -33,7 +33,11 @@
 #include "WebAutomationSession.h"
 #include "WebAutomationSessionMacros.h"
 #include <WebCore/PointerEventTypeNames.h>
-#include <wtf/Variant.h>
+#include <variant>
+
+#if ENABLE(WEBDRIVER_KEYBOARD_GRAPHEME_CLUSTERS)
+#include <wtf/text/TextBreakIterator.h>
+#endif
 
 namespace WebKit {
 
@@ -150,7 +154,7 @@ void SimulatedInputDispatcher::transitionToNextKeyFrame()
         return;
     }
 
-    transitionBetweenKeyFrames(m_keyframes[m_keyframeIndex - 1], m_keyframes[m_keyframeIndex], [this, protectedThis = makeRef(*this)](std::optional<AutomationCommandError> error) {
+    transitionBetweenKeyFrames(m_keyframes[m_keyframeIndex - 1], m_keyframes[m_keyframeIndex], [this, protectedThis = Ref { *this }](std::optional<AutomationCommandError> error) {
         if (error) {
             finishDispatching(error);
             return;
@@ -176,7 +180,7 @@ void SimulatedInputDispatcher::transitionToNextInputSourceState()
     auto& postStateEntry = nextKeyFrame.states[m_inputSourceStateIndex];
     SimulatedInputSource& inputSource = postStateEntry.first;
 
-    transitionInputSourceToState(inputSource, postStateEntry.second, [this, protectedThis = makeRef(*this)](std::optional<AutomationCommandError> error) {
+    transitionInputSourceToState(inputSource, postStateEntry.second, [this, protectedThis = Ref { *this }](std::optional<AutomationCommandError> error) {
         if (error) {
             auto finish = std::exchange(m_keyFrameTransitionCompletionHandler, nullptr);
             finish(error);
@@ -275,7 +279,7 @@ void SimulatedInputDispatcher::transitionInputSourceToState(SimulatedInputSource
 #if !ENABLE(WEBDRIVER_MOUSE_INTERACTIONS)
         RELEASE_ASSERT_NOT_REACHED();
 #else
-        resolveLocation(a.location.value_or(WebCore::IntPoint()), b.location, b.origin.value_or(MouseMoveOrigin::Viewport), b.nodeHandle, [this, &a, &b, inputSource = inputSource.type, eventDispatchFinished = WTFMove(eventDispatchFinished)](std::optional<WebCore::IntPoint> location, std::optional<AutomationCommandError> error) mutable {
+        resolveLocation(valueOrDefault(a.location), b.location, b.origin.value_or(MouseMoveOrigin::Viewport), b.nodeHandle, [this, &a, &b, inputSource = inputSource.type, eventDispatchFinished = WTFMove(eventDispatchFinished)](std::optional<WebCore::IntPoint> location, std::optional<AutomationCommandError> error) mutable {
             if (error) {
                 eventDispatchFinished(error);
                 return;
@@ -316,7 +320,7 @@ void SimulatedInputDispatcher::transitionInputSourceToState(SimulatedInputSource
 #if !ENABLE(WEBDRIVER_TOUCH_INTERACTIONS)
         RELEASE_ASSERT_NOT_REACHED();
 #else
-        resolveLocation(a.location.value_or(WebCore::IntPoint()), b.location, b.origin.value_or(MouseMoveOrigin::Viewport), b.nodeHandle, [this, &a, &b, eventDispatchFinished = WTFMove(eventDispatchFinished)](std::optional<WebCore::IntPoint> location, std::optional<AutomationCommandError> error) mutable {
+        resolveLocation(valueOrDefault(a.location), b.location, b.origin.value_or(MouseMoveOrigin::Viewport), b.nodeHandle, [this, &a, &b, eventDispatchFinished = WTFMove(eventDispatchFinished)](std::optional<WebCore::IntPoint> location, std::optional<AutomationCommandError> error) mutable {
             if (error) {
                 eventDispatchFinished(error);
                 return;
@@ -363,24 +367,37 @@ void SimulatedInputDispatcher::transitionInputSourceToState(SimulatedInputSource
             bool simulatedAnInteraction = false;
             for (auto charKey : b.pressedCharKeys) {
                 if (!a.pressedCharKeys.contains(charKey)) {
+#if ENABLE(WEBDRIVER_KEYBOARD_GRAPHEME_CLUSTERS)
+                    ASSERT_WITH_MESSAGE(WTF::numGraphemeClusters(charKey) <= 1, "A CharKey must either be a single unicode code point, a single grapheme cluster, or null.");
+#endif
                     ASSERT_WITH_MESSAGE(!simulatedAnInteraction, "Only one CharKey may differ at a time between two input source states.");
                     if (simulatedAnInteraction)
                         continue;
                     simulatedAnInteraction = true;
 
+#if ENABLE(WEBDRIVER_KEYBOARD_GRAPHEME_CLUSTERS)
+                    LOG(Automation, "SimulatedInputDispatcher[%p]: simulating KeyPress[key=%s] for transition to %d.%d", this, charKey.utf8().data(), m_keyframeIndex, m_inputSourceStateIndex);
+#else
                     LOG(Automation, "SimulatedInputDispatcher[%p]: simulating KeyPress[key=%c] for transition to %d.%d", this, charKey, m_keyframeIndex, m_inputSourceStateIndex);
+#endif
                     m_client.simulateKeyboardInteraction(m_page, KeyboardInteraction::KeyPress, charKey, WTFMove(eventDispatchFinished));
                 }
             }
 
             for (auto charKey : a.pressedCharKeys) {
                 if (!b.pressedCharKeys.contains(charKey)) {
+#if ENABLE(WEBDRIVER_KEYBOARD_GRAPHEME_CLUSTERS)
+                    ASSERT_WITH_MESSAGE(WTF::numGraphemeClusters(charKey) <= 1, "A CharKey must either be a single unicode code point, a single grapheme cluster, or null.");
+#endif
                     ASSERT_WITH_MESSAGE(!simulatedAnInteraction, "Only one CharKey may differ at a time between two input source states.");
                     if (simulatedAnInteraction)
                         continue;
                     simulatedAnInteraction = true;
-
+#if ENABLE(WEBDRIVER_KEYBOARD_GRAPHEME_CLUSTERS)
+                    LOG(Automation, "SimulatedInputDispatcher[%p]: simulating KeyRelease[key=%s] for transition to %d.%d", this, charKey.utf8().data(), m_keyframeIndex, m_inputSourceStateIndex);
+#else
                     LOG(Automation, "SimulatedInputDispatcher[%p]: simulating KeyRelease[key=%c] for transition to %d.%d", this, charKey, m_keyframeIndex, m_inputSourceStateIndex);
+#endif
                     m_client.simulateKeyboardInteraction(m_page, KeyboardInteraction::KeyRelease, charKey, WTFMove(eventDispatchFinished));
                 }
             }
@@ -422,7 +439,7 @@ void SimulatedInputDispatcher::transitionInputSourceToState(SimulatedInputSource
 #if !ENABLE(WEBDRIVER_WHEEL_INTERACTIONS)
         RELEASE_ASSERT_NOT_REACHED();
 #else
-        resolveLocation(a.location.value_or(WebCore::IntPoint()), b.location, b.origin.value_or(MouseMoveOrigin::Viewport), b.nodeHandle, [this, &a, &b, eventDispatchFinished = WTFMove(eventDispatchFinished)](std::optional<WebCore::IntPoint> location, std::optional<AutomationCommandError> error) mutable {
+        resolveLocation(valueOrDefault(a.location), b.location, b.origin.value_or(MouseMoveOrigin::Viewport), b.nodeHandle, [this, &a, &b, eventDispatchFinished = WTFMove(eventDispatchFinished)](std::optional<WebCore::IntPoint> location, std::optional<AutomationCommandError> error) mutable {
             if (error) {
                 eventDispatchFinished(error);
                 return;

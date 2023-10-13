@@ -25,12 +25,16 @@
 #include "RenderListItem.h"
 
 #include "CSSFontSelector.h"
+#include "ElementInlines.h"
 #include "ElementTraversal.h"
 #include "HTMLNames.h"
 #include "HTMLOListElement.h"
 #include "HTMLUListElement.h"
 #include "PseudoElement.h"
-#include "RenderStyleConstants.h"
+#include "RenderBoxInlines.h"
+#include "RenderBoxModelObjectInlines.h"
+#include "RenderElementInlines.h"
+#include "RenderStyleSetters.h"
 #include "RenderTreeBuilder.h"
 #include "RenderView.h"
 #include "StyleInheritedData.h"
@@ -76,9 +80,10 @@ RenderStyle RenderListItem::computeMarkerStyle() const
     fontDescription.setVariantNumericSpacing(FontVariantNumericSpacing::TabularNumbers);
     markerStyle.setFontDescription(WTFMove(fontDescription));
     markerStyle.fontCascade().update(&document().fontSelector());
-    markerStyle.setUnicodeBidi(EUnicodeBidi::Isolate);
-    markerStyle.setWhiteSpace(WhiteSpace::Pre);
-    markerStyle.setTextTransform(TextTransform::None);
+    markerStyle.setUnicodeBidi(UnicodeBidi::Isolate);
+    markerStyle.setWhiteSpaceCollapse(WhiteSpaceCollapse::Preserve);
+    markerStyle.setTextWrap(TextWrap::NoWrap);
+    markerStyle.setTextTransform({ });
     return markerStyle;
 }
 
@@ -109,7 +114,7 @@ static Element* enclosingList(const RenderListItem& listItem)
     auto& element = listItem.element();
     auto* parent = is<PseudoElement>(element) ? downcast<PseudoElement>(element).hostElement() : element.parentElement();
     for (auto* ancestor = parent; ancestor; ancestor = ancestor->parentElement()) {
-        if (isHTMLListElement(*ancestor))
+        if (isHTMLListElement(*ancestor) || (ancestor->renderer() && ancestor->renderer()->shouldApplyStyleContainment()))
             return ancestor;
     }
 
@@ -123,7 +128,10 @@ static RenderListItem* nextListItemHelper(const Element& list, const Element& el
 {
     auto* current = &element;
     auto advance = [&] {
-        current = ElementTraversal::nextIncludingPseudo(*current, &list);
+        if (!current->renderOrDisplayContentsStyle())
+            current = ElementTraversal::nextIncludingPseudoSkippingChildren(*current, &list);
+        else
+            current = ElementTraversal::nextIncludingPseudo(*current, &list);
     };
     advance();
     while (current) {
@@ -209,7 +217,7 @@ unsigned RenderListItem::itemCountForOrderedList(const HTMLOListElement& list)
 void RenderListItem::updateValueNow() const
 {
     auto* list = enclosingList(*this);
-    auto* orderedList = is<HTMLOListElement>(list) ? downcast<HTMLOListElement>(list) : nullptr;
+    auto* orderedList = dynamicDowncast<HTMLOListElement>(list);
 
     // The start item is either the closest item before this one in the list that already has a value,
     // or the first item in the list if none have before this have values yet.

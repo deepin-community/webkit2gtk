@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -31,6 +31,7 @@
 #include "DataReference.h"
 #include "GPUConnectionToWebProcessMessages.h"
 #include "GPUProcess.h"
+#include "GPUProcessConnectionInfo.h"
 #include "GPUProcessConnectionMessages.h"
 #include "GPUProcessConnectionParameters.h"
 #include "GPUProcessMessages.h"
@@ -40,10 +41,10 @@
 #include "LibWebRTCCodecsProxyMessages.h"
 #include "Logging.h"
 #include "MediaOverridesForTesting.h"
+#include "MessageSenderInlines.h"
 #include "RemoteAudioHardwareListenerProxy.h"
 #include "RemoteAudioMediaStreamTrackRendererInternalUnitManager.h"
 #include "RemoteAudioMediaStreamTrackRendererInternalUnitManagerMessages.h"
-#include "RemoteGraphicsContextGLMessages.h"
 #include "RemoteMediaPlayerManagerProxy.h"
 #include "RemoteMediaPlayerManagerProxyMessages.h"
 #include "RemoteMediaPlayerProxy.h"
@@ -61,13 +62,15 @@
 #include "RemoteSampleBufferDisplayLayerManagerMessages.h"
 #include "RemoteSampleBufferDisplayLayerMessages.h"
 #include "RemoteScrollingCoordinatorTransaction.h"
+#include "ScopedRenderingResourcesRequest.h"
 #include "WebCoreArgumentCoders.h"
 #include "WebErrors.h"
+#include "WebGPUObjectHeap.h"
 #include "WebProcessMessages.h"
 #include <WebCore/LogInitialization.h>
+#include <WebCore/MediaPlayer.h>
 #include <WebCore/MockRealtimeMediaSourceCenter.h>
 #include <WebCore/NowPlayingManager.h>
-#include <wtf/Language.h>
 
 #if PLATFORM(COCOA)
 #include "RemoteLayerTreeDrawingAreaProxyMessages.h"
@@ -77,6 +80,7 @@
 
 #if ENABLE(WEBGL)
 #include "RemoteGraphicsContextGL.h"
+#include "RemoteGraphicsContextGLMessages.h"
 #endif
 
 #if ENABLE(ENCRYPTED_MEDIA)
@@ -85,6 +89,10 @@
 #include "RemoteCDMInstanceProxyMessages.h"
 #include "RemoteCDMInstanceSessionProxyMessages.h"
 #include "RemoteCDMProxyMessages.h"
+#endif
+
+#if ENABLE(MEDIA_SOURCE)
+#include <WebCore/MediaStrategy.h>
 #endif
 
 // FIXME: <https://bugs.webkit.org/show_bug.cgi?id=211085>
@@ -143,6 +151,22 @@
 #include <WebCore/SecurityOrigin.h>
 #endif
 
+#if USE(GRAPHICS_LAYER_WC)
+#include "RemoteWCLayerTreeHost.h"
+#include "WCContentBufferManager.h"
+#include "WCRemoteFrameHostLayerManager.h"
+#endif
+
+#if ENABLE(IPC_TESTING_API)
+#include "IPCTesterMessages.h"
+#endif
+
+#if ENABLE(VIDEO)
+#include "RemoteVideoFrameObjectHeap.h"
+#endif
+
+#define MESSAGE_CHECK(assertion) MESSAGE_CHECK_BASE(assertion, (&connection()))
+
 namespace WebKit {
 using namespace WebCore;
 
@@ -163,6 +187,7 @@ private:
     bool willStartCapture(CaptureDevice::DeviceType type) const final
     {
         switch (type) {
+        case CaptureDevice::DeviceType::SystemAudio:
         case CaptureDevice::DeviceType::Unknown:
         case CaptureDevice::DeviceType::Speaker:
             return false;
@@ -171,7 +196,7 @@ private:
         case CaptureDevice::DeviceType::Camera:
             if (!m_process.allowsVideoCapture())
                 return false;
-#if PLATFORM(IOS)
+#if PLATFORM(IOS) || PLATFORM(VISION)
             MediaSessionManageriOS::providePresentingApplicationPID();
 #endif
             return true;
@@ -188,52 +213,112 @@ private:
         return m_process.setCaptureAttributionString();
     }
 
+#if ENABLE(APP_PRIVACY_REPORT)
+    void setTCCIdentity() final
+    {
+        m_process.setTCCIdentity();
+    }
+#endif
+
+    void startProducingData(CaptureDevice::DeviceType type) final
+    {
+        if (type == CaptureDevice::DeviceType::Microphone)
+            m_process.startCapturingAudio();
+#if PLATFORM(IOS)
+        else if (type == CaptureDevice::DeviceType::Camera)
+            m_process.overridePresentingApplicationPIDIfNeeded();
+#endif
+    }
+
+    const ProcessIdentity& resourceOwner() const final
+    {
+        return m_process.webProcessIdentity();
+    }
+
+    RemoteVideoFrameObjectHeap* remoteVideoFrameObjectHeap() final { return &m_process.videoFrameObjectHeap(); }
+
     GPUConnectionToWebProcess& m_process;
 };
 
 #endif
 
-Ref<GPUConnectionToWebProcess> GPUConnectionToWebProcess::create(GPUProcess& gpuProcess, WebCore::ProcessIdentifier webProcessIdentifier, IPC::Connection::Identifier connectionIdentifier, PAL::SessionID sessionID, GPUProcessConnectionParameters&& parameters)
+Ref<GPUConnectionToWebProcess> GPUConnectionToWebProcess::create(GPUProcess& gpuProcess, WebCore::ProcessIdentifier webProcessIdentifier, PAL::SessionID sessionID, IPC::Connection::Handle&& connectionHandle, GPUProcessConnectionParameters&& parameters)
 {
-    return adoptRef(*new GPUConnectionToWebProcess(gpuProcess, webProcessIdentifier, connectionIdentifier, sessionID, WTFMove(parameters)));
+    return adoptRef(*new GPUConnectionToWebProcess(gpuProcess, webProcessIdentifier, sessionID, WTFMove(connectionHandle), WTFMove(parameters)));
 }
 
-GPUConnectionToWebProcess::GPUConnectionToWebProcess(GPUProcess& gpuProcess, WebCore::ProcessIdentifier webProcessIdentifier, IPC::Connection::Identifier connectionIdentifier, PAL::SessionID sessionID, GPUProcessConnectionParameters&& parameters)
-    : m_connection(IPC::Connection::createServerConnection(connectionIdentifier, *this))
+GPUConnectionToWebProcess::GPUConnectionToWebProcess(GPUProcess& gpuProcess, WebCore::ProcessIdentifier webProcessIdentifier, PAL::SessionID sessionID, IPC::Connection::Handle&& connectionHandle, GPUProcessConnectionParameters&& parameters)
+    : m_connection(IPC::Connection::createClientConnection(IPC::Connection::Identifier { WTFMove(connectionHandle) }))
     , m_gpuProcess(gpuProcess)
     , m_webProcessIdentifier(webProcessIdentifier)
-#if HAVE(TASK_IDENTITY_TOKEN)
-    , m_webProcessIdentityToken(WTFMove(parameters.webProcessIdentityToken))
-#endif
+    , m_webProcessIdentity(WTFMove(parameters.webProcessIdentity))
+#if ENABLE(VIDEO)
     , m_remoteMediaPlayerManagerProxy(makeUniqueRef<RemoteMediaPlayerManagerProxy>(*this))
-    , m_sessionID(sessionID)
-#if PLATFORM(COCOA) && USE(LIBWEBRTC)
-    , m_libWebRTCCodecsProxy(LibWebRTCCodecsProxy::create(*this))
 #endif
+    , m_sessionID(sessionID)
 #if PLATFORM(COCOA) && ENABLE(MEDIA_STREAM)
     , m_sampleBufferDisplayLayerManager(RemoteSampleBufferDisplayLayerManager::create(*this))
 #endif
 #if ENABLE(MEDIA_STREAM)
-    , m_captureOrigin(SecurityOrigin::createUnique())
+    , m_captureOrigin(SecurityOrigin::createOpaque())
 #endif
+#if ENABLE(VIDEO)
+    , m_videoFrameObjectHeap(RemoteVideoFrameObjectHeap::create(m_connection.get()))
+#endif
+#if PLATFORM(COCOA) && USE(LIBWEBRTC)
+    , m_libWebRTCCodecsProxy(LibWebRTCCodecsProxy::create(*this))
+#endif
+#if HAVE(AUDIT_TOKEN)
+    , m_presentingApplicationAuditToken(WTFMove(parameters.presentingApplicationAuditToken))
+#endif
+    , m_isDOMRenderingEnabled(parameters.isDOMRenderingEnabled)
+    , m_isLockdownModeEnabled(parameters.isLockdownModeEnabled)
+    , m_allowTestOnlyIPC(parameters.allowTestOnlyIPC)
 #if ENABLE(ROUTING_ARBITRATION) && HAVE(AVAUDIO_ROUTING_ARBITER)
     , m_routingArbitrator(LocalAudioSessionRoutingArbitrator::create(*this))
 #endif
+    , m_webGPUEnabled(parameters.isWebGPUEnabled)
 {
     RELEASE_ASSERT(RunLoop::isMain());
 
 #if ENABLE(ROUTING_ARBITRATION) && HAVE(AVAUDIO_ROUTING_ARBITER)
-    gpuProcess.audioSessionManager().session().setRoutingArbitrationClient(makeWeakPtr(m_routingArbitrator.get()));
+    gpuProcess.audioSessionManager().session().setRoutingArbitrationClient(m_routingArbitrator.get());
 #endif
-
-    if (!parameters.overrideLanguages.isEmpty())
-        overrideUserPreferredLanguages(parameters.overrideLanguages);
 
     // Use this flag to force synchronous messages to be treated as asynchronous messages in the WebProcess.
     // Otherwise, the WebProcess would process incoming synchronous IPC while waiting for a synchronous IPC
     // reply from the GPU process, which would be unsafe.
     m_connection->setOnlySendMessagesAsDispatchWhenWaitingForSyncReplyWhenProcessingSuchAMessage(true);
-    m_connection->open();
+    m_connection->open(*this);
+
+#if ENABLE(VP9)
+    bool hasVP9HardwareDecoder;
+    if (parameters.hasVP9HardwareDecoder)
+        hasVP9HardwareDecoder = *parameters.hasVP9HardwareDecoder;
+    else {
+        hasVP9HardwareDecoder = WebCore::vp9HardwareDecoderAvailable();
+        gpuProcess.send(Messages::GPUProcessProxy::SetHasVP9HardwareDecoder(hasVP9HardwareDecoder));
+    }
+    bool hasVP9ExtensionSupport;
+    if (parameters.hasVP9ExtensionSupport)
+        hasVP9ExtensionSupport = *parameters.hasVP9ExtensionSupport;
+    else {
+        hasVP9ExtensionSupport = WebCore::hasVP9ExtensionSupport();
+        gpuProcess.send(Messages::GPUProcessProxy::SetHasVP9ExtensionSupport(hasVP9ExtensionSupport));
+    }
+#endif
+
+    WebKit::GPUProcessConnectionInfo info {
+#if HAVE(AUDIT_TOKEN)
+        gpuProcess.parentProcessConnection()->getAuditToken(),
+#endif
+#if ENABLE(VP9)
+        hasVP9HardwareDecoder,
+        hasVP9ExtensionSupport
+#endif
+    };
+    m_connection->send(Messages::GPUProcessConnection::DidInitialize(info), 0);
+    ++gObjectCountForTesting;
 }
 
 GPUConnectionToWebProcess::~GPUConnectionToWebProcess()
@@ -245,10 +330,11 @@ GPUConnectionToWebProcess::~GPUConnectionToWebProcess()
 #if PLATFORM(COCOA) && ENABLE(MEDIA_STREAM)
     m_sampleBufferDisplayLayerManager->close();
 #endif
-#if PLATFORM(COCOA) && USE(LIBWEBRTC)
-    m_libWebRTCCodecsProxy->close();
-#endif
+
+    --gObjectCountForTesting;
 }
+
+uint64_t GPUConnectionToWebProcess::gObjectCountForTesting = 0;
 
 void GPUConnectionToWebProcess::didClose(IPC::Connection& connection)
 {
@@ -262,7 +348,14 @@ void GPUConnectionToWebProcess::didClose(IPC::Connection& connection)
         m_audioSessionProxy = nullptr;
     }
 #endif
-
+#if PLATFORM(COCOA) && ENABLE(MEDIA_STREAM)
+    if (auto userMediaCaptureManagerProxy = std::exchange(m_userMediaCaptureManagerProxy, { }))
+        userMediaCaptureManagerProxy->close();
+#endif
+#if ENABLE(VIDEO)
+    m_videoFrameObjectHeap->close();
+    m_remoteMediaPlayerManagerProxy->clear();
+#endif
     // RemoteRenderingBackend objects ref their GPUConnectionToWebProcess so we need to make sure
     // to break the reference cycle by destroying them.
     m_remoteRenderingBackendMap.clear();
@@ -271,7 +364,24 @@ void GPUConnectionToWebProcess::didClose(IPC::Connection& connection)
     // RemoteGraphicsContextsGL objects are unneeded after connection closes.
     m_remoteGraphicsContextGLMap.clear();
 #endif
-
+#if USE(GRAPHICS_LAYER_WC)
+    remoteGraphicsStreamWorkQueue().dispatch([webProcessIdentifier = m_webProcessIdentifier] {
+#if ENABLE(WEBGL)
+        WCContentBufferManager::singleton().removeAllContentBuffersForProcess(webProcessIdentifier);
+#endif
+        WCRemoteFrameHostLayerManager::singleton().removeAllLayersForProcess(webProcessIdentifier);
+    });
+#endif
+#if PLATFORM(COCOA) && USE(LIBWEBRTC)
+    m_libWebRTCCodecsProxy = nullptr;
+#endif
+#if ENABLE(ENCRYPTED_MEDIA)
+    if (m_cdmFactoryProxy)
+        m_cdmFactoryProxy->clear();
+#endif
+#if ENABLE(LEGACY_ENCRYPTED_MEDIA)
+    RemoteLegacyCDMFactoryProxy& legacyCdmFactoryProxy();
+#endif
     gpuProcess().connectionToWebProcessClosed(connection);
     gpuProcess().removeGPUConnectionToWebProcess(*this); // May destroy |this|.
 }
@@ -316,18 +426,27 @@ void GPUConnectionToWebProcess::configureLoggingChannel(const String& channelNam
 #endif
 }
 
+#if USE(GRAPHICS_LAYER_WC)
+void GPUConnectionToWebProcess::createWCLayerTreeHost(WebKit::WCLayerTreeHostIdentifier identifier, uint64_t nativeWindow, bool usesOffscreenRendering)
+{
+    auto addResult = m_remoteWCLayerTreeHostMap.add(identifier, RemoteWCLayerTreeHost::create(*this, WTFMove(identifier), nativeWindow, usesOffscreenRendering));
+    ASSERT_UNUSED(addResult, addResult.isNewEntry);
+}
+
+void GPUConnectionToWebProcess::releaseWCLayerTreeHost(WebKit::WCLayerTreeHostIdentifier identifier)
+{
+    m_remoteWCLayerTreeHostMap.remove(identifier);
+}
+#endif
+
 bool GPUConnectionToWebProcess::allowsExitUnderMemoryPressure() const
 {
-    for (auto& remoteRenderingBackend : m_remoteRenderingBackendMap.values()) {
-        if (!remoteRenderingBackend->allowsExitUnderMemoryPressure())
-            return false;
-    }
-#if ENABLE(WEBGL)
-    if (!m_remoteGraphicsContextGLMap.isEmpty())
+    if (hasOutstandingRenderingResourceUsage())
         return false;
-#endif
-    if (!m_remoteMediaPlayerManagerProxy->allowsExitUnderMemoryPressure())
+
+    if (m_isDOMRenderingEnabled)
         return false;
+
 #if ENABLE(WEB_AUDIO)
     if (m_remoteAudioDestinationManager && !m_remoteAudioDestinationManager->allowsExitUnderMemoryPressure())
         return false;
@@ -340,7 +459,7 @@ bool GPUConnectionToWebProcess::allowsExitUnderMemoryPressure() const
     if (!m_sampleBufferDisplayLayerManager->allowsExitUnderMemoryPressure())
         return false;
 #endif
-#if PLATFORM(COCOA) && ENABLE(MEDIA_STREAM) && HAVE(AVASSETWRITERDELEGATE)
+#if PLATFORM(COCOA) && ENABLE(MEDIA_STREAM)
     if (m_remoteMediaRecorderManager && !m_remoteMediaRecorderManager->allowsExitUnderMemoryPressure())
         return false;
 #endif
@@ -388,6 +507,12 @@ void GPUConnectionToWebProcess::terminateWebProcess()
     gpuProcess().parentProcessConnection()->send(Messages::GPUProcessProxy::TerminateWebProcess(m_webProcessIdentifier), 0);
 }
 
+void GPUConnectionToWebProcess::lowMemoryHandler(Critical critical, Synchronous synchronous)
+{
+    for (auto& remoteRenderingBackend : m_remoteRenderingBackendMap.values())
+        remoteRenderingBackend->lowMemoryHandler(critical, synchronous);
+}
+
 #if ENABLE(WEB_AUDIO)
 RemoteAudioDestinationManager& GPUConnectionToWebProcess::remoteAudioDestinationManager()
 {
@@ -398,6 +523,7 @@ RemoteAudioDestinationManager& GPUConnectionToWebProcess::remoteAudioDestination
 }
 #endif
 
+#if ENABLE(VIDEO)
 RemoteMediaResourceManager& GPUConnectionToWebProcess::remoteMediaResourceManager()
 {
     if (!m_remoteMediaResourceManager)
@@ -405,6 +531,7 @@ RemoteMediaResourceManager& GPUConnectionToWebProcess::remoteMediaResourceManage
 
     return *m_remoteMediaResourceManager;
 }
+#endif
 
 #if PLATFORM(COCOA) && ENABLE(MEDIA_STREAM)
 UserMediaCaptureManagerProxy& GPUConnectionToWebProcess::userMediaCaptureManagerProxy()
@@ -424,7 +551,7 @@ RemoteAudioMediaStreamTrackRendererInternalUnitManager& GPUConnectionToWebProces
 }
 #endif
 
-#if PLATFORM(COCOA) && ENABLE(MEDIA_STREAM) && HAVE(AVASSETWRITERDELEGATE)
+#if PLATFORM(COCOA) && ENABLE(MEDIA_STREAM)
 RemoteMediaRecorderManager& GPUConnectionToWebProcess::mediaRecorderManager()
 {
     if (!m_remoteMediaRecorderManager)
@@ -449,7 +576,9 @@ RemoteAudioSessionProxy& GPUConnectionToWebProcess::audioSessionProxy()
 {
     if (!m_audioSessionProxy) {
         m_audioSessionProxy = RemoteAudioSessionProxy::create(*this).moveToUniquePtr();
-        gpuProcess().audioSessionManager().addProxy(*m_audioSessionProxy);
+
+        auto auditToken = gpuProcess().parentProcessConnection()->getAuditToken();
+        gpuProcess().audioSessionManager().addProxy(*m_audioSessionProxy, auditToken);
     }
     return *m_audioSessionProxy;
 }
@@ -465,10 +594,13 @@ RemoteImageDecoderAVFProxy& GPUConnectionToWebProcess::imageDecoderAVFProxy()
 }
 #endif
 
-void GPUConnectionToWebProcess::createRenderingBackend(RemoteRenderingBackendCreationParameters&& creationParameters)
+void GPUConnectionToWebProcess::createRenderingBackend(RemoteRenderingBackendCreationParameters&& creationParameters, IPC::StreamServerConnection::Handle&& connectionHandle)
 {
-    auto addResult = m_remoteRenderingBackendMap.ensure(creationParameters.identifier, [&]() {
-        return IPC::ScopedActiveMessageReceiveQueue { RemoteRenderingBackend::create(*this, WTFMove(creationParameters)) };
+    auto streamConnection = IPC::StreamServerConnection::tryCreate(WTFMove(connectionHandle));
+    MESSAGE_CHECK(streamConnection);
+
+    auto addResult = m_remoteRenderingBackendMap.ensure(creationParameters.identifier, [&, streamConnection = WTFMove(streamConnection)] () mutable {
+        return IPC::ScopedActiveMessageReceiveQueue { RemoteRenderingBackend::create(*this, WTFMove(creationParameters), streamConnection.releaseNonNull()) };
     });
     ASSERT_UNUSED(addResult, addResult.isNewEntry);
 }
@@ -480,22 +612,34 @@ void GPUConnectionToWebProcess::releaseRenderingBackend(RenderingBackendIdentifi
     gpuProcess().tryExitIfUnusedAndUnderMemoryPressure();
 }
 
-#if ENABLE(WEBGL)
-void GPUConnectionToWebProcess::createGraphicsContextGL(WebCore::GraphicsContextGLAttributes attributes, GraphicsContextGLIdentifier graphicsContextGLIdentifier, RenderingBackendIdentifier renderingBackendIdentifier, IPC::StreamConnectionBuffer&& stream)
+void GPUConnectionToWebProcess::releaseSerializedImageBuffer(WebCore::RenderingResourceIdentifier identifier)
 {
+    m_remoteSerializedImageBufferObjectHeap.remove({ { identifier, 0 }, 0 });
+}
+
+#if ENABLE(WEBGL)
+void GPUConnectionToWebProcess::createGraphicsContextGL(WebCore::GraphicsContextGLAttributes attributes, GraphicsContextGLIdentifier graphicsContextGLIdentifier, RenderingBackendIdentifier renderingBackendIdentifier, IPC::StreamServerConnection::Handle&& connectionHandle)
+{
+    MESSAGE_CHECK(!isLockdownModeEnabled());
+
     auto it = m_remoteRenderingBackendMap.find(renderingBackendIdentifier);
     if (it == m_remoteRenderingBackendMap.end())
         return;
     auto* renderingBackend = it->value.get();
 
-    auto addResult = m_remoteGraphicsContextGLMap.ensure(graphicsContextGLIdentifier, [&]() {
-        return IPC::ScopedActiveMessageReceiveQueue { RemoteGraphicsContextGL::create(*this, WTFMove(attributes), graphicsContextGLIdentifier, *renderingBackend, WTFMove(stream)) };
+    auto streamConnection = IPC::StreamServerConnection::tryCreate(WTFMove(connectionHandle));
+    MESSAGE_CHECK(streamConnection);
+
+    auto addResult = m_remoteGraphicsContextGLMap.ensure(graphicsContextGLIdentifier, [&, streamConnection = WTFMove(streamConnection)] () mutable {
+        return IPC::ScopedActiveMessageReceiveQueue { RemoteGraphicsContextGL::create(*this, WTFMove(attributes), graphicsContextGLIdentifier, *renderingBackend, streamConnection.releaseNonNull()) };
     });
     ASSERT_UNUSED(addResult, addResult.isNewEntry);
 }
 
 void GPUConnectionToWebProcess::releaseGraphicsContextGL(GraphicsContextGLIdentifier graphicsContextGLIdentifier)
 {
+    MESSAGE_CHECK(!isLockdownModeEnabled());
+
     m_remoteGraphicsContextGLMap.remove(graphicsContextGLIdentifier);
     if (m_remoteGraphicsContextGLMap.isEmpty())
         gpuProcess().tryExitIfUnusedAndUnderMemoryPressure();
@@ -506,6 +650,68 @@ void GPUConnectionToWebProcess::releaseGraphicsContextGLForTesting(GraphicsConte
     releaseGraphicsContextGL(identifier);
 }
 #endif
+
+RemoteRenderingBackend* GPUConnectionToWebProcess::remoteRenderingBackend(RenderingBackendIdentifier renderingBackendIdentifier)
+{
+    auto it = m_remoteRenderingBackendMap.find(renderingBackendIdentifier);
+    if (it == m_remoteRenderingBackendMap.end())
+        return nullptr;
+    return it->value.get();
+}
+
+#if ENABLE(VIDEO)
+void GPUConnectionToWebProcess::performWithMediaPlayerOnMainThread(MediaPlayerIdentifier identifier, Function<void(MediaPlayer&)>&& callback)
+{
+    callOnMainRunLoopAndWait([&, gpuConnectionToWebProcess = Ref { *this }, identifier] {
+        if (auto player = gpuConnectionToWebProcess->remoteMediaPlayerManagerProxy().mediaPlayer(identifier))
+            callback(*player);
+    });
+}
+#endif
+
+void GPUConnectionToWebProcess::createRemoteGPU(WebGPUIdentifier identifier, RenderingBackendIdentifier renderingBackendIdentifier, IPC::StreamServerConnection::Handle&& connectionHandle)
+{
+    MESSAGE_CHECK(m_webGPUEnabled);
+
+    auto it = m_remoteRenderingBackendMap.find(renderingBackendIdentifier);
+    if (it == m_remoteRenderingBackendMap.end())
+        return;
+    auto* renderingBackend = it->value.get();
+
+    auto streamConnection = IPC::StreamServerConnection::tryCreate(WTFMove(connectionHandle));
+    MESSAGE_CHECK(streamConnection);
+
+    auto addResult = m_remoteGPUMap.ensure(identifier, [&, streamConnection = WTFMove(streamConnection)] () mutable {
+        return IPC::ScopedActiveMessageReceiveQueue { RemoteGPU::create(
+#if ENABLE(VIDEO) && PLATFORM(COCOA)
+            [&] (std::variant<WebCore::MediaPlayerIdentifier, WebKit::RemoteVideoFrameReference> identifier, Function<void(RefPtr<WebCore::VideoFrame>)>&& callback) mutable {
+                return WTF::switchOn(identifier, [&] (WebCore::MediaPlayerIdentifier i) {
+                    performWithMediaPlayerOnMainThread(i, [&callback](auto& player) {
+                        callback(player.videoFrameForCurrentTime());
+                    });
+                }, [&] (WebKit::RemoteVideoFrameReference i) {
+                    callback(videoFrameObjectHeap().get(RemoteVideoFrameReadReference(WTFMove(i))));
+                });
+            },
+#else
+            [] () mutable {
+            },
+#endif
+            identifier, *this, *renderingBackend, streamConnection.releaseNonNull()) };
+    });
+    ASSERT_UNUSED(addResult, addResult.isNewEntry);
+}
+
+void GPUConnectionToWebProcess::releaseRemoteGPU(WebGPUIdentifier identifier)
+{
+    bool result = m_remoteGPUMap.remove(identifier);
+    ASSERT_UNUSED(result, result);
+    if (m_remoteGPUMap.isEmpty()) {
+        ensureOnMainRunLoop([gpuProcess = Ref { gpuProcess() }] {
+            gpuProcess->tryExitIfUnusedAndUnderMemoryPressure();
+        });
+    }
+}
 
 void GPUConnectionToWebProcess::clearNowPlayingInfo()
 {
@@ -553,6 +759,11 @@ RemoteMediaSessionHelperProxy& GPUConnectionToWebProcess::mediaSessionHelperProx
 void GPUConnectionToWebProcess::ensureMediaSessionHelper()
 {
     mediaSessionHelperProxy();
+}
+
+void GPUConnectionToWebProcess::overridePresentingApplicationPIDIfNeeded()
+{
+    mediaSessionHelperProxy().overridePresentingApplicationPIDIfNeeded();
 }
 #endif
 
@@ -604,6 +815,7 @@ void GPUConnectionToWebProcess::setMediaOverridesForTesting(MediaOverridesForTes
 {
 #if ENABLE(VP9) && PLATFORM(COCOA)
     VP9TestingOverrides::singleton().setHardwareDecoderDisabled(WTFMove(overrides.vp9HardwareDecoderDisabled));
+    VP9TestingOverrides::singleton().setVP9DecoderDisabled(WTFMove(overrides.vp9DecoderDisabled));
     VP9TestingOverrides::singleton().setVP9ScreenSizeAndScale(WTFMove(overrides.vp9ScreenSizeAndScale));
 #endif
 
@@ -611,11 +823,6 @@ void GPUConnectionToWebProcess::setMediaOverridesForTesting(MediaOverridesForTes
     SystemBatteryStatusTestingOverrides::singleton().setHasAC(WTFMove(overrides.systemHasAC));
     SystemBatteryStatusTestingOverrides::singleton().setHasBattery(WTFMove(overrides.systemHasBattery));
 #endif
-}
-
-void GPUConnectionToWebProcess::setUserPreferredLanguages(const Vector<String>& languages)
-{
-    overrideUserPreferredLanguages(languages);
 }
 
 bool GPUConnectionToWebProcess::dispatchMessage(IPC::Connection& connection, IPC::Decoder& decoder)
@@ -626,6 +833,7 @@ bool GPUConnectionToWebProcess::dispatchMessage(IPC::Connection& connection, IPC
         return true;
     }
 #endif
+#if ENABLE(VIDEO)
     if (decoder.messageReceiverName() == Messages::RemoteMediaPlayerManagerProxy::messageReceiverName()) {
         remoteMediaPlayerManagerProxy().didReceiveMessageFromWebProcess(connection, decoder);
         return true;
@@ -638,6 +846,7 @@ bool GPUConnectionToWebProcess::dispatchMessage(IPC::Connection& connection, IPC
         remoteMediaResourceManager().didReceiveMessage(connection, decoder);
         return true;
     }
+#endif
 #if PLATFORM(COCOA) && ENABLE(MEDIA_STREAM)
     if (decoder.messageReceiverName() == Messages::UserMediaCaptureManagerProxy::messageReceiverName()) {
         userMediaCaptureManagerProxy().didReceiveMessageFromGPUProcess(connection, decoder);
@@ -648,7 +857,7 @@ bool GPUConnectionToWebProcess::dispatchMessage(IPC::Connection& connection, IPC
         return true;
     }
 #endif
-#if PLATFORM(COCOA) && ENABLE(MEDIA_STREAM) && HAVE(AVASSETWRITERDELEGATE)
+#if PLATFORM(COCOA) && ENABLE(MEDIA_STREAM)
     if (decoder.messageReceiverName() == Messages::RemoteMediaRecorderManager::messageReceiverName()) {
         mediaRecorderManager().didReceiveMessageFromWebProcess(connection, decoder);
         return true;
@@ -729,18 +938,19 @@ bool GPUConnectionToWebProcess::dispatchMessage(IPC::Connection& connection, IPC
             m_remoteRemoteCommandListener->didReceiveMessage(connection, decoder);
         return true;
     }
+#if ENABLE(IPC_TESTING_API)
+    if (decoder.messageReceiverName() == Messages::IPCTester::messageReceiverName()) {
+        m_ipcTester.didReceiveMessage(connection, decoder);
+        return true;
+    }
+#endif
 
     return messageReceiverMap().dispatchMessage(connection, decoder);
 }
 
 bool GPUConnectionToWebProcess::dispatchSyncMessage(IPC::Connection& connection, IPC::Decoder& decoder, UniqueRef<IPC::Encoder>& replyEncoder)
 {
-#if ENABLE(WEB_AUDIO)
-    if (decoder.messageReceiverName() == Messages::RemoteAudioDestinationManager::messageReceiverName()) {
-        remoteAudioDestinationManager().didReceiveSyncMessageFromWebProcess(connection, decoder, replyEncoder);
-        return true;
-    }
-#endif
+#if ENABLE(VIDEO)
     if (decoder.messageReceiverName() == Messages::RemoteMediaPlayerManagerProxy::messageReceiverName()) {
         remoteMediaPlayerManagerProxy().didReceiveSyncMessageFromWebProcess(connection, decoder, replyEncoder);
         return true;
@@ -749,6 +959,7 @@ bool GPUConnectionToWebProcess::dispatchSyncMessage(IPC::Connection& connection,
         remoteMediaPlayerManagerProxy().didReceiveSyncPlayerMessage(connection, decoder, replyEncoder);
         return true;
     }
+#endif
 #if ENABLE(ENCRYPTED_MEDIA)
     if (decoder.messageReceiverName() == Messages::RemoteCDMFactoryProxy::messageReceiverName()) {
         cdmFactoryProxy().didReceiveSyncMessageFromWebProcess(connection, decoder, replyEncoder);
@@ -803,6 +1014,12 @@ bool GPUConnectionToWebProcess::dispatchSyncMessage(IPC::Connection& connection,
         // Skip messages for already removed receivers.
         return true;
 #endif
+#if ENABLE(IPC_TESTING_API)
+    if (decoder.messageReceiverName() == Messages::IPCTester::messageReceiverName()) {
+        m_ipcTester.didReceiveSyncMessage(connection, decoder, replyEncoder);
+        return true;
+    }
+#endif
     return messageReceiverMap().dispatchSyncMessage(connection, decoder, replyEncoder);
 }
 
@@ -819,7 +1036,7 @@ const String& GPUConnectionToWebProcess::mediaKeysStorageDirectory() const
 #endif
 
 #if ENABLE(MEDIA_STREAM)
-void GPUConnectionToWebProcess::setOrientationForMediaCapture(uint64_t orientation)
+void GPUConnectionToWebProcess::setOrientationForMediaCapture(IntDegrees orientation)
 {
 // FIXME: <https://bugs.webkit.org/show_bug.cgi?id=211085>
 #if PLATFORM(COCOA)
@@ -839,12 +1056,34 @@ void GPUConnectionToWebProcess::updateCaptureOrigin(const WebCore::SecurityOrigi
     m_captureOrigin = originData.securityOrigin();
 }
 
-#if !PLATFORM(COCOA)
-bool GPUConnectionToWebProcess::setCaptureAttributionString() const
+#if PLATFORM(COCOA) && ENABLE(MEDIA_STREAM)
+void GPUConnectionToWebProcess::startCapturingAudio()
 {
+    gpuProcess().processIsStartingToCaptureAudio(*this);
+}
+
+void GPUConnectionToWebProcess::processIsStartingToCaptureAudio(GPUConnectionToWebProcess& process)
+{
+    m_isLastToCaptureAudio = this == &process;
+    if (m_audioMediaStreamTrackRendererInternalUnitManager)
+        m_audioMediaStreamTrackRendererInternalUnitManager->notifyLastToCaptureAudioChanged();
+}
+#endif
+
+#if !PLATFORM(COCOA)
+bool GPUConnectionToWebProcess::setCaptureAttributionString()
+{
+    return false;
 }
 #endif
 #endif // ENABLE(MEDIA_STREAM)
+
+#if ENABLE(VIDEO)
+RemoteVideoFrameObjectHeap& GPUConnectionToWebProcess::videoFrameObjectHeap() const
+{
+    return *m_videoFrameObjectHeap.get();
+}
+#endif
 
 #if PLATFORM(MAC)
 void GPUConnectionToWebProcess::displayConfigurationChanged(CGDirectDisplayID, CGDisplayChangeSummaryFlags flags)
@@ -873,6 +1112,18 @@ void GPUConnectionToWebProcess::enableVP9Decoders(bool shouldEnableVP8Decoder, b
 }
 #endif
 
+#if ENABLE(MEDIA_SOURCE)
+void GPUConnectionToWebProcess::enableMockMediaSource()
+{
+    if (m_mockMediaSourceEnabled)
+        return;
+    MediaStrategy::addMockMediaSourceEngine();
+    m_mockMediaSourceEnabled = true;
+}
+#endif
+
 } // namespace WebKit
+
+#undef MESSAGE_CHECK
 
 #endif // ENABLE(GPU_PROCESS)

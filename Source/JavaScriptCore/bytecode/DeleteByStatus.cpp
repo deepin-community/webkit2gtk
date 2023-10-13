@@ -29,7 +29,7 @@
 #include "CacheableIdentifierInlines.h"
 #include "CodeBlock.h"
 #include "ICStatusUtils.h"
-#include "PolymorphicAccess.h"
+#include "InlineCacheCompiler.h"
 #include "StructureStubInfo.h"
 #include <wtf/ListDump.h>
 
@@ -74,6 +74,7 @@ DeleteByStatus::DeleteByStatus(StubInfoSummary summary, StructureStubInfo& stubI
         m_state = NoInformation;
         return;
     case StubInfoSummary::Simple:
+    case StubInfoSummary::Megamorphic:
     case StubInfoSummary::MakesCalls:
     case StubInfoSummary::TakesSlowPathAndMakesCalls:
         RELEASE_ASSERT_NOT_REACHED();
@@ -99,11 +100,11 @@ DeleteByStatus DeleteByStatus::computeForStubInfoWithoutExitSiteFeedback(
         return DeleteByStatus(NoInformation);
 
     case CacheType::Stub: {
-        PolymorphicAccess* list = stubInfo->u.stub;
+        PolymorphicAccess* list = stubInfo->m_stub.get();
 
         for (unsigned listIndex = 0; listIndex < list->size(); ++listIndex) {
             const AccessCase& access = list->at(listIndex);
-            ASSERT(!access.viaProxy());
+            ASSERT(!access.viaGlobalProxy());
 
             Structure* structure = access.structure();
             ASSERT(structure);

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,91 +27,18 @@
 
 #if ENABLE(GPU_PROCESS)
 
-#include "Decoder.h"
-#include "GPUConnectionToWebProcess.h"
-#include "Logging.h"
-#include <WebCore/ConcreteImageBuffer.h>
-#include <WebCore/DisplayList.h>
-#include <WebCore/DisplayListItems.h>
-#include <WebCore/DisplayListReplayer.h>
+#include "ScopedRenderingResourcesRequest.h"
+#include <WebCore/ImageBuffer.h>
 
 namespace WebKit {
 
-template<typename BackendType>
-class RemoteImageBuffer : public WebCore::ConcreteImageBuffer<BackendType> {
-    using BaseConcreteImageBuffer = WebCore::ConcreteImageBuffer<BackendType>;
-    using BaseConcreteImageBuffer::context;
-    using BaseConcreteImageBuffer::m_backend;
-    using BaseConcreteImageBuffer::putPixelBuffer;
-
+class RemoteImageBuffer : public WebCore::ImageBuffer {
 public:
-    static auto create(const WebCore::FloatSize& size, float resolutionScale, const WebCore::DestinationColorSpace& colorSpace, WebCore::PixelFormat pixelFormat, RemoteRenderingBackend& remoteRenderingBackend, WebCore::RenderingResourceIdentifier renderingResourceIdentifier)
-    {
-        return BaseConcreteImageBuffer::template create<RemoteImageBuffer>(size, resolutionScale, colorSpace, pixelFormat, nullptr, remoteRenderingBackend, renderingResourceIdentifier);
-    }
-
-    RemoteImageBuffer(const WebCore::ImageBufferBackend::Parameters& parameters, std::unique_ptr<BackendType>&& backend, RemoteRenderingBackend& remoteRenderingBackend, WebCore::RenderingResourceIdentifier renderingResourceIdentifier)
-        : BaseConcreteImageBuffer(parameters, WTFMove(backend), renderingResourceIdentifier)
-        , m_remoteRenderingBackend(remoteRenderingBackend)
-        , m_renderingResourceIdentifier(renderingResourceIdentifier)
-    {
-        m_remoteRenderingBackend.didCreateImageBufferBackend(m_backend->createImageBufferBackendHandle(), renderingResourceIdentifier);
-    }
-
-    ~RemoteImageBuffer()
-    {
-        // Unwind the context's state stack before destruction, since calls to restore may not have
-        // been flushed yet, or the web process may have terminated.
-        while (context().stackSize())
-            context().restore();
-    }
-
-#if HAVE(IOSURFACE_SET_OWNERSHIP_IDENTITY)
-    void setProcessOwnership(task_id_token_t newOwner)
-    {
-        if (m_backend)
-            m_backend->setProcessOwnership(newOwner);
-    }
-#endif
+    using WebCore::ImageBuffer::ImageBuffer;
+    ~RemoteImageBuffer();
 
 private:
-    friend class RemoteRenderingBackend;
-
-    bool apply(WebCore::DisplayList::ItemHandle item, WebCore::GraphicsContext& context)
-    {
-        if (item.is<WebCore::DisplayList::GetPixelBuffer>()) {
-            auto& getPixelBufferItem = item.get<WebCore::DisplayList::GetPixelBuffer>();
-            auto pixelBuffer = BaseConcreteImageBuffer::getPixelBuffer(getPixelBufferItem.outputFormat(), getPixelBufferItem.srcRect());
-            m_remoteRenderingBackend.populateGetPixelBufferSharedMemory(WTFMove(pixelBuffer));
-            return true;
-        }
-
-        if (item.is<WebCore::DisplayList::PutPixelBuffer>()) {
-            auto& putPixelBufferItem = item.get<WebCore::DisplayList::PutPixelBuffer>();
-            putPixelBuffer(putPixelBufferItem.pixelBuffer(), putPixelBufferItem.srcRect(), putPixelBufferItem.destPoint(), putPixelBufferItem.destFormat());
-            return true;
-        }
-
-        if (item.is<WebCore::DisplayList::FlushContext>()) {
-            BaseConcreteImageBuffer::flushContext();
-            auto identifier = item.get<WebCore::DisplayList::FlushContext>().identifier();
-            LOG_WITH_STREAM(SharedDisplayLists, stream << "Acknowledging Flush{" << identifier << "} in Image(" << m_renderingResourceIdentifier << ")");
-            m_remoteRenderingBackend.didFlush(identifier, m_renderingResourceIdentifier);
-            return true;
-        }
-
-        if (item.is<WebCore::DisplayList::MetaCommandChangeItemBuffer>()) {
-            auto nextBufferIdentifier = item.get<WebCore::DisplayList::MetaCommandChangeItemBuffer>().identifier();
-            LOG_WITH_STREAM(SharedDisplayLists, stream << "Switching to Items[" << nextBufferIdentifier << "]");
-            m_remoteRenderingBackend.setNextItemBufferToRead(nextBufferIdentifier, m_renderingResourceIdentifier);
-            return true;
-        }
-
-        return m_remoteRenderingBackend.applyMediaItem(item, context);
-    }
-
-    RemoteRenderingBackend& m_remoteRenderingBackend;
-    WebCore::RenderingResourceIdentifier m_renderingResourceIdentifier;
+    ScopedRenderingResourcesRequest m_renderingResourcesRequest { ScopedRenderingResourcesRequest::acquire() };
 };
 
 } // namespace WebKit

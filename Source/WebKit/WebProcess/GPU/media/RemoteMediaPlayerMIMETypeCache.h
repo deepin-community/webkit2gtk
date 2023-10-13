@@ -25,7 +25,7 @@
 
 #pragma once
 
-#if ENABLE(GPU_PROCESS)
+#if ENABLE(GPU_PROCESS) && ENABLE(VIDEO)
 
 #include <WebCore/MediaPlayerEnums.h>
 #include <wtf/HashMap.h>
@@ -55,11 +55,12 @@ private:
     RemoteMediaPlayerManager& m_manager;
     WebCore::MediaPlayerEnums::MediaEngineIdentifier m_engineIdentifier;
 
-    using SupportedTypesAndCodecsKey = std::tuple<String, bool, bool>;
+    using SupportedTypesAndCodecsKey = std::tuple<String, bool, bool, bool>;
     std::optional<HashMap<SupportedTypesAndCodecsKey, WebCore::MediaPlayerEnums::SupportsType>> m_supportsTypeAndCodecsCache;
-    std::optional<HashSet<String, ASCIICaseInsensitiveHash>> m_supportedTypesCache;
+    HashSet<String, ASCIICaseInsensitiveHash> m_supportedTypesCache;
+    bool m_hasPopulatedSupportedTypesCacheFromGPUProcess { false };
 };
 
 } // namespace WebKit
 
-#endif
+#endif // ENABLE(GPU_PROCESS) && ENABLE(VIDEO)

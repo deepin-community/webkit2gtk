@@ -48,6 +48,8 @@ public:
     RemoteLegacyCDMFactoryProxy(GPUConnectionToWebProcess&);
     virtual ~RemoteLegacyCDMFactoryProxy();
 
+    void clear();
+
     void didReceiveMessageFromWebProcess(IPC::Connection& connection, IPC::Decoder& decoder) { didReceiveMessage(connection, decoder); }
     bool didReceiveSyncMessageFromWebProcess(IPC::Connection& connection, IPC::Decoder& decoder, UniqueRef<IPC::Encoder>& encoder) { return didReceiveSyncMessage(connection, decoder, encoder); }
     void didReceiveCDMMessage(IPC::Connection&, IPC::Decoder&);
@@ -66,10 +68,14 @@ public:
 
     bool allowsExitUnderMemoryPressure() const;
 
+#if !RELEASE_LOG_DISABLED
+    const Logger& logger() const;
+#endif
+
 private:
     friend class GPUProcessConnection;
     // IPC::MessageReceiver
-    void didReceiveMessage(IPC::Connection&, IPC::Decoder&) final { }
+    void didReceiveMessage(IPC::Connection&, IPC::Decoder&) final;
     bool didReceiveSyncMessage(IPC::Connection&, IPC::Decoder&, UniqueRef<IPC::Encoder>&) final;
 
     // Messages
@@ -79,6 +85,10 @@ private:
     WeakPtr<GPUConnectionToWebProcess> m_gpuConnectionToWebProcess;
     HashMap<RemoteLegacyCDMIdentifier, std::unique_ptr<RemoteLegacyCDMProxy>> m_proxies;
     HashMap<RemoteLegacyCDMSessionIdentifier, std::unique_ptr<RemoteLegacyCDMSessionProxy>> m_sessions;
+
+#if !RELEASE_LOG_DISABLED
+    mutable RefPtr<Logger> m_logger;
+#endif
 };
 
 }

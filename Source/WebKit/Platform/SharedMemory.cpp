@@ -26,13 +26,25 @@
 #include "config.h"
 #include "SharedMemory.h"
 
+#include "ArgumentCoders.h"
 #include <WebCore/SharedBuffer.h>
 
 namespace WebKit {
 
 using namespace WebCore;
 
-RefPtr<SharedMemory> SharedMemory::copyBuffer(const SharedBuffer& buffer)
+SharedMemoryHandle::SharedMemoryHandle(SharedMemoryHandle::Type&& handle, size_t size)
+    : m_handle(WTFMove(handle))
+    , m_size(size)
+{
+}
+
+bool SharedMemoryHandle::isNull() const
+{
+    return !m_handle;
+}
+
+RefPtr<SharedMemory> SharedMemory::copyBuffer(const FragmentedSharedBuffer& buffer)
 {
     if (buffer.isEmpty())
         return nullptr;
@@ -42,14 +54,33 @@ RefPtr<SharedMemory> SharedMemory::copyBuffer(const SharedBuffer& buffer)
         return nullptr;
 
     auto sharedMemoryPtr = static_cast<char*>(sharedMemory->data());
-    for (auto& segmentEntry : buffer)
-        memcpy(sharedMemoryPtr + segmentEntry.beginPosition, segmentEntry.segment->data(), segmentEntry.segment->size());
+    buffer.forEachSegment([sharedMemoryPtr] (std::span<const uint8_t> segment) mutable {
+        memcpy(sharedMemoryPtr, segment.data(), segment.size());
+        sharedMemoryPtr += segment.size();
+    });
 
     return sharedMemory;
 }
 
+Ref<SharedBuffer> SharedMemory::createSharedBuffer(size_t dataSize) const
+{
+    ASSERT(dataSize <= size());
+    return SharedBuffer::create(DataSegment::Provider {
+        [protectedThis = Ref { *this }] () -> const uint8_t* {
+            return static_cast<const uint8_t*>(protectedThis->data());
+        },
+        [dataSize] () -> size_t {
+            return dataSize;
+        }
+    });
+}
+
 #if !PLATFORM(COCOA)
-void SharedMemory::Handle::takeOwnershipOfMemory(MemoryLedger) const
+void SharedMemoryHandle::takeOwnershipOfMemory(MemoryLedger) const
+{
+}
+
+void SharedMemoryHandle::setOwnershipOfMemory(const ProcessIdentity&, MemoryLedger) const
 {
 }
 #endif

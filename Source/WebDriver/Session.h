@@ -55,9 +55,11 @@ public:
     double pageLoadTimeout() const { return m_pageLoadTimeout; }
     double implicitWaitTimeout() const { return m_implicitWaitTimeout; }
     static const String& webElementIdentifier();
+    static const String& shadowRootIdentifier();
 
     enum class FindElementsMode { Single, Multiple };
     enum class ExecuteScriptMode { Sync, Async };
+    enum class ElementIsShadowRoot : bool { No, Yes };
 
     struct Cookie {
         String name;
@@ -96,8 +98,9 @@ public:
     void maximizeWindow(Function<void (CommandResult&&)>&&);
     void minimizeWindow(Function<void (CommandResult&&)>&&);
     void fullscreenWindow(Function<void (CommandResult&&)>&&);
-    void findElements(const String& strategy, const String& selector, FindElementsMode, const String& rootElementID, Function<void (CommandResult&&)>&&);
+    void findElements(const String& strategy, const String& selector, FindElementsMode, const String& rootElementID, ElementIsShadowRoot, Function<void(CommandResult&&)>&&);
     void getActiveElement(Function<void (CommandResult&&)>&&);
+    void getElementShadowRoot(const String& elementID, Function<void(CommandResult&&)>&&);
     void isElementSelected(const String& elementID, Function<void (CommandResult&&)>&&);
     void getElementAttribute(const String& elementID, const String& attribute, Function<void (CommandResult&&)>&&);
     void getElementProperty(const String& elementID, const String& attribute, Function<void (CommandResult&&)>&&);
@@ -106,6 +109,8 @@ public:
     void getElementTagName(const String& elementID, Function<void (CommandResult&&)>&&);
     void getElementRect(const String& elementID, Function<void (CommandResult&&)>&&);
     void isElementEnabled(const String& elementID, Function<void (CommandResult&&)>&&);
+    void getComputedRole(const String& elementID, Function<void (CommandResult&&)>&&);
+    void getComputedLabel(const String& elementID, Function<void (CommandResult&&)>&&);
     void isElementDisplayed(const String& elementID, Function<void (CommandResult&&)>&&);
     void elementClick(const String& elementID, Function<void (CommandResult&&)>&&);
     void elementClear(const String& elementID, Function<void (CommandResult&&)>&&);
@@ -146,6 +151,7 @@ private:
 
     RefPtr<JSON::Object> createElement(RefPtr<JSON::Value>&&);
     Ref<JSON::Object> createElement(const String& elementID);
+    RefPtr<JSON::Object> createShadowRoot(RefPtr<JSON::Value>&&);
     RefPtr<JSON::Object> extractElement(JSON::Value&);
     String extractElementID(JSON::Value&);
     Ref<JSON::Value> handleScriptResult(Ref<JSON::Value>&&);

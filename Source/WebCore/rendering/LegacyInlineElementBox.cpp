@@ -31,6 +31,7 @@
 #include "RenderBlock.h"
 #include "RenderBox.h"
 #include "RenderLineBreak.h"
+#include "RenderStyleInlines.h"
 #include <wtf/IsoMallocInlines.h>
 
 namespace WebCore {
@@ -71,12 +72,12 @@ void LegacyInlineElementBox::paint(PaintInfo& paintInfo, const LayoutPoint& pain
     if (!paintInfo.shouldPaintWithinRoot(renderer()))
         return;
 
-    if (paintInfo.phase != PaintPhase::Foreground && paintInfo.phase != PaintPhase::Selection && paintInfo.phase != PaintPhase::EventRegion)
+    if (paintInfo.phase != PaintPhase::Foreground && paintInfo.phase != PaintPhase::Selection && paintInfo.phase != PaintPhase::EventRegion && paintInfo.phase != PaintPhase::Accessibility)
         return;
 
     LayoutPoint childPoint = paintOffset;
     if (is<RenderBox>(renderer()) && parent()->renderer().style().isFlippedBlocksWritingMode()) // Faster than calling containingBlock().
-        childPoint = renderer().containingBlock()->flipForWritingModeForChild(&downcast<RenderBox>(renderer()), childPoint);
+        childPoint = renderer().containingBlock()->flipForWritingModeForChild(downcast<RenderBox>(renderer()), childPoint);
 
     renderer().paintAsInlineBlock(paintInfo, childPoint);
 }
@@ -89,7 +90,7 @@ bool LegacyInlineElementBox::nodeAtPoint(const HitTestRequest& request, HitTestR
     // specification.)
     LayoutPoint childPoint = accumulatedOffset;
     if (is<RenderBox>(renderer()) && parent()->renderer().style().isFlippedBlocksWritingMode()) // Faster than calling containingBlock().
-        childPoint = renderer().containingBlock()->flipForWritingModeForChild(&downcast<RenderBox>(renderer()), childPoint);
+        childPoint = renderer().containingBlock()->flipForWritingModeForChild(downcast<RenderBox>(renderer()), childPoint);
 
     return renderer().hitTest(request, result, locationInContainer, childPoint);
 }

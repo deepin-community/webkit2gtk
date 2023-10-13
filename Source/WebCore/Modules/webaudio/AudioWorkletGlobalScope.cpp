@@ -40,6 +40,7 @@
 #include "JSAudioWorkletProcessor.h"
 #include "JSAudioWorkletProcessorConstructor.h"
 #include "JSDOMConvert.h"
+#include "WebCoreOpaqueRootInlines.h"
 #include <JavaScriptCore/JSLock.h>
 #include <wtf/CrossThreadCopier.h>
 #include <wtf/IsoMallocInlines.h>
@@ -53,7 +54,9 @@ RefPtr<AudioWorkletGlobalScope> AudioWorkletGlobalScope::tryCreate(AudioWorkletT
     auto vm = JSC::VM::tryCreate();
     if (!vm)
         return nullptr;
-    return adoptRef(*new AudioWorkletGlobalScope(thread, vm.releaseNonNull(), parameters));
+    auto scope = adoptRef(*new AudioWorkletGlobalScope(thread, vm.releaseNonNull(), parameters));
+    scope->addToContextsMap();
+    return scope;
 }
 
 AudioWorkletGlobalScope::AudioWorkletGlobalScope(AudioWorkletThread& thread, Ref<JSC::VM>&& vm, const WorkletParameters& parameters)
@@ -81,7 +84,7 @@ ExceptionOr<void> AudioWorkletGlobalScope::registerProcessor(String&& name, Ref<
     auto& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
 
-    if (!jsConstructor->isConstructor(vm))
+    if (!jsConstructor->isConstructor())
         return Exception { TypeError, "Class definition passed to registerProcessor() is not a constructor"_s };
 
     auto prototype = jsConstructor->getPrototype(vm, globalObject);
@@ -90,7 +93,7 @@ ExceptionOr<void> AudioWorkletGlobalScope::registerProcessor(String&& name, Ref<
     if (!prototype.isObject())
         return Exception { TypeError, "Class definition passed to registerProcessor() has invalid prototype"_s };
 
-    auto parameterDescriptorsValue = jsConstructor->get(globalObject, JSC::Identifier::fromString(vm, "parameterDescriptors"));
+    auto parameterDescriptorsValue = jsConstructor->get(globalObject, JSC::Identifier::fromString(vm, "parameterDescriptors"_s));
     RETURN_IF_EXCEPTION(scope, Exception { ExistingExceptionError });
 
     Vector<AudioParamDescriptor> parameterDescriptors;
@@ -116,7 +119,7 @@ ExceptionOr<void> AudioWorkletGlobalScope::registerProcessor(String&& name, Ref<
     if (!addResult.isNewEntry)
         return Exception { NotSupportedError, "A processor was already registered with this name"_s };
 
-    thread().messagingProxy().postTaskToAudioWorklet([name = name.isolatedCopy(), parameterDescriptors = crossThreadCopy(parameterDescriptors)](AudioWorklet& worklet) mutable {
+    thread().messagingProxy().postTaskToAudioWorklet([name = WTFMove(name).isolatedCopy(), parameterDescriptors = crossThreadCopy(WTFMove(parameterDescriptors))](AudioWorklet& worklet) mutable {
         ASSERT(isMainThread());
         if (auto* audioContext = worklet.audioContext())
             audioContext->addAudioParamDescriptors(name, WTFMove(parameterDescriptors));
@@ -141,21 +144,23 @@ RefPtr<AudioWorkletProcessor> AudioWorkletGlobalScope::createProcessor(const Str
     m_pendingProcessorConstructionData = makeUnique<AudioWorkletProcessorConstructionData>(String { name }, MessagePort::entangle(*this, WTFMove(port)));
 
     JSC::MarkedArgumentBuffer args;
-    auto arg = options->deserialize(*globalObject, globalObject, SerializationErrorMode::NonThrowing);
+    bool didFail = false;
+    auto arg = options->deserialize(*globalObject, globalObject, SerializationErrorMode::NonThrowing, &didFail);
     RETURN_IF_EXCEPTION(scope, nullptr);
+    if (didFail)
+        return nullptr;
     args.append(arg);
     ASSERT(!args.hasOverflowed());
 
-    auto* object = JSC::construct(globalObject, jsConstructor, args, "Failed to construct AudioWorkletProcessor");
+    auto* object = JSC::construct(globalObject, jsConstructor, args, "Failed to construct AudioWorkletProcessor"_s);
     ASSERT(!!scope.exception() == !object);
     RETURN_IF_EXCEPTION(scope, nullptr);
 
-    auto* jsProcessor = JSC::jsDynamicCast<JSAudioWorkletProcessor*>(vm, object);
+    auto* jsProcessor = JSC::jsDynamicCast<JSAudioWorkletProcessor*>(object);
     if (!jsProcessor)
         return nullptr;
 
-    jsProcessor->wrapped().setProcessCallback(makeUnique<JSCallbackDataStrong>(jsProcessor, globalObject));
-
+    m_processors.add(jsProcessor->wrapped());
     return &jsProcessor->wrapped();
 }
 
@@ -178,12 +183,11 @@ AudioWorkletThread& AudioWorkletGlobalScope::thread() const
 
 void AudioWorkletGlobalScope::handlePreRenderTasks()
 {
-    // We grab the JS API lock at the beginning of rendering and release it at the end of rendering.
     // This makes sure that we only drain the MicroTask queue after each render quantum.
     // It is only safe to grab the lock if we are on the context thread. We might get called on
     // another thread if audio rendering started before the audio worklet got started.
     if (isContextThread())
-        m_lockDuringRendering.emplace(script()->vm());
+        m_delayMicrotaskDrainingDuringRendering = script()->vm().drainMicrotaskDelayScope();
 }
 
 void AudioWorkletGlobalScope::handlePostRenderTasks(size_t currentFrame)
@@ -195,8 +199,20 @@ void AudioWorkletGlobalScope::handlePostRenderTasks(size_t currentFrame)
         // explicitly allow the following allocation(s).
         DisableMallocRestrictionsForCurrentThreadScope disableMallocRestrictions;
         // This takes care of processing the MicroTask queue after rendering.
-        m_lockDuringRendering = std::nullopt;
+        m_delayMicrotaskDrainingDuringRendering = std::nullopt;
     }
+}
+
+void AudioWorkletGlobalScope::processorIsNoLongerNeeded(AudioWorkletProcessor& processor)
+{
+    m_processors.remove(processor);
+}
+
+void AudioWorkletGlobalScope::visitProcessors(JSC::AbstractSlotVisitor& visitor)
+{
+    m_processors.forEach([&](auto& processor) {
+        addWebCoreOpaqueRoot(visitor, processor);
+    });
 }
 
 } // namespace WebCore

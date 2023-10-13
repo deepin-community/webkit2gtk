@@ -250,13 +250,13 @@ private:
 
     private:
         static String eventsDescription(Events);
-        void log(const String&) const;
+        void log(StringView) const;
 
         void fireRemovalCallbackImmediately();
         void fireRemovalCallbackIfPossible();
         void watchdogTimerFired();
 
-        bool stopWaitingForEvent(Events, const String& logReason, ShouldIgnoreEventIfPaused = ShouldIgnoreEventIfPaused::Yes);
+        bool stopWaitingForEvent(Events, ASCIILiteral logReason, ShouldIgnoreEventIfPaused = ShouldIgnoreEventIfPaused::Yes);
 
         Events m_outstandingEvents { 0 };
         WTF::Function<void()> m_removalCallback;
@@ -264,7 +264,7 @@ private:
 
         uint64_t m_renderTreeSizeThreshold { 0 };
 
-        RunLoop::Timer<SnapshotRemovalTracker> m_watchdogTimer;
+        RunLoop::Timer m_watchdogTimer;
 
         bool m_paused { true };
     };
@@ -323,11 +323,12 @@ private:
         bool scrollEventCanInfluenceSwipe(PlatformScrollEvent);
         WebCore::FloatSize scrollEventGetScrollingDeltas(PlatformScrollEvent);
 
-        enum class State {
+        enum class State : uint8_t {
             None,
             WaitingForWebCore,
             InsufficientMagnitude
         };
+        static const char* stateToString(State);
 
         State m_state { State::None };
         SwipeDirection m_direction;
@@ -349,7 +350,7 @@ private:
 
     bool m_swipeGestureEnabled { true };
 
-    RunLoop::Timer<ViewGestureController> m_swipeActiveLoadMonitoringTimer;
+    RunLoop::Timer m_swipeActiveLoadMonitoringTimer;
 
     WebCore::Color m_backgroundColorForCurrentSnapshot;
 

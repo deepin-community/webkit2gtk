@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2010 Google Inc. All rights reserved.
  * Copyright (C) 2014 University of Washington. All rights reserved.
- * Copyright (C) 2017-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -33,6 +33,8 @@
 #include "config.h"
 #include <wtf/JSONValues.h>
 
+#include <functional>
+#include <wtf/CommaPrinter.h>
 #include <wtf/text/StringBuilder.h>
 
 namespace WTF {
@@ -61,7 +63,8 @@ const char* const nullToken = "null";
 const char* const trueToken = "true";
 const char* const falseToken = "false";
 
-bool parseConstToken(const UChar* start, const UChar* end, const UChar** tokenEnd, const char* token)
+template<typename CodeUnit>
+bool parseConstToken(const CodeUnit* start, const CodeUnit* end, const CodeUnit** tokenEnd, const char* token)
 {
     while (start < end && *token != '\0' && *start++ == *token++) { }
 
@@ -72,7 +75,8 @@ bool parseConstToken(const UChar* start, const UChar* end, const UChar** tokenEn
     return true;
 }
 
-bool readInt(const UChar* start, const UChar* end, const UChar** tokenEnd, bool canHaveLeadingZeros)
+template<typename CodeUnit>
+bool readInt(const CodeUnit* start, const CodeUnit* end, const CodeUnit** tokenEnd, bool canHaveLeadingZeros)
 {
     if (start == end)
         return false;
@@ -94,14 +98,15 @@ bool readInt(const UChar* start, const UChar* end, const UChar** tokenEnd, bool 
     return true;
 }
 
-bool parseNumberToken(const UChar* start, const UChar* end, const UChar** tokenEnd)
+template<typename CodeUnit>
+bool parseNumberToken(const CodeUnit* start, const CodeUnit* end, const CodeUnit** tokenEnd)
 {
     // We just grab the number here. We validate the size in DecodeNumber.
     // According to RFC 4627, a valid number is: [minus] int [frac] [exp]
     if (start == end)
         return false;
 
-    UChar c = *start;
+    CodeUnit c = *start;
     if ('-' == c)
         ++start;
 
@@ -145,7 +150,8 @@ bool parseNumberToken(const UChar* start, const UChar* end, const UChar** tokenE
     return true;
 }
 
-bool readHexDigits(const UChar* start, const UChar* end, const UChar** tokenEnd, int digits)
+template<typename CodeUnit>
+bool readHexDigits(const CodeUnit* start, const CodeUnit* end, const CodeUnit** tokenEnd, int digits)
 {
     if (end - start < digits)
         return false;
@@ -159,10 +165,11 @@ bool readHexDigits(const UChar* start, const UChar* end, const UChar** tokenEnd,
     return true;
 }
 
-bool parseStringToken(const UChar* start, const UChar* end, const UChar** tokenEnd)
+template<typename CodeUnit>
+bool parseStringToken(const CodeUnit* start, const CodeUnit* end, const CodeUnit** tokenEnd)
 {
     while (start < end) {
-        UChar c = *start++;
+        CodeUnit c = *start++;
         if ('\\' == c && start < end) {
             c = *start++;
             // Make sure the escaped char is valid.
@@ -197,9 +204,10 @@ bool parseStringToken(const UChar* start, const UChar* end, const UChar** tokenE
     return false;
 }
 
-Token parseToken(const UChar* start, const UChar* end, const UChar** tokenStart, const UChar** tokenEnd)
+template<typename CodeUnit>
+Token parseToken(const CodeUnit* start, const CodeUnit* end, const CodeUnit** tokenStart, const CodeUnit** tokenEnd)
 {
-    while (start < end && isSpaceOrNewline(*start))
+    while (start < end && isASCIIWhitespaceWithoutFF(*start))
         ++start;
 
     if (start == end)
@@ -261,7 +269,8 @@ Token parseToken(const UChar* start, const UChar* end, const UChar** tokenStart,
     return Token::Invalid;
 }
 
-bool decodeString(const UChar* start, const UChar* end, StringBuilder& output)
+template<typename CodeUnit>
+bool decodeString(const CodeUnit* start, const CodeUnit* end, StringBuilder& output)
 {
     while (start < end) {
         UChar c = *start++;
@@ -316,7 +325,8 @@ bool decodeString(const UChar* start, const UChar* end, StringBuilder& output)
     return true;
 }
 
-bool decodeString(const UChar* start, const UChar* end, String& output)
+template<typename CodeUnit>
+bool decodeString(const CodeUnit* start, const CodeUnit* end, String& output)
 {
     if (start == end) {
         output = emptyString();
@@ -335,14 +345,15 @@ bool decodeString(const UChar* start, const UChar* end, String& output)
     return true;
 }
 
-RefPtr<JSON::Value> buildValue(const UChar* start, const UChar* end, const UChar** valueTokenEnd, int depth)
+template<typename CodeUnit>
+RefPtr<JSON::Value> buildValue(const CodeUnit* start, const CodeUnit* end, const CodeUnit** valueTokenEnd, int depth)
 {
     if (depth > stackLimit)
         return nullptr;
 
     RefPtr<JSON::Value> result;
-    const UChar* tokenStart;
-    const UChar* tokenEnd;
+    const CodeUnit* tokenStart;
+    const CodeUnit* tokenEnd;
     Token token = parseToken(start, end, &tokenStart, &tokenEnd);
     switch (token) {
     case Token::Invalid:
@@ -395,8 +406,7 @@ RefPtr<JSON::Value> buildValue(const UChar* start, const UChar* end, const UChar
                 return nullptr;
             }
         }
-        if (token != Token::ArrayEnd)
-            return nullptr;
+        ASSERT(token == Token::ArrayEnd);
         result = WTFMove(array);
         break;
     }
@@ -436,8 +446,7 @@ RefPtr<JSON::Value> buildValue(const UChar* start, const UChar* end, const UChar
                 return nullptr;
             }
         }
-        if (token != Token::ObjectEnd)
-            return nullptr;
+        ASSERT(token == Token::ObjectEnd);
         result = WTFMove(object);
         break;
     }
@@ -450,14 +459,39 @@ RefPtr<JSON::Value> buildValue(const UChar* start, const UChar* end, const UChar
     return result;
 }
 
-inline void appendDoubleQuotedString(StringBuilder& builder, StringView string)
+} // anonymous namespace
+
+template<typename Visitor> constexpr decltype(auto) Value::visitDerived(Visitor&& visitor)
 {
-    builder.append('"');
-    Value::escapeString(builder, string);
-    builder.append('"');
+    switch (m_type) {
+    case Type::Null:
+    case Type::Boolean:
+    case Type::Double:
+    case Type::Integer:
+    case Type::String:
+        return std::invoke(std::forward<Visitor>(visitor), static_cast<Value&>(*this));
+    case Type::Object:
+        return std::invoke(std::forward<Visitor>(visitor), static_cast<Object&>(*this));
+    case Type::Array:
+        return std::invoke(std::forward<Visitor>(visitor), static_cast<Array&>(*this));
+    }
+    RELEASE_ASSERT_NOT_REACHED();
 }
 
-} // anonymous namespace
+template<typename Visitor> constexpr decltype(auto) Value::visitDerived(Visitor&& visitor) const
+{
+    return const_cast<Value&>(*this).visitDerived([&](auto& derived) {
+        return std::invoke(std::forward<Visitor>(visitor), std::as_const(derived));
+    });
+}
+
+void Value::operator delete(Value* value, std::destroying_delete_t)
+{
+    value->visitDerived([](auto& derived) {
+        std::destroy_at(&derived);
+        std::decay_t<decltype(derived)>::freeAfterDestruction(&derived);
+    });
+}
 
 Ref<Value> Value::null()
 {
@@ -484,78 +518,35 @@ Ref<Value> Value::create(const String& value)
     return adoptRef(*new Value(value));
 }
 
-RefPtr<Value> Value::asValue()
+RefPtr<Value> Value::parseJSON(StringView json)
 {
-    return this;
-}
+    auto containsNonSpace = [] (const auto* begin, const auto* end) {
+        if (!begin)
+            return false;
+        for (const auto* it = begin; it < end; it++) {
+            if (!isASCIIWhitespaceWithoutFF(*it))
+                return true;
+        }
+        return false;
+    };
 
-RefPtr<Object> Value::asObject()
-{
-    return nullptr;
-}
-
-RefPtr<Array> Value::asArray()
-{
-    return nullptr;
-}
-
-RefPtr<Value> Value::parseJSON(const String& json)
-{
-    // FIXME: This whole file should just use StringView instead of UChar/length and avoid upconverting.
-    auto characters = StringView(json).upconvertedCharacters();
-    const UChar* start = characters;
-    const UChar* end = start + json.length();
-    const UChar* tokenEnd;
-    auto result = buildValue(start, end, &tokenEnd, 0);
-    if (!result)
-        return nullptr;
-
-    for (const UChar* valueEnd = tokenEnd; valueEnd < end; ++valueEnd) {
-        if (!isSpaceOrNewline(*valueEnd))
+    RefPtr<Value> result;
+    if (json.is8Bit()) {
+        const LChar* start = json.characters8();
+        const LChar* end = start + json.length();
+        const LChar* tokenEnd { nullptr };
+        result = buildValue(start, end, &tokenEnd, 0);
+        if (containsNonSpace(tokenEnd, end))
+            return nullptr;
+    } else {
+        const UChar* start = json.characters16();
+        const UChar* end = start + json.length();
+        const UChar* tokenEnd { nullptr };
+        result = buildValue(start, end, &tokenEnd, 0);
+        if (containsNonSpace(tokenEnd, end))
             return nullptr;
     }
-
     return result;
-}
-
-void Value::escapeString(StringBuilder& builder, StringView string)
-{
-    for (UChar codeUnit : string.codeUnits()) {
-        switch (codeUnit) {
-        case '\b':
-            builder.append("\\b");
-            continue;
-        case '\f':
-            builder.append("\\f");
-            continue;
-        case '\n':
-            builder.append("\\n");
-            continue;
-        case '\r':
-            builder.append("\\r");
-            continue;
-        case '\t':
-            builder.append("\\t");
-            continue;
-        case '\\':
-            builder.append("\\\\");
-            continue;
-        case '"':
-            builder.append("\\\"");
-            continue;
-        }
-        // We escape < and > to prevent script execution.
-        if (codeUnit >= 32 && codeUnit < 127 && codeUnit != '<' && codeUnit != '>') {
-            builder.append(codeUnit);
-            continue;
-        }
-        // We could encode characters >= 127 as UTF-8 instead of \u escape sequences.
-        // We could handle surrogates here if callers wanted that; for now we just
-        // write them out as a \u sequence, so a surrogate pair appears as two of them.
-        builder.append("\\u",
-            upperNibbleToASCIIHexDigit(codeUnit >> 8), lowerNibbleToASCIIHexDigit(codeUnit >> 8),
-            upperNibbleToASCIIHexDigit(codeUnit), lowerNibbleToASCIIHexDigit(codeUnit));
-    }
 }
 
 String Value::toJSONString() const
@@ -594,7 +585,65 @@ String Value::asString() const
     return m_value.string;
 }
 
+void Value::dump(PrintStream& out) const
+{
+    switch (m_type) {
+    case Type::Null:
+        out.print("null"_s);
+        break;
+    case Type::Boolean:
+        out.print(m_value.boolean ? "true"_s : "false"_s);
+        break;
+    case Type::String: {
+        StringBuilder builder;
+        builder.appendQuotedJSONString(m_value.string);
+        out.print(builder.toString());
+        break;
+    }
+    case Type::Double:
+    case Type::Integer: {
+        if (!std::isfinite(m_value.number))
+            out.print("null"_s);
+        else
+            out.print(makeString(m_value.number));
+        break;
+    }
+    case Type::Object: {
+        auto& object = *static_cast<const ObjectBase*>(this);
+        CommaPrinter comma(",");
+        out.print("{");
+        for (const auto& key : object.m_order) {
+            auto findResult = object.m_map.find(key);
+            ASSERT(findResult != object.m_map.end());
+            StringBuilder builder;
+            builder.appendQuotedJSONString(findResult->key);
+            out.print(comma, builder.toString(), ":", findResult->value.get());
+        }
+        out.print("}");
+        break;
+    }
+    case Type::Array: {
+        auto& array = *static_cast<const ArrayBase*>(this);
+        CommaPrinter comma(",");
+        out.print("[");
+        for (auto& value : array.m_map)
+            out.print(comma, value.get());
+        out.print("]");
+        break;
+    }
+    default:
+        ASSERT_NOT_REACHED();
+    }
+}
+
 void Value::writeJSON(StringBuilder& output) const
+{
+    visitDerived([&](auto& derived) {
+        derived.writeJSONImpl(output);
+    });
+}
+
+void Value::writeJSONImpl(StringBuilder& output) const
 {
     switch (m_type) {
     case Type::Null:
@@ -607,7 +656,7 @@ void Value::writeJSON(StringBuilder& output) const
             output.append("false");
         break;
     case Type::String:
-        appendDoubleQuotedString(output, m_value.string);
+        output.appendQuotedJSONString(m_value.string);
         break;
     case Type::Double:
     case Type::Integer: {
@@ -617,32 +666,32 @@ void Value::writeJSON(StringBuilder& output) const
             output.append(m_value.number);
         break;
     }
-    default:
+    case Type::Object:
+    case Type::Array:
         ASSERT_NOT_REACHED();
     }
 }
 
 size_t Value::memoryCost() const
 {
-    size_t memoryCost = sizeof(this);
+    return visitDerived([&](auto& derived) {
+        return derived.memoryCostImpl();
+    });
+}
+
+size_t Value::memoryCostImpl() const
+{
+    size_t memoryCost = sizeof(*this);
     if (m_type == Type::String && m_value.string)
         memoryCost += m_value.string->sizeInBytes();
     return memoryCost;
 }
 
-ObjectBase::~ObjectBase()
-{
-}
+ObjectBase::~ObjectBase() = default;
 
-RefPtr<Object> ObjectBase::asObject()
+size_t ObjectBase::memoryCostImpl() const
 {
-    COMPILE_ASSERT(sizeof(Object) == sizeof(ObjectBase), cannot_cast);
-    return static_cast<Object*>(this);
-}
-
-size_t ObjectBase::memoryCost() const
-{
-    size_t memoryCost = Value::memoryCost();
+    size_t memoryCost = sizeof(*this);
     for (const auto& entry : m_map)
         memoryCost += entry.key.sizeInBytes() + entry.value->memoryCost();
     return memoryCost;
@@ -710,7 +759,7 @@ void ObjectBase::remove(const String& name)
     m_order.removeFirst(name);
 }
 
-void ObjectBase::writeJSON(StringBuilder& output) const
+void ObjectBase::writeJSONImpl(StringBuilder& output) const
 {
     output.append('{');
     for (size_t i = 0; i < m_order.size(); ++i) {
@@ -718,7 +767,7 @@ void ObjectBase::writeJSON(StringBuilder& output) const
         ASSERT(findResult != m_map.end());
         if (i)
             output.append(',');
-        appendDoubleQuotedString(output, findResult->key);
+        output.appendQuotedJSONString(findResult->key);
         output.append(':');
         findResult->value->writeJSON(output);
     }
@@ -730,17 +779,9 @@ ObjectBase::ObjectBase()
 {
 }
 
-ArrayBase::~ArrayBase()
-{
-}
+ArrayBase::~ArrayBase() = default;
 
-RefPtr<Array> ArrayBase::asArray()
-{
-    COMPILE_ASSERT(sizeof(ArrayBase) == sizeof(Array), cannot_cast);
-    return static_cast<Array*>(this);
-}
-
-void ArrayBase::writeJSON(StringBuilder& output) const
+void ArrayBase::writeJSONImpl(StringBuilder& output) const
 {
     output.append('[');
     for (auto it = m_map.begin(); it != m_map.end(); ++it) {
@@ -772,9 +813,9 @@ Ref<Array> Array::create()
     return adoptRef(*new Array);
 }
 
-size_t ArrayBase::memoryCost() const
+size_t ArrayBase::memoryCostImpl() const
 {
-    size_t memoryCost = Value::memoryCost();
+    size_t memoryCost = sizeof(*this);
     for (const auto& item : m_map)
         memoryCost += item->memoryCost();
     return memoryCost;

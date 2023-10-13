@@ -26,14 +26,18 @@
 #include "config.h"
 #include "AuxiliaryProcess.h"
 
+#include "AuxiliaryProcessCreationParameters.h"
 #include "ContentWorldShared.h"
 #include "LogInitialization.h"
 #include "Logging.h"
 #include "SandboxInitializationParameters.h"
 #include "WebPageProxyIdentifier.h"
 #include <WebCore/LogInitialization.h>
+#include <WebCore/RegistrableDomain.h>
 #include <pal/SessionID.h>
 #include <wtf/LogInitialization.h>
+#include <wtf/SetForScope.h>
+#include <wtf/WTFProcess.h>
 
 #if !OS(WINDOWS)
 #include <unistd.h>
@@ -48,18 +52,25 @@ using namespace WebCore;
 
 AuxiliaryProcess::AuxiliaryProcess()
     : m_terminationCounter(0)
-    , m_terminationTimer(RunLoop::main(), this, &AuxiliaryProcess::terminationTimerFired)
-    , m_processSuppressionDisabled("Process Suppression Disabled by UIProcess")
+    , m_processSuppressionDisabled("Process Suppression Disabled by UIProcess"_s)
 {
 }
 
 AuxiliaryProcess::~AuxiliaryProcess()
 {
+    if (m_connection)
+        m_connection->invalidate();
 }
 
 void AuxiliaryProcess::didClose(IPC::Connection&)
 {
-    _exit(EXIT_SUCCESS);
+// Stop the run loop for GTK and WPE to ensure a normal exit, since we need
+// atexit handlers to be called to cleanup resources like EGL displays.
+#if PLATFORM(GTK) || PLATFORM(WPE)
+    stopRunLoop();
+#else
+    terminateProcess(EXIT_SUCCESS);
+#endif
 }
 
 void AuxiliaryProcess::initialize(const AuxiliaryProcessInitializationParameters& parameters)
@@ -73,14 +84,10 @@ void AuxiliaryProcess::initialize(const AuxiliaryProcessInitializationParameters
 
     platformInitialize(parameters);
 
-#if PLATFORM(COCOA)
-    m_priorityBoostMessage = parameters.priorityBoostMessage;
-#endif
-
-    initializeProcess(parameters);
-
     SandboxInitializationParameters sandboxParameters;
     initializeSandbox(parameters, sandboxParameters);
+
+    initializeProcess(parameters);
 
 #if !LOG_DISABLED || !RELEASE_LOG_DISABLED
     WTF::logChannels().initializeLogChannelsIfNecessary();
@@ -95,9 +102,9 @@ void AuxiliaryProcess::initialize(const AuxiliaryProcessInitializationParameters
     ContentWorldIdentifier::enableGenerationProtection();
     WebPageProxyIdentifier::enableGenerationProtection();
 
-    m_connection = IPC::Connection::createClientConnection(parameters.connectionIdentifier, *this);
+    m_connection = IPC::Connection::createClientConnection(parameters.connectionIdentifier);
     initializeConnection(m_connection.get());
-    m_connection->open();
+    m_connection->open(*this);
 }
 
 void AuxiliaryProcess::setProcessSuppressionEnabled(bool enabled)
@@ -148,7 +155,6 @@ void AuxiliaryProcess::removeMessageReceiver(IPC::MessageReceiver& messageReceiv
 void AuxiliaryProcess::disableTermination()
 {
     m_terminationCounter++;
-    m_terminationTimer.stop();
 }
 
 void AuxiliaryProcess::enableTermination()
@@ -156,15 +162,11 @@ void AuxiliaryProcess::enableTermination()
     ASSERT(m_terminationCounter > 0);
     m_terminationCounter--;
 
-    if (m_terminationCounter)
+    if (m_terminationCounter || m_isInShutDown)
         return;
 
-    if (!m_terminationTimeout) {
-        terminationTimerFired();
-        return;
-    }
-
-    m_terminationTimer.startOneShot(m_terminationTimeout);
+    if (shouldTerminate())
+        terminate();
 }
 
 void AuxiliaryProcess::mainThreadPing(CompletionHandler<void()>&& completionHandler)
@@ -180,14 +182,6 @@ IPC::Connection* AuxiliaryProcess::messageSenderConnection() const
 uint64_t AuxiliaryProcess::messageSenderDestinationID() const
 {
     return 0;
-}
-
-void AuxiliaryProcess::terminationTimerFired()
-{
-    if (!shouldTerminate())
-        return;
-
-    terminate();
 }
 
 void AuxiliaryProcess::stopRunLoop()
@@ -211,44 +205,32 @@ void AuxiliaryProcess::terminate()
 
 void AuxiliaryProcess::shutDown()
 {
+    SetForScope<bool> isInShutDown(m_isInShutDown, true);
     terminate();
 }
 
-std::optional<std::pair<IPC::Connection::Identifier, IPC::Attachment>> AuxiliaryProcess::createIPCConnectionPair()
+void AuxiliaryProcess::applyProcessCreationParameters(const AuxiliaryProcessCreationParameters& parameters)
 {
-#if USE(UNIX_DOMAIN_SOCKETS)
-    IPC::Connection::SocketPair socketPair = IPC::Connection::createPlatformConnection();
-    return std::make_pair(socketPair.server, IPC::Attachment { socketPair.client });
-#elif OS(DARWIN)
-    // Create the listening port.
-    mach_port_t listeningPort = MACH_PORT_NULL;
-    auto kr = mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_RECEIVE, &listeningPort);
-    if (kr != KERN_SUCCESS) {
-        RELEASE_LOG_ERROR(Process, "AuxiliaryProcess::createIPCConnectionPair: Could not allocate mach port, error %x", kr);
-        CRASH();
-    }
-    if (!MACH_PORT_VALID(listeningPort)) {
-        RELEASE_LOG_ERROR(Process, "AuxiliaryProcess::createIPCConnectionPair: Could not allocate mach port, returned port was invalid");
-        CRASH();
-    }
-    return std::make_pair(IPC::Connection::Identifier { listeningPort }, IPC::Attachment { listeningPort, MACH_MSG_TYPE_MAKE_SEND });
-#elif OS(WINDOWS)
-    IPC::Connection::Identifier serverIdentifier, clientIdentifier;
-    if (!IPC::Connection::createServerAndClientIdentifiers(serverIdentifier, clientIdentifier)) {
-        LOG_ERROR("Failed to create server and client identifiers");
-        CRASH();
-    }
-    return std::make_pair(serverIdentifier, IPC::Attachment { clientIdentifier });
-#else
-    notImplemented();
-    return { };
+#if !LOG_DISABLED || !RELEASE_LOG_DISABLED
+    WTF::logChannels().initializeLogChannelsIfNecessary(parameters.wtfLoggingChannels);
+    WebCore::logChannels().initializeLogChannelsIfNecessary(parameters.webCoreLoggingChannels);
+    WebKit::logChannels().initializeLogChannelsIfNecessary(parameters.webKitLoggingChannels);
 #endif
 }
 
+#if !PLATFORM(IOS_FAMILY) || PLATFORM(MACCATALYST)
+void AuxiliaryProcess::populateMobileGestaltCache(std::optional<SandboxExtension::Handle>&&)
+{
+}
+#endif
+
 #if !PLATFORM(COCOA)
+
+#if !OS(UNIX)
 void AuxiliaryProcess::platformInitialize(const AuxiliaryProcessInitializationParameters&)
 {
 }
+#endif
 
 void AuxiliaryProcess::initializeSandbox(const AuxiliaryProcessInitializationParameters&, SandboxInitializationParameters&)
 {
@@ -268,5 +250,34 @@ void AuxiliaryProcess::didReceiveMemoryPressureEvent(bool isCritical)
 #endif
 
 #endif // !PLATFORM(COCOA)
+
+bool AuxiliaryProcess::allowsFirstPartyForCookies(const URL& firstParty, Function<bool()>&& domainCheck)
+{
+    // FIXME: This should probably not be necessary. If about:blank is the first party for cookies,
+    // we should set it to be the inherited origin then remove this exception.
+    if (firstParty.isAboutBlank())
+        return true;
+
+    if (firstParty.isNull())
+        return true; // FIXME: This shouldn't be allowed.
+
+    return domainCheck();
+}
+
+bool AuxiliaryProcess::allowsFirstPartyForCookies(const WebCore::RegistrableDomain& firstPartyDomain, HashSet<WebCore::RegistrableDomain>& allowedFirstPartiesForCookies)
+{
+    // FIXME: This shouldn't be needed but it is hit sometimes at least with PDFs.
+    if (firstPartyDomain.isEmpty())
+        return true;
+
+    if (!std::remove_reference_t<decltype(allowedFirstPartiesForCookies)>::isValidValue(firstPartyDomain)) {
+        ASSERT_NOT_REACHED();
+        return false;
+    }
+
+    auto result = allowedFirstPartiesForCookies.contains(firstPartyDomain);
+    ASSERT(result);
+    return result;
+}
 
 } // namespace WebKit

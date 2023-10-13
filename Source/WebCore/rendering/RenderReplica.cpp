@@ -29,6 +29,8 @@
 #include "config.h"
 #include "RenderReplica.h"
 
+#include "RenderBoxInlines.h"
+#include "RenderBoxModelObjectInlines.h"
 #include "RenderLayer.h"
 #include <wtf/IsoMallocInlines.h>
 #include <wtf/StackStats.h>
@@ -44,7 +46,8 @@ RenderReplica::RenderReplica(Document& document, RenderStyle&& style)
     // renderers being replicated, so they always report that they are inline, non-replaced.
     // However, we need transforms to be applied to replicas for reflections, so have to pass
     // the if (!isInline() || isReplaced()) check before setHasTransform().
-    setReplaced(true);
+    // FIXME: Is the comment above obsolete? Can't find a check of isReplacedOrInlineBlock guarding setHasTransform any more.
+    setReplacedOrInlineBlock(true);
 }
 
 RenderReplica::~RenderReplica() = default;

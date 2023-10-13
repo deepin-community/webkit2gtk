@@ -1,19 +1,17 @@
-include(WebKitCommon)
-
 set_property(DIRECTORY . PROPERTY FOLDER "WebKit")
 
 set(WebKit_PRIVATE_INCLUDE_DIRECTORIES
     "${CMAKE_BINARY_DIR}"
-)
-
-set(WebKit_INCLUDE_DIRECTORIES
+    "${PAL_FRAMEWORK_HEADERS_DIR}"
     "${WebCore_PRIVATE_FRAMEWORK_HEADERS_DIR}"
     "${WebKit_FRAMEWORK_HEADERS_DIR}"
     "${WebKit_DERIVED_SOURCES_DIR}"
     "${WebKit_DERIVED_SOURCES_DIR}/include"
     "${WEBKIT_DIR}"
     "${WEBKIT_DIR}/GPUProcess"
+    "${WEBKIT_DIR}/GPUProcess/ShapeDetection"
     "${WEBKIT_DIR}/GPUProcess/graphics"
+    "${WEBKIT_DIR}/GPUProcess/graphics/WebGPU"
     "${WEBKIT_DIR}/GPUProcess/media"
     "${WEBKIT_DIR}/GPUProcess/webrtc"
     "${WEBKIT_DIR}/NetworkProcess"
@@ -23,10 +21,12 @@ set(WebKit_INCLUDE_DIRECTORIES
     "${WEBKIT_DIR}/NetworkProcess/Downloads"
     "${WEBKIT_DIR}/NetworkProcess/FileAPI"
     "${WEBKIT_DIR}/NetworkProcess/IndexedDB"
+    "${WEBKIT_DIR}/NetworkProcess/Notifications"
     "${WEBKIT_DIR}/NetworkProcess/PrivateClickMeasurement"
     "${WEBKIT_DIR}/NetworkProcess/ServiceWorker"
-    "${WEBKIT_DIR}/NetworkProcess/WebStorage"
+    "${WEBKIT_DIR}/NetworkProcess/SharedWorker"
     "${WEBKIT_DIR}/NetworkProcess/cache"
+    "${WEBKIT_DIR}/NetworkProcess/storage"
     "${WEBKIT_DIR}/NetworkProcess/watchos"
     "${WEBKIT_DIR}/NetworkProcess/webrtc"
     "${WEBKIT_DIR}/Platform"
@@ -40,12 +40,15 @@ set(WebKit_INCLUDE_DIRECTORIES
     "${WEBKIT_DIR}/Shared/CoreIPCSupport"
     "${WEBKIT_DIR}/Shared/Databases"
     "${WEBKIT_DIR}/Shared/Databases/IndexedDB"
+    "${WEBKIT_DIR}/Shared/Extensions"
     "${WEBKIT_DIR}/Shared/FileAPI"
     "${WEBKIT_DIR}/Shared/Gamepad"
+    "${WEBKIT_DIR}/Shared/Notifications"
     "${WEBKIT_DIR}/Shared/Plugins"
     "${WEBKIT_DIR}/Shared/Plugins/Netscape"
     "${WEBKIT_DIR}/Shared/Plugins/Netscape/x11"
     "${WEBKIT_DIR}/Shared/RemoteLayerTree"
+    "${WEBKIT_DIR}/Shared/WebGPU"
     "${WEBKIT_DIR}/Shared/WebsiteData"
     "${WEBKIT_DIR}/Shared/XR"
     "${WEBKIT_DIR}/UIProcess"
@@ -71,7 +74,6 @@ set(WebKit_INCLUDE_DIRECTORIES
     "${WEBKIT_DIR}/UIProcess/WebAuthentication/Mock"
     "${WEBKIT_DIR}/UIProcess/WebsiteData"
     "${WEBKIT_DIR}/UIProcess/XR"
-    "${WEBKIT_DIR}/WebAuthnProcess"
     "${WEBKIT_DIR}/WebProcess"
     "${WEBKIT_DIR}/WebProcess/ApplePay"
     "${WEBKIT_DIR}/WebProcess/ApplicationCache"
@@ -85,7 +87,9 @@ set(WebKit_INCLUDE_DIRECTORIES
     "${WEBKIT_DIR}/WebProcess/Gamepad"
     "${WEBKIT_DIR}/WebProcess/Geolocation"
     "${WEBKIT_DIR}/WebProcess/GPU"
+    "${WEBKIT_DIR}/WebProcess/GPU/ShapeDetection"
     "${WEBKIT_DIR}/WebProcess/GPU/graphics"
+    "${WEBKIT_DIR}/WebProcess/GPU/graphics/WebGPU"
     "${WEBKIT_DIR}/WebProcess/GPU/media"
     "${WEBKIT_DIR}/WebProcess/GPU/webrtc"
     "${WEBKIT_DIR}/WebProcess/IconDatabase"
@@ -97,6 +101,7 @@ set(WebKit_INCLUDE_DIRECTORIES
     "${WEBKIT_DIR}/WebProcess/Launching"
     "${WEBKIT_DIR}/WebProcess/MediaCache"
     "${WEBKIT_DIR}/WebProcess/MediaStream"
+    "${WEBKIT_DIR}/WebProcess/Model"
     "${WEBKIT_DIR}/WebProcess/Network"
     "${WEBKIT_DIR}/WebProcess/Network/webrtc"
     "${WEBKIT_DIR}/WebProcess/Notifications"
@@ -120,14 +125,46 @@ set(PROTOCOL_GENERATOR_SCRIPTS_DIR "${JAVASCRIPTCORE_DIR}/inspector/scripts")
 
 list(APPEND WebKit_UNIFIED_SOURCE_LIST_FILES
     "Sources.txt"
+
+    "Platform/Sources.txt"
 )
 
 set(WebKit_MESSAGES_IN_FILES
     GPUProcess/GPUConnectionToWebProcess
     GPUProcess/GPUProcess
 
+    GPUProcess/ShapeDetection/RemoteBarcodeDetector
+    GPUProcess/ShapeDetection/RemoteFaceDetector
+    GPUProcess/ShapeDetection/RemoteTextDetector
+
+    GPUProcess/graphics/RemoteDisplayListRecorder
     GPUProcess/graphics/RemoteGraphicsContextGL
     GPUProcess/graphics/RemoteRenderingBackend
+
+    GPUProcess/graphics/WebGPU/RemoteAdapter
+    GPUProcess/graphics/WebGPU/RemoteBindGroup
+    GPUProcess/graphics/WebGPU/RemoteBindGroupLayout
+    GPUProcess/graphics/WebGPU/RemoteBuffer
+    GPUProcess/graphics/WebGPU/RemoteCommandBuffer
+    GPUProcess/graphics/WebGPU/RemoteCommandEncoder
+    GPUProcess/graphics/WebGPU/RemoteCompositorIntegration
+    GPUProcess/graphics/WebGPU/RemoteComputePassEncoder
+    GPUProcess/graphics/WebGPU/RemoteComputePipeline
+    GPUProcess/graphics/WebGPU/RemoteDevice
+    GPUProcess/graphics/WebGPU/RemoteExternalTexture
+    GPUProcess/graphics/WebGPU/RemoteGPU
+    GPUProcess/graphics/WebGPU/RemotePipelineLayout
+    GPUProcess/graphics/WebGPU/RemotePresentationContext
+    GPUProcess/graphics/WebGPU/RemoteQuerySet
+    GPUProcess/graphics/WebGPU/RemoteQueue
+    GPUProcess/graphics/WebGPU/RemoteRenderBundle
+    GPUProcess/graphics/WebGPU/RemoteRenderBundleEncoder
+    GPUProcess/graphics/WebGPU/RemoteRenderPassEncoder
+    GPUProcess/graphics/WebGPU/RemoteRenderPipeline
+    GPUProcess/graphics/WebGPU/RemoteSampler
+    GPUProcess/graphics/WebGPU/RemoteShaderModule
+    GPUProcess/graphics/WebGPU/RemoteTexture
+    GPUProcess/graphics/WebGPU/RemoteTextureView
 
     GPUProcess/media/RemoteAudioDestinationManager
     GPUProcess/media/RemoteAudioSessionProxy
@@ -145,6 +182,7 @@ set(WebKit_MESSAGES_IN_FILES
     GPUProcess/media/RemoteMediaSourceProxy
     GPUProcess/media/RemoteRemoteCommandListenerProxy
     GPUProcess/media/RemoteSourceBufferProxy
+    GPUProcess/media/RemoteVideoFrameObjectHeap
 
     GPUProcess/webrtc/LibWebRTCCodecsProxy
     GPUProcess/webrtc/RemoteAudioMediaStreamTrackRendererInternalUnitManager
@@ -155,39 +193,41 @@ set(WebKit_MESSAGES_IN_FILES
 
     NetworkProcess/Cookies/WebCookieManager
 
-    NetworkProcess/IndexedDB/WebIDBServer
-
     NetworkProcess/NetworkBroadcastChannelRegistry
     NetworkProcess/NetworkConnectionToWebProcess
     NetworkProcess/NetworkContentRuleListManager
     NetworkProcess/NetworkProcess
     NetworkProcess/NetworkResourceLoader
     NetworkProcess/NetworkSocketChannel
-    NetworkProcess/NetworkSocketStream
 
+    NetworkProcess/ServiceWorker/ServiceWorkerDownloadTask
     NetworkProcess/ServiceWorker/ServiceWorkerFetchTask
     NetworkProcess/ServiceWorker/WebSWServerConnection
     NetworkProcess/ServiceWorker/WebSWServerToContextConnection
 
-    NetworkProcess/WebStorage/StorageManagerSet
+    NetworkProcess/SharedWorker/WebSharedWorkerServerConnection
+    NetworkProcess/SharedWorker/WebSharedWorkerServerToContextConnection
 
     NetworkProcess/cache/CacheStorageEngineConnection
+
+    NetworkProcess/storage/NetworkStorageManager
 
     NetworkProcess/webrtc/NetworkMDNSRegister
     NetworkProcess/webrtc/NetworkRTCMonitor
     NetworkProcess/webrtc/NetworkRTCProvider
     NetworkProcess/webrtc/RTCDataChannelRemoteManagerProxy
 
-    PluginProcess/PluginControllerProxy
-    PluginProcess/PluginProcess
-    PluginProcess/WebProcessConnection
-
     Shared/AuxiliaryProcess
+    Shared/IPCConnectionTester
+    Shared/IPCStreamTester
+    Shared/IPCStreamTesterProxy
+    Shared/IPCTester
+    Shared/IPCTesterReceiver
     Shared/WebConnection
 
     Shared/Authentication/AuthenticationManager
 
-    Shared/Plugins/NPObjectMessageReceiver
+    Shared/Notifications/NotificationManagerMessageHandler
 
     UIProcess/DrawingAreaProxy
 
@@ -196,13 +236,15 @@ set(WebKit_MESSAGES_IN_FILES
     UIProcess/SpeechRecognitionRemoteRealtimeMediaSourceManager
     UIProcess/SpeechRecognitionServer
     UIProcess/VisitedLinkStore
-    UIProcess/WebCookieManagerProxy
     UIProcess/WebFullScreenManagerProxy
     UIProcess/WebGeolocationManagerProxy
+    UIProcess/WebLockRegistryProxy
     UIProcess/WebPageProxy
     UIProcess/WebPasteboardProxy
+    UIProcess/WebPermissionControllerProxy
     UIProcess/WebProcessPool
     UIProcess/WebProcessProxy
+    UIProcess/WebScreenOrientationManagerProxy
 
     UIProcess/Automation/WebAutomationSession
 
@@ -214,8 +256,6 @@ set(WebKit_MESSAGES_IN_FILES
     UIProcess/Inspector/WebInspectorUIProxy
 
     UIProcess/Network/NetworkProcessProxy
-
-    UIProcess/Plugins/PluginProcessProxy
 
     UIProcess/UserContent/WebUserContentControllerProxy
 
@@ -232,7 +272,10 @@ set(WebKit_MESSAGES_IN_FILES
     WebProcess/GPU/GPUProcessConnection
 
     WebProcess/GPU/graphics/RemoteGraphicsContextGLProxy
+    WebProcess/GPU/graphics/RemoteImageBufferProxy
     WebProcess/GPU/graphics/RemoteRenderingBackendProxy
+
+    WebProcess/GPU/graphics/WebGPU/RemoteGPUProxy
 
     WebProcess/GPU/media/RemoteAudioHardwareListener
     WebProcess/GPU/media/MediaPlayerPrivateRemote
@@ -245,8 +288,8 @@ set(WebKit_MESSAGES_IN_FILES
     WebProcess/GPU/media/RemoteRemoteCommandListener
     WebProcess/GPU/media/SourceBufferPrivateRemote
 
-    WebProcess/GPU/webrtc/AudioMediaStreamTrackRendererInternalUnitManager
     WebProcess/GPU/webrtc/LibWebRTCCodecs
+    WebProcess/GPU/webrtc/RemoteVideoFrameObjectHeapProxyProcessor
     WebProcess/GPU/webrtc/SampleBufferDisplayLayer
 
     WebProcess/Geolocation/WebGeolocationManager
@@ -260,29 +303,29 @@ set(WebKit_MESSAGES_IN_FILES
 
     WebProcess/Network/webrtc/LibWebRTCNetwork
     WebProcess/Network/webrtc/RTCDataChannelRemoteManager
-    WebProcess/Network/webrtc/WebMDNSRegister
     WebProcess/Network/webrtc/WebRTCMonitor
     WebProcess/Network/webrtc/WebRTCResolver
 
     WebProcess/Network/NetworkProcessConnection
     WebProcess/Network/WebResourceLoader
     WebProcess/Network/WebSocketChannel
-    WebProcess/Network/WebSocketStream
 
     WebProcess/Notifications/WebNotificationManager
 
-    WebProcess/Plugins/PluginProcessConnection
-    WebProcess/Plugins/PluginProcessConnectionManager
-    WebProcess/Plugins/PluginProxy
-
     WebProcess/Speech/SpeechRecognitionRealtimeMediaSourceManager
 
+    WebProcess/Storage/WebSharedWorkerContextManagerConnection
+    WebProcess/Storage/WebSharedWorkerObjectConnection
     WebProcess/Storage/WebSWClientConnection
     WebProcess/Storage/WebSWContextManagerConnection
 
     WebProcess/UserContent/WebUserContentController
 
+    WebProcess/WebCoreSupport/RemoteWebLockRegistry
     WebProcess/WebCoreSupport/WebBroadcastChannelRegistry
+    WebProcess/WebCoreSupport/WebFileSystemStorageConnection
+    WebProcess/WebCoreSupport/WebPermissionController
+    WebProcess/WebCoreSupport/WebScreenOrientationManager
     WebProcess/WebCoreSupport/WebSpeechRecognitionConnection
 
     WebProcess/WebPage/DrawingArea
@@ -293,6 +336,163 @@ set(WebKit_MESSAGES_IN_FILES
     WebProcess/WebStorage/StorageAreaMap
 
     WebProcess/XR/PlatformXRSystemProxy
+)
+
+set(WebKit_SERIALIZATION_IN_FILES
+    GPUProcess/GPUProcessSessionParameters.serialization.in
+
+    GPUProcess/graphics/PathSegment.serialization.in
+    GPUProcess/graphics/RemoteRenderingBackendCreationParameters.serialization.in
+
+    GPUProcess/graphics/WebGPU/RemoteGPURequestAdapterResponse.serialization.in
+
+    GPUProcess/media/AudioTrackPrivateRemoteConfiguration.serialization.in
+    GPUProcess/media/InitializationSegmentInfo.serialization.in
+    GPUProcess/media/MediaDescriptionInfo.serialization.in
+    GPUProcess/media/RemoteMediaPlayerProxyConfiguration.serialization.in
+    GPUProcess/media/TextTrackPrivateRemoteConfiguration.serialization.in
+    GPUProcess/media/TrackPrivateRemoteConfiguration.serialization.in
+    GPUProcess/media/VideoTrackPrivateRemoteConfiguration.serialization.in
+
+    NetworkProcess/NetworkProcessCreationParameters.serialization.in
+    NetworkProcess/NetworkResourceLoadParameters.serialization.in
+
+    Platform/SharedMemory.serialization.in
+
+    Shared/BackgroundFetchState.serialization.in
+    Shared/CallbackID.serialization.in
+    Shared/DisplayListArgumentCoders.serialization.in
+    Shared/EditorState.serialization.in
+    Shared/FileSystemSyncAccessHandleInfo.serialization.in
+    Shared/FocusedElementInformation.serialization.in
+    Shared/FrameInfoData.serialization.in
+    Shared/FrameTreeCreationParameters.serialization.in
+    Shared/FrameTreeNodeData.serialization.in
+    Shared/GPUProcessConnectionParameters.serialization.in
+    Shared/LayerTreeContext.serialization.in
+    Shared/LocalFrameCreationParameters.serialization.in
+    Shared/Model.serialization.in
+    Shared/NavigationActionData.serialization.in
+    Shared/NetworkProcessConnectionParameters.serialization.in
+    Shared/Pasteboard.serialization.in
+    Shared/PlatformPopupMenuData.serialization.in
+    Shared/PolicyDecision.serialization.in
+    Shared/RemoteWorkerType.serialization.in
+    Shared/SameDocumentNavigationType.serialization.in
+    Shared/SessionState.serialization.in
+    Shared/ShareableBitmap.serialization.in
+    Shared/TextFlags.serialization.in
+    Shared/TextRecognitionResult.serialization.in
+    Shared/UpdateInfo.serialization.in
+    Shared/WTFArgumentCoders.serialization.in
+    Shared/WebCoreArgumentCoders.serialization.in
+    Shared/WebEvent.serialization.in
+    Shared/WebHitTestResultData.serialization.in
+    Shared/WebPageCreationParameters.serialization.in
+    Shared/WebPopupItem.serialization.in
+    Shared/WebProcessCreationParameters.serialization.in
+    Shared/WebProcessDataStoreParameters.serialization.in
+    Shared/WebPushDaemonConnectionConfiguration.serialization.in
+    Shared/WebPushMessage.serialization.in
+    Shared/WebsiteDataStoreParameters.serialization.in
+    Shared/WebsitePoliciesData.serialization.in
+
+    Shared/API/APIData.serialization.in
+    Shared/API/APIError.serialization.in
+    Shared/API/APIFrameHandle.serialization.in
+    Shared/API/APIGeometry.serialization.in
+    Shared/API/APIPageHandle.serialization.in
+    Shared/API/APIURL.serialization.in
+    Shared/API/APIURLRequest.serialization.in
+    Shared/API/APIURLResponse.serialization.in
+
+    Shared/Databases/IndexedDB/WebIDBResult.serialization.in
+
+    Shared/Extensions/WebExtensionEventListenerType.serialization.in
+
+    Shared/Gamepad/GamepadData.serialization.in
+
+    Shared/WebGPU/WebGPUBindGroupDescriptor.serialization.in
+    Shared/WebGPU/WebGPUBindGroupEntry.serialization.in
+    Shared/WebGPU/WebGPUBindGroupLayoutDescriptor.serialization.in
+    Shared/WebGPU/WebGPUBindGroupLayoutEntry.serialization.in
+    Shared/WebGPU/WebGPUBlendComponent.serialization.in
+    Shared/WebGPU/WebGPUBlendState.serialization.in
+    Shared/WebGPU/WebGPUBufferBinding.serialization.in
+    Shared/WebGPU/WebGPUBufferBindingLayout.serialization.in
+    Shared/WebGPU/WebGPUBufferDescriptor.serialization.in
+    Shared/WebGPU/WebGPUCanvasConfiguration.serialization.in
+    Shared/WebGPU/WebGPUColor.serialization.in
+    Shared/WebGPU/WebGPUColorTargetState.serialization.in
+    Shared/WebGPU/WebGPUCommandBufferDescriptor.serialization.in
+    Shared/WebGPU/WebGPUCommandEncoderDescriptor.serialization.in
+    Shared/WebGPU/WebGPUCompilationMessage.serialization.in
+    Shared/WebGPU/WebGPUComputePassDescriptor.serialization.in
+    Shared/WebGPU/WebGPUComputePassTimestampWrites.serialization.in
+    Shared/WebGPU/WebGPUComputePipelineDescriptor.serialization.in
+    Shared/WebGPU/WebGPUDepthStencilState.serialization.in
+    Shared/WebGPU/WebGPUDeviceDescriptor.serialization.in
+    Shared/WebGPU/WebGPUExtent3D.serialization.in
+    Shared/WebGPU/WebGPUExternalTextureBindingLayout.serialization.in
+    Shared/WebGPU/WebGPUExternalTextureDescriptor.serialization.in
+    Shared/WebGPU/WebGPUFeatureName.serialization.in
+    Shared/WebGPU/WebGPUFragmentState.serialization.in
+    Shared/WebGPU/WebGPUImageCopyBuffer.serialization.in
+    Shared/WebGPU/WebGPUImageCopyExternalImage.serialization.in
+    Shared/WebGPU/WebGPUImageCopyTexture.serialization.in
+    Shared/WebGPU/WebGPUImageCopyTextureTagged.serialization.in
+    Shared/WebGPU/WebGPUImageDataLayout.serialization.in
+    Shared/WebGPU/WebGPUMultisampleState.serialization.in
+    Shared/WebGPU/WebGPUObjectDescriptorBase.serialization.in
+    Shared/WebGPU/WebGPUOrigin2D.serialization.in
+    Shared/WebGPU/WebGPUOrigin3D.serialization.in
+    Shared/WebGPU/WebGPUOutOfMemoryError.serialization.in
+    Shared/WebGPU/WebGPUPipelineDescriptorBase.serialization.in
+    Shared/WebGPU/WebGPUPipelineLayoutDescriptor.serialization.in
+    Shared/WebGPU/WebGPUPresentationContextDescriptor.serialization.in
+    Shared/WebGPU/WebGPUPrimitiveState.serialization.in
+    Shared/WebGPU/WebGPUProgrammableStage.serialization.in
+    Shared/WebGPU/WebGPUQuerySetDescriptor.serialization.in
+    Shared/WebGPU/WebGPURenderBundleDescriptor.serialization.in
+    Shared/WebGPU/WebGPURenderBundleEncoderDescriptor.serialization.in
+    Shared/WebGPU/WebGPURenderPassColorAttachment.serialization.in
+    Shared/WebGPU/WebGPURenderPassDepthStencilAttachment.serialization.in
+    Shared/WebGPU/WebGPURenderPassDescriptor.serialization.in
+    Shared/WebGPU/WebGPURenderPassLayout.serialization.in
+    Shared/WebGPU/WebGPURenderPassTimestampWrites.serialization.in
+    Shared/WebGPU/WebGPURenderPipelineDescriptor.serialization.in
+    Shared/WebGPU/WebGPURequestAdapterOptions.serialization.in
+    Shared/WebGPU/WebGPUSamplerBindingLayout.serialization.in
+    Shared/WebGPU/WebGPUSamplerDescriptor.serialization.in
+    Shared/WebGPU/WebGPUShaderModuleCompilationHint.serialization.in
+    Shared/WebGPU/WebGPUShaderModuleDescriptor.serialization.in
+    Shared/WebGPU/WebGPUStencilFaceState.serialization.in
+    Shared/WebGPU/WebGPUStorageTextureBindingLayout.serialization.in
+    Shared/WebGPU/WebGPUSupportedFeatures.serialization.in
+    Shared/WebGPU/WebGPUSupportedLimits.serialization.in
+    Shared/WebGPU/WebGPUTextureBindingLayout.serialization.in
+    Shared/WebGPU/WebGPUTextureDescriptor.serialization.in
+    Shared/WebGPU/WebGPUTextureViewDescriptor.serialization.in
+    Shared/WebGPU/WebGPUValidationError.serialization.in
+    Shared/WebGPU/WebGPUVertexAttribute.serialization.in
+    Shared/WebGPU/WebGPUVertexBufferLayout.serialization.in
+    Shared/WebGPU/WebGPUVertexState.serialization.in
+
+    Shared/WebsiteData/WebsiteData.serialization.in
+    Shared/WebsiteData/WebsiteDataFetchOption.serialization.in
+    Shared/WebsiteData/WebsiteDataType.serialization.in
+
+    Shared/XR/XRSystem.serialization.in
+
+    WebProcess/GPU/graphics/BufferIdentifierSet.serialization.in
+    WebProcess/GPU/graphics/PrepareBackingStoreBuffersData.serialization.in
+
+    WebProcess/GPU/media/RemoteAudioSessionConfiguration.serialization.in
+    WebProcess/GPU/media/RemoteCDMConfiguration.serialization.in
+    WebProcess/GPU/media/RemoteMediaPlayerConfiguration.serialization.in
+    WebProcess/GPU/media/RemoteMediaPlayerState.serialization.in
+
+    WebProcess/WebCoreSupport/WebSpeechSynthesisVoice.serialization.in
 )
 
 set(WebKit_FRAMEWORKS
@@ -334,18 +534,6 @@ elseif (USE_ANGLE_EGL)
         ANGLE::EGL
     )
 else ()
-    if (USE_OPENGL)
-        list(APPEND WebKit_SYSTEM_INCLUDE_DIRECTORIES
-            ${OPENGL_INCLUDE_DIRS}
-        )
-        list(APPEND WebKit_PRIVATE_LIBRARIES
-            ${OPENGL_LIBRARIES}
-        )
-        add_definitions(${OPENGL_DEFINITIONS})
-    elseif (USE_OPENGL_ES)
-        list(APPEND WebKit_PRIVATE_LIBRARIES OpenGL::GLES)
-    endif ()
-
     if (USE_EGL)
         list(APPEND WebKit_SYSTEM_INCLUDE_DIRECTORIES
             ${EGL_INCLUDE_DIRS}
@@ -387,6 +575,8 @@ macro(ADD_WEBKIT_PREFIX_HEADER _target)
             set(OLD_COMPILE_FLAGS "")
         endif ()
         set_target_properties(${_target} PROPERTIES COMPILE_FLAGS "${OLD_COMPILE_FLAGS} -include ${WEBKIT_DIR}/WebKit2Prefix.h")
+    else ()
+        target_precompile_headers(${_target} PRIVATE WebKit2Prefix.h)
     endif ()
 endmacro()
 
@@ -448,11 +638,14 @@ macro(GENERATE_MESSAGE_SOURCES _output_source _inputs)
         list(APPEND _outputs
             ${WebKit_DERIVED_SOURCES_DIR}/${_name}MessageReceiver.cpp
             ${WebKit_DERIVED_SOURCES_DIR}/${_name}Messages.h
-            ${WebKit_DERIVED_SOURCES_DIR}/${_name}MessagesReplies.h
         )
         list(APPEND ${_output_source} ${WebKit_DERIVED_SOURCES_DIR}/${_name}MessageReceiver.cpp)
     endforeach ()
-    list(APPEND ${_output_source} ${WebKit_DERIVED_SOURCES_DIR}/MessageNames.cpp)
+
+    list(APPEND ${_output_source}
+        ${WebKit_DERIVED_SOURCES_DIR}/MessageArgumentDescriptions.cpp
+        ${WebKit_DERIVED_SOURCES_DIR}/MessageNames.cpp
+    )
 
     add_custom_command(
         OUTPUT
@@ -473,6 +666,27 @@ macro(GENERATE_MESSAGE_SOURCES _output_source _inputs)
     )
 endmacro()
 GENERATE_MESSAGE_SOURCES(WebKit_DERIVED_SOURCES "${WebKit_MESSAGES_IN_FILES}")
+
+list(APPEND WebKit_DERIVED_SOURCES
+    ${WebKit_DERIVED_SOURCES_DIR}/GeneratedSerializers.h
+    ${WebKit_DERIVED_SOURCES_DIR}/GeneratedSerializers.cpp
+    ${WebKit_DERIVED_SOURCES_DIR}/SerializedTypeInfo.cpp
+    ${WebKit_DERIVED_SOURCES_DIR}/WebKitPlatformGeneratedSerializers.cpp
+)
+
+add_custom_command(
+    OUTPUT
+        ${WebKit_DERIVED_SOURCES_DIR}/GeneratedSerializers.h
+        ${WebKit_DERIVED_SOURCES_DIR}/GeneratedSerializers.cpp
+        ${WebKit_DERIVED_SOURCES_DIR}/SerializedTypeInfo.cpp
+        ${WebKit_DERIVED_SOURCES_DIR}/WebKitPlatformGeneratedSerializers.cpp
+    MAIN_DEPENDENCY ${WEBKIT_DIR}/Scripts/generate-serializers.py
+    DEPENDS
+        ${WebKit_SERIALIZATION_IN_FILES}
+    COMMAND ${PYTHON_EXECUTABLE} ${WEBKIT_DIR}/Scripts/generate-serializers.py cpp ${WEBKIT_DIR}/ ${WebKit_SERIALIZATION_IN_FILES}
+    WORKING_DIRECTORY ${WebKit_DERIVED_SOURCES_DIR}
+    VERBATIM
+)
 
 set(WebKit_AUTOMATION_PROTOCOL_GENERATOR_SCRIPTS
     ${PROTOCOL_GENERATOR_SCRIPTS_DIR}/generate-inspector-protocol-bindings.py
@@ -528,27 +742,24 @@ list(APPEND WebKit_HEADERS
 set(WebKit_WEB_PREFERENCES_TEMPLATES
     ${WEBKIT_DIR}/Scripts/PreferencesTemplates/WebPageUpdatePreferences.cpp.erb
     ${WEBKIT_DIR}/Scripts/PreferencesTemplates/WebPreferencesDefinitions.h.erb
-    ${WEBKIT_DIR}/Scripts/PreferencesTemplates/WebPreferencesExperimentalFeatures.cpp.erb
+    ${WEBKIT_DIR}/Scripts/PreferencesTemplates/WebPreferencesFeatures.cpp.erb
     ${WEBKIT_DIR}/Scripts/PreferencesTemplates/WebPreferencesGetterSetters.cpp.erb
-    ${WEBKIT_DIR}/Scripts/PreferencesTemplates/WebPreferencesInternalDebugFeatures.cpp.erb
     ${WEBKIT_DIR}/Scripts/PreferencesTemplates/WebPreferencesKeys.cpp.erb
     ${WEBKIT_DIR}/Scripts/PreferencesTemplates/WebPreferencesKeys.h.erb
     ${WEBKIT_DIR}/Scripts/PreferencesTemplates/WebPreferencesStoreDefaultsMap.cpp.erb
 )
 
 set(WebKit_WEB_PREFERENCES
-    ${WTF_SCRIPTS_DIR}/Preferences/WebPreferences.yaml
-    ${WTF_SCRIPTS_DIR}/Preferences/WebPreferencesDebug.yaml
-    ${WTF_SCRIPTS_DIR}/Preferences/WebPreferencesExperimental.yaml
-    ${WTF_SCRIPTS_DIR}/Preferences/WebPreferencesInternal.yaml
+    ${WTF_SCRIPTS_DIR}/Preferences/UnifiedWebPreferences.yaml
 )
 
 set_source_files_properties(${WebKit_WEB_PREFERENCES} PROPERTIES GENERATED TRUE)
 
 add_custom_command(
-    OUTPUT ${WebKit_DERIVED_SOURCES_DIR}/WebPageUpdatePreferences.cpp ${WebKit_DERIVED_SOURCES_DIR}/WebPreferencesDefinitions.h ${WebKit_DERIVED_SOURCES_DIR}/WebPreferencesExperimentalFeatures.cpp ${WebKit_DERIVED_SOURCES_DIR}/WebPreferencesGetterSetters.cpp ${WebKit_DERIVED_SOURCES_DIR}/WebPreferencesInternalDebugFeatures.cpp ${WebKit_DERIVED_SOURCES_DIR}/WebPreferencesKeys.cpp ${WebKit_DERIVED_SOURCES_DIR}/WebPreferencesKeys.h ${WebKit_DERIVED_SOURCES_DIR}/WebPreferencesStoreDefaultsMap.cpp
+    OUTPUT ${WebKit_DERIVED_SOURCES_DIR}/WebPageUpdatePreferences.cpp ${WebKit_DERIVED_SOURCES_DIR}/WebPreferencesDefinitions.h ${WebKit_DERIVED_SOURCES_DIR}/WebPreferencesFeatures.cpp ${WebKit_DERIVED_SOURCES_DIR}/WebPreferencesGetterSetters.cpp ${WebKit_DERIVED_SOURCES_DIR}/WebPreferencesKeys.cpp ${WebKit_DERIVED_SOURCES_DIR}/WebPreferencesKeys.h ${WebKit_DERIVED_SOURCES_DIR}/WebPreferencesStoreDefaultsMap.cpp
     DEPENDS ${WebKit_WEB_PREFERENCES_TEMPLATES} ${WebKit_WEB_PREFERENCES} WTF_CopyPreferences
-    COMMAND ${RUBY_EXECUTABLE} ${WTF_SCRIPTS_DIR}/GeneratePreferences.rb --frontend WebKit --base ${WTF_SCRIPTS_DIR}/Preferences/WebPreferences.yaml --debug ${WTF_SCRIPTS_DIR}/Preferences/WebPreferencesDebug.yaml --experimental ${WTF_SCRIPTS_DIR}/Preferences/WebPreferencesExperimental.yaml --internal ${WTF_SCRIPTS_DIR}/Preferences/WebPreferencesInternal.yaml --outputDir "${WebKit_DERIVED_SOURCES_DIR}" --template ${WEBKIT_DIR}/Scripts/PreferencesTemplates/WebPageUpdatePreferences.cpp.erb --template ${WEBKIT_DIR}/Scripts/PreferencesTemplates/WebPreferencesDefinitions.h.erb --template ${WEBKIT_DIR}/Scripts/PreferencesTemplates/WebPreferencesExperimentalFeatures.cpp.erb --template ${WEBKIT_DIR}/Scripts/PreferencesTemplates/WebPreferencesGetterSetters.cpp.erb --template ${WEBKIT_DIR}/Scripts/PreferencesTemplates/WebPreferencesInternalDebugFeatures.cpp.erb --template ${WEBKIT_DIR}/Scripts/PreferencesTemplates/WebPreferencesKeys.cpp.erb --template ${WEBKIT_DIR}/Scripts/PreferencesTemplates/WebPreferencesKeys.h.erb --template ${WEBKIT_DIR}/Scripts/PreferencesTemplates/WebPreferencesStoreDefaultsMap.cpp.erb
+    COMMAND ${RUBY_EXECUTABLE} ${WTF_SCRIPTS_DIR}/GeneratePreferences.rb --frontend WebKit --outputDir "${WebKit_DERIVED_SOURCES_DIR}" --template "$<JOIN:${WebKit_WEB_PREFERENCES_TEMPLATES},;--template;>" ${WebKit_WEB_PREFERENCES}
+    COMMAND_EXPAND_LISTS
     VERBATIM)
 
 list(APPEND WebKit_HEADERS
@@ -558,9 +769,8 @@ list(APPEND WebKit_HEADERS
 
 list(APPEND WebKit_SOURCES
     ${WebKit_DERIVED_SOURCES_DIR}/WebPageUpdatePreferences.cpp
-    ${WebKit_DERIVED_SOURCES_DIR}/WebPreferencesExperimentalFeatures.cpp
+    ${WebKit_DERIVED_SOURCES_DIR}/WebPreferencesFeatures.cpp
     ${WebKit_DERIVED_SOURCES_DIR}/WebPreferencesGetterSetters.cpp
-    ${WebKit_DERIVED_SOURCES_DIR}/WebPreferencesInternalDebugFeatures.cpp
     ${WebKit_DERIVED_SOURCES_DIR}/WebPreferencesKeys.cpp
     ${WebKit_DERIVED_SOURCES_DIR}/WebPreferencesStoreDefaultsMap.cpp
 )
@@ -569,7 +779,6 @@ list(APPEND WebKit_SOURCES ${WebKit_DERIVED_SOURCES})
 
 WEBKIT_COMPUTE_SOURCES(WebKit)
 WEBKIT_FRAMEWORK(WebKit)
-WEBKIT_FRAMEWORK_TARGET(WebKit)
 ADD_WEBKIT_PREFIX_HEADER(WebKit)
 
 list(APPEND WebProcess_PRIVATE_INCLUDE_DIRECTORIES $<TARGET_PROPERTY:WebKit,INCLUDE_DIRECTORIES>)
@@ -602,6 +811,10 @@ if (COMPILER_IS_GCC_OR_CLANG)
     if (ENABLE_PLUGIN_PROCESS)
         WEBKIT_ADD_TARGET_CXX_FLAGS(PluginProcess -Wno-unused-parameter)
     endif ()
+endif ()
+
+if (APPLE)
+    WEBKIT_ADD_TARGET_CXX_FLAGS(WebKit -fobjc-weak)
 endif ()
 
 if ("${PORT}" STREQUAL "Mac")

@@ -31,6 +31,8 @@
 #include "SandboxExtension.h"
 #include "UserData.h"
 #include "WebsitePoliciesData.h"
+#include <WebCore/AdvancedPrivacyProtections.h>
+#include <WebCore/FrameIdentifier.h>
 #include <WebCore/FrameLoaderTypes.h>
 #include <WebCore/ResourceRequest.h>
 #include <WebCore/ShouldTreatAsContinuingLoad.h>
@@ -43,6 +45,10 @@ class Decoder;
 class Encoder;
 }
 
+namespace WebCore {
+typedef int SandboxFlags;
+}
+
 namespace WebKit {
 
 struct LoadParameters {
@@ -52,7 +58,13 @@ struct LoadParameters {
     void platformEncode(IPC::Encoder&) const;
     static WARN_UNUSED_RETURN bool platformDecode(IPC::Decoder&, LoadParameters&);
 
-    uint64_t navigationID;
+#if ENABLE(PUBLIC_SUFFIX_LIST)
+    String topPrivatelyControlledDomain;
+    String host;
+#endif
+
+    uint64_t navigationID { 0 };
+    std::optional<WebCore::FrameIdentifier> frameIdentifier;
 
     WebCore::ResourceRequest request;
     SandboxExtension::Handle sandboxExtensionHandle;
@@ -74,17 +86,16 @@ struct LoadParameters {
     WebCore::LockBackForwardList lockBackForwardList { WebCore::LockBackForwardList::No };
     WebCore::SubstituteData::SessionHistoryVisibility sessionHistoryVisibility { WebCore::SubstituteData::SessionHistoryVisibility::Visible };
     String clientRedirectSourceForHistory;
+    WebCore::SandboxFlags effectiveSandboxFlags { 0 };
     std::optional<NavigatingToAppBoundDomain> isNavigatingToAppBoundDomain;
     std::optional<NetworkResourceLoadIdentifier> existingNetworkResourceLoadIdentifierToResume;
+    bool isServiceWorkerLoad { false };
 
 #if PLATFORM(COCOA)
-    RetainPtr<NSDictionary> dataDetectionContext;
-    Vector<SandboxExtension::Handle> networkExtensionSandboxExtensionHandles;
+    std::optional<double> dataDetectionReferenceDate;
 #endif
-#if PLATFORM(IOS)
-    std::optional<SandboxExtension::Handle> contentFilterExtensionHandle;
-    std::optional<SandboxExtension::Handle> frontboardServiceExtensionHandle;
-#endif
+
+    OptionSet<WebCore::AdvancedPrivacyProtections> advancedPrivacyProtections;
 };
 
 } // namespace WebKit

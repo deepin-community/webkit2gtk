@@ -22,16 +22,19 @@
 #pragma once
 
 #include "ActiveDOMObject.h"
-#include "BlobURL.h"
 #include "ExceptionOr.h"
 #include "FormData.h"
 #include "ResourceResponse.h"
+#include "SharedBuffer.h"
 #include "ThreadableLoaderClient.h"
+#include "Timer.h"
+#include "URLKeepingBlobAlive.h"
 #include "UserGestureIndicator.h"
 #include <wtf/URL.h>
 #include "XMLHttpRequestEventTarget.h"
 #include "XMLHttpRequestProgressEventThrottle.h"
-#include <wtf/Variant.h>
+#include <variant>
+#include <wtf/CancellableTask.h>
 #include <wtf/text/StringBuilder.h>
 
 namespace JSC {
@@ -45,7 +48,6 @@ class Blob;
 class Document;
 class DOMFormData;
 class SecurityOrigin;
-class SharedBuffer;
 class TextResourceDecoder;
 class ThreadableLoader;
 class URLSearchParams;
@@ -72,12 +74,12 @@ public:
     EventTargetInterface eventTargetInterface() const override { return XMLHttpRequestEventTargetInterfaceType; }
     ScriptExecutionContext* scriptExecutionContext() const override { return ActiveDOMObject::scriptExecutionContext(); }
 
-    using SendTypes = Variant<RefPtr<Document>, RefPtr<Blob>, RefPtr<JSC::ArrayBufferView>, RefPtr<JSC::ArrayBuffer>, RefPtr<DOMFormData>, String, RefPtr<URLSearchParams>>;
+    using SendTypes = std::variant<RefPtr<Document>, RefPtr<Blob>, RefPtr<JSC::ArrayBufferView>, RefPtr<JSC::ArrayBuffer>, RefPtr<DOMFormData>, String, RefPtr<URLSearchParams>>;
 
     const URL& url() const { return m_url; }
     String statusText() const;
     int status() const;
-    State readyState() const;
+    State readyState() const { return static_cast<State>(m_readyState); }
     bool withCredentials() const { return m_includeCredentials; }
     ExceptionOr<void> setWithCredentials(bool);
     ExceptionOr<void> open(const String& method, const String& url);
@@ -92,7 +94,7 @@ public:
     String getResponseHeader(const String& name) const;
     ExceptionOr<OwnedString> responseText();
     String responseTextIgnoringResponseType() const { return m_responseBuilder.toStringPreserveCapacity(); }
-    enum class FinalMIMEType { Yes, No };
+    enum class FinalMIMEType : bool { No, Yes };
     String responseMIMEType(FinalMIMEType = FinalMIMEType::No) const;
 
     Document* optionalResponseXML() const { return m_responseDocument.get(); }
@@ -117,7 +119,7 @@ public:
         Text = 5,
     };
     ExceptionOr<void> setResponseType(ResponseType);
-    ResponseType responseType() const;
+    ResponseType responseType() const { return static_cast<ResponseType>(m_responseType); }
 
     String responseURL() const;
 
@@ -139,11 +141,12 @@ private:
     explicit XMLHttpRequest(ScriptExecutionContext&);
 
     void updateHasRelevantEventListener();
+    void handleCancellation();
 
     // EventTarget.
     void eventListenersDidChange() final;
 
-    TextEncoding finalResponseCharset() const;
+    PAL::TextEncoding finalResponseCharset() const;
 
     // ActiveDOMObject
     void contextDestroyed() override;
@@ -161,9 +164,9 @@ private:
 
     // ThreadableLoaderClient
     void didSendData(unsigned long long bytesSent, unsigned long long totalBytesToBeSent) override;
-    void didReceiveResponse(unsigned long identifier, const ResourceResponse&) override;
-    void didReceiveData(const uint8_t* data, int dataLength) override;
-    void didFinishLoading(unsigned long identifier) override;
+    void didReceiveResponse(ResourceLoaderIdentifier, const ResourceResponse&) override;
+    void didReceiveData(const SharedBuffer&) override;
+    void didFinishLoading(ResourceLoaderIdentifier, const NetworkLoadMetrics&) override;
     void didFail(const ResourceError&) override;
     void notifyIsDone(bool) final;
 
@@ -207,7 +210,6 @@ private:
     unsigned m_error : 1;
     unsigned m_uploadListenerFlag : 1;
     unsigned m_uploadComplete : 1;
-    unsigned m_wasAbortedByClient : 1;
     unsigned m_responseCacheIsValid : 1;
     unsigned m_readyState : 3; // State
     unsigned m_responseType : 3; // ResponseType
@@ -216,8 +218,7 @@ private:
 
     std::unique_ptr<XMLHttpRequestUpload> m_upload;
 
-    URL m_url;
-    BlobURLHandle m_blobURLLifetimeExtension;
+    URLKeepingBlobAlive m_url;
     String m_method;
     HTTPHeaderMap m_requestHeaders;
     RefPtr<FormData> m_requestEntityBody;
@@ -237,7 +238,7 @@ private:
 
     RefPtr<Document> m_responseDocument;
 
-    RefPtr<SharedBuffer> m_binaryResponseBuilder;
+    SharedBufferBuilder m_binaryResponseBuilder;
 
     StringBuilder m_responseBuilder;
 
@@ -255,16 +256,8 @@ private:
     std::optional<ExceptionCode> m_exceptionCode;
     RefPtr<UserGestureToken> m_userGestureToken;
     std::atomic<bool> m_hasRelevantEventListener;
+    TaskCancellationGroup m_abortErrorGroup;
+    bool m_wasDidSendDataCalledForTotalBytes { false };
 };
-
-inline auto XMLHttpRequest::responseType() const -> ResponseType
-{
-    return static_cast<ResponseType>(m_responseType);
-}
-
-inline auto XMLHttpRequest::readyState() const -> State
-{
-    return static_cast<State>(m_readyState);
-}
 
 } // namespace WebCore

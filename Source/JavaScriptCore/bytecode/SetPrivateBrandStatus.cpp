@@ -30,7 +30,7 @@
 #include "CacheableIdentifierInlines.h"
 #include "CodeBlock.h"
 #include "ICStatusUtils.h"
-#include "PolymorphicAccess.h"
+#include "InlineCacheCompiler.h"
 #include "StructureStubInfo.h"
 #include <wtf/ListDump.h>
 
@@ -75,6 +75,7 @@ SetPrivateBrandStatus::SetPrivateBrandStatus(StubInfoSummary summary, StructureS
         m_state = NoInformation;
         return;
     case StubInfoSummary::Simple:
+    case StubInfoSummary::Megamorphic:
     case StubInfoSummary::MakesCalls:
     case StubInfoSummary::TakesSlowPathAndMakesCalls:
         RELEASE_ASSERT_NOT_REACHED();
@@ -100,7 +101,7 @@ SetPrivateBrandStatus SetPrivateBrandStatus::computeForStubInfoWithoutExitSiteFe
         return SetPrivateBrandStatus(NoInformation);
 
     case CacheType::Stub: {
-        PolymorphicAccess* list = stubInfo->u.stub;
+        PolymorphicAccess* list = stubInfo->m_stub.get();
 
         for (unsigned listIndex = 0; listIndex < list->size(); ++listIndex) {
             const AccessCase& access = list->at(listIndex);

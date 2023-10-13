@@ -25,6 +25,7 @@
 
 #include "CachedImage.h"
 #include "DOMFormData.h"
+#include "ElementInlines.h"
 #include "HTMLFormElement.h"
 #include "HTMLImageLoader.h"
 #include "HTMLInputElement.h"
@@ -32,6 +33,8 @@
 #include "HTMLParserIdioms.h"
 #include "InputTypeNames.h"
 #include "MouseEvent.h"
+#include "RenderBoxInlines.h"
+#include "RenderElementInlines.h"
 #include "RenderImage.h"
 #include <wtf/NeverDestroyed.h>
 
@@ -54,7 +57,7 @@ bool ImageInputType::isFormDataAppendable() const
     return true;
 }
 
-bool ImageInputType::appendFormData(DOMFormData& formData, bool) const
+bool ImageInputType::appendFormData(DOMFormData& formData) const
 {
     ASSERT(element());
     if (!element()->isActivatedSubmit())
@@ -69,10 +72,6 @@ bool ImageInputType::appendFormData(DOMFormData& formData, bool) const
 
     formData.append(makeString(name, ".x"), String::number(m_clickLocation.x()));
     formData.append(makeString(name, ".y"), String::number(m_clickLocation.y()));
-
-    auto value = element()->value();
-    if (!value.isEmpty())
-        formData.append(name, value);
 
     return true;
 }
@@ -103,7 +102,7 @@ void ImageInputType::handleDOMActivateEvent(Event& event)
     protectedElement->document().updateLayoutIgnorePendingStylesheets();
 
     if (auto currentForm = protectedElement->form())
-        currentForm->submitIfPossible(&event); // Event handlers can run.
+        currentForm->submitIfPossible(&event, element()); // Event handlers can run.
 
     protectedElement->setActivatedSubmit(false);
     event.setDefaultHandled();

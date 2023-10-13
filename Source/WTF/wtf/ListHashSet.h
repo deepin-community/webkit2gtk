@@ -233,7 +233,6 @@ public:
 
     // Comparison.
     bool operator==(const iterator& other) const { return m_iterator == other.m_iterator; }
-    bool operator!=(const iterator& other) const { return m_iterator != other.m_iterator; }
 
     operator const_iterator() const { return m_iterator; }
 
@@ -259,8 +258,8 @@ private:
         : m_set(set)
         , m_position(position)
 #if CHECK_HASHTABLE_ITERATORS
-        , m_weakSet(makeWeakPtr(set))
-        , m_weakPosition(makeWeakPtr(position))
+        , m_weakSet(set)
+        , m_weakPosition(position)
 #endif
     {
     }
@@ -295,7 +294,7 @@ public:
         ASSERT(m_position);
         m_position = m_position->m_next;
 #if CHECK_HASHTABLE_ITERATORS
-        m_weakPosition = makeWeakPtr(m_position);
+        m_weakPosition = m_position;
 #endif
         return *this;
     }
@@ -314,7 +313,7 @@ public:
         else
             m_position = m_position->m_prev;
 #if CHECK_HASHTABLE_ITERATORS
-        m_weakPosition = makeWeakPtr(m_position);
+        m_weakPosition = m_position;
 #endif
         return *this;
     }
@@ -325,10 +324,6 @@ public:
     bool operator==(const const_iterator& other) const
     {
         return m_position == other.m_position;
-    }
-    bool operator!=(const const_iterator& other) const
-    {
-        return m_position != other.m_position;
     }
 
 private:

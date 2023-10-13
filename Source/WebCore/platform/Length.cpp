@@ -47,7 +47,7 @@ static Length parseLength(const UChar* data, unsigned length)
         return Length(1, LengthType::Relative);
 
     unsigned i = 0;
-    while (i < length && isSpaceOrNewline(data[i]))
+    while (i < length && deprecatedIsSpaceOrNewline(data[i]))
         ++i;
     if (i < length && (data[i] == '+' || data[i] == '-'))
         ++i;
@@ -59,7 +59,7 @@ static Length parseLength(const UChar* data, unsigned length)
     unsigned doubleLength = i;
 
     // IE quirk: Skip whitespace between the number and the % character (20 % => 20%).
-    while (i < length && isSpaceOrNewline(data[i]))
+    while (i < length && deprecatedIsSpaceOrNewline(data[i]))
         ++i;
 
     bool ok;
@@ -88,41 +88,9 @@ static unsigned countCharacter(StringImpl& string, UChar character)
     return count;
 }
 
-UniqueArray<Length> newCoordsArray(const String& string, int& len)
-{
-    unsigned length = string.length();
-    LChar* spacifiedCharacters;
-    auto str = StringImpl::createUninitialized(length, spacifiedCharacters);
-    for (unsigned i = 0; i < length; i++) {
-        UChar cc = string[i];
-        if (cc > '9' || (cc < '0' && cc != '-' && cc != '*' && cc != '.'))
-            spacifiedCharacters[i] = ' ';
-        else
-            spacifiedCharacters[i] = cc;
-    }
-    str = str->simplifyWhiteSpace();
-
-    len = countCharacter(str, ' ') + 1;
-    auto r = makeUniqueArray<Length>(len);
-
-    int i = 0;
-    unsigned pos = 0;
-    size_t pos2;
-
-    while ((pos2 = str->find(' ', pos)) != notFound) {
-        r[i++] = parseLength(str->characters16() + pos, pos2 - pos);
-        pos = pos2+1;
-    }
-    r[i] = parseLength(str->characters16() + pos, str->length() - pos);
-
-    ASSERT(i == len - 1);
-
-    return r;
-}
-
 UniqueArray<Length> newLengthArray(const String& string, int& len)
 {
-    RefPtr<StringImpl> str = string.impl()->simplifyWhiteSpace();
+    RefPtr<StringImpl> str = string.impl()->simplifyWhiteSpace(deprecatedIsSpaceOrNewline);
     if (!str->length()) {
         len = 1;
         return nullptr;
@@ -243,9 +211,7 @@ static CalculationValueMap& calculationValues()
 }
 
 Length::Length(Ref<CalculationValue>&& value)
-    : m_hasQuirk(false)
-    , m_type(LengthType::Calculated)
-    , m_isFloat(false)
+    : m_type(LengthType::Calculated)
 {
     m_calculationValueHandle = calculationValues().insert(WTFMove(value));
 }
@@ -282,27 +248,35 @@ bool Length::isCalculatedEqual(const Length& other) const
     return calculationValue() == other.calculationValue();
 }
 
+static Length makeCalculated(CalcOperator calcOperator, const Length& a, const Length& b)
+{
+    auto lengths = Vector<std::unique_ptr<CalcExpressionNode>>::from(makeUnique<CalcExpressionLength>(a), makeUnique<CalcExpressionLength>(b));
+    auto op = makeUnique<CalcExpressionOperation>(WTFMove(lengths), calcOperator);
+    return Length(CalculationValue::create(WTFMove(op), ValueRange::All));
+}
+
 Length convertTo100PercentMinusLength(const Length& length)
 {
     if (length.isPercent())
         return Length(100 - length.value(), LengthType::Percent);
     
     // Turn this into a calc expression: calc(100% - length)
-    Vector<std::unique_ptr<CalcExpressionNode>> lengths;
-    lengths.reserveInitialCapacity(2);
-    lengths.uncheckedAppend(makeUnique<CalcExpressionLength>(Length(100, LengthType::Percent)));
-    lengths.uncheckedAppend(makeUnique<CalcExpressionLength>(length));
-    auto op = makeUnique<CalcExpressionOperation>(WTFMove(lengths), CalcOperator::Subtract);
-    return Length(CalculationValue::create(WTFMove(op), ValueRange::All));
+    return makeCalculated(CalcOperator::Subtract, Length(100, LengthType::Percent), length);
 }
 
 static Length blendMixedTypes(const Length& from, const Length& to, const BlendingContext& context)
 {
+    if (context.compositeOperation != CompositeOperation::Replace)
+        return makeCalculated(CalcOperator::Add, from, to);
+
     if (!to.isCalculated() && !from.isPercent() && (context.progress == 1 || from.isZero()))
         return blend(Length(0, to.type()), to, context);
 
     if (!from.isCalculated() && !to.isPercent() && (!context.progress || to.isZero()))
         return blend(from, Length(0, from.type()), context);
+
+    if (from.isIntrinsicOrAuto() || to.isIntrinsicOrAuto() || from.isRelative() || to.isRelative())
+        return { 0, LengthType::Fixed };
 
     auto blend = makeUnique<CalcExpressionBlendLength>(from, to, context.progress);
     return Length(CalculationValue::create(WTFMove(blend), ValueRange::All));
@@ -316,10 +290,10 @@ Length blend(const Length& from, const Length& to, const BlendingContext& contex
     if (from.isCalculated() || to.isCalculated() || (from.type() != to.type()))
         return blendMixedTypes(from, to, context);
 
-    if (!context.progress)
+    if (!context.progress && context.isReplace())
         return from;
 
-    if (context.progress == 1)
+    if (context.progress == 1 && context.isReplace())
         return to;
 
     LengthType resultType = to.type();
@@ -340,8 +314,12 @@ Length blend(const Length& from, const Length& to, const BlendingContext& contex
 Length blend(const Length& from, const Length& to, const BlendingContext& context, ValueRange valueRange)
 {
     auto blended = blend(from, to, context);
-    if (valueRange == ValueRange::NonNegative && blended.isNegative())
-        return { 0, from.isZero () ? to.type() : from.type() };
+    if (valueRange == ValueRange::NonNegative && blended.isNegative()) {
+        auto type = from.isZero() ? to.type() : from.type();
+        if (type != LengthType::Calculated)
+            return { 0, type };
+        return { 0, LengthType::Fixed };
+    }
     return blended;
 }
 
@@ -349,7 +327,7 @@ struct SameSizeAsLength {
     int32_t value;
     int32_t metaData;
 };
-COMPILE_ASSERT(sizeof(Length) == sizeof(SameSizeAsLength), length_should_stay_small);
+static_assert(sizeof(Length) == sizeof(SameSizeAsLength), "length should stay small");
 
 static TextStream& operator<<(TextStream& ts, LengthType type)
 {
@@ -365,6 +343,7 @@ static TextStream& operator<<(TextStream& ts, LengthType type)
     case LengthType::FillAvailable: ts << "fill-available"; break;
     case LengthType::FitContent: ts << "fit-content"; break;
     case LengthType::Calculated: ts << "calc"; break;
+    case LengthType::Content: ts << "content"; break;
     case LengthType::Undefined: ts << "undefined"; break;
     }
     return ts;
@@ -374,6 +353,7 @@ TextStream& operator<<(TextStream& ts, Length length)
 {
     switch (length.type()) {
     case LengthType::Auto:
+    case LengthType::Content:
     case LengthType::Undefined:
         ts << length.type();
         break;

@@ -41,7 +41,7 @@ class WebInspector : public API::ObjectImpl<API::Object::Type::BundleInspector>,
 public:
     static Ref<WebInspector> create(WebPage*);
 
-    WebPage* page() const { return m_page; }
+    WebPage* page() const;
 
     void updateDockingAvailability();
 
@@ -73,9 +73,13 @@ public:
     void stopElementSelection();
     void elementSelectionChanged(bool);
     void timelineRecordingChanged(bool);
-    void setDeveloperPreferenceOverride(WebCore::InspectorClient::DeveloperPreference, std::optional<bool>);
 
-    void setFrontendConnection(IPC::Attachment);
+    void setDeveloperPreferenceOverride(WebCore::InspectorClient::DeveloperPreference, std::optional<bool>);
+#if ENABLE(INSPECTOR_NETWORK_THROTTLING)
+    void setEmulatedConditions(std::optional<int64_t>&& bytesPerSecondLimit);
+#endif
+
+    void setFrontendConnection(IPC::Connection::Handle&&);
 
     void disconnectFromPage() { close(); }
 
@@ -95,7 +99,7 @@ private:
 
     void whenFrontendConnectionEstablished(Function<void()>&&);
 
-    WebPage* m_page;
+    WeakPtr<WebPage> m_page;
 
     RefPtr<IPC::Connection> m_frontendConnection;
     Vector<Function<void()>> m_frontendConnectionActions;

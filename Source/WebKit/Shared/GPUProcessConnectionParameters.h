@@ -27,63 +27,30 @@
 
 #if ENABLE(GPU_PROCESS)
 
+#include "WebCoreArgumentCoders.h"
+#include <WebCore/ProcessIdentity.h>
 #include <wtf/MachSendRight.h>
 
 namespace WebKit {
 
 struct GPUProcessConnectionParameters {
-#if HAVE(TASK_IDENTITY_TOKEN)
-    MachSendRight webProcessIdentityToken;
-#endif
-    Vector<String> overrideLanguages;
+    WebCore::ProcessIdentity webProcessIdentity;
+    bool isDOMRenderingEnabled { false };
+    bool isLockdownModeEnabled { false };
+    bool isWebGPUEnabled { false };
 #if ENABLE(IPC_TESTING_API)
     bool ignoreInvalidMessageForTesting { false };
 #endif
-
-    void encode(IPC::Encoder& encoder) const
-    {
-#if HAVE(TASK_IDENTITY_TOKEN)
-        encoder << webProcessIdentityToken;
+    bool allowTestOnlyIPC { false };
+#if HAVE(AUDIT_TOKEN)
+    std::optional<audit_token_t> presentingApplicationAuditToken;
 #endif
-        encoder << overrideLanguages;
-#if ENABLE(IPC_TESTING_API)
-        encoder << ignoreInvalidMessageForTesting;
+#if ENABLE(VP9)
+    std::optional<bool> hasVP9HardwareDecoder;
+    std::optional<bool> hasVP9ExtensionSupport;
 #endif
-    }
-
-    static std::optional<GPUProcessConnectionParameters> decode(IPC::Decoder& decoder)
-    {
-#if HAVE(TASK_IDENTITY_TOKEN)
-        std::optional<MachSendRight> webProcessIdentityToken;
-        decoder >> webProcessIdentityToken;
-        if (!webProcessIdentityToken)
-            return std::nullopt;
-#endif
-
-        std::optional<Vector<String>> overrideLanguages;
-        decoder >> overrideLanguages;
-        if (!overrideLanguages)
-            return std::nullopt;
-
-#if ENABLE(IPC_TESTING_API)
-        std::optional<bool> ignoreInvalidMessageForTesting;
-        decoder >> ignoreInvalidMessageForTesting;
-        if (!ignoreInvalidMessageForTesting)
-            return std::nullopt;
-#endif
-
-        return GPUProcessConnectionParameters {
-#if HAVE(TASK_IDENTITY_TOKEN)
-            WTFMove(*webProcessIdentityToken),
-#endif
-            WTFMove(*overrideLanguages),
-#if ENABLE(IPC_TESTING_API)
-            *ignoreInvalidMessageForTesting,
-#endif
-        };
-    }
 };
 
-} // namespace WebKit
+}; // namespace WebKit
 
 #endif // ENABLE(GPU_PROCESS)

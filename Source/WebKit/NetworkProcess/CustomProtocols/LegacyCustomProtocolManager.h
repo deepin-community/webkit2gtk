@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012, 2013 Apple Inc. All rights reserved.
+ * Copyright (C) 2012-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,6 +29,7 @@
 #include "LegacyCustomProtocolID.h"
 #include "MessageReceiver.h"
 #include "NetworkProcessSupplement.h"
+#include <wtf/CheckedRef.h>
 #include <wtf/HashMap.h>
 #include <wtf/HashSet.h>
 #include <wtf/Lock.h>
@@ -49,6 +50,7 @@ class ResourceResponse;
 
 namespace WebKit {
 
+enum class CacheStoragePolicy : uint8_t;
 class NetworkProcess;
 struct NetworkProcessCreationParameters;
 
@@ -87,13 +89,13 @@ private:
 
     void didFailWithError(LegacyCustomProtocolID, const WebCore::ResourceError&);
     void didLoadData(LegacyCustomProtocolID, const IPC::DataReference&);
-    void didReceiveResponse(LegacyCustomProtocolID, const WebCore::ResourceResponse&, uint32_t cacheStoragePolicy);
+    void didReceiveResponse(LegacyCustomProtocolID, const WebCore::ResourceResponse&, CacheStoragePolicy);
     void didFinishLoading(LegacyCustomProtocolID);
     void wasRedirectedToRequest(LegacyCustomProtocolID, const WebCore::ResourceRequest&, const WebCore::ResourceResponse& redirectResponse);
 
     void registerProtocolClass();
 
-    NetworkProcess& m_networkProcess;
+    CheckedRef<NetworkProcess> m_networkProcess;
 
     typedef HashMap<LegacyCustomProtocolID, CustomProtocol> CustomProtocolMap;
     CustomProtocolMap m_customProtocolMap WTF_GUARDED_BY_LOCK(m_customProtocolMapLock);

@@ -54,7 +54,7 @@ void NetworkSendQueue::enqueue(const JSC::ArrayBuffer& binaryData, unsigned byte
 {
     if (m_queue.isEmpty()) {
         auto* data = static_cast<const uint8_t*>(binaryData.data());
-        m_writeRawData(Span { data + byteOffset, byteLength });
+        m_writeRawData(std::span(data + byteOffset, byteLength));
         return;
     }
     m_queue.append(SharedBuffer::create(static_cast<const uint8_t*>(binaryData.data()) + byteOffset, byteLength));
@@ -68,7 +68,9 @@ void NetworkSendQueue::enqueue(WebCore::Blob& blob)
 
     auto byteLength = blob.size();
     if (!byteLength) {
-        enqueue(JSC::ArrayBuffer::create(0U, 1), 0, 0);
+        // The cast looks weird, but is required for the overloading resolution to succeed.
+        // Without it, there is an ambiguity where ArrayBuffer::create(const void* source, size_t byteLength) could be called instead.
+        enqueue(JSC::ArrayBuffer::create(static_cast<size_t>(0U), 1), 0, 0);
         return;
     }
     auto blobLoader = makeUniqueRef<BlobLoader>([this](BlobLoader&) {
@@ -92,7 +94,7 @@ void NetworkSendQueue::processMessages()
         bool shouldStopProcessing = false;
         switchOn(m_queue.first(), [this](const CString& utf8) {
             m_writeString(utf8);
-        }, [this](Ref<SharedBuffer>& data) {
+        }, [this](Ref<FragmentedSharedBuffer>& data) {
             data->forEachSegment(m_writeRawData);
         }, [this, &shouldStopProcessing](UniqueRef<BlobLoader>& loader) {
             auto errorCode = loader->errorCode();
@@ -102,7 +104,7 @@ void NetworkSendQueue::processMessages()
             }
 
             if (const auto& result = loader->arrayBufferResult()) {
-                m_writeRawData(Span { static_cast<const uint8_t*>(result->data()), result->byteLength() });
+                m_writeRawData(std::span(static_cast<const uint8_t*>(result->data()), result->byteLength()));
                 return;
             }
             ASSERT(errorCode);

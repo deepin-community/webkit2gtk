@@ -29,11 +29,6 @@
 #include "ShareableBitmap.h"
 #include "UpdateInfo.h"
 
-#if USE(DIRECT2D)
-#include <d2d1.h>
-#include <d3d11_1.h>
-#endif
-
 namespace WebKit {
 using namespace WebCore;
 
@@ -49,11 +44,11 @@ BackingStore::~BackingStore()
 {
 }
 
-void BackingStore::incorporateUpdate(const UpdateInfo& updateInfo)
+void BackingStore::incorporateUpdate(UpdateInfo&& updateInfo)
 {
     ASSERT(m_size == updateInfo.viewSize);
     
-    auto bitmap = ShareableBitmap::create(updateInfo.bitmapHandle);
+    auto bitmap = ShareableBitmap::create(WTFMove(updateInfo.bitmapHandle));
     if (!bitmap)
         return;
 
@@ -63,7 +58,7 @@ void BackingStore::incorporateUpdate(const UpdateInfo& updateInfo)
     ASSERT(bitmap->size() == updateSize);
 #endif
     
-    incorporateUpdate(bitmap.get(), updateInfo);
+    incorporateUpdate(bitmap.get(), WTFMove(updateInfo));
 }
 
 } // namespace WebKit

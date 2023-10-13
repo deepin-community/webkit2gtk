@@ -2,6 +2,7 @@
  * Copyright (C) 2004, 2005, 2006, 2007 Nikolas Zimmermann <zimmermann@kde.org>
  * Copyright (C) 2004, 2005 Rob Buis <buis@kde.org>
  * Copyright (C) 2005 Eric Seidel <eric@webkit.org>
+ * Copyright (C) 2021-2023 Apple Inc.  All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -22,8 +23,6 @@
 #pragma once
 
 #include "FilterEffect.h"
-
-#include "Filter.h"
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
@@ -41,7 +40,9 @@ enum CompositeOperationType {
 
 class FEComposite : public FilterEffect {
 public:
-    static Ref<FEComposite> create(Filter&, const CompositeOperationType&, float, float, float, float);
+    WEBCORE_EXPORT static Ref<FEComposite> create(const CompositeOperationType&, float k1, float k2, float k3, float k4);
+
+    bool operator==(const FEComposite&) const;
 
     CompositeOperationType operation() const { return m_type; }
     bool setOperation(CompositeOperationType);
@@ -58,21 +59,20 @@ public:
     float k4() const { return m_k4; }
     bool setK4(float);
 
-protected:
-    bool requiresValidPreMultipliedPixels() override { return m_type != FECOMPOSITE_OPERATOR_ARITHMETIC; }
-
 private:
-    FEComposite(Filter&, const CompositeOperationType&, float, float, float, float);
+    FEComposite(const CompositeOperationType&, float k1, float k2, float k3, float k4);
 
-    const char* filterName() const final { return "FEComposite"; }
+    bool operator==(const FilterEffect& other) const override { return areEqual<FEComposite>(*this, other); }
 
-    void correctFilterResultIfNeeded() override;
-    void determineAbsolutePaintRect() override;
+    unsigned numberOfEffectInputs() const override { return 2; }
 
-    void platformApplySoftware() override;
-    WTF::TextStream& externalRepresentation(WTF::TextStream&, RepresentationType) const override;
+    FloatRect calculateImageRect(const Filter&, std::span<const FloatRect> inputImageRects, const FloatRect& primitiveSubregion) const override;
 
-    inline void platformArithmeticSoftware(const Uint8ClampedArray& source, Uint8ClampedArray& destination, float k1, float k2, float k3, float k4);
+    bool resultIsValidPremultiplied() const override { return m_type != FECOMPOSITE_OPERATOR_ARITHMETIC; }
+
+    std::unique_ptr<FilterEffectApplier> createSoftwareApplier() const override;
+
+    WTF::TextStream& externalRepresentation(WTF::TextStream&, FilterRepresentation) const override;
 
 #if HAVE(ARM_NEON_INTRINSICS)
     template <int b1, int b4>
@@ -90,3 +90,23 @@ private:
 
 } // namespace WebCore
 
+namespace WTF {
+
+template<> struct EnumTraits<WebCore::CompositeOperationType> {
+    using values = EnumValues<
+        WebCore::CompositeOperationType,
+
+        WebCore::FECOMPOSITE_OPERATOR_UNKNOWN,
+        WebCore::FECOMPOSITE_OPERATOR_OVER,
+        WebCore::FECOMPOSITE_OPERATOR_IN,
+        WebCore::FECOMPOSITE_OPERATOR_OUT,
+        WebCore::FECOMPOSITE_OPERATOR_ATOP,
+        WebCore::FECOMPOSITE_OPERATOR_XOR,
+        WebCore::FECOMPOSITE_OPERATOR_ARITHMETIC,
+        WebCore::FECOMPOSITE_OPERATOR_LIGHTER
+    >;
+};
+
+} // namespace WTF
+
+SPECIALIZE_TYPE_TRAITS_FILTER_EFFECT(FEComposite)

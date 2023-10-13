@@ -39,6 +39,7 @@ WHICH GENERATES THE GLSL ES PARSER (glslang_tab_autogen.cpp AND glslang_tab_auto
 #endif
 #if defined(__clang__)
 #pragma clang diagnostic ignored "-Wunreachable-code"
+#pragma clang diagnostic ignored "-Wunused-but-set-variable"
 #endif
 
 #include "angle_gl.h"
@@ -151,9 +152,9 @@ extern void yyerror(YYLTYPE* yylloc, TParseContext* context, void *scanner, cons
     }  \
 } while (0)
 
-#define ES3_1_ONLY(TOKEN, LINE, REASON) do {  \
-    if (context->getShaderVersion() != 310) {  \
-        context->error(LINE, REASON " supported in GLSL ES 3.10 only", TOKEN);  \
+#define ES3_1_OR_NEWER(TOKEN, LINE, REASON) do {  \
+    if (context->getShaderVersion() < 310) {  \
+        context->error(LINE, REASON " supported in GLSL ES 3.10 and above only", TOKEN);  \
     }  \
 } while (0)
 %}
@@ -164,7 +165,7 @@ extern void yyerror(YYLTYPE* yylloc, TParseContext* context, void *scanner, cons
 %token <lex> BVEC2 BVEC3 BVEC4 IVEC2 IVEC3 IVEC4 VEC2 VEC3 VEC4 UVEC2 UVEC3 UVEC4
 %token <lex> MATRIX2 MATRIX3 MATRIX4 IN_QUAL OUT_QUAL INOUT_QUAL UNIFORM BUFFER VARYING
 %token <lex> MATRIX2x3 MATRIX3x2 MATRIX2x4 MATRIX4x2 MATRIX3x4 MATRIX4x3
-%token <lex> SAMPLE CENTROID FLAT SMOOTH NOPERSPECTIVE
+%token <lex> SAMPLE CENTROID FLAT SMOOTH NOPERSPECTIVE PATCH
 %token <lex> READONLY WRITEONLY COHERENT RESTRICT VOLATILE SHARED
 %token <lex> STRUCT VOID_TYPE WHILE
 %token <lex> SAMPLER2D SAMPLERCUBE SAMPLER_EXTERNAL_OES SAMPLER2DRECT SAMPLER2DARRAY
@@ -183,6 +184,7 @@ extern void yyerror(YYLTYPE* yylloc, TParseContext* context, void *scanner, cons
 %token <lex> IMAGECUBEARRAYEXT IIMAGECUBEARRAYEXT UIMAGECUBEARRAYEXT
 %token <lex> IMAGEBUFFER IIMAGEBUFFER UIMAGEBUFFER
 %token <lex> ATOMICUINT
+%token <lex> PIXELLOCALANGLE IPIXELLOCALANGLE UPIXELLOCALANGLE
 %token <lex> LAYOUT
 %token <lex> YUVCSCSTANDARDEXT YUVCSCSTANDARDEXTCONSTANT
 
@@ -618,9 +620,9 @@ declaration
         ES3_OR_NEWER(ImmutableString($2.string), @1, "interface blocks");
         $$ = context->addInterfaceBlock(*$1, @2, ImmutableString($2.string), $3, ImmutableString($5.string), @5, NULL, @$);
     }
-    | type_qualifier enter_struct struct_declaration_list RIGHT_BRACE IDENTIFIER LEFT_BRACKET constant_expression RIGHT_BRACKET SEMICOLON {
+    | type_qualifier enter_struct struct_declaration_list RIGHT_BRACE IDENTIFIER array_specifier SEMICOLON {
         ES3_OR_NEWER(ImmutableString($2.string), @1, "interface blocks");
-        $$ = context->addInterfaceBlock(*$1, @2, ImmutableString($2.string), $3, ImmutableString($5.string), @5, $7, @6);
+        $$ = context->addInterfaceBlock(*$1, @2, ImmutableString($2.string), $3, ImmutableString($5.string), @5, $6, @6);
     }
     | type_qualifier SEMICOLON {
         context->parseGlobalLayoutQualifier(*$1);
@@ -657,6 +659,11 @@ function_header_with_parameters
         {
             $1->addParameter($2.createVariable(&context->symbolTable));
         }
+        else
+        {
+            // Remember that void was seen, so error can be generated if another parameter is seen.
+            $1->setHasVoidParameter();
+        }
     }
     | function_header_with_parameters COMMA parameter_declaration {
         $$ = $1;
@@ -669,6 +676,12 @@ function_header_with_parameters
         }
         else
         {
+            if ($1->hasVoidParameter())
+            {
+                // Only first parameter of one-parameter functions can be void.  This check prevents
+                // (void, non_void) parameters.
+                context->error(@2, "cannot be a parameter type except for '(void)'", "void");
+            }
             $1->addParameter($3.createVariable(&context->symbolTable));
         }
     }
@@ -700,7 +713,7 @@ parameter_declaration
     }
     | parameter_declarator {
         $$ = $1;
-        $$.type->setQualifier(EvqIn);
+        $$.type->setQualifier(EvqParamIn);
     }
     | type_qualifier parameter_type_specifier {
         $$ = $2;
@@ -708,7 +721,7 @@ parameter_declaration
     }
     | parameter_type_specifier {
         $$ = $1;
-        $$.type->setQualifier(EvqIn);
+        $$.type->setQualifier(EvqParamIn);
     }
     ;
 
@@ -811,7 +824,7 @@ invariant_qualifier
 
 precise_qualifier
     : PRECISE {
-        // empty
+        context->markShaderHasPrecise();
     }
     ;
 
@@ -867,11 +880,19 @@ storage_qualifier
         ES3_OR_NEWER("centroid", @1, "storage qualifier");
         $$ = new TStorageQualifierWrapper(EvqCentroid, @1);
     }
+    | PATCH {
+        if (context->getShaderVersion() < 320 &&
+            !context->checkCanUseExtension(@1, TExtension::EXT_tessellation_shader))
+        {
+            context->error(@1, "unsupported storage qualifier", "patch");
+        }
+        $$ = new TStorageQualifierWrapper(EvqPatch, @1);
+    }
     | UNIFORM {
         $$ = context->parseGlobalStorageQualifier(EvqUniform, @1);
     }
     | BUFFER {
-        ES3_1_ONLY("buffer", @1, "storage qualifier");
+        ES3_1_OR_NEWER("buffer", @1, "storage qualifier");
         $$ = context->parseGlobalStorageQualifier(EvqBuffer, @1);
     }
     | READONLY {
@@ -920,7 +941,7 @@ precision_qualifier
 
 layout_qualifier
     : LAYOUT LEFT_PAREN layout_qualifier_id_list RIGHT_PAREN {
-        ES3_OR_NEWER("layout", @1, "qualifier");
+        context->checkCanUseLayoutQualifier(@1);
         $$ = $3;
     }
     ;
@@ -973,12 +994,12 @@ array_specifier
         $$->push_back(size);
     }
     | array_specifier LEFT_BRACKET RIGHT_BRACKET {
-        ES3_1_ONLY("[]", @2, "arrays of arrays");
+        ES3_1_OR_NEWER("[]", @2, "arrays of arrays");
         $$ = $1;
         $$->insert($$->begin(), 0u);
     }
     | array_specifier LEFT_BRACKET constant_expression RIGHT_BRACKET {
-        ES3_1_ONLY("[]", @2, "arrays of arrays");
+        ES3_1_OR_NEWER("[]", @2, "arrays of arrays");
         $$ = $1;
         unsigned int size = context->checkIsValidArraySize(@2, $3);
         // Make the type an array even if size check failed.
@@ -1398,6 +1419,27 @@ type_specifier_nonarray
     }
     | ATOMICUINT {
         $$.initialize(EbtAtomicCounter, @1);
+    }
+    | PIXELLOCALANGLE {
+        if (!context->checkCanUseExtension(@1, TExtension::ANGLE_shader_pixel_local_storage))
+        {
+            context->error(@1, "unsupported type", "__pixelLocalANGLE");
+        }
+        $$.initialize(EbtPixelLocalANGLE, @1);
+    }
+    | IPIXELLOCALANGLE {
+        if (!context->checkCanUseExtension(@1, TExtension::ANGLE_shader_pixel_local_storage))
+        {
+            context->error(@1, "unsupported type", "__ipixelLocalANGLE");
+        }
+        $$.initialize(EbtIPixelLocalANGLE, @1);
+    }
+    | UPIXELLOCALANGLE {
+        if (!context->checkCanUseExtension(@1, TExtension::ANGLE_shader_pixel_local_storage))
+        {
+            context->error(@1, "unsupported type", "__upixelLocalANGLE");
+        }
+        $$.initialize(EbtUPixelLocalANGLE, @1);
     }
     | struct_specifier {
         $$ = $1;

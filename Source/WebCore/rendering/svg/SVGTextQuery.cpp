@@ -1,5 +1,6 @@
 /*
  * Copyright (C) Research In Motion Limited 2010-2012. All rights reserved.
+ * Copyright (C) 2014 Google Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -24,8 +25,10 @@
 #include "LegacyInlineFlowBox.h"
 #include "RenderBlockFlow.h"
 #include "RenderInline.h"
+#include "RenderSVGInlineText.h"
 #include "RenderSVGText.h"
-#include "SVGInlineTextBox.h"
+#include "SVGElementTypeHelpers.h"
+#include "SVGInlineTextBoxInlines.h"
 #include "VisiblePosition.h"
 
 #include <wtf/MathExtras.h>
@@ -461,7 +464,7 @@ static inline void calculateGlyphBoundaries(SVGTextQuery::Data* queryData, const
     float scalingFactor = queryData->textRenderer->scalingFactor();
     ASSERT(scalingFactor);
 
-    extent.setLocation(FloatPoint(fragment.x, fragment.y - queryData->textRenderer->scaledFont().fontMetrics().floatAscent() / scalingFactor));
+    extent.setLocation(FloatPoint(fragment.x, fragment.y - queryData->textRenderer->scaledFont().metricsOfPrimaryFont().floatAscent() / scalingFactor));
 
     if (startPosition) {
         SVGTextMetrics metrics = SVGTextMetrics::measureCharacterRange(*queryData->textRenderer, fragment.characterOffset, startPosition);
@@ -519,16 +522,19 @@ bool SVGTextQuery::characterNumberAtPositionCallback(Data* queryData, const SVGT
 {
     CharacterNumberAtPositionData* data = static_cast<CharacterNumberAtPositionData*>(queryData);
 
+    // Offset of the fragment within the text box.
+    unsigned boxOffset = fragment.characterOffset - queryData->textBox->start();
+
     FloatRect extent;
     for (unsigned i = 0; i < fragment.length; ++i) {
-        unsigned startPosition = data->processedCharacters + i;
+        unsigned startPosition = data->processedCharacters + boxOffset + i;
         unsigned endPosition = startPosition + 1;
         if (!mapStartEndPositionsIntoFragmentCoordinates(queryData, fragment, startPosition, endPosition))
             continue;
 
         calculateGlyphBoundaries(queryData, fragment, startPosition, extent);
         if (extent.contains(data->position)) {
-            data->processedCharacters += i;
+            data->processedCharacters += i + boxOffset;
             return true;
         }
     }

@@ -277,38 +277,81 @@ TEST(WTF_WorkQueue, DispatchSync)
 
 // Tests that the Function passed to WorkQueue::dispatch is destructed on the thread that
 // runs the Function. It is a common pattern to capture a owning reference into a Function
-// and dispatch that to a queue to ensure ordering (or thread affinity) of the object destruction.
+// and dispatch that to a queue to ensure ordering or work queue affinity of the object destruction.
 TEST(WTF_WorkQueue, DestroyDispatchedOnDispatchQueue)
 {
     std::atomic<size_t> counter = 0;
     class DestructionWorkQueueTester {
     public:
-        DestructionWorkQueueTester(std::atomic<size_t>& counter)
+        DestructionWorkQueueTester(std::atomic<size_t>& counter, WorkQueue& queue)
             : m_counter(counter)
+            , m_ownerAssertion(queue.threadLikeAssertion()) // Queue is not yet current, but we expect it to be the time destructor runs.
         {
         }
         ~DestructionWorkQueueTester()
         {
-            EXPECT_NE(m_createdInThread, Thread::current().uid());
             m_counter++;
         }
     private:
-        uint32_t m_createdInThread = Thread::current().uid();
         std::atomic<size_t>& m_counter;
+        NO_UNIQUE_ADDRESS ThreadLikeAssertion m_ownerAssertion;
     };
     constexpr size_t queueCount = 50;
     constexpr size_t iterationCount = 10000;
     RefPtr<WorkQueue> queue[queueCount];
     for (size_t i = 0; i < queueCount; ++i)
-        queue[i] = WorkQueue::create("com.apple.WebKit.Test.destroyDispatchedOnDispatchQueue", WorkQueue::Type::Serial, WorkQueue::QOS::UserInteractive);
+        queue[i] = WorkQueue::create("com.apple.WebKit.Test.destroyDispatchedOnDispatchQueue", WorkQueue::QOS::UserInteractive);
 
     for (size_t i = 0; i < iterationCount; ++i) {
         for (size_t j = 0; j < queueCount; ++j)
-            queue[j]->dispatch([instance = std::make_unique<DestructionWorkQueueTester>(counter)]() { }); // NOLINT
+            queue[j]->dispatch([instance = std::make_unique<DestructionWorkQueueTester>(counter, *queue[j])] { }); // NOLINT
     }
     for (size_t j = 0; j < queueCount; ++j)
         queue[j]->dispatchSync([] { });
     EXPECT_EQ(queueCount * iterationCount, counter);
-
 }
+
+namespace {
+struct AssertionTestHolder {
+    const RefPtr<WorkQueue> queue { WorkQueue::create("com.apple.WebKit.Test.ThreadSafetyAnalysisAssertIsCurrentWorks", WorkQueue::QOS::UserInteractive) };
+    size_t counter WTF_GUARDED_BY_CAPABILITY(*queue) { 0 };
+    size_t result { 0 }; // This is here to support the result assertion. The compiler doesn't allow us to obtain the `counter` otherwise.
+
+    void testTask()
+    {
+        assertIsCurrent(*queue); // This is being tested.
+        ++counter;
+    }
+    void computeResult() WTF_REQUIRES_CAPABILITY(*queue) // This is being tested.
+    {
+        result = ++counter;
+    }
+    template<typename T> void testTaskThatFailsToCompile()
+    {
+        ++counter;
+    }
+};
+}
+
+TEST(WTF_WorkQueue, ThreadSafetyAnalysisAssertIsCurrentWorks)
+{
+    constexpr size_t queueCount = 50;
+    constexpr size_t iterationCount = 10000;
+
+    AssertionTestHolder holders[queueCount];
+    for (size_t i = 0; i < iterationCount; ++i) {
+        for (auto& holder : holders)
+            holder.queue->dispatch([&holder] { holder.testTask(); });
+    }
+// #define TEST_COMPILE_FAILURE
+#ifdef TEST_COMPILE_FAILURE
+    for (auto& holder : holders)
+        holder.queue->dispatchSync([&holder] { holder.testTaskThatFailsToCompile<int>(); });
+#endif
+    for (auto& holder : holders)
+        holder.queue->dispatchSync([&holder] { assertIsCurrent(*holder.queue); holder.computeResult(); });
+    for (auto& holder : holders)
+        EXPECT_EQ(iterationCount + 1, holder.result);
+}
+
 } // namespace TestWebKitAPI

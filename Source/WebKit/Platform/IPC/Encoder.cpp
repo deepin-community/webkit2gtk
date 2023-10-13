@@ -66,22 +66,8 @@ static inline void freeBuffer(void* addr, size_t size)
 Encoder::Encoder(MessageName messageName, uint64_t destinationID)
     : m_messageName(messageName)
     , m_destinationID(destinationID)
-    , m_buffer(m_inlineBuffer)
-    , m_bufferPointer(m_inlineBuffer)
-    , m_bufferSize(0)
-    , m_bufferCapacity(sizeof(m_inlineBuffer))
 {
     encodeHeader();
-}
-
-Encoder::Encoder(ConstructWithoutHeaderTag)
-    : m_messageName()
-    , m_destinationID(0)
-    , m_buffer(m_inlineBuffer)
-    , m_bufferPointer(m_inlineBuffer)
-    , m_bufferSize(0)
-    , m_bufferCapacity(sizeof(m_inlineBuffer))
-{
 }
 
 Encoder::~Encoder()
@@ -116,6 +102,11 @@ void Encoder::setShouldDispatchMessageWhenWaitingForSyncReply(ShouldDispatchWhen
         messageFlags().add(MessageFlags::DispatchMessageWhenWaitingForUnboundedSyncReply);
         break;
     }
+}
+
+bool Encoder::isFullySynchronousModeForTesting() const
+{
+    return messageFlags().contains(MessageFlags::UseFullySynchronousModeForTesting);
 }
 
 void Encoder::setFullySynchronousModeForTesting()
@@ -200,14 +191,6 @@ uint8_t* Encoder::grow(size_t alignment, size_t size)
     m_bufferPointer = m_buffer + alignedSize + size;
 
     return m_buffer + alignedSize;
-}
-
-void Encoder::encodeFixedLengthData(const uint8_t* data, size_t size, size_t alignment)
-{
-    ASSERT(!(reinterpret_cast<uintptr_t>(data) % alignment));
-
-    uint8_t* buffer = grow(alignment, size);
-    memcpy(buffer, data, size);
 }
 
 void Encoder::addAttachment(Attachment&& attachment)

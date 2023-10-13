@@ -103,9 +103,25 @@ bool operator==(const DestinationColorSpace& a, const DestinationColorSpace& b)
 #endif
 }
 
-bool operator!=(const DestinationColorSpace& a, const DestinationColorSpace& b)
+std::optional<DestinationColorSpace> DestinationColorSpace::asRGB() const
 {
-    return !(a == b);
+#if USE(CG)
+    CGColorSpaceRef colorSpace = platformColorSpace();
+    if (CGColorSpaceGetModel(colorSpace) == kCGColorSpaceModelIndexed)
+        colorSpace = CGColorSpaceGetBaseColorSpace(colorSpace);
+
+    if (CGColorSpaceGetModel(colorSpace) != kCGColorSpaceModelRGB)
+        return std::nullopt;
+
+#if HAVE(CG_COLOR_SPACE_USES_EXTENDED_RANGE)
+    if (CGColorSpaceUsesExtendedRange(colorSpace))
+        return std::nullopt;
+#endif
+
+    return DestinationColorSpace(colorSpace);
+#else
+    return *this;
+#endif
 }
 
 TextStream& operator<<(TextStream& ts, const DestinationColorSpace& colorSpace)

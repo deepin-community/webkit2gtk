@@ -29,6 +29,7 @@
 #include <WebCore/TextCheckerClient.h>
 
 namespace WebCore {
+enum class DOMPasteAccessCategory : uint8_t;
 enum class DOMPasteAccessResponse : uint8_t;
 }
 
@@ -65,7 +66,7 @@ private:
     bool shouldMoveRangeAfterDelete(const WebCore::SimpleRange&, const WebCore::SimpleRange&) final;
 
 #if ENABLE(ATTACHMENT_ELEMENT)
-    void registerAttachmentIdentifier(const String&, const String& contentType, const String& preferredFileName, Ref<WebCore::SharedBuffer>&&) final;
+    void registerAttachmentIdentifier(const String&, const String& contentType, const String& preferredFileName, Ref<WebCore::FragmentedSharedBuffer>&&) final;
     void registerAttachmentIdentifier(const String&, const String& contentType, const String& filePath) final;
     void registerAttachmentIdentifier(const String&) final;
     void registerAttachments(Vector<WebCore::SerializedAttachmentData>&&) final;
@@ -78,10 +79,10 @@ private:
 
     void didBeginEditing() final;
     void respondToChangedContents() final;
-    void respondToChangedSelection(WebCore::Frame*) final;
+    void respondToChangedSelection(WebCore::LocalFrame*) final;
     void didEndUserTriggeredSelectionChanges() final;
     void updateEditorStateAfterLayoutIfEditabilityChanged() final;
-    void discardedComposition(WebCore::Frame*) final;
+    void discardedComposition(const WebCore::Document&) final;
     void canceledComposition() final;
     void didUpdateComposition() final;
     void didEndEditing() final;
@@ -93,10 +94,10 @@ private:
     void registerRedoStep(WebCore::UndoStep&) final;
     void clearUndoRedoOperations() final;
 
-    WebCore::DOMPasteAccessResponse requestDOMPasteAccess(const String& originIdentifier) final;
+    WebCore::DOMPasteAccessResponse requestDOMPasteAccess(WebCore::DOMPasteAccessCategory, const String& originIdentifier) final;
 
-    bool canCopyCut(WebCore::Frame*, bool defaultValue) const final;
-    bool canPaste(WebCore::Frame*, bool defaultValue) const final;
+    bool canCopyCut(WebCore::LocalFrame*, bool defaultValue) const final;
+    bool canPaste(WebCore::LocalFrame*, bool defaultValue) const final;
     bool canUndo() const final;
     bool canRedo() const final;
     
@@ -106,12 +107,12 @@ private:
     void handleKeyboardEvent(WebCore::KeyboardEvent&) final;
     void handleInputMethodKeydown(WebCore::KeyboardEvent&) final;
     
-    void textFieldDidBeginEditing(WebCore::Element*) final;
-    void textFieldDidEndEditing(WebCore::Element*) final;
-    void textDidChangeInTextField(WebCore::Element*) final;
-    bool doTextFieldCommandFromEvent(WebCore::Element*, WebCore::KeyboardEvent*) final;
-    void textWillBeDeletedInTextField(WebCore::Element*) final;
-    void textDidChangeInTextArea(WebCore::Element*) final;
+    void textFieldDidBeginEditing(WebCore::Element&) final;
+    void textFieldDidEndEditing(WebCore::Element&) final;
+    void textDidChangeInTextField(WebCore::Element&) final;
+    bool doTextFieldCommandFromEvent(WebCore::Element&, WebCore::KeyboardEvent*) final;
+    void textWillBeDeletedInTextField(WebCore::Element&) final;
+    void textDidChangeInTextArea(WebCore::Element&) final;
     void overflowScrollPositionChanged() final;
     void subFrameScrollPositionChanged() final;
 
@@ -142,10 +143,10 @@ private:
 #endif
 
 #if PLATFORM(GTK)
-    bool executePendingEditorCommands(WebCore::Frame&, const Vector<WTF::String>&, bool);
-    bool handleGtkEditorCommand(WebCore::Frame&, const String& command, bool);
+    bool executePendingEditorCommands(WebCore::LocalFrame&, const Vector<WTF::String>&, bool);
+    bool handleGtkEditorCommand(WebCore::LocalFrame&, const String& command, bool);
     void getEditorCommandsForKeyEvent(const WebCore::KeyboardEvent*, Vector<WTF::String>&);
-    void updateGlobalSelection(WebCore::Frame*);
+    void updateGlobalSelection(WebCore::LocalFrame*);
 #endif
 
     TextCheckerClient* textChecker() final { return this; }
@@ -154,7 +155,6 @@ private:
     void ignoreWordInSpellDocument(const String&) final;
     void learnWord(const String&) final;
     void checkSpellingOfString(StringView, int* misspellingLocation, int* misspellingLength) final;
-    String getAutoCorrectSuggestionForMisspelledWord(const String& misspelledWord) final;
     void checkGrammarOfString(StringView, Vector<WebCore::GrammarDetail>&, int* badGrammarLocation, int* badGrammarLength) final;
 
 #if USE(UNIFIED_TEXT_CHECKING)
@@ -197,14 +197,7 @@ private:
     bool performTwoStepDrop(WebCore::DocumentFragment&, const WebCore::SimpleRange&, bool isMove) final;
     bool supportsGlobalSelection() final;
 
-    bool canShowFontPanel() const final
-    {
-        // FIXME: Support for showing the system font panel (as well as other font styling controls) is
-        // tracked in <rdar://problem/21577518>.
-        return false;
-    }
-
-    WebPage* m_page;
+    WeakPtr<WebPage> m_page;
 };
 
 } // namespace WebKit

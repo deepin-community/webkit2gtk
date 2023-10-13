@@ -26,26 +26,57 @@
 #pragma once
 
 #include "APIObject.h"
-#include <WebCore/StorageQuotaManager.h>
+#include <wtf/Markable.h>
 #include <wtf/URL.h>
+#include <wtf/UUID.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebKit {
 
+enum class UnifiedOriginStorageLevel : uint8_t;
+
+namespace WebPushD {
+struct WebPushDaemonConnectionConfiguration;
+}
+
 enum class IsPersistent : bool { No, Yes };
-enum class WillCopyPathsFromExistingConfiguration : bool { No, Yes };
 
 class WebsiteDataStoreConfiguration : public API::ObjectImpl<API::Object::Type::WebsiteDataStoreConfiguration> {
 public:
-    static Ref<WebsiteDataStoreConfiguration> create(IsPersistent isPersistent, WillCopyPathsFromExistingConfiguration willCopyPaths = WillCopyPathsFromExistingConfiguration::No) { return adoptRef(*new WebsiteDataStoreConfiguration(isPersistent, willCopyPaths)); }
-    WebsiteDataStoreConfiguration(IsPersistent, WillCopyPathsFromExistingConfiguration = WillCopyPathsFromExistingConfiguration::No);
+    enum class ShouldInitializePaths : bool { No, Yes };
+    static Ref<WebsiteDataStoreConfiguration> create(IsPersistent isPersistent) { return adoptRef(*new WebsiteDataStoreConfiguration(isPersistent, ShouldInitializePaths::Yes)); }
+    WebsiteDataStoreConfiguration(IsPersistent, ShouldInitializePaths = ShouldInitializePaths::Yes);
+
+#if PLATFORM(COCOA)
+    static Ref<WebsiteDataStoreConfiguration> create(const WTF::UUID& identifier) { return adoptRef(*new WebsiteDataStoreConfiguration(identifier)); }
+    WebsiteDataStoreConfiguration(const WTF::UUID&);
+#endif
+
+#if !PLATFORM(COCOA)
+    // All cache and data directories are initialized relative to baseCacheDirectory and
+    // baseDataDirectory, respectively, if provided. On Cocoa ports, these are always null.
+    static Ref<WebsiteDataStoreConfiguration> createWithBaseDirectories(const String& baseCacheDirectory, const String& baseDataDirectory) { return adoptRef(*new WebsiteDataStoreConfiguration(baseCacheDirectory, baseDataDirectory)); }
+#endif
 
     Ref<WebsiteDataStoreConfiguration> copy() const;
 
     bool isPersistent() const { return m_isPersistent == IsPersistent::Yes; }
+    std::optional<WTF::UUID> identifier() const { return m_identifier; }
 
     uint64_t perOriginStorageQuota() const { return m_perOriginStorageQuota; }
     void setPerOriginStorageQuota(uint64_t quota) { m_perOriginStorageQuota = quota; }
+
+    std::optional<double> originQuotaRatio() const { return m_originQuotaRatio; }
+    void setOriginQuotaRatio(std::optional<double> ratio) { m_originQuotaRatio = ratio; }
+
+    std::optional<double> totalQuotaRatio() const { return m_totalQuotaRatio; }
+    void setTotalQuotaRatio(std::optional<double> ratio) { m_totalQuotaRatio = ratio; }
+
+    std::optional<uint64_t> standardVolumeCapacity() const { return m_standardVolumeCapacity; }
+    void setStandardVolumeCapacity(std::optional<uint64_t> capacity) { m_standardVolumeCapacity = capacity; }
+
+    std::optional<uint64_t> volumeCapacityOverride() const { return m_volumeCapacityOverride; }
+    void setVolumeCapacityOverride(std::optional<uint64_t> capacity) { m_volumeCapacityOverride = capacity; }
 
     const String& applicationCacheDirectory() const { return m_applicationCacheDirectory; }
     void setApplicationCacheDirectory(String&& directory) { m_applicationCacheDirectory = WTFMove(directory); }
@@ -61,7 +92,12 @@ public:
 
     const String& javaScriptConfigurationDirectory() const { return m_javaScriptConfigurationDirectory; }
     void setJavaScriptConfigurationDirectory(String&& directory) { m_javaScriptConfigurationDirectory = WTFMove(directory); }
-    
+
+    const String& searchFieldHistoryDirectory() const { return m_searchFieldHistoryDirectory; }
+    void setSearchFieldHistoryDirectory(String&& directory) { m_searchFieldHistoryDirectory = WTFMove(directory); }
+
+    // indexedDBDatabaseDirectory is sort of deprecated. Data is migrated from here to
+    // generalStoragePath unless useCustomStoragePaths is true.
     const String& indexedDBDatabaseDirectory() const { return m_indexedDBDatabaseDirectory; }
     void setIndexedDBDatabaseDirectory(String&& directory) { m_indexedDBDatabaseDirectory = WTFMove(directory); }
 
@@ -71,10 +107,12 @@ public:
     const String& hstsStorageDirectory() const { return m_hstsStorageDirectory; }
     void setHSTSStorageDirectory(String&& directory) { m_hstsStorageDirectory = WTFMove(directory); }
 
+    // localStorageDirectory is sort of deprecated. Data is migrated from here to
+    // generalStoragePath unless useCustomStoragePaths is true.
     const String& localStorageDirectory() const { return m_localStorageDirectory; }
     void setLocalStorageDirectory(String&& directory) { m_localStorageDirectory = WTFMove(directory); }
 
-#if HAVE(ARKIT_INLINE_PREVIEW)
+#if ENABLE(ARKIT_INLINE_PREVIEW)
     const String& modelElementCacheDirectory() const { return m_modelElementCacheDirectory; }
     void setModelElementCacheDirectory(String&& directory) { m_modelElementCacheDirectory = WTFMove(directory); }
 #endif
@@ -100,6 +138,9 @@ public:
     bool staleWhileRevalidateEnabled() const { return m_staleWhileRevalidateEnabled; }
     void setStaleWhileRevalidateEnabled(bool enabled) { m_staleWhileRevalidateEnabled = enabled; }
 
+    bool resourceLoadStatisticsDebugModeEnabled() const { return m_trackingPreventionDebugModeEnabled; }
+    void setResourceLoadStatisticsDebugModeEnabled(bool enabled) { m_trackingPreventionDebugModeEnabled = enabled; }
+
     unsigned testSpeedMultiplier() const { return m_testSpeedMultiplier; }
     void setTestSpeedMultiplier(unsigned multiplier) { m_testSpeedMultiplier = multiplier; }
 
@@ -117,15 +158,21 @@ public:
     const String& resourceLoadStatisticsDirectory() const { return m_resourceLoadStatisticsDirectory; }
     void setResourceLoadStatisticsDirectory(String&& directory) { m_resourceLoadStatisticsDirectory = WTFMove(directory); }
 
-    const String& privateClickMeasurementStorageDirectory() const { return m_privateClickMeasurementStorageDirectory; }
-    void setPrivateClickMeasurementStorageDirectory(String&& directory) { m_privateClickMeasurementStorageDirectory = WTFMove(directory); }
-
     const String& networkCacheDirectory() const { return m_networkCacheDirectory; }
     void setNetworkCacheDirectory(String&& directory) { m_networkCacheDirectory = WTFMove(directory); }
     
     const String& cacheStorageDirectory() const { return m_cacheStorageDirectory; }
     void setCacheStorageDirectory(String&& directory) { m_cacheStorageDirectory = WTFMove(directory); }
-    
+
+    const String& generalStorageDirectory() const { return m_generalStorageDirectory; }
+    void setGeneralStorageDirectory(String&& directory) { m_generalStorageDirectory = WTFMove(directory); }
+
+    UnifiedOriginStorageLevel unifiedOriginStorageLevel() const { return m_unifiedOriginStorageLevel; }
+    void setUnifiedOriginStorageLevel(UnifiedOriginStorageLevel level) { m_unifiedOriginStorageLevel = level; }
+
+    const String& webPushPartitionString() const { return m_webPushPartitionString; }
+    void setWebPushPartitionString(String&& string) { m_webPushPartitionString = WTFMove(string); }
+
     const String& applicationCacheFlatFileSubdirectoryName() const { return m_applicationCacheFlatFileSubdirectoryName; }
     void setApplicationCacheFlatFileSubdirectoryName(String&& directory) { m_applicationCacheFlatFileSubdirectoryName = WTFMove(directory); }
     
@@ -153,6 +200,10 @@ public:
     bool allLoadsBlockedByDeviceManagementRestrictionsForTesting() const { return m_allLoadsBlockedByDeviceManagementRestrictionsForTesting; }
     void setAllLoadsBlockedByDeviceManagementRestrictionsForTesting(bool blocked) { m_allLoadsBlockedByDeviceManagementRestrictionsForTesting = blocked; }
 
+    bool webPushDaemonUsesMockBundlesForTesting() const { return m_webPushDaemonUsesMockBundlesForTesting; }
+    void setWebPushDaemonUsesMockBundlesForTesting(bool usesMockBundles) { m_webPushDaemonUsesMockBundlesForTesting = usesMockBundles; }
+    WebPushD::WebPushDaemonConnectionConfiguration webPushDaemonConnectionConfiguration() const;
+
     const String& dataConnectionServiceType() const { return m_dataConnectionServiceType; }
     void setDataConnectionServiceType(String&& type) { m_dataConnectionServiceType = WTFMove(type); }
     
@@ -166,7 +217,12 @@ public:
     void setPreventsSystemHTTPProxyAuthentication(bool prevents) { m_preventsSystemHTTPProxyAuthentication = prevents; }
 
     bool requiresSecureHTTPSProxyConnection() const { return m_requiresSecureHTTPSProxyConnection; };
-    void setRequiresSecureHTTPSProxyConnection(bool requires) { m_requiresSecureHTTPSProxyConnection = requires; }
+    void setRequiresSecureHTTPSProxyConnection(bool requiresSecureProxy) { m_requiresSecureHTTPSProxyConnection = requiresSecureProxy; }
+
+    bool shouldRunServiceWorkersOnMainThreadForTesting() const { return m_shouldRunServiceWorkersOnMainThreadForTesting; }
+    void setShouldRunServiceWorkersOnMainThreadForTesting(bool shouldRunOnMainThread) { m_shouldRunServiceWorkersOnMainThreadForTesting = shouldRunOnMainThread; }
+    std::optional<unsigned> overrideServiceWorkerRegistrationCountTestingValue() const { return m_overrideServiceWorkerRegistrationCountTestingValue; }
+    void setOverrideServiceWorkerRegistrationCountTestingValue(unsigned count) { m_overrideServiceWorkerRegistrationCountTestingValue = count; }
 
     const URL& standaloneApplicationURL() const { return m_standaloneApplicationURL; }
     void setStandaloneApplicationURL(URL&& url) { m_standaloneApplicationURL = WTFMove(url); }
@@ -177,11 +233,36 @@ public:
     bool allowsHSTSWithUntrustedRootCertificate() const { return m_allowsHSTSWithUntrustedRootCertificate; }
     void setAllowsHSTSWithUntrustedRootCertificate(bool allows) { m_allowsHSTSWithUntrustedRootCertificate = allows; }
     
+    void setPCMMachServiceName(String&& name) { m_pcmMachServiceName = WTFMove(name); }
+    const String& pcmMachServiceName() const { return m_pcmMachServiceName; }
+
+    void setWebPushMachServiceName(String&& name) { m_webPushMachServiceName = WTFMove(name); }
+    const String& webPushMachServiceName() const { return m_webPushMachServiceName; }
+
+#if !HAVE(NSURLSESSION_WEBSOCKET)
+    bool shouldAcceptInsecureCertificatesForWebSockets() const { return m_shouldAcceptInsecureCertificatesForWebSockets; }
+    void setShouldAcceptInsecureCertificatesForWebSockets(bool accept) { m_shouldAcceptInsecureCertificatesForWebSockets = accept; }
+#endif
+
 private:
+    WebsiteDataStoreConfiguration(const String& baseCacheDirectory, const String& baseDataDirectory);
+    static Ref<WebsiteDataStoreConfiguration> create(IsPersistent isPersistent, ShouldInitializePaths shouldInitializePaths) { return adoptRef(*new WebsiteDataStoreConfiguration(isPersistent, shouldInitializePaths)); }
+
+    void initializePaths();
+
     IsPersistent m_isPersistent { IsPersistent::No };
 
+    UnifiedOriginStorageLevel m_unifiedOriginStorageLevel;
+    Markable<WTF::UUID> m_identifier;
+    String m_baseCacheDirectory;
+    String m_baseDataDirectory;
     String m_cacheStorageDirectory;
-    uint64_t m_perOriginStorageQuota { WebCore::StorageQuotaManager::defaultQuota() };
+    String m_generalStorageDirectory;
+    uint64_t m_perOriginStorageQuota;
+    std::optional<double> m_originQuotaRatio;
+    std::optional<double> m_totalQuotaRatio;
+    std::optional<uint64_t> m_standardVolumeCapacity;
+    std::optional<uint64_t> m_volumeCapacityOverride;
     String m_networkCacheDirectory;
     String m_applicationCacheDirectory;
     String m_applicationCacheFlatFileSubdirectoryName { "Files"_s };
@@ -190,7 +271,7 @@ private:
     String m_serviceWorkerRegistrationDirectory;
     String m_webSQLDatabaseDirectory;
     String m_hstsStorageDirectory;
-#if HAVE(ARKIT_INLINE_PREVIEW)
+#if ENABLE(ARKIT_INLINE_PREVIEW)
     String m_modelElementCacheDirectory;
 #endif
 #if USE(GLIB)
@@ -204,8 +285,8 @@ private:
     String m_alternativeServicesDirectory;
     String m_deviceIdHashSaltsStorageDirectory;
     String m_resourceLoadStatisticsDirectory;
-    String m_privateClickMeasurementStorageDirectory;
     String m_javaScriptConfigurationDirectory;
+    String m_searchFieldHistoryDirectory;
     String m_cookieStorageFile;
     String m_sourceApplicationBundleIdentifier;
     String m_sourceApplicationSecondaryIdentifier;
@@ -215,6 +296,7 @@ private:
     URL m_httpsProxy;
     bool m_deviceManagementRestrictionsEnabled { false };
     bool m_allLoadsBlockedByDeviceManagementRestrictionsForTesting { false };
+    bool m_webPushDaemonUsesMockBundlesForTesting { false };
     bool m_allowsCellularAccess { true };
     bool m_legacyTLSEnabled { true };
     bool m_fastServerTrustEvaluationEnabled { false };
@@ -224,10 +306,19 @@ private:
     bool m_allowsServerPreconnect { true };
     bool m_preventsSystemHTTPProxyAuthentication { false };
     bool m_requiresSecureHTTPSProxyConnection { false };
+    bool m_shouldRunServiceWorkersOnMainThreadForTesting { false };
+    std::optional<unsigned> m_overrideServiceWorkerRegistrationCountTestingValue;
     unsigned m_testSpeedMultiplier { 1 };
     URL m_standaloneApplicationURL;
     bool m_enableInAppBrowserPrivacyForTesting { false };
     bool m_allowsHSTSWithUntrustedRootCertificate { false };
+    bool m_trackingPreventionDebugModeEnabled { false };
+    String m_pcmMachServiceName;
+    String m_webPushMachServiceName;
+    String m_webPushPartitionString;
+#if !HAVE(NSURLSESSION_WEBSOCKET)
+    bool m_shouldAcceptInsecureCertificatesForWebSockets { false };
+#endif
 #if PLATFORM(COCOA)
     RetainPtr<CFDictionaryRef> m_proxyConfiguration;
 #endif

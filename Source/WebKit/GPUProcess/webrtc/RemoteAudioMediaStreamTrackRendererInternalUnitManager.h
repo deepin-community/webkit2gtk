@@ -25,22 +25,20 @@
 
 #pragma once
 
-#if ENABLE(GPU_PROCESS) && ENABLE(MEDIA_STREAM)
+#if ENABLE(GPU_PROCESS) && ENABLE(MEDIA_STREAM) && PLATFORM(COCOA)
 
 #include "AudioMediaStreamTrackRendererInternalUnitIdentifier.h"
 #include "Connection.h"
-#include "SharedMemory.h"
+#include "SharedCARingBuffer.h"
 #include <wtf/CompletionHandler.h>
 #include <wtf/HashMap.h>
 
-#if PLATFORM(COCOA)
-namespace WebCore {
-class CAAudioStreamDescription;
-}
-#endif
-
 namespace IPC {
 class Semaphore;
+}
+
+namespace WebCore {
+class CAAudioStreamDescription;
 }
 
 namespace WebKit {
@@ -60,11 +58,13 @@ public:
     bool hasUnits() { return !m_units.isEmpty(); }
     class Unit;
 
+    void notifyLastToCaptureAudioChanged();
+
 private:
     // Messages
-    void createUnit(AudioMediaStreamTrackRendererInternalUnitIdentifier, CompletionHandler<void(const WebCore::CAAudioStreamDescription&, size_t)>&& callback);
+    void createUnit(AudioMediaStreamTrackRendererInternalUnitIdentifier, CompletionHandler<void(std::optional<WebCore::CAAudioStreamDescription>, size_t)>&& callback);
     void deleteUnit(AudioMediaStreamTrackRendererInternalUnitIdentifier);
-    void startUnit(AudioMediaStreamTrackRendererInternalUnitIdentifier, const SharedMemory::IPCHandle&, const WebCore::CAAudioStreamDescription&, uint64_t numberOfFrames, IPC::Semaphore&&);
+    void startUnit(AudioMediaStreamTrackRendererInternalUnitIdentifier, ConsumerSharedCARingBuffer::Handle&&, IPC::Semaphore&&);
     void stopUnit(AudioMediaStreamTrackRendererInternalUnitIdentifier);
     void setAudioOutputDevice(AudioMediaStreamTrackRendererInternalUnitIdentifier, const String&);
 
@@ -74,4 +74,4 @@ private:
 
 } // namespace WebKit;
 
-#endif // ENABLE(GPU_PROCESS) && ENABLE(MEDIA_STREAM)
+#endif // ENABLE(GPU_PROCESS) && ENABLE(MEDIA_STREAM) && PLATFORM(COCOA)

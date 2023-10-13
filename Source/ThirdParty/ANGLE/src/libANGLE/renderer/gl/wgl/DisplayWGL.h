@@ -9,7 +9,6 @@
 #ifndef LIBANGLE_RENDERER_GL_WGL_DISPLAYWGL_H_
 #define LIBANGLE_RENDERER_GL_WGL_DISPLAYWGL_H_
 
-#include <thread>
 #include <unordered_map>
 
 #include "libANGLE/renderer/gl/DisplayGL.h"
@@ -63,10 +62,6 @@ class DisplayWGL : public DisplayGL
                                     EGLClientBuffer clientBuffer,
                                     const egl::AttributeMap &attribs) const override;
 
-    DeviceImpl *createDevice() override;
-
-    std::string getVendorString() const override;
-
     egl::Error waitClient(const gl::Context *context) override;
     egl::Error waitNative(const gl::Context *context, EGLint engine) override;
 
@@ -89,6 +84,8 @@ class DisplayWGL : public DisplayGL
     void initializeFrontendFeatures(angle::FrontendFeatures *features) const override;
 
     void populateFeatureList(angle::FeatureList *features) override;
+
+    RendererGL *getRenderer() const override;
 
   private:
     egl::Error initializeImpl(egl::Display *display);
@@ -120,7 +117,7 @@ class DisplayWGL : public DisplayGL
         HDC dc     = nullptr;
         HGLRC glrc = nullptr;
     };
-    std::unordered_map<std::thread::id, CurrentNativeContext> mCurrentData;
+    angle::HashMap<uint64_t, CurrentNativeContext> mCurrentNativeContexts;
 
     HMODULE mOpenGLModule;
 
@@ -142,6 +139,7 @@ class DisplayWGL : public DisplayGL
     HMODULE mD3d11Module;
     HANDLE mD3D11DeviceHandle;
     ID3D11Device *mD3D11Device;
+    ID3D11Device1 *mD3D11Device1;
 
     struct D3DObjectHandle
     {

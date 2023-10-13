@@ -27,7 +27,7 @@
 #include "config.h"
 #include "TextTrackPrivateRemote.h"
 
-#if ENABLE(GPU_PROCESS)
+#if ENABLE(GPU_PROCESS) && ENABLE(VIDEO)
 
 #include "DataReference.h"
 #include "GPUProcessConnection.h"
@@ -37,24 +37,25 @@
 namespace WebKit {
 using namespace WebCore;
 
-TextTrackPrivateRemote::TextTrackPrivateRemote(GPUProcessConnection& gpuProcessConnection, MediaPlayerIdentifier playerIdentifier, TrackPrivateRemoteIdentifier idendifier, TextTrackPrivateRemoteConfiguration&& configuration)
+TextTrackPrivateRemote::TextTrackPrivateRemote(GPUProcessConnection& gpuProcessConnection, MediaPlayerIdentifier playerIdentifier, TrackPrivateRemoteIdentifier identifier, TextTrackPrivateRemoteConfiguration&& configuration)
     : WebCore::InbandTextTrackPrivate(configuration.cueFormat)
-    , m_gpuProcessConnection(makeWeakPtr(gpuProcessConnection))
+    , m_gpuProcessConnection(gpuProcessConnection)
     , m_playerIdentifier(playerIdentifier)
-    , m_identifier(idendifier)
+    , m_identifier(identifier)
 {
     updateConfiguration(WTFMove(configuration));
 }
 
 void TextTrackPrivateRemote::setMode(TextTrackMode mode)
 {
-    if (!m_gpuProcessConnection)
+    auto gpuProcessConnection = m_gpuProcessConnection.get();
+    if (!gpuProcessConnection)
         return;
 
     if (mode == InbandTextTrackPrivate::mode())
         return;
 
-    m_gpuProcessConnection->connection().send(Messages::RemoteMediaPlayerProxy::TextTrackSetMode(m_identifier, mode), m_playerIdentifier);
+    gpuProcessConnection->connection().send(Messages::RemoteMediaPlayerProxy::TextTrackSetMode(m_identifier, mode), m_playerIdentifier);
     InbandTextTrackPrivate::setMode(mode);
 }
 
@@ -168,4 +169,4 @@ void TextTrackPrivateRemote::removeDataCue(MediaTime&& start, MediaTime&& end, S
 
 } // namespace WebKit
 
-#endif // ENABLE(GPU_PROCESS)
+#endif // ENABLE(GPU_PROCESS) && ENABLE(VIDEO)

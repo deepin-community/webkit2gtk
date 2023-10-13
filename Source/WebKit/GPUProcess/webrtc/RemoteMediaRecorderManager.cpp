@@ -26,7 +26,7 @@
 #include "config.h"
 #include "RemoteMediaRecorderManager.h"
 
-#if PLATFORM(COCOA) && ENABLE(GPU_PROCESS) && ENABLE(MEDIA_STREAM) && HAVE(AVASSETWRITERDELEGATE)
+#if PLATFORM(COCOA) && ENABLE(GPU_PROCESS) && ENABLE(MEDIA_STREAM)
 
 #include "DataReference.h"
 #include "Decoder.h"
@@ -49,7 +49,7 @@ RemoteMediaRecorderManager::~RemoteMediaRecorderManager()
 
 void RemoteMediaRecorderManager::didReceiveRemoteMediaRecorderMessage(IPC::Connection& connection, IPC::Decoder& decoder)
 {
-    if (auto* recorder = m_recorders.get(makeObjectIdentifier<MediaRecorderIdentifierType>(decoder.destinationID())))
+    if (auto* recorder = m_recorders.get(ObjectIdentifier<MediaRecorderIdentifierType>(decoder.destinationID())))
         recorder->didReceiveMessage(connection, decoder);
 }
 

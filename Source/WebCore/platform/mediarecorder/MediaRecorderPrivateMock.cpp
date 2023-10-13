@@ -26,11 +26,12 @@
 #include "config.h"
 #include "MediaRecorderPrivateMock.h"
 
-#if ENABLE(MEDIA_STREAM)
+#if ENABLE(MEDIA_RECORDER)
 
 #include "MediaStreamTrackPrivate.h"
 #include "SharedBuffer.h"
 #include "Timer.h"
+#include <wtf/MediaTime.h>
 #include <wtf/MonotonicTime.h>
 
 namespace WebCore {
@@ -67,7 +68,7 @@ void MediaRecorderPrivateMock::resumeRecording(CompletionHandler<void()>&& compl
     completionHandler();
 }
 
-void MediaRecorderPrivateMock::videoSampleAvailable(MediaSample&)
+void MediaRecorderPrivateMock::videoFrameAvailable(VideoFrame&, VideoFrameTimeMetadata)
 {
     Locker locker { m_bufferLock };
     m_buffer.append("Video Track ID: ");
@@ -75,7 +76,7 @@ void MediaRecorderPrivateMock::videoSampleAvailable(MediaSample&)
     generateMockCounterString();
 }
 
-void MediaRecorderPrivateMock::audioSamplesAvailable(const WTF::MediaTime&, const PlatformAudioData&, const AudioStreamDescription&, size_t)
+void MediaRecorderPrivateMock::audioSamplesAvailable(const MediaTime&, const PlatformAudioData&, const AudioStreamDescription&, size_t)
 {
     // Heap allocations are forbidden on the audio thread for performance reasons so we need to
     // explicitly allow the following allocation(s).
@@ -93,7 +94,7 @@ void MediaRecorderPrivateMock::generateMockCounterString()
 
 void MediaRecorderPrivateMock::fetchData(FetchDataCallback&& completionHandler)
 {
-    RefPtr<SharedBuffer> buffer;
+    RefPtr<FragmentedSharedBuffer> buffer;
     {
         Locker locker { m_bufferLock };
         Vector<uint8_t> value { m_buffer.characters8(), m_buffer.length() };
@@ -115,4 +116,4 @@ const String& MediaRecorderPrivateMock::mimeType() const
 
 } // namespace WebCore
 
-#endif // ENABLE(MEDIA_STREAM)
+#endif // ENABLE(MEDIA_RECORDER)

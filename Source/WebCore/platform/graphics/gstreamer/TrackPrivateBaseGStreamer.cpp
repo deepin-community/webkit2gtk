@@ -55,7 +55,7 @@ AtomString TrackPrivateBaseGStreamer::generateUniquePlaybin2StreamID(TrackType t
         }
     }();
 
-    return makeString(prefix, index);
+    return makeAtomString(prefix, index);
 }
 
 static GRefPtr<GstPad> findBestUpstreamPad(GRefPtr<GstPad> pad)
@@ -85,15 +85,19 @@ TrackPrivateBaseGStreamer::TrackPrivateBaseGStreamer(TrackType type, TrackPrivat
     tagsChanged();
 }
 
-TrackPrivateBaseGStreamer::TrackPrivateBaseGStreamer(TrackType type, TrackPrivateBase* owner, unsigned index, GRefPtr<GstStream>&& stream)
+TrackPrivateBaseGStreamer::TrackPrivateBaseGStreamer(TrackType type, TrackPrivateBase* owner, unsigned index, GstStream* stream)
     : m_notifier(MainThreadNotifier<MainThreadNotification>::create())
     , m_index(index)
-    , m_stream(WTFMove(stream))
+    , m_stream(stream)
     , m_type(type)
     , m_owner(owner)
 {
     ASSERT(m_stream);
-    m_id = gst_stream_get_stream_id(m_stream.get());
+    m_id = AtomString::fromLatin1(gst_stream_get_stream_id(m_stream.get()));
+
+    g_signal_connect_swapped(m_stream.get(), "notify::tags", G_CALLBACK(+[](TrackPrivateBaseGStreamer* track) {
+        track->tagsChanged();
+    }), this);
 
     // We can't call notifyTrackOfTagsChanged() directly, because we need tagsChanged() to setup m_tags.
     tagsChanged();
@@ -108,21 +112,36 @@ void TrackPrivateBaseGStreamer::setPad(GRefPtr<GstPad>&& pad)
     m_bestUpstreamPad = findBestUpstreamPad(m_pad);
     m_id = generateUniquePlaybin2StreamID(m_type, m_index);
 
-    m_eventProbe = gst_pad_add_probe(m_bestUpstreamPad.get(), GST_PAD_PROBE_TYPE_EVENT_DOWNSTREAM, [] (GstPad*, GstPadProbeInfo* info, gpointer userData) -> GstPadProbeReturn {
-        auto* track = static_cast<TrackPrivateBaseGStreamer*>(userData);
-        switch (GST_EVENT_TYPE(gst_pad_probe_info_get_event(info))) {
+    m_eventProbe = gst_pad_add_probe(m_bestUpstreamPad.get(), GST_PAD_PROBE_TYPE_EVENT_DOWNSTREAM, reinterpret_cast<GstPadProbeCallback>(+[](GstPad* pad, GstPadProbeInfo* info, TrackPrivateBaseGStreamer* track) -> GstPadProbeReturn {
+        auto* event = gst_pad_probe_info_get_event(info);
+        switch (GST_EVENT_TYPE(event)) {
         case GST_EVENT_TAG:
-            tagsChangedCallback(track);
+            track->tagsChanged();
             break;
         case GST_EVENT_STREAM_START:
             if (track->m_shouldHandleStreamStartEvent)
                 track->streamChanged();
             break;
+        case GST_EVENT_CAPS: {
+            GUniquePtr<char> streamId(gst_pad_get_stream_id(pad));
+            if (!streamId)
+                break;
+
+            auto streamIdString = String::fromLatin1(streamId.get());
+            track->m_taskQueue.enqueueTask([track, streamId = WTFMove(streamIdString), event = GRefPtr<GstEvent>(event)]() {
+                GstCaps* caps;
+                gst_event_parse_caps(event.get(), &caps);
+                if (!caps)
+                    return;
+                track->capsChanged(streamId, GRefPtr<GstCaps>(caps));
+            });
+            break;
+        }
         default:
             break;
         }
         return GST_PAD_PROBE_OK;
-    }, this, nullptr);
+    }), this, nullptr);
 }
 
 TrackPrivateBaseGStreamer::~TrackPrivateBaseGStreamer()
@@ -131,12 +150,21 @@ TrackPrivateBaseGStreamer::~TrackPrivateBaseGStreamer()
     m_notifier->invalidate();
 }
 
+GstObject* TrackPrivateBaseGStreamer::objectForLogging() const
+{
+    if (m_stream)
+        return GST_OBJECT_CAST(m_stream.get());
+
+    ASSERT(m_pad);
+    return GST_OBJECT_CAST(m_pad.get());
+}
+
 void TrackPrivateBaseGStreamer::disconnect()
 {
-    m_tags.clear();
-
     if (m_stream)
-        m_stream.clear();
+        g_signal_handlers_disconnect_matched(m_stream.get(), G_SIGNAL_MATCH_DATA, 0, 0, nullptr, nullptr, this);
+
+    m_tags.clear();
 
     m_notifier->cancelPendingNotifications();
 
@@ -148,11 +176,6 @@ void TrackPrivateBaseGStreamer::disconnect()
 
     if (m_pad)
         m_pad.clear();
-}
-
-void TrackPrivateBaseGStreamer::tagsChangedCallback(TrackPrivateBaseGStreamer* track)
-{
-    track->tagsChanged();
 }
 
 void TrackPrivateBaseGStreamer::tagsChanged()
@@ -195,10 +218,10 @@ bool TrackPrivateBaseGStreamer::getLanguageCode(GstTagList* tags, AtomString& va
 {
     String language;
     if (getTag(tags, GST_TAG_LANGUAGE_CODE, language)) {
-        language = gst_tag_get_language_code_iso_639_1(language.utf8().data());
-        GST_DEBUG("Converted track %d's language code to %s.", m_index, language.utf8().data());
-        if (language != value) {
-            value = language;
+        AtomString convertedLanguage = AtomString::fromLatin1(gst_tag_get_language_code_iso_639_1(language.utf8().data()));
+        GST_DEBUG("Converted track %d's language code to %s.", m_index, convertedLanguage.string().utf8().data());
+        if (convertedLanguage != value) {
+            value = WTFMove(convertedLanguage);
             return true;
         }
     }
@@ -211,7 +234,7 @@ bool TrackPrivateBaseGStreamer::getTag(GstTagList* tags, const gchar* tagName, S
     GUniqueOutPtr<gchar> tagValue;
     if (gst_tag_list_get_string(tags, tagName, &tagValue.outPtr())) {
         GST_DEBUG("Track %d got %s %s.", m_index, tagName, tagValue.get());
-        value = tagValue.get();
+        value = StringType { String::fromLatin1(tagValue.get()) };
         return true;
     }
     return false;
@@ -229,6 +252,8 @@ void TrackPrivateBaseGStreamer::notifyTrackOfTagsChanged()
 
     if (!tags)
         return;
+
+    tagsChanged(tags);
 
     if (getTag(tags.get(), GST_TAG_TITLE, m_label) && client)
         client->labelChanged(m_label);
@@ -252,7 +277,7 @@ void TrackPrivateBaseGStreamer::notifyTrackOfStreamChanged()
         return;
 
     GST_INFO("Track %d got stream start for stream %s.", m_index, streamId.get());
-    m_id = streamId.get();
+    m_id = AtomString::fromLatin1(streamId.get());
 }
 
 void TrackPrivateBaseGStreamer::streamChanged()
@@ -261,6 +286,8 @@ void TrackPrivateBaseGStreamer::streamChanged()
         notifyTrackOfStreamChanged();
     });
 }
+
+#undef GST_CAT_DEFAULT
 
 } // namespace WebCore
 

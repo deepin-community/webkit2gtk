@@ -75,8 +75,9 @@ public:
 
     void sourceBufferPrivateDidChangeActiveState(SourceBufferPrivateGStreamer*, bool);
     void startPlaybackIfHasAllTracks();
+    bool hasAllTracks() const { return m_hasAllTracks; }
 
-    std::unique_ptr<PlatformTimeRanges> buffered();
+    const PlatformTimeRanges& buffered();
 
 #if !RELEASE_LOG_DISABLED
     const Logger& logger() const final { return m_logger; }
@@ -92,7 +93,7 @@ private:
 
     HashSet<RefPtr<SourceBufferPrivateGStreamer>> m_sourceBuffers;
     HashSet<SourceBufferPrivateGStreamer*> m_activeSourceBuffers;
-    Ref<MediaSourcePrivateClient> m_mediaSource;
+    WeakPtr<MediaSourcePrivateClient> m_mediaSource;
     MediaPlayerPrivateGStreamerMSE& m_playerPrivate;
     bool m_isEnded { false };
     bool m_hasAllTracks { false };

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -20,7 +20,7 @@
  * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
  * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 #include "config.h"
@@ -29,6 +29,7 @@
 #include "DisplayListItemBuffer.h"
 #include "DisplayListItems.h"
 #include "DisplayListIterator.h"
+#include "Filter.h"
 #include "Logging.h"
 #include <wtf/FastMalloc.h>
 #include <wtf/StdLibExtras.h>
@@ -38,10 +39,10 @@ namespace WebCore {
 namespace DisplayList {
 
 #if !defined(NDEBUG) || !LOG_DISABLED
-WTF::CString DisplayList::description() const
+CString DisplayList::description() const
 {
     TextStream ts;
-    ts << *this;
+    dump(ts);
     return ts.release().utf8();
 }
 
@@ -52,10 +53,8 @@ void DisplayList::dump() const
 #endif
 
 DisplayList::DisplayList(DisplayList&& other)
-    : m_imageBuffers(std::exchange(other.m_imageBuffers, { }))
-    , m_nativeImages(std::exchange(other.m_nativeImages, { }))
+    : m_resourceHeap(std::exchange(other.m_resourceHeap, { }))
     , m_items(std::exchange(other.m_items, nullptr))
-    , m_drawingItemExtents(std::exchange(other.m_drawingItemExtents, { }))
 {
 }
 
@@ -69,10 +68,8 @@ DisplayList::~DisplayList() = default;
 
 DisplayList& DisplayList::operator=(DisplayList&& other)
 {
-    m_imageBuffers = std::exchange(other.m_imageBuffers, { });
-    m_nativeImages = std::exchange(other.m_nativeImages, { });
+    m_resourceHeap = std::exchange(other.m_resourceHeap, { });
     m_items = std::exchange(other.m_items, nullptr);
-    m_drawingItemExtents = std::exchange(other.m_drawingItemExtents, { });
     return *this;
 }
 
@@ -80,29 +77,24 @@ void DisplayList::clear()
 {
     if (m_items)
         m_items->clear();
-    m_drawingItemExtents.clear();
-    m_imageBuffers.clear();
-    m_nativeImages.clear();
+    m_resourceHeap.clear();
 }
 
-bool DisplayList::shouldDumpForFlags(AsTextFlags flags, ItemHandle item)
+bool DisplayList::shouldDumpForFlags(OptionSet<AsTextFlag> flags, ItemHandle item)
 {
     switch (item.type()) {
     case ItemType::SetState:
-        if (!(flags & AsTextFlag::IncludesPlatformOperations)) {
+        if (flags.contains(AsTextFlag::IncludePlatformOperations)) {
             const auto& stateItem = item.get<SetState>();
             // FIXME: for now, only drop the item if the only state-change flags are platform-specific.
-            if (stateItem.stateChange().m_changeFlags == GraphicsContextState::ShouldSubpixelQuantizeFontsChange)
-                return false;
-
-            if (stateItem.stateChange().m_changeFlags == GraphicsContextState::ShouldSubpixelQuantizeFontsChange)
+            if (stateItem.state().changes() == GraphicsContextState::Change::ShouldSubpixelQuantizeFonts)
                 return false;
         }
         break;
 #if USE(CG)
     case ItemType::ApplyFillPattern:
     case ItemType::ApplyStrokePattern:
-        if (!(flags & AsTextFlag::IncludesPlatformOperations))
+        if (flags.contains(AsTextFlag::IncludePlatformOperations))
             return false;
         break;
 #endif
@@ -112,18 +104,16 @@ bool DisplayList::shouldDumpForFlags(AsTextFlags flags, ItemHandle item)
     return true;
 }
 
-String DisplayList::asText(AsTextFlags flags) const
+String DisplayList::asText(OptionSet<AsTextFlag> flags) const
 {
     TextStream stream(TextStream::LineMode::MultipleLine, TextStream::Formatting::SVGStyleRect);
     for (auto displayListItem : *this) {
-        auto [item, extent, itemSizeInBuffer] = displayListItem.value();
+        auto [item, itemSizeInBuffer] = displayListItem.value();
         if (!shouldDumpForFlags(flags, item))
             continue;
 
         TextStream::GroupScope group(stream);
-        stream << item;
-        if (item.isDrawingItem())
-            stream << " extent " << extent;
+        dumpItemHandle(stream, item, flags);
     }
     return stream.release();
 }
@@ -134,12 +124,11 @@ void DisplayList::dump(TextStream& ts) const
     ts << "display list";
 
     for (auto displayListItem : *this) {
-        auto [item, extent, itemSizeInBuffer] = displayListItem.value();
+        auto [item, itemSizeInBuffer] = displayListItem.value();
         TextStream::GroupScope group(ts);
-        ts << item;
-        if (item.isDrawingItem())
-            ts << " extent " << extent;
+        dumpItemHandle(ts, item, { AsTextFlag::IncludePlatformOperations, AsTextFlag::IncludeResourceIdentifiers });
     }
+
     ts.startGroup();
     ts << "size in bytes: " << sizeInBytes();
     ts.endGroup();
@@ -166,8 +155,6 @@ void DisplayList::shrinkToFit()
 {
     if (auto* itemBuffer = itemBufferIfExists())
         itemBuffer->shrinkToFit();
-
-    m_drawingItemExtents.shrinkToFit();
 }
 
 void DisplayList::setItemBufferReadingClient(ItemBufferReadingClient* client)
@@ -191,12 +178,6 @@ void DisplayList::forEachItemBuffer(Function<void(const ItemBufferHandle&)>&& ma
         m_items->forEachItemBuffer(WTFMove(mapFunction));
 }
 
-void DisplayList::setTracksDrawingItemExtents(bool value)
-{
-    RELEASE_ASSERT(isEmpty());
-    m_tracksDrawingItemExtents = value;
-}
-
 void DisplayList::append(ItemHandle item)
 {
     switch (item.type()) {
@@ -214,8 +195,6 @@ void DisplayList::append(ItemHandle item)
         return append<ConcatenateCTM>(item.get<ConcatenateCTM>());
     case ItemType::SetCTM:
         return append<SetCTM>(item.get<SetCTM>());
-    case ItemType::SetInlineFillGradient:
-        return append<SetInlineFillGradient>(item.get<SetInlineFillGradient>());
     case ItemType::SetInlineFillColor:
         return append<SetInlineFillColor>(item.get<SetInlineFillColor>());
     case ItemType::SetInlineStrokeColor:
@@ -236,24 +215,32 @@ void DisplayList::append(ItemHandle item)
         return append<ClearShadow>(item.get<ClearShadow>());
     case ItemType::Clip:
         return append<Clip>(item.get<Clip>());
+    case ItemType::ClipRoundedRect:
+        return append<ClipRoundedRect>(item.get<ClipRoundedRect>());
     case ItemType::ClipOut:
         return append<ClipOut>(item.get<ClipOut>());
+    case ItemType::ClipOutRoundedRect:
+        return append<ClipOutRoundedRect>(item.get<ClipOutRoundedRect>());
     case ItemType::ClipToImageBuffer:
         return append<ClipToImageBuffer>(item.get<ClipToImageBuffer>());
     case ItemType::ClipOutToPath:
         return append<ClipOutToPath>(item.get<ClipOutToPath>());
     case ItemType::ClipPath:
         return append<ClipPath>(item.get<ClipPath>());
-    case ItemType::BeginClipToDrawingCommands:
-        return append<BeginClipToDrawingCommands>(item.get<BeginClipToDrawingCommands>());
-    case ItemType::EndClipToDrawingCommands:
-        return append<EndClipToDrawingCommands>(item.get<EndClipToDrawingCommands>());
+    case ItemType::ResetClip:
+        return append<ResetClip>(item.get<ResetClip>());
+    case ItemType::DrawFilteredImageBuffer:
+        return append<DrawFilteredImageBuffer>(item.get<DrawFilteredImageBuffer>());
     case ItemType::DrawGlyphs:
         return append<DrawGlyphs>(item.get<DrawGlyphs>());
+    case ItemType::DrawDecomposedGlyphs:
+        return append<DrawDecomposedGlyphs>(item.get<DrawDecomposedGlyphs>());
     case ItemType::DrawImageBuffer:
         return append<DrawImageBuffer>(item.get<DrawImageBuffer>());
     case ItemType::DrawNativeImage:
         return append<DrawNativeImage>(item.get<DrawNativeImage>());
+    case ItemType::DrawSystemImage:
+        return append<DrawSystemImage>(item.get<DrawSystemImage>());
     case ItemType::DrawPattern:
         return append<DrawPattern>(item.get<DrawPattern>());
     case ItemType::DrawRect:
@@ -294,20 +281,12 @@ void DisplayList::append(ItemHandle item)
     case ItemType::FillBezierCurve:
         return append<FillBezierCurve>(item.get<FillBezierCurve>());
 #endif
+    case ItemType::FillPathSegment:
+        return append<FillPathSegment>(item.get<FillPathSegment>());
     case ItemType::FillPath:
         return append<FillPath>(item.get<FillPath>());
     case ItemType::FillEllipse:
         return append<FillEllipse>(item.get<FillEllipse>());
-    case ItemType::FlushContext:
-        return append<FlushContext>(item.get<FlushContext>());
-    case ItemType::MetaCommandChangeDestinationImageBuffer:
-        return append<MetaCommandChangeDestinationImageBuffer>(item.get<MetaCommandChangeDestinationImageBuffer>());
-    case ItemType::MetaCommandChangeItemBuffer:
-        return append<MetaCommandChangeItemBuffer>(item.get<MetaCommandChangeItemBuffer>());
-    case ItemType::GetPixelBuffer:
-        return append<GetPixelBuffer>(item.get<GetPixelBuffer>());
-    case ItemType::PutPixelBuffer:
-        return append<PutPixelBuffer>(item.get<PutPixelBuffer>());
 #if ENABLE(VIDEO)
     case ItemType::PaintFrameForMedia:
         return append<PaintFrameForMedia>(item.get<PaintFrameForMedia>());
@@ -324,12 +303,16 @@ void DisplayList::append(ItemHandle item)
     case ItemType::StrokeBezierCurve:
         return append<StrokeBezierCurve>(item.get<StrokeBezierCurve>());
 #endif
+    case ItemType::StrokePathSegment:
+        return append<StrokePathSegment>(item.get<StrokePathSegment>());
     case ItemType::StrokePath:
         return append<StrokePath>(item.get<StrokePath>());
     case ItemType::StrokeEllipse:
         return append<StrokeEllipse>(item.get<StrokeEllipse>());
     case ItemType::ClearRect:
         return append<ClearRect>(item.get<ClearRect>());
+    case ItemType::DrawControlPart:
+        return append<DrawControlPart>(item.get<DrawControlPart>());
     case ItemType::BeginTransparencyLayer:
         return append<BeginTransparencyLayer>(item.get<BeginTransparencyLayer>());
     case ItemType::EndTransparencyLayer:

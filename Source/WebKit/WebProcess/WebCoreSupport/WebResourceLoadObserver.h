@@ -25,7 +25,7 @@
 
 #pragma once
 
-#if ENABLE(RESOURCE_LOAD_STATISTICS)
+#if ENABLE(TRACKING_PREVENTION)
 
 #include <WebCore/PageIdentifier.h>
 #include <WebCore/ResourceLoadObserver.h>
@@ -45,14 +45,14 @@ public:
     WebResourceLoadObserver(WebCore::ResourceLoadStatistics::IsEphemeral);
     ~WebResourceLoadObserver();
 
-    void logSubresourceLoading(const WebCore::Frame*, const WebCore::ResourceRequest& newRequest, const WebCore::ResourceResponse& redirectResponse, FetchDestinationIsScriptLike) final;
+    void logSubresourceLoading(const WebCore::LocalFrame*, const WebCore::ResourceRequest& newRequest, const WebCore::ResourceResponse& redirectResponse, FetchDestinationIsScriptLike) final;
     void logWebSocketLoading(const URL& targetURL, const URL& mainFrameURL) final;
     void logUserInteractionWithReducedTimeResolution(const WebCore::Document&) final;
     void logFontLoad(const WebCore::Document&, const String& familyName, bool loadStatus) final;
     void logCanvasRead(const WebCore::Document&) final;
     void logCanvasWriteOrMeasure(const WebCore::Document&, const String& textWritten) final;
-    void logNavigatorAPIAccessed(const WebCore::Document&, const WebCore::ResourceLoadStatistics::NavigatorAPI) final;
-    void logScreenAPIAccessed(const WebCore::Document&, const WebCore::ResourceLoadStatistics::ScreenAPI) final;
+    void logNavigatorAPIAccessed(const WebCore::Document&, const WebCore::NavigatorAPIsAccessed) final;
+    void logScreenAPIAccessed(const WebCore::Document&, const WebCore::ScreenAPIsAccessed) final;
     void logSubresourceLoadingForTesting(const WebCore::RegistrableDomain& firstPartyDomain, const WebCore::RegistrableDomain& thirdPartyDomain, bool shouldScheduleNotification);
 
 #if !RELEASE_LOG_DISABLED
@@ -96,4 +96,4 @@ private:
 
 } // namespace WebKit
 
-#endif // ENABLE(RESOURCE_LOAD_STATISTICS)
+#endif // ENABLE(TRACKING_PREVENTION)

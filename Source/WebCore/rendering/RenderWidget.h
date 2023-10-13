@@ -28,6 +28,8 @@
 
 namespace WebCore {
 
+class RemoteFrame;
+
 class WidgetHierarchyUpdatesSuspensionScope {
 public:
     WidgetHierarchyUpdatesSuspensionScope()
@@ -37,23 +39,30 @@ public:
     ~WidgetHierarchyUpdatesSuspensionScope()
     {
         ASSERT(s_widgetHierarchyUpdateSuspendCount);
-        if (s_widgetHierarchyUpdateSuspendCount == 1)
+        if (s_widgetHierarchyUpdateSuspendCount == 1 && s_haveScheduledWidgetToMove)
             moveWidgets();
         s_widgetHierarchyUpdateSuspendCount--;
     }
 
     static bool isSuspended() { return s_widgetHierarchyUpdateSuspendCount; }
-    static void scheduleWidgetToMove(Widget& widget, FrameView* frame) { widgetNewParentMap().set(&widget, frame); }
+    static void scheduleWidgetToMove(Widget&, LocalFrameView*);
 
 private:
-    using WidgetToParentMap = HashMap<RefPtr<Widget>, FrameView*>;
+    using WidgetToParentMap = HashMap<RefPtr<Widget>, LocalFrameView*>;
     static WidgetToParentMap& widgetNewParentMap();
 
     WEBCORE_EXPORT void moveWidgets();
     WEBCORE_EXPORT static unsigned s_widgetHierarchyUpdateSuspendCount;
+    WEBCORE_EXPORT static bool s_haveScheduledWidgetToMove;
 };
-    
-class RenderWidget : public RenderReplaced, private OverlapTestRequestClient {
+
+inline void WidgetHierarchyUpdatesSuspensionScope::scheduleWidgetToMove(Widget& widget, LocalFrameView* frame)
+{
+    s_haveScheduledWidgetToMove = true;
+    widgetNewParentMap().set(&widget, frame);
+}
+
+class RenderWidget : public RenderReplaced, private OverlapTestRequestClient, public RefCounted<RenderWidget> {
     WTF_MAKE_ISO_ALLOCATED(RenderWidget);
 public:
     virtual ~RenderWidget();
@@ -71,8 +80,7 @@ public:
 
     bool requiresAcceleratedCompositing() const;
 
-    void ref() { ++m_refCount; }
-    void deref();
+    RemoteFrame* remoteFrame() const;
 
 protected:
     RenderWidget(HTMLFrameOwnerElement&, RenderStyle&&);
@@ -82,7 +90,6 @@ protected:
     void layout() override;
     void paint(PaintInfo&, const LayoutPoint&) override;
     bool nodeAtPoint(const HitTestRequest&, HitTestResult&, const HitTestLocation& locationInContainer, const LayoutPoint& accumulatedOffset, HitTestAction) override;
-    virtual void paintContents(PaintInfo&, const LayoutPoint&);
     bool requiresLayer() const override;
 
 private:
@@ -99,17 +106,11 @@ private:
     bool setWidgetGeometry(const LayoutRect&);
     bool updateWidgetGeometry();
 
+    void paintContents(PaintInfo&, const LayoutPoint&);
+
     RefPtr<Widget> m_widget;
     IntRect m_clipRect; // The rectangle needs to remain correct after scrolling, so it is stored in content view coordinates, and not clipped to window.
-    unsigned m_refCount { 1 };
 };
-
-inline void RenderWidget::deref()
-{
-    ASSERT(m_refCount);
-    if (!--m_refCount)
-        delete this;
-}
 
 } // namespace WebCore
 

@@ -37,16 +37,16 @@ namespace WebKit {
 using namespace WebCore;
 
 #if ENABLE(WEBDRIVER_MOUSE_INTERACTIONS)
-static unsigned modifiersToEventState(OptionSet<WebEvent::Modifier> modifiers)
+static unsigned modifiersToEventState(OptionSet<WebEventModifier> modifiers)
 {
     unsigned state = 0;
-    if (modifiers.contains(WebEvent::Modifier::ControlKey))
+    if (modifiers.contains(WebEventModifier::ControlKey))
         state |= GDK_CONTROL_MASK;
-    if (modifiers.contains(WebEvent::Modifier::ShiftKey))
+    if (modifiers.contains(WebEventModifier::ShiftKey))
         state |= GDK_SHIFT_MASK;
-    if (modifiers.contains(WebEvent::Modifier::AltKey))
+    if (modifiers.contains(WebEventModifier::AltKey))
         state |= GDK_META_MASK;
-    if (modifiers.contains(WebEvent::Modifier::CapsLockKey))
+    if (modifiers.contains(WebEventModifier::CapsLockKey))
         state |= GDK_LOCK_MASK;
     return state;
 }
@@ -65,7 +65,7 @@ static unsigned mouseButtonToGdkButton(MouseButton button)
     return GDK_BUTTON_PRIMARY;
 }
 
-void WebAutomationSession::platformSimulateMouseInteraction(WebPageProxy& page, MouseInteraction interaction, MouseButton button, const WebCore::IntPoint& locationInView, OptionSet<WebEvent::Modifier> keyModifiers, const String& pointerType)
+void WebAutomationSession::platformSimulateMouseInteraction(WebPageProxy& page, MouseInteraction interaction, MouseButton button, const WebCore::IntPoint& locationInView, OptionSet<WebEventModifier> keyModifiers, const String& pointerType)
 {
     unsigned gdkButton = mouseButtonToGdkButton(button);
     auto modifier = stateModifierForGdkButton(gdkButton);
@@ -101,18 +101,18 @@ void WebAutomationSession::platformSimulateMouseInteraction(WebPageProxy& page, 
     }
 }
 
-OptionSet<WebEvent::Modifier> WebAutomationSession::platformWebModifiersFromRaw(unsigned modifiers)
+OptionSet<WebEventModifier> WebAutomationSession::platformWebModifiersFromRaw(unsigned modifiers)
 {
-    OptionSet<WebEvent::Modifier> webModifiers;
+    OptionSet<WebEventModifier> webModifiers;
 
     if (modifiers & GDK_META_MASK)
-        webModifiers.add(WebEvent::Modifier::AltKey);
+        webModifiers.add(WebEventModifier::AltKey);
     if (modifiers & GDK_CONTROL_MASK)
-        webModifiers.add(WebEvent::Modifier::ControlKey);
+        webModifiers.add(WebEventModifier::ControlKey);
     if (modifiers & GDK_SHIFT_MASK)
-        webModifiers.add(WebEvent::Modifier::ShiftKey);
+        webModifiers.add(WebEventModifier::ShiftKey);
     if (modifiers & GDK_LOCK_MASK)
-        webModifiers.add(WebEvent::Modifier::CapsLockKey);
+        webModifiers.add(WebEventModifier::CapsLockKey);
 
     return webModifiers;
 }
@@ -139,6 +139,7 @@ static int keyCodeForVirtualKey(Inspector::Protocol::Automation::VirtualKey key)
     case Inspector::Protocol::Automation::VirtualKey::MetaRight:
         return GDK_KEY_Meta_R;
     case Inspector::Protocol::Automation::VirtualKey::Command:
+    case Inspector::Protocol::Automation::VirtualKey::CommandRight:
         return GDK_KEY_Execute;
     case Inspector::Protocol::Automation::VirtualKey::Help:
         return GDK_KEY_Help;
@@ -285,7 +286,7 @@ static unsigned modifiersForKeyCode(unsigned keyCode)
     return 0;
 }
 
-void WebAutomationSession::platformSimulateKeyboardInteraction(WebPageProxy& page, KeyboardInteraction interaction, WTF::Variant<VirtualKey, CharKey>&& key)
+void WebAutomationSession::platformSimulateKeyboardInteraction(WebPageProxy& page, KeyboardInteraction interaction, std::variant<VirtualKey, CharKey>&& key)
 {
     unsigned keyCode;
     WTF::switchOn(key,
@@ -319,13 +320,9 @@ void WebAutomationSession::platformSimulateKeyboardInteraction(WebPageProxy& pag
 
 void WebAutomationSession::platformSimulateKeySequence(WebPageProxy& page, const String& keySequence)
 {
-    CString keySequenceUTF8 = keySequence.utf8();
-    const char* p = keySequenceUTF8.data();
     auto* viewWidget = reinterpret_cast<WebKitWebViewBase*>(page.viewWidget());
-    do {
-        webkitWebViewBaseSynthesizeKeyEvent(viewWidget, KeyEventType::Insert, gdk_unicode_to_keyval(g_utf8_get_char(p)), m_currentModifiers, ShouldTranslateKeyboardState::Yes);
-        p = g_utf8_next_char(p);
-    } while (*p);
+    for (auto codePoint : StringView(keySequence).codePoints())
+        webkitWebViewBaseSynthesizeKeyEvent(viewWidget, KeyEventType::Insert, gdk_unicode_to_keyval(codePoint), m_currentModifiers, ShouldTranslateKeyboardState::Yes);
 }
 #endif // ENABLE(WEBDRIVER_KEYBOARD_INTERACTIONS)
 
@@ -335,7 +332,7 @@ void WebAutomationSession::platformSimulateWheelInteraction(WebPageProxy& page, 
     auto* viewWidget = reinterpret_cast<WebKitWebViewBase*>(page.viewWidget());
     FloatSize scrollDelta(delta);
     scrollDelta.scale(1 / static_cast<float>(Scrollbar::pixelsPerLineStep()));
-    webkitWebViewBaseSynthesizeWheelEvent(viewWidget, -scrollDelta.width(), -scrollDelta.height(), locationInViewport.x(), locationInViewport.y(), WheelEventPhase::NoPhase, WheelEventPhase::NoPhase);
+    webkitWebViewBaseSynthesizeWheelEvent(viewWidget, -scrollDelta.width(), -scrollDelta.height(), locationInViewport.x(), locationInViewport.y(), WheelEventPhase::NoPhase, WheelEventPhase::NoPhase, false);
 }
 #endif // ENABLE(WEBDRIVER_WHEEL_INTERACTIONS)
 

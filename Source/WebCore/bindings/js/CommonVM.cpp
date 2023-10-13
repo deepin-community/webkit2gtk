@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,8 +26,8 @@
 #include "config.h"
 #include "CommonVM.h"
 
-#include "DOMWindow.h"
-#include "Frame.h"
+#include "LocalDOMWindow.h"
+#include "LocalFrame.h"
 #include "ScriptController.h"
 #include "WebCoreJSClientData.h"
 #include <JavaScriptCore/HeapInlines.h>
@@ -61,7 +61,7 @@ JSC::VM& commonVMSlow()
     RunLoop* runLoop = nullptr;
 #endif
 
-    auto& vm = JSC::VM::create(JSC::LargeHeap, runLoop).leakRef();
+    auto& vm = JSC::VM::create(JSC::HeapType::Large, runLoop).leakRef();
 
     g_commonVMOrNull = &vm;
 
@@ -78,12 +78,12 @@ JSC::VM& commonVMSlow()
     return vm;
 }
 
-Frame* lexicalFrameFromCommonVM()
+LocalFrame* lexicalFrameFromCommonVM()
 {
     JSC::VM& vm = commonVM();
     if (auto* topCallFrame = vm.topCallFrame) {
         if (auto* globalObject = JSC::jsCast<JSDOMGlobalObject*>(topCallFrame->lexicalGlobalObject(vm))) {
-            if (auto* window = JSC::jsDynamicCast<JSDOMWindow*>(vm, globalObject)) {
+            if (auto* window = JSC::jsDynamicCast<JSLocalDOMWindow*>(globalObject)) {
                 if (auto* frame = window->wrapped().frame())
                     return frame;
             }

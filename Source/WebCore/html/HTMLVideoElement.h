@@ -29,6 +29,7 @@
 
 #include "HTMLMediaElement.h"
 #include "Supplementable.h"
+#include "VideoFrameRequestCallback.h"
 #include <memory>
 
 namespace WebCore {
@@ -38,6 +39,7 @@ class HTMLImageLoader;
 class ImageBuffer;
 class RenderVideo;
 class PictureInPictureObserver;
+class VideoFrameRequestCallback;
 
 enum class PixelFormat : uint8_t;
 enum class RenderingMode : bool;
@@ -69,7 +71,7 @@ public:
 #endif
 
 #if ENABLE(FULLSCREEN_API) && PLATFORM(IOS_FAMILY)
-    void webkitRequestFullscreen() override;
+    void requestFullscreen(FullscreenOptions&&, RefPtr<DeferredPromise>&&) override;
 #endif
 
     RefPtr<ImageBuffer> createBufferForPainting(const FloatSize&, RenderingMode, const DestinationColorSpace&, PixelFormat) const;
@@ -77,7 +79,9 @@ public:
     // Used by canvas to gain raw pixel access
     void paintCurrentFrameInContext(GraphicsContext&, const FloatRect&);
 
-    RefPtr<NativeImage> nativeImageForCurrentTime();
+    bool shouldGetNativeImageForCanvasDrawing() const;
+    WEBCORE_EXPORT RefPtr<NativeImage> nativeImageForCurrentTime();
+    std::optional<DestinationColorSpace> colorSpace() const;
 
     WEBCORE_EXPORT bool shouldDisplayPosterImage() const;
 
@@ -109,14 +113,20 @@ public:
 
     RenderVideo* renderer() const;
 
+    bool shouldServiceRequestVideoFrameCallbacks() const { return !m_videoFrameRequests.isEmpty(); }
+    void serviceRequestVideoFrameCallbacks(ReducedResolutionSeconds);
+
+    unsigned requestVideoFrameCallback(Ref<VideoFrameRequestCallback>&&);
+    void cancelVideoFrameCallback(unsigned);
+
 private:
     HTMLVideoElement(const QualifiedName&, Document&, bool createdByParser);
 
-    void scheduleResizeEvent() final;
-    void scheduleResizeEventIfSizeChanged() final;
+    void scheduleResizeEvent(const FloatSize&) final;
+    void scheduleResizeEventIfSizeChanged(const FloatSize&) final;
     bool rendererIsNeeded(const RenderStyle&) final;
     void didAttachRenderers() final;
-    void parseAttribute(const QualifiedName&, const AtomString&) final;
+    void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) final;
     bool hasPresentationalHintsForAttribute(const QualifiedName&) const final;
     void collectPresentationalHintsForAttribute(const QualifiedName&, const AtomString&, MutableStyleProperties&) final;
     bool isVideo() const final { return true; }
@@ -132,12 +142,13 @@ private:
 
     PlatformMediaSession::MediaType presentationType() const final { return PlatformMediaSession::MediaType::Video; }
 
+    void mediaPlayerEngineUpdated() final;
+
     std::unique_ptr<HTMLImageLoader> m_imageLoader;
 
     AtomString m_defaultPosterURL;
 
-    unsigned m_lastReportedVideoWidth { 0 };
-    unsigned m_lastReportedVideoHeight { 0 };
+    FloatSize m_lastReportedNaturalSize { };
 
 #if ENABLE(VIDEO_PRESENTATION_MODE)
     bool m_enteringPictureInPicture { false };
@@ -147,6 +158,22 @@ private:
 #if ENABLE(PICTURE_IN_PICTURE_API)
     PictureInPictureObserver* m_pictureInPictureObserver { nullptr };
 #endif
+
+    struct VideoFrameRequest {
+        WTF_MAKE_STRUCT_FAST_ALLOCATED;
+        VideoFrameRequest(unsigned identifier, Ref<VideoFrameRequestCallback>&& callback)
+            : identifier(identifier)
+            , callback(WTFMove(callback))
+        {
+        }
+
+        unsigned identifier { 0 };
+        Ref<VideoFrameRequestCallback> callback;
+        bool cancelled { false };
+    };
+    Vector<UniqueRef<VideoFrameRequest>> m_videoFrameRequests;
+    Vector<UniqueRef<VideoFrameRequest>> m_servicedVideoFrameRequests;
+    unsigned m_nextVideoFrameRequestIndex { 0 };
 };
 
 } // namespace WebCore

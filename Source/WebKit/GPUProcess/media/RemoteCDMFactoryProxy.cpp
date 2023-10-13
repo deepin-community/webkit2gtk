@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -41,16 +41,24 @@ namespace WebKit {
 using namespace WebCore;
 
 RemoteCDMFactoryProxy::RemoteCDMFactoryProxy(GPUConnectionToWebProcess& connection)
-    : m_gpuConnectionToWebProcess(makeWeakPtr(connection))
+    : m_gpuConnectionToWebProcess(connection)
 {
 }
 
-RemoteCDMFactoryProxy::~RemoteCDMFactoryProxy() = default;
+RemoteCDMFactoryProxy::~RemoteCDMFactoryProxy()
+{
+    clear();
+}
+
+void RemoteCDMFactoryProxy::clear()
+{
+    m_proxies.clear();
+}
 
 static CDMFactory* factoryForKeySystem(const String& keySystem)
 {
     auto& factories = CDMFactory::registeredFactories();
-    auto foundIndex = factories.findMatching([&] (auto& factory) { return factory->supportsKeySystem(keySystem); });
+    auto foundIndex = factories.findIf([&] (auto& factory) { return factory->supportsKeySystem(keySystem); });
     if (foundIndex == notFound)
         return nullptr;
     return factories[foundIndex];
@@ -64,13 +72,13 @@ void RemoteCDMFactoryProxy::createCDM(const String& keySystem, CompletionHandler
         return;
     }
 
-    auto privateCDM = factory->createCDM(keySystem);
+    auto privateCDM = factory->createCDM(keySystem, *this);
     if (!privateCDM) {
         completion({ }, { });
         return;
     }
 
-    auto proxy = RemoteCDMProxy::create(makeWeakPtr(this), WTFMove(privateCDM));
+    auto proxy = RemoteCDMProxy::create(*this, WTFMove(privateCDM));
     auto identifier = RemoteCDMIdentifier::generate();
     RemoteCDMConfiguration configuration = proxy->configuration();
     addProxy(identifier, WTFMove(proxy));
@@ -84,39 +92,39 @@ void RemoteCDMFactoryProxy::supportsKeySystem(const String& keySystem, Completio
 
 void RemoteCDMFactoryProxy::didReceiveCDMMessage(IPC::Connection& connection, IPC::Decoder& decoder)
 {
-    if (auto* proxy = m_proxies.get(makeObjectIdentifier<RemoteCDMIdentifierType>(decoder.destinationID())))
+    if (auto* proxy = m_proxies.get(ObjectIdentifier<RemoteCDMIdentifierType>(decoder.destinationID())))
         proxy->didReceiveMessage(connection, decoder);
 }
 
 void RemoteCDMFactoryProxy::didReceiveCDMInstanceMessage(IPC::Connection& connection, IPC::Decoder& decoder)
 {
-    if (auto* instance = m_instances.get(makeObjectIdentifier<RemoteCDMInstanceIdentifierType>(decoder.destinationID())))
+    if (auto* instance = m_instances.get(ObjectIdentifier<RemoteCDMInstanceIdentifierType>(decoder.destinationID())))
         instance->didReceiveMessage(connection, decoder);
 }
 
 void RemoteCDMFactoryProxy::didReceiveCDMInstanceSessionMessage(IPC::Connection& connection, IPC::Decoder& decoder)
 {
-    if (auto* session = m_sessions.get(makeObjectIdentifier<RemoteCDMInstanceSessionIdentifierType>(decoder.destinationID())))
+    if (auto* session = m_sessions.get(ObjectIdentifier<RemoteCDMInstanceSessionIdentifierType>(decoder.destinationID())))
         session->didReceiveMessage(connection, decoder);
 }
 
 bool RemoteCDMFactoryProxy::didReceiveSyncCDMMessage(IPC::Connection& connection, IPC::Decoder& decoder, UniqueRef<IPC::Encoder>& encoder)
 {
-    if (auto* proxy = m_proxies.get(makeObjectIdentifier<RemoteCDMIdentifierType>(decoder.destinationID())))
+    if (auto* proxy = m_proxies.get(ObjectIdentifier<RemoteCDMIdentifierType>(decoder.destinationID())))
         return proxy->didReceiveSyncMessage(connection, decoder, encoder);
     return false;
 }
 
 bool RemoteCDMFactoryProxy::didReceiveSyncCDMInstanceMessage(IPC::Connection& connection, IPC::Decoder& decoder, UniqueRef<IPC::Encoder>& encoder)
 {
-    if (auto* instance = m_instances.get(makeObjectIdentifier<RemoteCDMInstanceIdentifierType>(decoder.destinationID())))
+    if (auto* instance = m_instances.get(ObjectIdentifier<RemoteCDMInstanceIdentifierType>(decoder.destinationID())))
         return instance->didReceiveSyncMessage(connection, decoder, encoder);
     return false;
 }
 
 bool RemoteCDMFactoryProxy::didReceiveSyncCDMInstanceSessionMessage(IPC::Connection& connection, IPC::Decoder& decoder, UniqueRef<IPC::Encoder>& encoder)
 {
-    if (auto* session = m_sessions.get(makeObjectIdentifier<RemoteCDMInstanceSessionIdentifierType>(decoder.destinationID())))
+    if (auto* session = m_sessions.get(ObjectIdentifier<RemoteCDMInstanceSessionIdentifierType>(decoder.destinationID())))
         return session->didReceiveSyncMessage(connection, decoder, encoder);
     return false;
 }
@@ -168,6 +176,18 @@ bool RemoteCDMFactoryProxy::allowsExitUnderMemoryPressure() const
 {
     return m_instances.isEmpty();
 }
+
+#if !RELEASE_LOG_DISABLED
+const Logger& RemoteCDMFactoryProxy::logger() const
+{
+    if (!m_logger) {
+        m_logger = Logger::create(this);
+        m_logger->setEnabled(this, m_gpuConnectionToWebProcess ? m_gpuConnectionToWebProcess->sessionID().isAlwaysOnLoggingAllowed() : false);
+    }
+
+    return *m_logger;
+}
+#endif
 
 }
 

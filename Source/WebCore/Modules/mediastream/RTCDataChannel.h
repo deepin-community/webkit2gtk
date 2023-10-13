@@ -50,10 +50,10 @@ namespace WebCore {
 class Blob;
 class RTCPeerConnectionHandler;
 
-class RTCDataChannel final : public ActiveDOMObject, public RTCDataChannelHandlerClient, public EventTargetWithInlineData {
+class RTCDataChannel final : public RefCounted<RTCDataChannel>, public ActiveDOMObject, public RTCDataChannelHandlerClient, public EventTarget {
     WTF_MAKE_ISO_ALLOCATED(RTCDataChannel);
 public:
-    static Ref<RTCDataChannel> create(ScriptExecutionContext&, std::unique_ptr<RTCDataChannelHandler>&&, String&&, RTCDataChannelInit&&);
+    static Ref<RTCDataChannel> create(ScriptExecutionContext&, std::unique_ptr<RTCDataChannelHandler>&&, String&&, RTCDataChannelInit&&, RTCDataChannelState);
     static Ref<RTCDataChannel> create(ScriptExecutionContext&, RTCDataChannelIdentifier, String&&, RTCDataChannelInit&&, RTCDataChannelState);
 
     bool ordered() const { return *m_options.ordered; }
@@ -61,13 +61,13 @@ public:
     std::optional<unsigned short> maxRetransmits() const { return m_options.maxRetransmits; }
     String protocol() const { return m_options.protocol; }
     bool negotiated() const { return *m_options.negotiated; };
-    std::optional<unsigned short> id() const { return m_options.id; };
+    std::optional<unsigned short> id() const;
     RTCPriorityType priority() const { return m_options.priority; };
     const RTCDataChannelInit& options() const { return m_options; }
 
-    String label() const { return m_label; }
+    const String& label() const { return m_label; }
     RTCDataChannelState readyState() const {return m_readyState; }
-    size_t bufferedAmount() const { return m_bufferedAmount; }
+    size_t bufferedAmount() const final { return m_bufferedAmount; }
     size_t bufferedAmountLowThreshold() const { return m_bufferedAmountLowThreshold; }
     void setBufferedAmountLowThreshold(size_t value) { m_bufferedAmountLowThreshold = value; }
 
@@ -85,13 +85,14 @@ public:
     bool canDetach() const;
     std::unique_ptr<DetachedRTCDataChannel> detach();
 
-    using RTCDataChannelHandlerClient::ref;
-    using RTCDataChannelHandlerClient::deref;
+    using RefCounted<RTCDataChannel>::ref;
+    using RefCounted<RTCDataChannel>::deref;
 
     WEBCORE_EXPORT static std::unique_ptr<RTCDataChannelHandler> handlerFromIdentifier(RTCDataChannelLocalIdentifier);
+    void fireOpenEventIfNeeded();
 
 private:
-    RTCDataChannel(ScriptExecutionContext&, std::unique_ptr<RTCDataChannelHandler>&&, String&&, RTCDataChannelInit&&);
+    RTCDataChannel(ScriptExecutionContext&, std::unique_ptr<RTCDataChannelHandler>&&, String&&, RTCDataChannelInit&&, RTCDataChannelState);
 
     static NetworkSendQueue createMessageQueue(ScriptExecutionContext&, RTCDataChannel&);
 
@@ -99,7 +100,7 @@ private:
     void removeFromDataChannelLocalMapIfNeeded();
 
     EventTargetInterface eventTargetInterface() const final { return RTCDataChannelEventTargetInterfaceType; }
-    ScriptExecutionContext* scriptExecutionContext() const final { return m_scriptExecutionContext; }
+    ScriptExecutionContext* scriptExecutionContext() const final { return ActiveDOMObject::scriptExecutionContext(); }
 
     void refEventTarget() final { ref(); }
     void derefEventTarget() final { deref(); }
@@ -113,7 +114,7 @@ private:
     void didChangeReadyState(RTCDataChannelState) final;
     void didReceiveStringData(const String&) final;
     void didReceiveRawData(const uint8_t*, size_t) final;
-    void didDetectError() final;
+    void didDetectError(Ref<RTCError>&&) final;
     void bufferedAmountIsDecreasing(size_t) final;
 
     std::unique_ptr<RTCDataChannelHandler> m_handler;

@@ -23,8 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef ShareableResource_h
-#define ShareableResource_h
+#pragma once
 
 #if ENABLE(SHAREABLE_RESOURCE)
 
@@ -38,40 +37,40 @@ class SharedBuffer;
 
 namespace WebKit {
     
-class ShareableResource : public RefCounted<ShareableResource> {
+class ShareableResourceHandle {
+    WTF_MAKE_NONCOPYABLE(ShareableResourceHandle);
 public:
+    ShareableResourceHandle();
+    ShareableResourceHandle(ShareableResourceHandle&&) = default;
+    ShareableResourceHandle& operator=(ShareableResourceHandle&&) = default;
 
-    class Handle {
-        WTF_MAKE_NONCOPYABLE(Handle);
-    public:
-        Handle();
-        Handle(Handle&&) = default;
-        Handle& operator=(Handle&&) = default;
+    bool isNull() const { return m_handle.isNull(); }
+    unsigned size() const { return m_size; }
 
-        bool isNull() const { return m_handle.isNull(); }
-        unsigned size() const { return m_size; }
+    void encode(IPC::Encoder&) &&;
+    static WARN_UNUSED_RETURN bool decode(IPC::Decoder&, ShareableResourceHandle&);
 
-        void encode(IPC::Encoder&) const;
-        static WARN_UNUSED_RETURN bool decode(IPC::Decoder&, Handle&);
+    RefPtr<WebCore::SharedBuffer> tryWrapInSharedBuffer() &&;
 
-        RefPtr<WebCore::SharedBuffer> tryWrapInSharedBuffer() const;
+private:
+    friend class ShareableResource;
 
-    private:
-        friend class ShareableResource;
+    SharedMemory::Handle m_handle;
+    unsigned m_offset { 0 };
+    unsigned m_size { 0 };
+};
 
-        mutable SharedMemory::Handle m_handle;
-        unsigned m_offset { 0 };
-        unsigned m_size { 0 };
-    };
+class ShareableResource : public ThreadSafeRefCounted<ShareableResource> {
+public:
+    using Handle = ShareableResourceHandle;
 
     // Create a shareable resource that uses malloced memory.
     static RefPtr<ShareableResource> create(Ref<SharedMemory>&&, unsigned offset, unsigned size);
 
     // Create a shareable resource from a handle.
-    static RefPtr<ShareableResource> map(const Handle&);
+    static RefPtr<ShareableResource> map(Handle&&);
 
-    // Create a handle.
-    bool createHandle(Handle&);
+    std::optional<Handle> createHandle();
 
     ~ShareableResource();
 
@@ -79,17 +78,17 @@ public:
     unsigned size() const;
     
 private:
+    friend class ShareableResourceHandle;
+
     ShareableResource(Ref<SharedMemory>&&, unsigned offset, unsigned size);
     RefPtr<WebCore::SharedBuffer> wrapInSharedBuffer();
 
     Ref<SharedMemory> m_sharedMemory;
 
-    unsigned m_offset;
-    unsigned m_size;    
+    const unsigned m_offset;
+    const unsigned m_size;
 };
 
 } // namespace WebKit
 
 #endif // ENABLE(SHAREABLE_RESOURCE)
-
-#endif // ShareableResource_h

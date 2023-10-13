@@ -8,6 +8,7 @@
  * Copyright (C) 2009 Jeff Schiller <codedread@gmail.com>
  * Copyright (C) 2011 Renata Hodovan <reni@webkit.org>
  * Copyright (C) 2011 University of Szeged
+ * Copyright (C) 2020, 2021, 2022 Igalia S.L.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -28,7 +29,11 @@
 #include "config.h"
 #include "RenderSVGPath.h"
 
+#if ENABLE(LAYER_BASED_SVG_ENGINE)
+
 #include "Gradient.h"
+#include "RenderSVGShapeInlines.h"
+#include "RenderStyleInlines.h"
 #include "SVGPathElement.h"
 #include "SVGSubpathData.h"
 #include <wtf/IsoMallocInlines.h>
@@ -69,7 +74,7 @@ FloatRect RenderSVGPath::calculateUpdatedStrokeBoundingBox() const
 static void useStrokeStyleToFill(GraphicsContext& context)
 {
     if (auto gradient = context.strokeGradient())
-        context.setFillGradient(*gradient, context.state().strokeGradientSpaceTransform);
+        context.setFillGradient(*gradient, context.strokeGradientSpaceTransform());
     else if (Pattern* pattern = context.strokePattern())
         context.setFillPattern(*pattern);
     else
@@ -81,25 +86,12 @@ void RenderSVGPath::strokeShape(GraphicsContext& context) const
     if (!style().hasVisibleStroke())
         return;
 
-    RenderSVGShape::strokeShape(context);
-
-    if (m_zeroLengthLinecapLocations.isEmpty())
+    // This happens only if the layout was never been called for this element.
+    if (!hasPath())
         return;
 
-    Path* usePath;
-    AffineTransform nonScalingTransform;
-
-    if (hasNonScalingStroke())
-        nonScalingTransform = nonScalingStrokeTransform();
-
-    GraphicsContextStateSaver stateSaver(context, true);
-    useStrokeStyleToFill(context);
-    for (size_t i = 0; i < m_zeroLengthLinecapLocations.size(); ++i) {
-        usePath = zeroLengthLinecapPath(m_zeroLengthLinecapLocations[i]);
-        if (hasNonScalingStroke())
-            usePath = nonScalingStrokePath(usePath, nonScalingTransform);
-        context.fillPath(*usePath);
-    }
+    RenderSVGShape::strokeShape(context);
+    strokeZeroLengthSubpaths(context);
 }
 
 bool RenderSVGPath::shapeDependentStrokeContains(const FloatPoint& point, PointCoordinateSpace pointCoordinateSpace)
@@ -110,11 +102,11 @@ bool RenderSVGPath::shapeDependentStrokeContains(const FloatPoint& point, PointC
     for (size_t i = 0; i < m_zeroLengthLinecapLocations.size(); ++i) {
         ASSERT(style().svgStyle().hasStroke());
         float strokeWidth = this->strokeWidth();
-        if (style().capStyle() == SquareCap) {
+        if (style().capStyle() == LineCap::Square) {
             if (zeroLengthSubpathRect(m_zeroLengthLinecapLocations[i], strokeWidth).contains(point))
                 return true;
         } else {
-            ASSERT(style().capStyle() == RoundCap);
+            ASSERT(style().capStyle() == LineCap::Round);
             FloatPoint radiusVector(point.x() - m_zeroLengthLinecapLocations[i].x(), point.y() -  m_zeroLengthLinecapLocations[i].y());
             if (radiusVector.lengthSquared() < strokeWidth * strokeWidth * .25f)
                 return true;
@@ -127,7 +119,7 @@ bool RenderSVGPath::shouldStrokeZeroLengthSubpath() const
 {
     // Spec(11.4): Any zero length subpath shall not be stroked if the "stroke-linecap" property has a value of butt
     // but shall be stroked if the "stroke-linecap" property has a value of round or square
-    return style().svgStyle().hasStroke() && style().capStyle() != ButtCap;
+    return style().svgStyle().hasStroke() && style().capStyle() != LineCap::Butt;
 }
 
 Path* RenderSVGPath::zeroLengthLinecapPath(const FloatPoint& linecapPosition) const
@@ -135,10 +127,10 @@ Path* RenderSVGPath::zeroLengthLinecapPath(const FloatPoint& linecapPosition) co
     static NeverDestroyed<Path> tempPath;
 
     tempPath.get().clear();
-    if (style().capStyle() == SquareCap)
+    if (style().capStyle() == LineCap::Square)
         tempPath.get().addRect(zeroLengthSubpathRect(linecapPosition, this->strokeWidth()));
     else
-        tempPath.get().addEllipse(zeroLengthSubpathRect(linecapPosition, this->strokeWidth()));
+        tempPath.get().addEllipseInRect(zeroLengthSubpathRect(linecapPosition, this->strokeWidth()));
 
     return &tempPath.get();
 }
@@ -156,10 +148,29 @@ void RenderSVGPath::updateZeroLengthSubpaths()
         return;
 
     SVGSubpathData subpathData(m_zeroLengthLinecapLocations);
-    path().apply([&subpathData](const PathElement& pathElement) {
+    path().applyElements([&subpathData](const PathElement& pathElement) {
         SVGSubpathData::updateFromPathElement(subpathData, pathElement);
     });
     subpathData.pathIsDone();
+}
+
+void RenderSVGPath::strokeZeroLengthSubpaths(GraphicsContext& context) const
+{
+    if (m_zeroLengthLinecapLocations.isEmpty())
+        return;
+
+    AffineTransform nonScalingTransform;
+    if (hasNonScalingStroke())
+        nonScalingTransform = nonScalingStrokeTransform();
+
+    GraphicsContextStateSaver stateSaver(context, true);
+    useStrokeStyleToFill(context);
+    for (size_t i = 0; i < m_zeroLengthLinecapLocations.size(); ++i) {
+        auto usePath = zeroLengthLinecapPath(m_zeroLengthLinecapLocations[i]);
+        if (hasNonScalingStroke())
+            usePath = nonScalingStrokePath(usePath, nonScalingTransform);
+        context.fillPath(*usePath);
+    }
 }
 
 bool RenderSVGPath::isRenderingDisabled() const
@@ -170,3 +181,5 @@ bool RenderSVGPath::isRenderingDisabled() const
 }
 
 }
+
+#endif // ENABLE(LAYER_BASED_SVG_ENGINE)

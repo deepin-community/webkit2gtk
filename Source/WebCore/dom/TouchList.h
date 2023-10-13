@@ -28,7 +28,9 @@
 #include <WebKitAdditions/TouchListIOS.h>
 #elif ENABLE(TOUCH_EVENTS)
 
+#include "Node.h"
 #include "Touch.h"
+#include <wtf/FixedVector.h>
 #include <wtf/Ref.h>
 #include <wtf/RefCounted.h>
 #include <wtf/Vector.h>
@@ -41,13 +43,14 @@ public:
     {
         return adoptRef(*new TouchList);
     }
-    static Ref<TouchList> create(Vector<std::reference_wrapper<Touch>>&& touches)
+    static Ref<TouchList> create(FixedVector<std::reference_wrapper<Touch>>&& touches)
     {
         return adoptRef(*new TouchList(WTFMove(touches)));
     }
 
     unsigned length() const { return m_values.size(); }
 
+    bool isSupportedPropertyIndex(unsigned index) const { return index < length(); }
     Touch* item(unsigned);
     const Touch* item(unsigned) const;
 
@@ -56,7 +59,7 @@ public:
 private:
     TouchList() = default;
 
-    explicit TouchList(Vector<std::reference_wrapper<Touch>>&& touches)
+    explicit TouchList(FixedVector<std::reference_wrapper<Touch>>&& touches)
     {
         m_values.reserveInitialCapacity(touches.size());
         for (auto& touch : touches)

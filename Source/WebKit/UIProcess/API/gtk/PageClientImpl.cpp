@@ -28,6 +28,7 @@
 #include "config.h"
 #include "PageClientImpl.h"
 
+#include "Clipboard.h"
 #include "DrawingAreaProxyCoordinatedGraphics.h"
 #include "NativeWebKeyboardEvent.h"
 #include "NativeWebMouseEvent.h"
@@ -37,6 +38,7 @@
 #include "WebContextMenuProxyGtk.h"
 #include "WebDataListSuggestionsDropdownGtk.h"
 #include "WebEventFactory.h"
+#include "WebKitClipboardPermissionRequestPrivate.h"
 #include "WebKitColorChooser.h"
 #include "WebKitPopupMenu.h"
 #include "WebKitWebViewBaseInternal.h"
@@ -50,10 +52,15 @@
 #include <WebCore/EventNames.h>
 #include <WebCore/GtkUtilities.h>
 #include <WebCore/NotImplemented.h>
+#include <WebCore/PasteboardCustomData.h>
 #include <WebCore/RefPtrCairo.h>
+#include <WebCore/SharedBuffer.h>
+#include <WebCore/ValidationBubble.h>
 #include <wtf/Compiler.h>
+#include <wtf/glib/GWeakPtr.h>
 #include <wtf/text/CString.h>
 #include <wtf/text/WTFString.h>
+#include <wtf/unix/UnixFileDescriptor.h>
 
 #if ENABLE(DATE_AND_TIME_INPUT_TYPES)
 #include "WebDateTimePickerGtk.h"
@@ -68,9 +75,9 @@ PageClientImpl::PageClientImpl(GtkWidget* viewWidget)
 }
 
 // PageClient's pure virtual functions
-std::unique_ptr<DrawingAreaProxy> PageClientImpl::createDrawingAreaProxy(WebProcessProxy& process)
+std::unique_ptr<DrawingAreaProxy> PageClientImpl::createDrawingAreaProxy()
 {
-    return makeUnique<DrawingAreaProxyCoordinatedGraphics>(*webkitWebViewBaseGetPage(WEBKIT_WEB_VIEW_BASE(m_viewWidget)), process);
+    return makeUnique<DrawingAreaProxyCoordinatedGraphics>(*webkitWebViewBaseGetPage(WEBKIT_WEB_VIEW_BASE(m_viewWidget)));
 }
 
 void PageClientImpl::setViewNeedsDisplay(const WebCore::Region& region)
@@ -92,7 +99,7 @@ void PageClientImpl::setViewNeedsDisplay(const WebCore::Region& region)
 #endif
 }
 
-void PageClientImpl::requestScroll(const WebCore::FloatPoint&, const WebCore::IntPoint&)
+void PageClientImpl::requestScroll(const WebCore::FloatPoint&, const WebCore::IntPoint&, WebCore::ScrollIsAnimated)
 {
     notImplemented();
 }
@@ -248,23 +255,35 @@ WebCore::IntRect PageClientImpl::rootViewToAccessibilityScreen(const WebCore::In
 
 void PageClientImpl::doneWithKeyEvent(const NativeWebKeyboardEvent& event, bool wasEventHandled)
 {
-    if (wasEventHandled || event.type() != WebEvent::Type::KeyDown || !event.nativeEvent())
+    if (wasEventHandled || event.type() != WebEventType::KeyDown || !event.nativeEvent())
         return;
 
+    // Always consider arrow keys as handled, otherwise the GtkWindow key bindings will move the focus.
+    guint keyval;
+    gdk_event_get_keyval(event.nativeEvent(), &keyval);
+    switch (keyval) {
+    case GDK_KEY_Up:
+    case GDK_KEY_KP_Up:
+    case GDK_KEY_Down:
+    case GDK_KEY_KP_Down:
+    case GDK_KEY_Left:
+    case GDK_KEY_KP_Left:
+    case GDK_KEY_Right:
+    case GDK_KEY_KP_Right:
+        return;
+    default:
+        break;
+    }
+
     WebKitWebViewBase* webkitWebViewBase = WEBKIT_WEB_VIEW_BASE(m_viewWidget);
-    webkitWebViewBaseForwardNextKeyEvent(webkitWebViewBase);
-#if USE(GTK4)
-    gdk_display_put_event(gtk_widget_get_display(m_viewWidget), event.nativeEvent());
-#else
-    gtk_main_do_event(event.nativeEvent());
-#endif
+    webkitWebViewBasePropagateKeyEvent(webkitWebViewBase, event.nativeEvent());
 }
 
 RefPtr<WebPopupMenuProxy> PageClientImpl::createPopupMenuProxy(WebPageProxy& page)
 {
     if (WEBKIT_IS_WEB_VIEW(m_viewWidget))
-        return WebKitPopupMenu::create(m_viewWidget, page);
-    return WebPopupMenuProxyGtk::create(m_viewWidget, page);
+        return WebKitPopupMenu::create(m_viewWidget, page.popupMenuClient());
+    return WebPopupMenuProxyGtk::create(m_viewWidget, page.popupMenuClient());
 }
 
 Ref<WebContextMenuProxy> PageClientImpl::createContextMenuProxy(WebPageProxy& page, ContextMenuContextData&& context, const UserData& userData)
@@ -292,6 +311,13 @@ RefPtr<WebDataListSuggestionsDropdown> PageClientImpl::createDataListSuggestions
     return WebDataListSuggestionsDropdownGtk::create(m_viewWidget, page);
 }
 #endif
+
+Ref<ValidationBubble> PageClientImpl::createValidationBubble(const String& message, const ValidationBubble::Settings& settings)
+{
+    return ValidationBubble::create(m_viewWidget, message, settings, [](GtkWidget* webView, bool shouldNotifyFocusEvents) {
+        webkitWebViewBaseSetShouldNotifyFocusEvents(WEBKIT_WEB_VIEW_BASE(webView), shouldNotifyFocusEvents);
+    });
+}
 
 void PageClientImpl::enterAcceleratedCompositingMode(const LayerTreeContext& layerTreeContext)
 {
@@ -336,9 +362,9 @@ void PageClientImpl::didChangeContentSize(const IntSize& size)
 }
 
 #if ENABLE(DRAG_SUPPORT)
-void PageClientImpl::startDrag(SelectionData&& selection, OptionSet<DragOperation> dragOperationMask, RefPtr<ShareableBitmap>&& dragImage)
+void PageClientImpl::startDrag(SelectionData&& selection, OptionSet<DragOperation> dragOperationMask, RefPtr<ShareableBitmap>&& dragImage, IntPoint&& dragImageHotspot)
 {
-    webkitWebViewBaseStartDrag(WEBKIT_WEB_VIEW_BASE(m_viewWidget), WTFMove(selection), dragOperationMask, WTFMove(dragImage));
+    webkitWebViewBaseStartDrag(WEBKIT_WEB_VIEW_BASE(m_viewWidget), WTFMove(selection), dragOperationMask, WTFMove(dragImage), WTFMove(dragImageHotspot));
 }
 
 void PageClientImpl::didPerformDragControllerAction()
@@ -346,12 +372,6 @@ void PageClientImpl::didPerformDragControllerAction()
     webkitWebViewBaseDidPerformDragControllerAction(WEBKIT_WEB_VIEW_BASE(m_viewWidget));
 }
 #endif
-
-void PageClientImpl::handleDownloadRequest(DownloadProxy& download)
-{
-    if (WEBKIT_IS_WEB_VIEW(m_viewWidget))
-        webkitWebViewHandleDownloadRequest(WEBKIT_WEB_VIEW(m_viewWidget), &download);
-}
 
 void PageClientImpl::didCommitLoadForMainFrame(const String& /* mimeType */, bool /* useCustomContentProvider */ )
 {
@@ -451,13 +471,7 @@ void PageClientImpl::wheelEventWasNotHandledByWebCore(const NativeWebWheelEvent&
     if (gdk_event_get_event_type(event.nativeEvent()) != GDK_SCROLL)
         return;
 
-    webkitWebViewBaseForwardNextWheelEvent(WEBKIT_WEB_VIEW_BASE(m_viewWidget));
-
-#if USE(GTK4)
-    gdk_display_put_event(gtk_widget_get_display(m_viewWidget), event.nativeEvent());
-#else
-    gtk_main_do_event(event.nativeEvent());
-#endif
+    webkitWebViewBasePropagateWheelEvent(WEBKIT_WEB_VIEW_BASE(m_viewWidget), event.nativeEvent());
 }
 
 void PageClientImpl::didFinishLoadingDataForCustomContentProvider(const String&, const IPC::DataReference&)
@@ -466,7 +480,7 @@ void PageClientImpl::didFinishLoadingDataForCustomContentProvider(const String&,
 
 void PageClientImpl::navigationGestureDidBegin()
 {
-    webkitWebViewBaseSynthesizeWheelEvent(WEBKIT_WEB_VIEW_BASE(m_viewWidget), 0, 0, 0, 0, WheelEventPhase::Began, WheelEventPhase::NoPhase);
+    webkitWebViewBaseSynthesizeWheelEvent(WEBKIT_WEB_VIEW_BASE(m_viewWidget), 0, 0, 0, 0, WheelEventPhase::Began, WheelEventPhase::NoPhase, true);
 }
 
 void PageClientImpl::navigationGestureWillEnd(bool, WebBackForwardListItem&)
@@ -537,20 +551,23 @@ void PageClientImpl::derefView()
     g_object_unref(m_viewWidget);
 }
 
-#if ENABLE(VIDEO) && USE(GSTREAMER)
-bool PageClientImpl::decidePolicyForInstallMissingMediaPluginsPermissionRequest(InstallMissingMediaPluginsPermissionRequest& request)
+void PageClientImpl::requestDOMPasteAccess(WebCore::DOMPasteAccessCategory, const IntRect&, const String& originIdentifier, CompletionHandler<void(WebCore::DOMPasteAccessResponse)>&& completionHandler)
 {
-    if (!WEBKIT_IS_WEB_VIEW(m_viewWidget))
-        return false;
+    auto& clipboard = Clipboard::get("CLIPBOARD"_s);
+    clipboard.readBuffer(PasteboardCustomData::gtkType().characters(), [weakWebView = GWeakPtr<GtkWidget>(m_viewWidget), originIdentifier, completionHandler = WTFMove(completionHandler)](Ref<SharedBuffer>&& buffer) mutable {
+        if (PasteboardCustomData::fromSharedBuffer(buffer.get()).origin() == originIdentifier) {
+            completionHandler(DOMPasteAccessResponse::GrantedForGesture);
+            return;
+        }
 
-    webkitWebViewRequestInstallMissingMediaPlugins(WEBKIT_WEB_VIEW(m_viewWidget), request);
-    return true;
-}
-#endif
+        if (!WEBKIT_IS_WEB_VIEW(weakWebView.get())) {
+            completionHandler(DOMPasteAccessResponse::DeniedForGesture);
+            return;
+        }
 
-void PageClientImpl::requestDOMPasteAccess(const IntRect&, const String&, CompletionHandler<void(WebCore::DOMPasteAccessResponse)>&& completionHandler)
-{
-    completionHandler(WebCore::DOMPasteAccessResponse::DeniedForGesture);
+        GRefPtr<WebKitClipboardPermissionRequest> request = adoptGRef(webkitClipboardPermissionRequestCreate(WTFMove(completionHandler)));
+        webkitWebViewMakePermissionRequest(WEBKIT_WEB_VIEW(weakWebView.get()), WEBKIT_PERMISSION_REQUEST(request.get()));
+    });
 }
 
 UserInterfaceLayoutDirection PageClientImpl::userInterfaceLayoutDirection()
@@ -582,9 +599,9 @@ bool PageClientImpl::effectiveAppearanceIsDark() const
 }
 
 #if USE(WPE_RENDERER)
-IPC::Attachment PageClientImpl::hostFileDescriptor()
+UnixFileDescriptor PageClientImpl::hostFileDescriptor()
 {
-    return webkitWebViewBaseRenderHostFileDescriptor(WEBKIT_WEB_VIEW_BASE(m_viewWidget));
+    return { webkitWebViewBaseRenderHostFileDescriptor(WEBKIT_WEB_VIEW_BASE(m_viewWidget)), UnixFileDescriptor::Adopt };
 }
 #endif
 
@@ -597,6 +614,35 @@ void PageClientImpl::didChangeWebPageID() const
 void PageClientImpl::makeViewBlank(bool makeBlank)
 {
     webkitWebViewBaseMakeBlank(WEBKIT_WEB_VIEW_BASE(m_viewWidget), makeBlank);
+}
+
+WebCore::Color PageClientImpl::accentColor()
+{
+    auto* context = gtk_widget_get_style_context(m_viewWidget);
+    GdkRGBA accentColor;
+
+    // libadwaita
+    if (gtk_style_context_lookup_color(context, "accent_bg_color", &accentColor))
+        return WebCore::Color(accentColor);
+
+    // elementary OS 6.x
+    if (gtk_style_context_lookup_color(context, "accent_color", &accentColor))
+        return WebCore::Color(accentColor);
+
+    // elementary OS 5.x
+    if (gtk_style_context_lookup_color(context, "accentColor", &accentColor))
+        return WebCore::Color(accentColor);
+
+    // Legacy
+    if (gtk_style_context_lookup_color(context, "theme_selected_bg_color", &accentColor))
+        return WebCore::Color(accentColor);
+
+    return SRGBA<uint8_t> { 52, 132, 228 };
+}
+
+WebKitWebResourceLoadManager* PageClientImpl::webResourceLoadManager()
+{
+    return WEBKIT_IS_WEB_VIEW(m_viewWidget) ? webkitWebViewGetWebResourceLoadManager(WEBKIT_WEB_VIEW(m_viewWidget)) : nullptr;
 }
 
 } // namespace WebKit

@@ -31,8 +31,10 @@
 #include "CodeBlockHash.h"
 #include "JITCode.h"
 #include "MachineStackMarker.h"
+#include "PCToCodeOriginMap.h"
 #include "WasmCompilationMode.h"
 #include "WasmIndexOrName.h"
+#include <wtf/Box.h>
 #include <wtf/HashSet.h>
 #include <wtf/Lock.h>
 #include <wtf/Stopwatch.h>
@@ -69,6 +71,9 @@ public:
         std::optional<Wasm::IndexOrName> wasmIndexOrName;
 #endif
         std::optional<Wasm::CompilationMode> wasmCompilationMode;
+#if ENABLE(JIT)
+        Box<PCToCodeOriginMap> wasmPCMap;
+#endif
     };
 
     enum class FrameType { 
@@ -79,8 +84,6 @@ public:
         C,
         Unknown,
     };
-    static constexpr intptr_t internalSourceID = -1;
-    static constexpr intptr_t aggregatedExternalSourceID = -2;
 
     struct StackFrame {
         StackFrame(ExecutableBase* executable)
@@ -100,6 +103,7 @@ public:
         std::optional<Wasm::IndexOrName> wasmIndexOrName;
 #endif
         std::optional<Wasm::CompilationMode> wasmCompilationMode;
+        BytecodeIndex wasmOffset;
 
         struct CodeLocation {
             bool hasCodeBlockHash() const
@@ -145,10 +149,9 @@ public:
         // These are function-level data.
         String nameFromCallee(VM&);
         String displayName(VM&);
-        String displayNameForJSONTests(VM&); // Used for JSC stress tests because they want the "(anonymous function)" string for anonymous functions and they want "(eval)" for eval'd code.
         int functionStartLine();
         unsigned functionStartColumn();
-        intptr_t sourceID();
+        SourceID sourceID();
         String url();
     };
 
@@ -183,7 +186,7 @@ public:
     JS_EXPORT_PRIVATE void start();
     void startWithLock() WTF_REQUIRES_LOCK(m_lock);
     Vector<StackTrace> releaseStackTraces() WTF_REQUIRES_LOCK(m_lock);
-    JS_EXPORT_PRIVATE String stackTracesAsJSON();
+    JS_EXPORT_PRIVATE Ref<JSON::Value> stackTracesAsJSON();
     JS_EXPORT_PRIVATE void noticeCurrentThreadAsJSCExecutionThread();
     void noticeCurrentThreadAsJSCExecutionThreadWithLock() WTF_REQUIRES_LOCK(m_lock);
     void processUnverifiedStackTraces() WTF_REQUIRES_LOCK(m_lock);

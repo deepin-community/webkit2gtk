@@ -29,9 +29,14 @@
 
 #include "LibWebRTCResolverIdentifier.h"
 #include <WebCore/LibWebRTCMacros.h>
+#include <wtf/Vector.h>
+
+ALLOW_COMMA_BEGIN
+
 #include <webrtc/api/packet_socket_factory.h>
 #include <webrtc/rtc_base/async_resolver_interface.h>
-#include <wtf/Vector.h>
+
+ALLOW_COMMA_END
 
 namespace IPC {
 class Connection;
@@ -52,7 +57,8 @@ private:
     friend class WebRTCResolver;
 
     // AsyncResolverInterface API.
-    void Start(const rtc::SocketAddress&) final;
+    void Start(const rtc::SocketAddress& address) final { Start(address, address.family()); }
+    void Start(const rtc::SocketAddress&, int) final;
     bool GetResolvedAddress(int, rtc::SocketAddress*) const final;
     int GetError() const final { return m_error; }
     void Destroy(bool) final;

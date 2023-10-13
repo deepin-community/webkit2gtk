@@ -86,7 +86,7 @@ class ComputeShaderEnforcePackingValidationTest : public ComputeShaderValidation
 
     void SetUp() override
     {
-        mExtraCompileOptions |= (SH_VARIABLES | SH_ENFORCE_PACKING_RESTRICTIONS);
+        mCompileOptions.enforcePackingRestrictions = true;
         ShaderCompileTreeTest::SetUp();
     }
 
@@ -3327,6 +3327,25 @@ TEST_F(FragmentShaderValidationTest, FloatDeclarationNoQualifiersNoPrecision)
         "{\n"
         "    gl_FragColor = foo;\n"
         "}\n";
+
+    if (compile(shaderString))
+    {
+        FAIL() << "Shader compilation succeeded, expecting failure:\n" << mInfoLog;
+    }
+}
+
+// Precision must be specified for floats. Test this with a function argument no qualifiers.
+TEST_F(FragmentShaderValidationTest, FloatDeclarationNoQualifiersNoPrecisionFunctionArg)
+{
+    const std::string &shaderString = R"(
+int c(float x)
+{
+    return int(x);
+}
+void main()
+{
+    c(5.0);
+})";
 
     if (compile(shaderString))
     {

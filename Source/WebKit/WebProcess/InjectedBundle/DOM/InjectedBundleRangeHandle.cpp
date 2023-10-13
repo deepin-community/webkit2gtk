@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010, 2015-2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2010-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -33,13 +33,13 @@
 #include <JavaScriptCore/HeapInlines.h>
 #include <WebCore/Document.h>
 #include <WebCore/FloatRect.h>
-#include <WebCore/Frame.h>
 #include <WebCore/FrameSelection.h>
-#include <WebCore/FrameView.h>
 #include <WebCore/GeometryUtilities.h>
 #include <WebCore/GraphicsContext.h>
 #include <WebCore/IntRect.h>
 #include <WebCore/JSRange.h>
+#include <WebCore/LocalFrame.h>
+#include <WebCore/LocalFrameView.h>
 #include <WebCore/Page.h>
 #include <WebCore/Range.h>
 #include <WebCore/RenderView.h>
@@ -117,9 +117,9 @@ RefPtr<WebImage> InjectedBundleRangeHandle::renderedImage(SnapshotOptions option
 {
     auto range = makeSimpleRange(m_range);
 
-    auto document = makeRef(range.start.document());
+    Ref document = range.start.document();
 
-    auto frame = makeRefPtr(document->frame());
+    RefPtr frame = document->frame();
     if (!frame)
         return nullptr;
 
@@ -139,20 +139,17 @@ RefPtr<WebImage> InjectedBundleRangeHandle::renderedImage(SnapshotOptions option
     IntSize backingStoreSize = paintRect.size();
     backingStoreSize.scale(scaleFactor);
 
-    auto backingStore = ShareableBitmap::createShareable(backingStoreSize, { });
-    if (!backingStore)
+    auto snapshot = WebImage::create(backingStoreSize, snapshotOptionsToImageOptions(options | SnapshotOptionsShareable), DestinationColorSpace::SRGB());
+    if (!snapshot)
         return nullptr;
 
-    auto graphicsContext = backingStore->createGraphicsContext();
-    if (!graphicsContext)
-        return nullptr;
-
-    graphicsContext->scale(scaleFactor);
+    auto& graphicsContext = snapshot->context();
+    graphicsContext.scale(scaleFactor);
 
     paintRect.move(frameView->frameRect().x(), frameView->frameRect().y());
     paintRect.moveBy(-frameView->scrollPosition());
 
-    graphicsContext->translate(-paintRect.location());
+    graphicsContext.translate(-paintRect.location());
 
     OptionSet<PaintBehavior> oldPaintBehavior = frameView->paintBehavior();
     OptionSet<PaintBehavior> paintBehavior = oldPaintBehavior;
@@ -165,12 +162,12 @@ RefPtr<WebImage> InjectedBundleRangeHandle::renderedImage(SnapshotOptions option
     frameView->setPaintBehavior(paintBehavior);
     document->updateLayout();
 
-    frameView->paint(*graphicsContext, paintRect);
+    frameView->paint(graphicsContext, paintRect);
     frameView->setPaintBehavior(oldPaintBehavior);
 
     frame->selection().setSelection(oldSelection);
 
-    return WebImage::create(backingStore.releaseNonNull());
+    return snapshot;
 }
 
 String InjectedBundleRangeHandle::text() const

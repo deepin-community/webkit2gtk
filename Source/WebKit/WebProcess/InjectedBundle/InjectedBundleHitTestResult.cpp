@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010 Apple Inc. All rights reserved.
+ * Copyright (C) 2010-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,15 +28,17 @@
 
 #include "InjectedBundleNodeHandle.h"
 #include "WebFrame.h"
-#include "WebFrameLoaderClient.h"
 #include "WebImage.h"
+#include "WebLocalFrameLoaderClient.h"
 #include <WebCore/BitmapImage.h>
 #include <WebCore/Document.h>
-#include <WebCore/Frame.h>
+#include <WebCore/Element.h>
+#include <WebCore/FrameDestructionObserverInlines.h>
 #include <WebCore/FrameLoader.h>
-#include <WebCore/FrameView.h>
 #include <WebCore/GraphicsContext.h>
 #include <WebCore/HTMLMediaElement.h>
+#include <WebCore/LocalFrame.h>
+#include <WebCore/LocalFrameView.h>
 #include <wtf/URL.h>
 
 namespace WebKit {
@@ -59,11 +61,11 @@ RefPtr<InjectedBundleNodeHandle> InjectedBundleHitTestResult::urlElementHandle()
 
 WebFrame* InjectedBundleHitTestResult::frame() const
 {
-    Node* node = m_hitTestResult.innerNonSharedNode();
+    auto* node = m_hitTestResult.innerNonSharedNode();
     if (!node)
         return nullptr;
 
-    Frame* frame = node->document().frame();
+    auto* frame = node->document().frame();
     if (!frame)
         return nullptr;
 
@@ -72,7 +74,7 @@ WebFrame* InjectedBundleHitTestResult::frame() const
 
 WebFrame* InjectedBundleHitTestResult::targetFrame() const
 {
-    Frame* frame = m_hitTestResult.targetFrame();
+    auto* frame = m_hitTestResult.targetFrame();
     if (!frame)
         return nullptr;
 
@@ -148,15 +150,15 @@ IntRect InjectedBundleHitTestResult::imageRect() const
         
     // The image rect in HitTestResult is in frame coordinates, but we need it in WKView
     // coordinates since WebKit2 clients don't have enough context to do the conversion themselves.
-    WebFrame* webFrame = frame();
+    auto* webFrame = frame();
     if (!webFrame)
         return imageRect;
     
-    Frame* coreFrame = webFrame->coreFrame();
+    auto* coreFrame = webFrame->coreLocalFrame();
     if (!coreFrame)
         return imageRect;
     
-    FrameView* view = coreFrame->view();
+    auto* view = coreFrame->view();
     if (!view)
         return imageRect;
     
@@ -172,14 +174,13 @@ RefPtr<WebImage> InjectedBundleHitTestResult::image() const
 
     BitmapImage& bitmapImage = downcast<BitmapImage>(*image);
     IntSize size(bitmapImage.size());
-    auto webImage = WebImage::create(size, static_cast<ImageOptions>(0));
-
-    // FIXME: need to handle EXIF rotation.
-    auto graphicsContext = webImage->bitmap().createGraphicsContext();
-    if (!graphicsContext)
+    auto webImage = WebImage::create(size, static_cast<ImageOptions>(0), DestinationColorSpace::SRGB());
+    if (!webImage)
         return nullptr;
 
-    graphicsContext->drawImage(bitmapImage, {{ }, size});
+    // FIXME: need to handle EXIF rotation.
+    auto& graphicsContext = webImage->context();
+    graphicsContext.drawImage(bitmapImage, { { }, size });
 
     return webImage;
 }

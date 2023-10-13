@@ -28,11 +28,14 @@
 
 #include "APINavigation.h"
 #include "Logging.h"
+#include "MessageSenderInlines.h"
+#include "PageLoadState.h"
 #include "ViewGestureControllerMessages.h"
 #include "WebBackForwardList.h"
 #include "WebFullScreenManagerProxy.h"
 #include "WebPageProxy.h"
 #include "WebProcessProxy.h"
+#include <WebCore/UserInterfaceLayoutDirection.h>
 #include <wtf/MathExtras.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/text/StringBuilder.h>
@@ -146,7 +149,7 @@ void ViewGestureController::didEndGesture()
 
 void ViewGestureController::setAlternateBackForwardListSourcePage(WebPageProxy* page)
 {
-    m_alternateBackForwardListSourcePage = makeWeakPtr(page);
+    m_alternateBackForwardListSourcePage = page;
 }
 
 bool ViewGestureController::canSwipeInDirection(SwipeDirection direction) const
@@ -242,7 +245,7 @@ void ViewGestureController::didSameDocumentNavigationForMainFrame(SameDocumentNa
     if (!cancelledOutstandingEvent)
         return;
 
-    if (type != SameDocumentNavigationSessionStateReplace && type != SameDocumentNavigationSessionStatePop)
+    if (type != SameDocumentNavigationType::SessionStateReplace && type != SameDocumentNavigationType::SessionStatePop)
         return;
 
     checkForActiveLoads();
@@ -294,7 +297,7 @@ String ViewGestureController::SnapshotRemovalTracker::eventsDescription(Events e
 }
 
 
-void ViewGestureController::SnapshotRemovalTracker::log(const String& log) const
+void ViewGestureController::SnapshotRemovalTracker::log(StringView log) const
 {
     RELEASE_LOG(ViewGestures, "Swipe Snapshot Removal (%0.2f ms) - %s", (MonotonicTime::now() - m_startTime).milliseconds(), log.utf8().data());
 }
@@ -302,7 +305,7 @@ void ViewGestureController::SnapshotRemovalTracker::log(const String& log) const
 void ViewGestureController::SnapshotRemovalTracker::resume()
 {
     if (isPaused() && m_outstandingEvents)
-        log("resume");
+        log("resume"_s);
     m_paused = false;
 }
 
@@ -312,7 +315,7 @@ void ViewGestureController::SnapshotRemovalTracker::start(Events desiredEvents, 
     m_removalCallback = WTFMove(removalCallback);
     m_startTime = MonotonicTime::now();
 
-    log("start");
+    log("start"_s);
 
     startWatchdog(swipeSnapshotRemovalWatchdogDuration);
 
@@ -324,13 +327,13 @@ void ViewGestureController::SnapshotRemovalTracker::start(Events desiredEvents, 
 void ViewGestureController::SnapshotRemovalTracker::reset()
 {
     if (m_outstandingEvents)
-        log("reset; had outstanding events: " + eventsDescription(m_outstandingEvents));
+        log(makeString("reset; had outstanding events: ", eventsDescription(m_outstandingEvents)));
     m_outstandingEvents = 0;
     m_watchdogTimer.stop();
     m_removalCallback = nullptr;
 }
 
-bool ViewGestureController::SnapshotRemovalTracker:: stopWaitingForEvent(Events event, const String& logReason, ShouldIgnoreEventIfPaused shouldIgnoreEventIfPaused)
+bool ViewGestureController::SnapshotRemovalTracker::stopWaitingForEvent(Events event, ASCIILiteral logReason, ShouldIgnoreEventIfPaused shouldIgnoreEventIfPaused)
 {
     ASSERT(hasOneBitSet(event));
 
@@ -338,11 +341,11 @@ bool ViewGestureController::SnapshotRemovalTracker:: stopWaitingForEvent(Events 
         return false;
 
     if (shouldIgnoreEventIfPaused == ShouldIgnoreEventIfPaused::Yes && isPaused()) {
-        log("is paused; ignoring event: " + eventsDescription(event));
+        log(makeString("is paused; ignoring event: ", eventsDescription(event)));
         return false;
     }
 
-    log(logReason + eventsDescription(event));
+    log(makeString(logReason, eventsDescription(event)));
 
     m_outstandingEvents &= ~event;
 
@@ -352,12 +355,12 @@ bool ViewGestureController::SnapshotRemovalTracker:: stopWaitingForEvent(Events 
 
 bool ViewGestureController::SnapshotRemovalTracker::eventOccurred(Events event, ShouldIgnoreEventIfPaused shouldIgnoreEventIfPaused)
 {
-    return stopWaitingForEvent(event, "outstanding event occurred: ", shouldIgnoreEventIfPaused);
+    return stopWaitingForEvent(event, "outstanding event occurred: "_s, shouldIgnoreEventIfPaused);
 }
 
 bool ViewGestureController::SnapshotRemovalTracker::cancelOutstandingEvent(Events event)
 {
-    return stopWaitingForEvent(event, "wait for event cancelled: ");
+    return stopWaitingForEvent(event, "wait for event cancelled: "_s);
 }
 
 bool ViewGestureController::SnapshotRemovalTracker::hasOutstandingEvent(Event event)
@@ -368,7 +371,7 @@ bool ViewGestureController::SnapshotRemovalTracker::hasOutstandingEvent(Event ev
 void ViewGestureController::SnapshotRemovalTracker::fireRemovalCallbackIfPossible()
 {
     if (m_outstandingEvents) {
-        log("deferring removal; had outstanding events: " + eventsDescription(m_outstandingEvents));
+        log(makeString("deferring removal; had outstanding events: ", eventsDescription(m_outstandingEvents)));
         return;
     }
 
@@ -381,7 +384,7 @@ void ViewGestureController::SnapshotRemovalTracker::fireRemovalCallbackImmediate
 
     auto removalCallback = WTFMove(m_removalCallback);
     if (removalCallback) {
-        log("removing snapshot");
+        log("removing snapshot"_s);
         reset();
         removalCallback();
     }
@@ -389,7 +392,7 @@ void ViewGestureController::SnapshotRemovalTracker::fireRemovalCallbackImmediate
 
 void ViewGestureController::SnapshotRemovalTracker::watchdogTimerFired()
 {
-    log("watchdog timer fired");
+    log("watchdog timer fired"_s);
     fireRemovalCallbackImmediately();
 }
 
@@ -403,6 +406,16 @@ void ViewGestureController::SnapshotRemovalTracker::startWatchdog(Seconds durati
 static bool deltaShouldCancelSwipe(FloatSize delta)
 {
     return std::abs(delta.height()) >= std::abs(delta.width()) * minimumScrollEventRatioForSwipe;
+}
+
+const char* ViewGestureController::PendingSwipeTracker::stateToString(State state)
+{
+    switch (state) {
+    case State::None: return "None";
+    case State::WaitingForWebCore: return "WaitingForWebCore";
+    case State::InsufficientMagnitude: return "InsufficientMagnitude";
+    }
+    return "";
 }
 
 ViewGestureController::PendingSwipeTracker::PendingSwipeTracker(WebPageProxy& webPageProxy, ViewGestureController& viewGestureController)
@@ -421,8 +434,8 @@ bool ViewGestureController::PendingSwipeTracker::scrollEventCanBecomeSwipe(Platf
     if (deltaShouldCancelSwipe(size))
         return false;
 
-    bool isPinnedToLeft = m_shouldIgnorePinnedState || m_webPageProxy.isPinnedToLeftSide();
-    bool isPinnedToRight = m_shouldIgnorePinnedState || m_webPageProxy.isPinnedToRightSide();
+    bool isPinnedToLeft = m_shouldIgnorePinnedState || m_webPageProxy.pinnedState().left();
+    bool isPinnedToRight = m_shouldIgnorePinnedState || m_webPageProxy.pinnedState().right();
 
     bool tryingToSwipeBack = size.width() > 0 && isPinnedToLeft;
     bool tryingToSwipeForward = size.width() < 0 && isPinnedToRight;
@@ -438,7 +451,7 @@ bool ViewGestureController::PendingSwipeTracker::scrollEventCanBecomeSwipe(Platf
 
 bool ViewGestureController::PendingSwipeTracker::handleEvent(PlatformScrollEvent event)
 {
-    LOG(ViewGestures, "PendingSwipeTracker::handleEvent - state %d", (int)m_state);
+    LOG_WITH_STREAM(ViewGestures, stream << "PendingSwipeTracker::handleEvent - state " << stateToString(m_state));
 
     if (scrollEventCanEndSwipe(event)) {
         reset("gesture ended");
@@ -446,14 +459,15 @@ bool ViewGestureController::PendingSwipeTracker::handleEvent(PlatformScrollEvent
     }
 
     if (m_state == State::None) {
-        LOG(ViewGestures, "PendingSwipeTracker::handleEvent - scroll can become swipe %d shouldIgnorePinnedState %d, page will handle scrolls %d", scrollEventCanBecomeSwipe(event, m_direction), m_shouldIgnorePinnedState, m_webPageProxy.willHandleHorizontalScrollEvents());
+        LOG_WITH_STREAM(ViewGestures, stream << "PendingSwipeTracker::handleEvent - scroll can become swipe " << scrollEventCanBecomeSwipe(event, m_direction)
+            << ", shouldIgnorePinnedState " << m_shouldIgnorePinnedState << ", page will handle scrolls " << m_webPageProxy.willHandleHorizontalScrollEvents());
 
         if (!scrollEventCanBecomeSwipe(event, m_direction))
             return false;
 
         if (!m_shouldIgnorePinnedState && m_webPageProxy.willHandleHorizontalScrollEvents()) {
             m_state = State::WaitingForWebCore;
-            LOG(ViewGestures, "Swipe Start Hysteresis - waiting for WebCore to handle event");
+            LOG(ViewGestures, "PendingSwipeTracker::handleEvent - waiting for WebCore to handle event");
         }
     }
 
@@ -465,7 +479,7 @@ bool ViewGestureController::PendingSwipeTracker::handleEvent(PlatformScrollEvent
 
 void ViewGestureController::PendingSwipeTracker::eventWasNotHandledByWebCore(PlatformScrollEvent event)
 {
-    LOG(ViewGestures, "Swipe Start Hysteresis - WebCore didn't handle event, state %d", (int)m_state);
+    LOG_WITH_STREAM(ViewGestures, stream << "PendingSwipeTracker::eventWasNotHandledByWebCore - WebCore didn't handle event, state " << stateToString(m_state));
 
     if (m_state != State::WaitingForWebCore)
         return;
@@ -489,7 +503,7 @@ bool ViewGestureController::PendingSwipeTracker::tryToStartSwipe(PlatformScrollE
         return false;
 
     m_cumulativeDelta += scrollEventGetScrollingDeltas(event);
-    LOG(ViewGestures, "Swipe Start Hysteresis - consumed event, cumulative delta (%0.2f, %0.2f)", m_cumulativeDelta.width(), m_cumulativeDelta.height());
+    LOG_WITH_STREAM(ViewGestures, stream << "PendingSwipeTracker::tryToStartSwipe - consumed event, cumulative delta " << m_cumulativeDelta);
 
     if (deltaShouldCancelSwipe(m_cumulativeDelta)) {
         reset("cumulative delta became too vertical");
@@ -504,10 +518,10 @@ bool ViewGestureController::PendingSwipeTracker::tryToStartSwipe(PlatformScrollE
     return true;
 }
 
-void ViewGestureController::PendingSwipeTracker::reset(const char* resetReasonForLogging)
+void ViewGestureController::PendingSwipeTracker::reset(const char* resetReason)
 {
     if (m_state != State::None)
-        LOG(ViewGestures, "Swipe Start Hysteresis - reset; %s", resetReasonForLogging);
+        LOG_WITH_STREAM(ViewGestures, stream << "PendingSwipeTracker::reset - " << resetReason);
 
     m_state = State::None;
     m_cumulativeDelta = FloatSize();
@@ -521,7 +535,7 @@ void ViewGestureController::startSwipeGesture(PlatformScrollEvent event, SwipeDi
 
     m_webPageProxy.recordAutomaticNavigationSnapshot();
 
-    RefPtr<WebBackForwardListItem> targetItem = (direction == SwipeDirection::Back) ? m_webPageProxy.backForwardList().backItem() : m_webPageProxy.backForwardList().forwardItem();
+    RefPtr<WebBackForwardListItem> targetItem = (direction == SwipeDirection::Back) ? m_webPageProxy.backForwardList().goBackItemSkippingItemsWithoutUserGesture() : m_webPageProxy.backForwardList().goForwardItemSkippingItemsWithoutUserGesture();
     if (!targetItem)
         return;
 

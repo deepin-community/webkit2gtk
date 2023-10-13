@@ -41,11 +41,16 @@ GPUProcessCreationParameters::GPUProcessCreationParameters() = default;
 
 void GPUProcessCreationParameters::encode(IPC::Encoder& encoder) const
 {
+    encoder << auxiliaryProcessParameters;
 #if ENABLE(MEDIA_STREAM)
     encoder << useMockCaptureDevices;
 #if PLATFORM(MAC)
     encoder << microphoneSandboxExtensionHandle;
+    encoder << launchServicesExtensionHandle;
 #endif
+#endif
+#if HAVE(AVCONTENTKEYSPECIFIER)
+    encoder << sampleBufferContentKeySessionSupportEnabled;
 #endif
     encoder << parentPID;
 
@@ -56,24 +61,43 @@ void GPUProcessCreationParameters::encode(IPC::Encoder& encoder) const
 #if PLATFORM(IOS_FAMILY)
     encoder << compilerServiceExtensionHandles;
     encoder << dynamicIOKitExtensionHandles;
-    encoder << dynamicMachExtensionHandles;
+#endif
+    encoder << mobileGestaltExtensionHandle;
+#if PLATFORM(COCOA) && ENABLE(REMOTE_INSPECTOR)
+    encoder << gpuToolsExtensionHandles;
 #endif
 
-    encoder << wtfLoggingChannels;
-    encoder << webCoreLoggingChannels;
-    encoder << webKitLoggingChannels;
+    encoder << applicationVisibleName;
+#if PLATFORM(COCOA)
+    encoder << strictSecureDecodingForAllObjCEnabled;
+#endif
+
+#if USE(GBM)
+    encoder << renderDeviceFile;
+#endif
+
+    encoder << overrideLanguages;
 }
 
 bool GPUProcessCreationParameters::decode(IPC::Decoder& decoder, GPUProcessCreationParameters& result)
 {
+    if (!decoder.decode(result.auxiliaryProcessParameters))
+        return false;
 #if ENABLE(MEDIA_STREAM)
     if (!decoder.decode(result.useMockCaptureDevices))
         return false;
 #if PLATFORM(MAC)
     if (!decoder.decode(result.microphoneSandboxExtensionHandle))
         return false;
+    if (!decoder.decode(result.launchServicesExtensionHandle))
+        return false;
 #endif
 #endif
+#if HAVE(AVCONTENTKEYSPECIFIER)
+    if (!decoder.decode(result.sampleBufferContentKeySessionSupportEnabled))
+        return false;
+#endif
+
     if (!decoder.decode(result.parentPID))
         return false;
 
@@ -102,20 +126,43 @@ bool GPUProcessCreationParameters::decode(IPC::Decoder& decoder, GPUProcessCreat
     if (!dynamicIOKitExtensionHandles)
         return false;
     result.dynamicIOKitExtensionHandles = WTFMove(*dynamicIOKitExtensionHandles);
-
-    std::optional<Vector<SandboxExtension::Handle>> dynamicMachExtensionHandles;
-    decoder >> dynamicMachExtensionHandles;
-    if (!dynamicMachExtensionHandles)
-        return false;
-    result.dynamicMachExtensionHandles = WTFMove(*dynamicMachExtensionHandles);
 #endif
 
-    if (!decoder.decode(result.wtfLoggingChannels))
+    std::optional<std::optional<SandboxExtension::Handle>> mobileGestaltExtensionHandle;
+    decoder >> mobileGestaltExtensionHandle;
+    if (!mobileGestaltExtensionHandle)
         return false;
-    if (!decoder.decode(result.webCoreLoggingChannels))
+    result.mobileGestaltExtensionHandle = WTFMove(*mobileGestaltExtensionHandle);
+
+#if PLATFORM(COCOA) && ENABLE(REMOTE_INSPECTOR)
+    std::optional<Vector<SandboxExtension::Handle>> gpuToolsExtensionHandles;
+    decoder >> gpuToolsExtensionHandles;
+    if (!gpuToolsExtensionHandles)
         return false;
-    if (!decoder.decode(result.webKitLoggingChannels))
+    result.gpuToolsExtensionHandles = WTFMove(*gpuToolsExtensionHandles);
+#endif
+
+    if (!decoder.decode(result.applicationVisibleName))
         return false;
+
+#if PLATFORM(COCOA)
+    if (!decoder.decode(result.strictSecureDecodingForAllObjCEnabled))
+        return false;
+#endif
+
+#if USE(GBM)
+    std::optional<String> renderDeviceFile;
+    decoder >> renderDeviceFile;
+    if (!renderDeviceFile)
+        return false;
+    result.renderDeviceFile = WTFMove(*renderDeviceFile);
+#endif
+
+    std::optional<Vector<String>> overrideLanguages;
+    decoder >> overrideLanguages;
+    if (!overrideLanguages)
+        return false;
+    result.overrideLanguages = WTFMove(*overrideLanguages);
 
     return true;
 }

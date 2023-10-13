@@ -27,6 +27,7 @@
 #import "RemoteScrollingUIState.h"
 
 #import "ArgumentCoders.h"
+#import "GeneratedSerializers.h"
 #import <wtf/text/TextStream.h>
 
 namespace WebKit {
@@ -93,6 +94,15 @@ void RemoteScrollingUIState::removeNodeWithActiveUserScroll(WebCore::ScrollingNo
 {
     if (m_nodesWithActiveUserScrolls.remove(nodeID))
         m_changes.add(Changes::UserScrollNodes);
+}
+
+void RemoteScrollingUIState::clearNodesWithActiveUserScroll()
+{
+    if (m_nodesWithActiveUserScrolls.isEmpty())
+        return;
+
+    m_nodesWithActiveUserScrolls.clear();
+    m_changes.add(Changes::UserScrollNodes);
 }
 
 } // namespace WebKit

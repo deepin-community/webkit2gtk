@@ -21,12 +21,14 @@
 #include "config.h"
 #include "RenderDetailsMarker.h"
 
-#include "Element.h"
+#include "ElementInlines.h"
 #include "GraphicsContext.h"
 #include "HTMLDetailsElement.h"
 #include "HTMLInputElement.h"
 #include "HTMLNames.h"
 #include "PaintInfo.h"
+#include "RenderBoxInlines.h"
+#include "RenderBoxModelObjectInlines.h"
 #include <wtf/IsoMallocInlines.h>
 
 namespace WebCore {
@@ -132,7 +134,7 @@ void RenderDetailsMarker::paint(PaintInfo& paintInfo, const LayoutPoint& paintOf
 
     const Color color(style().visitedDependentColorWithColorFilter(CSSPropertyColor));
     paintInfo.context().setStrokeColor(color);
-    paintInfo.context().setStrokeStyle(SolidStroke);
+    paintInfo.context().setStrokeStyle(StrokeStyle::SolidStroke);
     paintInfo.context().setStrokeThickness(1.0f);
     paintInfo.context().setFillColor(color);
 

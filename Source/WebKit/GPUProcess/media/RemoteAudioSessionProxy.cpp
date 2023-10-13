@@ -30,10 +30,13 @@
 
 #include "GPUConnectionToWebProcess.h"
 #include "GPUProcess.h"
+#include "Logging.h"
 #include "RemoteAudioSessionMessages.h"
 #include "RemoteAudioSessionProxyManager.h"
 #include "RemoteAudioSessionProxyMessages.h"
 #include <WebCore/AudioSession.h>
+
+#define MESSAGE_CHECK(assertion) MESSAGE_CHECK_BASE(assertion, (&connection()))
 
 namespace WebKit {
 
@@ -71,12 +74,13 @@ RemoteAudioSessionConfiguration RemoteAudioSessionProxy::configuration()
     };
 }
 
-void RemoteAudioSessionProxy::setCategory(AudioSession::CategoryType category, RouteSharingPolicy policy)
+void RemoteAudioSessionProxy::setCategory(AudioSession::CategoryType category, AudioSession::Mode mode, RouteSharingPolicy policy)
 {
-    if (m_category == category && m_routeSharingPolicy == policy && !m_isPlayingToBluetoothOverrideChanged)
+    if (m_category == category && m_mode == mode && m_routeSharingPolicy == policy && !m_isPlayingToBluetoothOverrideChanged)
         return;
 
     m_category = category;
+    m_mode = mode;
     m_routeSharingPolicy = policy;
     m_isPlayingToBluetoothOverrideChanged = false;
     audioSessionManager().updateCategory();
@@ -85,13 +89,22 @@ void RemoteAudioSessionProxy::setCategory(AudioSession::CategoryType category, R
 void RemoteAudioSessionProxy::setPreferredBufferSize(uint64_t size)
 {
     m_preferredBufferSize = size;
-    audioSessionManager().setPreferredBufferSizeForProcess(*this, size);
+    audioSessionManager().updatePreferredBufferSizeForProcess();
 }
 
 void RemoteAudioSessionProxy::tryToSetActive(bool active, SetActiveCompletion&& completion)
 {
-    m_active = audioSessionManager().tryToSetActiveForProcess(*this, active);
-    completion(m_active);
+    auto success = audioSessionManager().tryToSetActiveForProcess(*this, active);
+    bool hasActiveChanged = success && m_active != active;
+    if (success)
+        m_active = active;
+
+    completion(success);
+
+    if (hasActiveChanged)
+        configurationChanged();
+
+    audioSessionManager().updatePresentingProcesses();
 }
 
 void RemoteAudioSessionProxy::setIsPlayingToBluetoothOverride(std::optional<bool>&& value)
@@ -107,12 +120,24 @@ void RemoteAudioSessionProxy::configurationChanged()
 
 void RemoteAudioSessionProxy::beginInterruption()
 {
-    connection().send(Messages::RemoteAudioSession::BeginInterruption(), { });
+    m_isInterrupted = true;
+    connection().send(Messages::RemoteAudioSession::BeginInterruptionRemote(), { });
 }
 
 void RemoteAudioSessionProxy::endInterruption(AudioSession::MayResume mayResume)
 {
-    connection().send(Messages::RemoteAudioSession::EndInterruption(mayResume), { });
+    m_isInterrupted = false;
+    connection().send(Messages::RemoteAudioSession::EndInterruptionRemote(mayResume), { });
+}
+
+void RemoteAudioSessionProxy::beginInterruptionRemote()
+{
+    audioSessionManager().beginInterruptionRemote();
+}
+
+void RemoteAudioSessionProxy::endInterruptionRemote(AudioSession::MayResume mayResume)
+{
+    audioSessionManager().endInterruptionRemote(mayResume);
 }
 
 RemoteAudioSessionProxyManager& RemoteAudioSessionProxy::audioSessionManager()
@@ -123,6 +148,18 @@ RemoteAudioSessionProxyManager& RemoteAudioSessionProxy::audioSessionManager()
 IPC::Connection& RemoteAudioSessionProxy::connection()
 {
     return m_gpuConnection.connection();
+}
+
+void RemoteAudioSessionProxy::triggerBeginInterruptionForTesting()
+{
+    MESSAGE_CHECK(m_gpuConnection.allowTestOnlyIPC());
+    AudioSession::sharedSession().beginInterruptionForTesting();
+}
+
+void RemoteAudioSessionProxy::triggerEndInterruptionForTesting()
+{
+    MESSAGE_CHECK(m_gpuConnection.allowTestOnlyIPC());
+    AudioSession::sharedSession().endInterruptionForTesting();
 }
 
 }

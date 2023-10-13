@@ -25,12 +25,14 @@
 
 #pragma once
 
-#if PLATFORM(COCOA) && ENABLE(GPU_PROCESS) && ENABLE(MEDIA_STREAM) && HAVE(AVASSETWRITERDELEGATE)
+#if PLATFORM(COCOA) && ENABLE(GPU_PROCESS) && ENABLE(MEDIA_STREAM)
 
 #include "DataReference.h"
 #include "MediaRecorderIdentifier.h"
 #include "MessageReceiver.h"
-#include "SharedMemory.h"
+#include "RemoteVideoFrameIdentifier.h"
+#include "SharedCARingBuffer.h"
+#include "SharedVideoFrame.h"
 #include <WebCore/CAAudioStreamDescription.h>
 #include <WebCore/MediaRecorderPrivateWriterCocoa.h>
 #include <wtf/MediaTime.h>
@@ -41,9 +43,6 @@ class Decoder;
 }
 
 namespace WebCore {
-class CARingBuffer;
-class ImageTransferSessionVT;
-class RemoteVideoSample;
 class WebAudioBufferList;
 struct MediaRecorderPrivateOptions;
 }
@@ -51,7 +50,6 @@ struct MediaRecorderPrivateOptions;
 namespace WebKit {
 
 class GPUConnectionToWebProcess;
-class SharedRingBufferStorage;
 
 class RemoteMediaRecorder : private IPC::MessageReceiver {
     WTF_MAKE_FAST_ALLOCATED;
@@ -69,24 +67,28 @@ private:
     RemoteMediaRecorder(GPUConnectionToWebProcess&, MediaRecorderIdentifier, Ref<WebCore::MediaRecorderPrivateWriter>&&, bool recordAudio);
 
     // IPC::MessageReceiver
-    void audioSamplesStorageChanged(const SharedMemory::IPCHandle&, const WebCore::CAAudioStreamDescription&, uint64_t numberOfFrames);
+    void audioSamplesStorageChanged(ConsumerSharedCARingBuffer::Handle&&, const WebCore::CAAudioStreamDescription&);
     void audioSamplesAvailable(MediaTime, uint64_t numberOfFrames);
-    void videoSampleAvailable(WebCore::RemoteVideoSample&&);
+    void videoFrameAvailable(SharedVideoFrame&&);
     void fetchData(CompletionHandler<void(IPC::DataReference&&, double)>&&);
     void stopRecording(CompletionHandler<void()>&&);
     void pause(CompletionHandler<void()>&&);
     void resume(CompletionHandler<void()>&&);
+    void setSharedVideoFrameSemaphore(IPC::Semaphore&&);
+    void setSharedVideoFrameMemory(SharedMemory::Handle&&);
 
     GPUConnectionToWebProcess& m_gpuConnectionToWebProcess;
     MediaRecorderIdentifier m_identifier;
     Ref<WebCore::MediaRecorderPrivateWriter> m_writer;
 
-    WebCore::CAAudioStreamDescription m_description;
-    std::unique_ptr<WebCore::CARingBuffer> m_ringBuffer;
+    std::optional<WebCore::CAAudioStreamDescription> m_description;
+    std::unique_ptr<ConsumerSharedCARingBuffer> m_ringBuffer;
     std::unique_ptr<WebCore::WebAudioBufferList> m_audioBufferList;
-    std::unique_ptr<WebCore::ImageTransferSessionVT> m_imageTransferSession;
+    const bool m_recordAudio;
+
+    SharedVideoFrameReader m_sharedVideoFrameReader;
 };
 
 }
 
-#endif // PLATFORM(COCOA) && ENABLE(GPU_PROCESS) && ENABLE(MEDIA_STREAM) && HAVE(AVASSETWRITERDELEGATE)
+#endif // PLATFORM(COCOA) && ENABLE(GPU_PROCESS) && ENABLE(MEDIA_STREAM)

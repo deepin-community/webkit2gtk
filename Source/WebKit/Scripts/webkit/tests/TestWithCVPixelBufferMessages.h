@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2021-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,7 +27,9 @@
 #include "ArgumentCoders.h"
 #include "Connection.h"
 #include "MessageNames.h"
-#include "TestWithCVPixelBufferMessagesReplies.h"
+#if PLATFORM(COCOA)
+#include <WebCore/CVUtilities.h>
+#endif
 #include <wtf/Forward.h>
 #include <wtf/RetainPtr.h>
 #include <wtf/ThreadSafeRefCounted.h>
@@ -44,7 +46,7 @@ static inline IPC::ReceiverName messageReceiverName()
 #if USE(AVFOUNDATION)
 class SendCVPixelBuffer {
 public:
-    using Arguments = std::tuple<const RetainPtr<CVPixelBufferRef>&>;
+    using Arguments = std::tuple<RetainPtr<CVPixelBufferRef>>;
 
     static IPC::MessageName name() { return IPC::MessageName::TestWithCVPixelBuffer_SendCVPixelBuffer; }
     static constexpr bool isSync = false;
@@ -54,13 +56,13 @@ public:
     {
     }
 
-    const Arguments& arguments() const
+    auto&& arguments()
     {
-        return m_arguments;
+        return WTFMove(m_arguments);
     }
 
 private:
-    Arguments m_arguments;
+    std::tuple<const RetainPtr<CVPixelBufferRef>&> m_arguments;
 };
 #endif
 
@@ -70,18 +72,18 @@ public:
     using Arguments = std::tuple<>;
 
     static IPC::MessageName name() { return IPC::MessageName::TestWithCVPixelBuffer_ReceiveCVPixelBuffer; }
-    static constexpr bool isSync = true;
+    static constexpr bool isSync = false;
 
+    static IPC::MessageName asyncMessageReplyName() { return IPC::MessageName::TestWithCVPixelBuffer_ReceiveCVPixelBufferReply; }
     static constexpr auto callbackThread = WTF::CompletionHandlerCallThread::ConstructionThread;
-    using Reply = std::tuple<RetainPtr<CVPixelBufferRef>&>;
     using ReplyArguments = std::tuple<RetainPtr<CVPixelBufferRef>>;
-    const Arguments& arguments() const
+    auto&& arguments()
     {
-        return m_arguments;
+        return WTFMove(m_arguments);
     }
 
 private:
-    Arguments m_arguments;
+    std::tuple<> m_arguments;
 };
 #endif
 

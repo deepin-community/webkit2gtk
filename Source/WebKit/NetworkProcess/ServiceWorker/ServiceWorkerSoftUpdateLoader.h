@@ -37,8 +37,8 @@
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {
-struct ServiceWorkerFetchResult;
 struct ServiceWorkerJobData;
+struct WorkerFetchResult;
 class TextResourceDecoder;
 }
 
@@ -50,21 +50,18 @@ class NetworkSession;
 class ServiceWorkerSoftUpdateLoader final : public NetworkLoadClient, public CanMakeWeakPtr<ServiceWorkerSoftUpdateLoader> {
     WTF_MAKE_FAST_ALLOCATED;
 public:
-    using Handler = CompletionHandler<void(const WebCore::ServiceWorkerFetchResult&)>;
-    static void start(NetworkSession*, WebCore::ServiceWorkerJobData&&, bool shouldRefreshCache, WebCore::ResourceRequest&&, Handler&&);
-
+    using Handler = CompletionHandler<void(WebCore::WorkerFetchResult&&)>;
+    ServiceWorkerSoftUpdateLoader(NetworkSession&, WebCore::ServiceWorkerJobData&&, bool shouldRefreshCache, WebCore::ResourceRequest&&, Handler&&);
     ~ServiceWorkerSoftUpdateLoader();
     
 private:
-    ServiceWorkerSoftUpdateLoader(NetworkSession&, WebCore::ServiceWorkerJobData&&, bool shouldRefreshCache, WebCore::ResourceRequest&&, Handler&&);
-
     // NetworkLoadClient.
-    void didSendData(unsigned long long bytesSent, unsigned long long totalBytesToBeSent) final { }
+    void didSendData(uint64_t bytesSent, uint64_t totalBytesToBeSent) final { }
     bool isSynchronous() const final { return false; }
     bool isAllowedToAskUserForCredentials() const final { return false; }
-    void willSendRedirectedRequest(WebCore::ResourceRequest&&, WebCore::ResourceRequest&& redirectRequest, WebCore::ResourceResponse&& redirectResponse) final;
-    void didReceiveResponse(WebCore::ResourceResponse&&, ResponseCompletionHandler&&) final;
-    void didReceiveBuffer(Ref<WebCore::SharedBuffer>&&, int reportedEncodedDataLength) final;
+    void willSendRedirectedRequest(WebCore::ResourceRequest&&, WebCore::ResourceRequest&& redirectRequest, WebCore::ResourceResponse&& redirectResponse, CompletionHandler<void(WebCore::ResourceRequest&&)>&&) final;
+    void didReceiveResponse(WebCore::ResourceResponse&&, PrivateRelayed, ResponseCompletionHandler&&) final;
+    void didReceiveBuffer(const WebCore::FragmentedSharedBuffer&, uint64_t reportedEncodedDataLength) final;
     void didFinishLoading(const WebCore::NetworkLoadMetrics&) final;
     void didFailLoading(const WebCore::ResourceError&) final;
 

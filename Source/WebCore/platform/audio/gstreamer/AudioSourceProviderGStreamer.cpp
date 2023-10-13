@@ -31,6 +31,7 @@
 #if ENABLE(MEDIA_STREAM)
 #include "GStreamerAudioData.h"
 #include "GStreamerMediaStreamSource.h"
+#include "MediaStreamPrivate.h"
 #endif
 
 namespace WebCore {
@@ -41,7 +42,7 @@ static const float gSampleBitRate = 44100;
 GST_DEBUG_CATEGORY(webkit_audio_provider_debug);
 #define GST_CAT_DEFAULT webkit_audio_provider_debug
 
-static void initializeDebugCategory()
+static void initializeAudioSourceProviderDebugCategory()
 {
     static std::once_flag onceFlag;
     std::call_once(onceFlag, [] {
@@ -85,30 +86,98 @@ static void copyGStreamerBuffersToAudioChannel(GstAdapter* adapter, AudioBus* bu
 AudioSourceProviderGStreamer::AudioSourceProviderGStreamer()
     : m_notifier(MainThreadNotifier<MainThreadNotification>::create())
 {
-    initializeDebugCategory();
+    initializeAudioSourceProviderDebugCategory();
 }
 
 #if ENABLE(MEDIA_STREAM)
 AudioSourceProviderGStreamer::AudioSourceProviderGStreamer(MediaStreamTrackPrivate& source)
-    : m_notifier(MainThreadNotifier<MainThreadNotification>::create())
+    : m_captureSource(source)
+    , m_notifier(MainThreadNotifier<MainThreadNotification>::create())
 {
-    initializeDebugCategory();
-    auto pipelineName = makeString("WebAudioProvider_MediaStreamTrack_", source.id());
+    initializeAudioSourceProviderDebugCategory();
+    registerWebKitGStreamerElements();
+    const char* pipelineNamePrefix = "";
+#if USE(GSTREAMER_WEBRTC)
+    if (m_captureSource->source().isIncomingAudioSource())
+        pipelineNamePrefix = "incoming-";
+#endif
+    auto pipelineName = makeString(pipelineNamePrefix, "WebAudioProvider_MediaStreamTrack_", source.id());
     m_pipeline = gst_element_factory_make("pipeline", pipelineName.utf8().data());
-    auto src = webkitMediaStreamSrcNew();
-    webkitMediaStreamSrcAddTrack(WEBKIT_MEDIA_STREAM_SRC(src), &source, true);
+    GST_DEBUG_OBJECT(m_pipeline.get(), "MediaStream WebAudio provider created");
+
+    m_streamPrivate = MediaStreamPrivate::create(Logger::create(this), { source });
 
     m_audioSinkBin = gst_parse_bin_from_description("tee name=audioTee", true, nullptr);
 
-    gst_bin_add_many(GST_BIN_CAST(m_pipeline.get()), src, m_audioSinkBin.get(), nullptr);
-    gst_element_link(src, m_audioSinkBin.get());
+    auto* decodebin = makeGStreamerElement("uridecodebin3", nullptr);
 
-    connectSimpleBusMessageCallback(m_pipeline.get());
+    g_signal_connect_swapped(decodebin, "source-setup", G_CALLBACK(+[](AudioSourceProviderGStreamer* provider, GstElement* sourceElement) {
+        if (!WEBKIT_IS_MEDIA_STREAM_SRC(sourceElement)) {
+            ASSERT_NOT_REACHED();
+            return;
+        }
+        webkitMediaStreamSrcSetStream(WEBKIT_MEDIA_STREAM_SRC(sourceElement), provider->m_streamPrivate.get(), false);
+    }), this);
+
+    g_signal_connect_swapped(decodebin, "pad-added", G_CALLBACK(+[](AudioSourceProviderGStreamer* provider, GstPad* pad) {
+        auto padCaps = adoptGRef(gst_pad_query_caps(pad, nullptr));
+        bool isAudio = doCapsHaveType(padCaps.get(), "audio");
+        RELEASE_ASSERT(isAudio);
+
+        auto sinkPad = adoptGRef(gst_element_get_static_pad(provider->m_audioSinkBin.get(), "sink"));
+        gst_pad_link(pad, sinkPad.get());
+        gst_element_sync_state_with_parent(provider->m_audioSinkBin.get());
+    }), this);
+
+    gst_bin_add_many(GST_BIN_CAST(m_pipeline.get()), decodebin, m_audioSinkBin.get(), nullptr);
+
+    auto bus = adoptGRef(gst_pipeline_get_bus(GST_PIPELINE(m_pipeline.get())));
+    ASSERT(bus);
+
+    gst_bus_set_sync_handler(bus.get(), [](GstBus*, GstMessage* messageRef, gpointer userData) -> GstBusSyncReply {
+        auto message = adoptGRef(messageRef);
+        auto* decodebin = GST_ELEMENT_CAST(userData);
+        if (GST_MESSAGE_TYPE(message.get()) == GST_MESSAGE_LATENCY) {
+            auto pipeline = adoptGRef(gst_element_get_parent(decodebin));
+            gst_bin_recalculate_latency(GST_BIN_CAST(pipeline.get()));
+            return GST_BUS_DROP;
+        }
+
+        if (GST_MESSAGE_TYPE(message.get()) != GST_MESSAGE_STREAM_COLLECTION || GST_MESSAGE_SRC(message.get()) != GST_OBJECT_CAST(decodebin))
+            return GST_BUS_DROP;
+
+        GRefPtr<GstStreamCollection> collection;
+        gst_message_parse_stream_collection(message.get(), &collection.outPtr());
+        if (!collection)
+            return GST_BUS_DROP;
+
+        unsigned size = gst_stream_collection_get_size(collection.get());
+        GList* streams = nullptr;
+        for (unsigned i = 0; i < size; i++) {
+            auto* stream = gst_stream_collection_get_stream(collection.get(), i);
+            auto streamType = gst_stream_get_stream_type(stream);
+            if (streamType == GST_STREAM_TYPE_AUDIO) {
+                streams = g_list_append(streams, const_cast<char*>(gst_stream_get_stream_id(stream)));
+                break;
+            }
+        }
+        if (streams) {
+            gst_element_send_event(decodebin, gst_event_new_select_streams(streams));
+            g_list_free(streams);
+        }
+
+        return GST_BUS_DROP;
+    }, gst_object_ref(decodebin), gst_object_unref);
+
+    g_object_set(decodebin, "uri", "mediastream://", nullptr);
 }
 #endif
 
 AudioSourceProviderGStreamer::~AudioSourceProviderGStreamer()
 {
+#if ENABLE(MEDIA_STREAM)
+    GST_DEBUG_OBJECT(m_pipeline.get(), "Disposing");
+#endif
     m_notifier->invalidate();
 
     auto deinterleave = adoptGRef(gst_bin_get_by_name(GST_BIN_CAST(m_audioSinkBin.get()), "deinterleave"));
@@ -120,10 +189,9 @@ AudioSourceProviderGStreamer::~AudioSourceProviderGStreamer()
 
     setClient(nullptr);
 #if ENABLE(MEDIA_STREAM)
-    if (m_pipeline) {
-        disconnectSimpleBusMessageCallback(m_pipeline.get());
+    if (m_pipeline)
         gst_element_set_state(m_pipeline.get(), GST_STATE_NULL);
-    }
+    GST_DEBUG_OBJECT(m_pipeline.get(), "Disposing DONE");
 #endif
 }
 
@@ -201,14 +269,16 @@ GstFlowReturn AudioSourceProviderGStreamer::handleSample(GstAppSink* sink, bool 
     return GST_FLOW_OK;
 }
 
-void AudioSourceProviderGStreamer::setClient(AudioSourceProviderClient* newClient)
+void AudioSourceProviderGStreamer::setClient(WeakPtr<AudioSourceProviderClient>&& newClient)
 {
-    if (client() == newClient)
+    if (client() == newClient.get())
         return;
 
-    GST_DEBUG("Setting up client %p (previous: %p)", newClient, client());
+#if ENABLE(MEDIA_STREAM)
+    GST_DEBUG_OBJECT(m_pipeline.get(), "[%p] Setting up client %p (previous: %p)", this, newClient.get(), client());
+#endif
     bool previousClientWasValid = !!m_client;
-    m_client = makeWeakPtr(newClient);
+    m_client = WTFMove(newClient);
 
     // The volume element is used to mute audio playback towards the
     // autoaudiosink. This is needed to avoid double playback of audio
@@ -294,7 +364,9 @@ void AudioSourceProviderGStreamer::setClient(AudioSourceProviderClient* newClien
 
 void AudioSourceProviderGStreamer::handleNewDeinterleavePad(GstPad* pad)
 {
-    GST_DEBUG("New pad %" GST_PTR_FORMAT, pad);
+#if ENABLE(MEDIA_STREAM)
+    GST_DEBUG_OBJECT(m_pipeline.get(), "New pad %" GST_PTR_FORMAT, pad);
+#endif
 
     // A new pad for a planar channel was added in deinterleave. Plug
     // in an appsink so we can pull the data from each
@@ -311,8 +383,12 @@ void AudioSourceProviderGStreamer::handleNewDeinterleavePad(GstPad* pad)
         [](GstAppSink* sink, gpointer userData) -> GstFlowReturn {
             return static_cast<AudioSourceProviderGStreamer*>(userData)->handleSample(sink, false);
         },
-#if GST_CHECK_VERSION(1, 19, 0)
+#if GST_CHECK_VERSION(1, 20, 0)
         // new_event
+        nullptr,
+#endif
+#if GST_CHECK_VERSION(1, 23, 0)
+        // propose_allocation
         nullptr,
 #endif
         { nullptr }
@@ -321,6 +397,16 @@ void AudioSourceProviderGStreamer::handleNewDeinterleavePad(GstPad* pad)
     // The provider client might request samples faster than the current clock speed, so this sink
     // should process buffers as fast as possible.
     g_object_set(sink, "async", FALSE, "sync", FALSE, nullptr);
+
+    // Some intermediate bins are eating up the EOS message posted to the bus of the inner bin that
+    // holds the appsink. Make sure that the main pipeline gets notified about it, so the player
+    // private can properly handle EOS.
+    g_signal_connect_swapped(GST_APP_SINK(sink), "eos", G_CALLBACK(+[](GstElement*, GstElement* appsink) {
+        GstElement* pipeline;
+        for (pipeline = appsink; pipeline && GST_ELEMENT_PARENT(pipeline); pipeline = GST_ELEMENT_PARENT(pipeline)) { }
+        if (pipeline && pipeline->bus)
+            gst_bus_post(pipeline->bus, gst_message_new_eos(GST_OBJECT(appsink)));
+    }), sink);
 
     auto caps = adoptGRef(gst_caps_new_simple("audio/x-raw", "rate", G_TYPE_INT, static_cast<int>(gSampleBitRate),
         "channels", G_TYPE_INT, 1, "format", G_TYPE_STRING, GST_AUDIO_NE(F32), "layout", G_TYPE_STRING, "interleaved", nullptr));
@@ -335,7 +421,6 @@ void AudioSourceProviderGStreamer::handleNewDeinterleavePad(GstPad* pad)
 
     GQuark quark = g_quark_from_static_string("peer");
     g_object_set_qdata(G_OBJECT(pad), quark, sinkPad.get());
-
     m_deinterleaveSourcePads++;
     GQuark channelIdQuark = g_quark_from_static_string("channel-id");
     g_object_set_qdata(G_OBJECT(sink), channelIdQuark, GINT_TO_POINTER(m_deinterleaveSourcePads));
@@ -373,6 +458,9 @@ void AudioSourceProviderGStreamer::handleRemovedDeinterleavePad(GstPad* pad)
     auto srcPad = adoptGRef(gst_element_get_static_pad(queue.get(), "src"));
     auto sinkSinkPad = adoptGRef(gst_pad_get_peer(srcPad.get()));
     auto sink = adoptGRef(gst_pad_get_parent_element(sinkSinkPad.get()));
+
+    g_signal_handlers_disconnect_by_data(sink.get(), sink.get());
+
     gst_pad_unlink(srcPad.get(), sinkSinkPad.get());
     gst_element_set_state(queue.get(), GST_STATE_NULL);
     gst_element_set_state(sink.get(), GST_STATE_NULL);
@@ -394,6 +482,8 @@ void AudioSourceProviderGStreamer::clearAdapters()
     for (auto& adapter : m_adapters.values())
         gst_adapter_clear(adapter.get());
 }
+
+#undef GST_CAT_DEFAULT
 
 } // WebCore
 

@@ -35,17 +35,19 @@
 
 namespace WebKit {
 
-bool isFeatureFlagEnabled(const char*, bool defaultValue = false);
-
 #if PLATFORM(IOS_FAMILY)
 bool defaultPassiveTouchListenersAsDefaultOnDocument();
 bool defaultCSSOMViewScrollingAPIEnabled();
+bool defaultShouldPrintBackgrounds();
+bool defaultAlternateFormControlDesignEnabled();
+bool defaultVideoFullscreenRequiresElementFullscreen();
 #if ENABLE(TEXT_AUTOSIZING)
 bool defaultTextAutosizingUsesIdempotentMode();
 #endif
 #endif
 
 #if PLATFORM(MAC)
+bool defaultScrollAnimatorEnabled();
 bool defaultPassiveWheelListenersAsDefaultOnDocument();
 bool defaultWheelEventGesturesBecomeNonBlocking();
 #endif
@@ -62,52 +64,55 @@ bool defaultAppleMailPaginationQuirkEnabled();
 bool allowsDeprecatedSynchronousXMLHttpRequestDuringUnload();
 #endif
 
-bool defaultAsyncFrameScrollingEnabled();
-bool defaultAsyncOverflowScrollingEnabled();
 bool defaultOfflineWebApplicationCacheEnabled();
-
-#if ENABLE(GPU_PROCESS)
-bool defaultUseGPUProcessForCanvasRenderingEnabled();
-bool defaultUseGPUProcessForDOMRenderingEnabled();
-bool defaultUseGPUProcessForMediaEnabled();
-bool defaultUseGPUProcessForWebGLEnabled();
-#endif
 
 #if ENABLE(MEDIA_STREAM)
 bool defaultCaptureAudioInGPUProcessEnabled();
 bool defaultCaptureAudioInUIProcessEnabled();
-bool defaultCaptureVideoInGPUProcessEnabled();
+bool defaultManageCaptureStatusBarInGPUProcessEnabled();
 #endif
 
-#if ENABLE(WEB_RTC)
-bool defaultWebRTCCodecsInGPUProcess();
+#if ENABLE(MEDIA_SOURCE) && PLATFORM(IOS_FAMILY)
+bool defaultMediaSourceEnabled();
 #endif
 
-#if HAVE(INCREMENTAL_PDF_APIS)
-bool defaultIncrementalPDFEnabled();
+#if ENABLE(MANAGED_MEDIA_SOURCE) && ENABLE(MEDIA_SOURCE)
+bool defaultManagedMediaSourceEnabled();
+#if ENABLE(WIRELESS_PLAYBACK_TARGET)
+bool defaultManagedMediaSourceNeedsAirPlay();
 #endif
-
-#if ENABLE(WEBXR)
-bool defaultWebXREnabled();
-#endif
-
-#if ENABLE(WEBM_FORMAT_READER)
-bool defaultWebMFormatReaderEnabled();
-#endif
-
-#if ENABLE(VP9)
-bool defaultVP8DecoderEnabled();
-bool defaultVP9DecoderEnabled();
-bool defaultVP9SWDecoderEnabledOnBattery();
-#endif
-
-#if ENABLE(MEDIA_SOURCE)
-bool defaultWebMParserEnabled();
-bool defaultWebMWebAudioEnabled();
 #endif
 
 #if ENABLE(MEDIA_SESSION_COORDINATOR)
 bool defaultMediaSessionCoordinatorEnabled();
+#endif
+
+#if ENABLE(IMAGE_ANALYSIS)
+bool defaultTextRecognitionInVideosEnabled();
+bool defaultVisualTranslationEnabled();
+bool defaultRemoveBackgroundEnabled();
+#endif
+
+#if ENABLE(GAMEPAD)
+bool defaultGamepadVibrationActuatorEnabled();
+#endif
+
+bool defaultRunningBoardThrottlingEnabled();
+bool defaultShouldDropNearSuspendedAssertionAfterDelay();
+bool defaultShowModalDialogEnabled();
+bool defaultLiveRangeSelectionEnabled();
+
+bool defaultShouldEnableScreenOrientationAPI();
+bool defaultPopoverAttributeEnabled();
+bool defaultUseGPUProcessForDOMRenderingEnabled();
+bool defaultSearchInputIncrementalAttributeAndSearchEventEnabled();
+
+#if HAVE(SC_CONTENT_SHARING_PICKER)
+bool defaultUseSCContentSharingPicker();
+#endif
+
+#if USE(LIBWEBRTC)
+bool defaultPeerConnectionEnabledAvailable();
 #endif
 
 } // namespace WebKit

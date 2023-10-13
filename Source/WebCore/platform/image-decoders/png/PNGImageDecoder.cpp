@@ -47,10 +47,6 @@
 #include <wtf/StdLibExtras.h>
 #include <wtf/UniqueArray.h>
 
-#if USE(LCMS)
-#include <lcms2.h>
-#endif
-
 #if defined(PNG_LIBPNG_VER_MAJOR) && defined(PNG_LIBPNG_VER_MINOR) && (PNG_LIBPNG_VER_MAJOR > 1 || (PNG_LIBPNG_VER_MAJOR == 1 && PNG_LIBPNG_VER_MINOR >= 4))
 #define JMPBUF(png_ptr) png_jmpbuf(png_ptr)
 #else
@@ -122,13 +118,13 @@ class PNGImageReader {
     WTF_MAKE_FAST_ALLOCATED;
 public:
     PNGImageReader(PNGImageDecoder* decoder)
-        : m_readOffset(0)
+        : m_png(png_create_read_struct(PNG_LIBPNG_VER_STRING, 0, decodingFailed, decodingWarning))
+        , m_info(png_create_info_struct(m_png))
+        , m_readOffset(0)
         , m_currentBufferSize(0)
         , m_decodingSizeOnly(false)
         , m_hasAlpha(false)
     {
-        m_png = png_create_read_struct(PNG_LIBPNG_VER_STRING, 0, decodingFailed, decodingWarning);
-        m_info = png_create_info_struct(m_png);
         png_set_progressive_read_fn(m_png, decoder, headerAvailable, rowAvailable, pngComplete);
 #if ENABLE(APNG)
         png_byte apngChunks[]= {"acTL\0fcTL\0fdAT\0"};
@@ -152,7 +148,7 @@ public:
         m_readOffset = 0;
     }
 
-    bool decode(const SharedBuffer::DataSegment& data, bool sizeOnly, unsigned haltAtFrame)
+    bool decode(const SharedBuffer& data, bool sizeOnly, unsigned haltAtFrame)
     {
         m_decodingSizeOnly = sizeOnly;
         PNGImageDecoder* decoder = static_cast<PNGImageDecoder*>(png_get_progressive_ptr(m_png));
@@ -274,14 +270,7 @@ void PNGImageDecoder::clear()
 {
     m_reader = nullptr;
 #if USE(LCMS)
-    if (m_iccTransform) {
-        cmsDeleteTransform(m_iccTransform);
-        m_iccTransform = nullptr;
-    }
-    if (m_iccProfile) {
-        cmsCloseProfile(m_iccProfile);
-        m_iccProfile = nullptr;
-    }
+    m_iccTransform.reset();
 #endif
 }
 
@@ -412,11 +401,11 @@ void PNGImageDecoder::headerAvailable()
         png_uint_32 iccProfileDataSize;
         int compressionType;
         if (png_get_iCCP(png, info, &iccProfileTitle, &compressionType, &iccProfileData, &iccProfileDataSize)) {
-            m_iccProfile = cmsOpenProfileFromMem(iccProfileData, iccProfileDataSize);
-            if (m_iccProfile) {
+            auto iccProfile = LCMSProfilePtr(cmsOpenProfileFromMem(iccProfileData, iccProfileDataSize));
+            if (iccProfile) {
                 auto* displayProfile = PlatformDisplay::sharedDisplay().colorProfile();
-                if (cmsGetColorSpace(m_iccProfile) == cmsSigRgbData && cmsGetColorSpace(displayProfile) == cmsSigRgbData)
-                    m_iccTransform = cmsCreateTransform(m_iccProfile, TYPE_BGRA_8, displayProfile, TYPE_BGRA_8, INTENT_RELATIVE_COLORIMETRIC, 0);
+                if (cmsGetColorSpace(iccProfile.get()) == cmsSigRgbData && cmsGetColorSpace(displayProfile) == cmsSigRgbData)
+                    m_iccTransform = LCMSTransformPtr(cmsCreateTransform(iccProfile.get(), TYPE_BGRA_8, displayProfile, TYPE_BGRA_8, INTENT_RELATIVE_COLORIMETRIC, 0));
             }
         }
     }
@@ -485,7 +474,7 @@ void PNGImageDecoder::rowAvailable(unsigned char* rowBuffer, unsigned rowIndex, 
 
     /* libpng comments (here to explain what follows).
      *
-     * this function is called for every row in the image.  If the
+     * this function is called for every row in the image. If the
      * image is interlacing, and you turned on the interlace handler,
      * this function will be called for every row in every pass.
      * Some of these rows will not be changed from the previous pass.
@@ -509,24 +498,24 @@ void PNGImageDecoder::rowAvailable(unsigned char* rowBuffer, unsigned rowIndex, 
      * png_progressive_combine_row() passing in the row and the
      * old row.  You can call this function for NULL rows (it will
      * just return) and for non-interlaced images (it just does the
-     * memcpy for you) if it will make the code easier.  Thus, you
+     * memcpy for you) if it will make the code easier. Thus, you
      * can just do this for all cases:
      *
      *    png_progressive_combine_row(png_ptr, old_row, new_row);
      *
-     * where old_row is what was displayed for previous rows.  Note
+     * where old_row is what was displayed for previous rows. Note
      * that the first pass (pass == 0 really) will completely cover
-     * the old row, so the rows do not have to be initialized.  After
+     * the old row, so the rows do not have to be initialized. After
      * the first pass (and only for interlaced images), you will have
      * to pass the current row, and the function will combine the
      * old row and the new row.
      */
 
     bool hasAlpha = m_reader->hasAlpha();
-    unsigned colorChannels = hasAlpha ? 4 : 3;
     png_bytep row = rowBuffer;
 
     if (png_bytep interlaceBuffer = m_reader->interlaceBuffer()) {
+        unsigned colorChannels = hasAlpha ? 4 : 3;
         row = interlaceBuffer + (rowIndex * colorChannels * size().width());
 #if ENABLE(APNG)
         if (m_currentFrame) {
@@ -557,7 +546,7 @@ void PNGImageDecoder::rowAvailable(unsigned char* rowBuffer, unsigned rowIndex, 
 
 #if USE(LCMS)
     if (m_iccTransform)
-        cmsDoTransform(m_iccTransform, destRow, destRow, width);
+        cmsDoTransform(m_iccTransform.get(), destRow, destRow, width);
 #endif
 
     if (nonTrivialAlphaMask && !buffer.hasAlpha())
@@ -847,12 +836,12 @@ void PNGImageDecoder::frameComplete()
     if (m_currentFrame && interlaceBuffer) {
         IntRect rect = buffer.backingStore()->frameRect();
         bool hasAlpha = m_reader->hasAlpha();
-        unsigned colorChannels = hasAlpha ? 4 : 3;
         bool nonTrivialAlpha = false;
         if (m_blend && !hasAlpha)
             m_blend = 0;
 
         png_bytep row = interlaceBuffer;
+        unsigned colorChannels = hasAlpha ? 4 : 3;
         for (int y = rect.y(); y < rect.maxY(); ++y, row += colorChannels * size().width()) {
             png_bytep pixel = row;
             auto* destRow = buffer.backingStore()->pixelAt(rect.x(), y);
@@ -867,7 +856,7 @@ void PNGImageDecoder::frameComplete()
             }
 #if USE(LCMS)
             if (m_iccTransform)
-                cmsDoTransform(m_iccTransform, destRow, destRow, rect.maxX());
+                cmsDoTransform(m_iccTransform.get(), destRow, destRow, rect.maxX());
 #endif
         }
 

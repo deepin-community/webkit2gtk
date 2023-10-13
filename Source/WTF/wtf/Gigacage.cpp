@@ -29,7 +29,7 @@
 #include <wtf/Atomics.h>
 #include <wtf/PageBlock.h>
 
-#if defined(USE_SYSTEM_MALLOC) && USE_SYSTEM_MALLOC
+#if USE(SYSTEM_MALLOC)
 #include <wtf/OSAllocator.h>
 
 namespace Gigacage {
@@ -37,6 +37,11 @@ namespace Gigacage {
 void* tryMalloc(Kind, size_t size)
 {
     return FastMalloc::tryMalloc(size);
+}
+
+void* tryZeroedMalloc(Kind, size_t size)
+{
+    return FastMalloc::tryZeroedMalloc(size);
 }
 
 void* tryRealloc(Kind, void* pointer, size_t size)
@@ -64,7 +69,7 @@ void freeVirtualPages(Kind, void* basePtr, size_t size)
 }
 
 } // namespace Gigacage
-#else // defined(USE_SYSTEM_MALLOC) && USE_SYSTEM_MALLOC
+#else // USE(SYSTEM_MALLOC)
 #include <bmalloc/bmalloc.h>
 
 namespace Gigacage {
@@ -92,6 +97,13 @@ void alignedFree(Kind kind, void* p)
 void* tryMalloc(Kind kind, size_t size)
 {
     void* result = bmalloc::api::tryMalloc(size, bmalloc::heapKind(kind));
+    WTF::compilerFence();
+    return result;
+}
+
+void* tryZeroedMalloc(Kind kind, size_t size)
+{
+    void* result = bmalloc::api::tryZeroedMalloc(size, bmalloc::heapKind(kind));
     WTF::compilerFence();
     return result;
 }
@@ -145,6 +157,13 @@ void* tryMallocArray(Kind kind, size_t numElements, size_t elementSize)
 void* malloc(Kind kind, size_t size)
 {
     void* result = tryMalloc(kind, size);
+    RELEASE_ASSERT(result);
+    return result;
+}
+
+void* zeroedMalloc(Kind kind, size_t size)
+{
+    void* result = tryZeroedMalloc(kind, size);
     RELEASE_ASSERT(result);
     return result;
 }

@@ -27,14 +27,16 @@
 #include "SuspendedPageProxy.h"
 
 #include "DrawingAreaProxy.h"
+#include "HandleMessage.h"
 #include "Logging.h"
+#include "MessageSenderInlines.h"
 #include "WebBackForwardCache.h"
+#include "WebFrameProxy.h"
 #include "WebPageMessages.h"
 #include "WebPageProxy.h"
 #include "WebPageProxyMessages.h"
 #include "WebProcessMessages.h"
 #include "WebProcessPool.h"
-#include "WebProcessProxy.h"
 #include <wtf/DebugUtilities.h>
 #include <wtf/HexNumber.h>
 #include <wtf/URL.h>
@@ -50,11 +52,11 @@ static HashSet<SuspendedPageProxy*>& allSuspendedPages()
     return map;
 }
 
-RefPtr<WebProcessProxy> SuspendedPageProxy::findReusableSuspendedPageProcess(WebProcessPool& processPool, const RegistrableDomain& registrableDomain, WebsiteDataStore& dataStore)
+RefPtr<WebProcessProxy> SuspendedPageProxy::findReusableSuspendedPageProcess(WebProcessPool& processPool, const RegistrableDomain& registrableDomain, WebsiteDataStore& dataStore, WebProcessProxy::LockdownMode lockdownMode)
 {
     for (auto* suspendedPage : allSuspendedPages()) {
         auto& process = suspendedPage->process();
-        if (&process.processPool() == &processPool && process.registrableDomain() == registrableDomain && &process.websiteDataStore() == &dataStore && process.crossOriginMode() != CrossOriginMode::Isolated)
+        if (&process.processPool() == &processPool && process.registrableDomain() == registrableDomain && process.websiteDataStore() == &dataStore && process.crossOriginMode() != CrossOriginMode::Isolated && process.lockdownMode() == lockdownMode && !process.wasTerminated())
             return &process;
     }
     return nullptr;
@@ -73,7 +75,6 @@ static const MessageNameSet& messageNamesToIgnoreWhileSuspended()
         messageNames.get().add(IPC::MessageName::WebPageProxy_DidChangeMainDocument);
         messageNames.get().add(IPC::MessageName::WebPageProxy_DidChangeProgress);
         messageNames.get().add(IPC::MessageName::WebPageProxy_DidCommitLoadForFrame);
-        messageNames.get().add(IPC::MessageName::WebPageProxy_DidDestroyNavigation);
         messageNames.get().add(IPC::MessageName::WebPageProxy_DidFinishDocumentLoadForFrame);
         messageNames.get().add(IPC::MessageName::WebPageProxy_DidFinishProgress);
         messageNames.get().add(IPC::MessageName::WebPageProxy_DidFirstLayoutForFrame);
@@ -94,14 +95,14 @@ static const MessageNameSet& messageNamesToIgnoreWhileSuspended()
 }
 #endif
 
-SuspendedPageProxy::SuspendedPageProxy(WebPageProxy& page, Ref<WebProcessProxy>&& process, FrameIdentifier mainFrameID, ShouldDelayClosingUntilFirstLayerFlush shouldDelayClosingUntilFirstLayerFlush)
+SuspendedPageProxy::SuspendedPageProxy(WebPageProxy& page, Ref<WebProcessProxy>&& process, Ref<WebFrameProxy>&& mainFrame, ShouldDelayClosingUntilFirstLayerFlush shouldDelayClosingUntilFirstLayerFlush)
     : m_page(page)
     , m_webPageID(page.webPageID())
     , m_process(WTFMove(process))
-    , m_mainFrameID(mainFrameID)
+    , m_mainFrame(WTFMove(mainFrame))
     , m_shouldDelayClosingUntilFirstLayerFlush(shouldDelayClosingUntilFirstLayerFlush)
     , m_suspensionTimeoutTimer(RunLoop::main(), this, &SuspendedPageProxy::suspensionTimedOut)
-#if PLATFORM(IOS_FAMILY)
+#if USE(RUNNINGBOARD)
     , m_suspensionActivity(m_process->throttler().backgroundActivity("Page suspension for back/forward cache"_s).moveToUniquePtr())
 #endif
 #if HAVE(VISIBILITY_PROPAGATION_VIEW)
@@ -110,11 +111,11 @@ SuspendedPageProxy::SuspendedPageProxy(WebPageProxy& page, Ref<WebProcessProxy>&
     , m_contextIDForVisibilityPropagationInGPUProcess(page.contextIDForVisibilityPropagationInGPUProcess())
 #endif
 #endif
+    , m_remotePageMap(page.takeRemotePageMap())
 {
     allSuspendedPages().add(this);
-    m_process->incrementSuspendedPageCount();
-    m_process->addMessageReceiver(Messages::WebPageProxy::messageReceiverName(), m_webPageID, *this);
-
+    m_process->addSuspendedPageProxy(*this);
+    m_messageReceiverRegistration.startReceivingMessages(m_process, m_webPageID, *this);
     m_suspensionTimeoutTimer.startOneShot(suspensionTimeout);
     send(Messages::WebPage::SetIsSuspended(true));
 }
@@ -133,12 +134,19 @@ SuspendedPageProxy::~SuspendedPageProxy()
         // If the suspended page was not consumed before getting destroyed, then close the corresponding page
         // on the WebProcess side.
         close();
-
-        if (m_suspensionState == SuspensionState::Suspending)
-            m_process->removeMessageReceiver(Messages::WebPageProxy::messageReceiverName(), m_webPageID);
     }
 
-    m_process->decrementSuspendedPageCount();
+    m_process->removeSuspendedPageProxy(*this);
+}
+
+HashMap<WebCore::RegistrableDomain, WeakPtr<RemotePageProxy>> SuspendedPageProxy::takeRemotePageMap()
+{
+    return std::exchange(m_remotePageMap, { });
+}
+
+void SuspendedPageProxy::didDestroyNavigation(uint64_t navigationID)
+{
+    m_page.didDestroyNavigationShared(m_process.copyRef(), navigationID);
 }
 
 WebBackForwardCache& SuspendedPageProxy::backForwardCache() const
@@ -213,7 +221,7 @@ void SuspendedPageProxy::closeWithoutFlashing()
 
 void SuspendedPageProxy::didProcessRequestToSuspend(SuspensionState newSuspensionState)
 {
-    LOG(ProcessSwapping, "SuspendedPageProxy %s from process %i finished transition to suspended", loggingString(), m_process->processIdentifier());
+    LOG(ProcessSwapping, "SuspendedPageProxy %s from process %i finished transition to suspended", loggingString(), m_process->processID());
     RELEASE_LOG(ProcessSwapping, "%p - SuspendedPageProxy::didProcessRequestToSuspend() success? %d", this, newSuspensionState == SuspensionState::Suspended);
 
     ASSERT(m_suspensionState == SuspensionState::Suspending);
@@ -223,11 +231,11 @@ void SuspendedPageProxy::didProcessRequestToSuspend(SuspensionState newSuspensio
 
     m_suspensionTimeoutTimer.stop();
 
-#if PLATFORM(IOS_FAMILY)
+#if USE(RUNNINGBOARD)
     m_suspensionActivity = nullptr;
 #endif
 
-    m_process->removeMessageReceiver(Messages::WebPageProxy::messageReceiverName(), m_webPageID);
+    m_messageReceiverRegistration.stopReceivingMessages();
 
     if (m_suspensionState == SuspensionState::FailedToSuspend)
         closeWithoutFlashing();
@@ -242,7 +250,7 @@ void SuspendedPageProxy::suspensionTimedOut()
     backForwardCache().removeEntry(*this); // Will destroy |this|.
 }
 
-void SuspendedPageProxy::didReceiveMessage(IPC::Connection&, IPC::Decoder& decoder)
+void SuspendedPageProxy::didReceiveMessage(IPC::Connection& connection, IPC::Decoder& decoder)
 {
     ASSERT(decoder.messageReceiverName() == Messages::WebPageProxy::messageReceiverName());
 
@@ -253,6 +261,11 @@ void SuspendedPageProxy::didReceiveMessage(IPC::Connection&, IPC::Decoder& decod
 
     if (decoder.messageName() == Messages::WebPageProxy::DidFailToSuspendAfterProcessSwap::name()) {
         didProcessRequestToSuspend(SuspensionState::FailedToSuspend);
+        return;
+    }
+
+    if (decoder.messageName() == Messages::WebPageProxy::DidDestroyNavigation::name()) {
+        IPC::handleMessage<Messages::WebPageProxy::DidDestroyNavigation>(connection, decoder, this, &SuspendedPageProxy::didDestroyNavigation);
         return;
     }
 
@@ -277,11 +290,16 @@ uint64_t SuspendedPageProxy::messageSenderDestinationID() const
     return m_webPageID.toUInt64();
 }
 
-bool SuspendedPageProxy::sendMessage(UniqueRef<IPC::Encoder>&& encoder, OptionSet<IPC::SendOption> sendOptions, std::optional<std::pair<CompletionHandler<void(IPC::Decoder*)>, uint64_t>>&& asyncReplyInfo)
+bool SuspendedPageProxy::sendMessage(UniqueRef<IPC::Encoder>&& encoder, OptionSet<IPC::SendOption> sendOptions)
 {
     // Send messages via the WebProcessProxy instead of the IPC::Connection since AuxiliaryProcessProxy implements queueing of messages
     // while the process is still launching.
-    return m_process->sendMessage(WTFMove(encoder), sendOptions, WTFMove(asyncReplyInfo));
+    return m_process->sendMessage(WTFMove(encoder), sendOptions);
+}
+
+bool SuspendedPageProxy::sendMessageWithAsyncReply(UniqueRef<IPC::Encoder>&& encoder, AsyncReplyHandler handler, OptionSet<IPC::SendOption> sendOptions)
+{
+    return m_process->sendMessage(WTFMove(encoder), sendOptions, WTFMove(handler));
 }
 
 #if !LOG_DISABLED

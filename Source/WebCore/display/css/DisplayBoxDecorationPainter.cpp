@@ -26,8 +26,6 @@
 #include "config.h"
 #include "DisplayBoxDecorationPainter.h"
 
-#if ENABLE(LAYOUT_FORMATTING_CONTEXT)
-
 #include "BorderEdge.h" // For BoxSideSet.
 #include "Color.h"
 #include "DisplayBoxDecorationData.h"
@@ -87,7 +85,7 @@ private:
 
     static bool borderWillArcInnerEdge(const FloatSize& firstRadius, const FloatSize& secondRadius)
     {
-        return !firstRadius.isZero() || !secondRadius.isZero();
+        return !firstRadius.isEmpty() || !secondRadius.isEmpty();
     }
 
     static bool borderStyleHasUnmatchedColorsAtCorner(BorderStyle, BoxSide, BoxSide adjacentSide);
@@ -349,7 +347,7 @@ void BorderPainter::drawBoxSideFromPath(PaintingContext& paintingContext, const 
         // The extra multiplier is so that the clipping mask can antialias
         // the edges to prevent jaggies.
         paintingContext.context.setStrokeThickness(drawThickness * 2 * 1.1f);
-        paintingContext.context.setStrokeStyle(borderStyle == BorderStyle::Dashed ? DashedStroke : DottedStroke);
+        paintingContext.context.setStrokeStyle(borderStyle == BorderStyle::Dashed ? StrokeStyle::DashedStroke : StrokeStyle::DottedStroke);
 
         // If the number of dashes that fit in the path is odd and non-integral then we
         // will have an awkwardly-sized dash at the end of the path. To try to avoid that
@@ -462,7 +460,7 @@ void BorderPainter::drawBoxSideFromPath(PaintingContext& paintingContext, const 
         break;
     }
 
-    paintingContext.context.setStrokeStyle(NoStroke);
+    paintingContext.context.setStrokeStyle(StrokeStyle::NoStroke);
     paintingContext.context.setFillColor(color);
     paintingContext.context.drawRect(borderRect);
 }
@@ -487,13 +485,9 @@ void BorderPainter::clipBorderSidePolygon(PaintingContext& paintingContext, cons
     //         0----------------3
     //
     Vector<FloatPoint> quad;
-    quad.reserveInitialCapacity(4);
     switch (side) {
     case BoxSide::Top:
-        quad.uncheckedAppend(outerRect.minXMinYCorner());
-        quad.uncheckedAppend(innerRect.minXMinYCorner());
-        quad.uncheckedAppend(innerRect.maxXMinYCorner());
-        quad.uncheckedAppend(outerRect.maxXMinYCorner());
+        quad = { outerRect.minXMinYCorner(), innerRect.minXMinYCorner(), innerRect.maxXMinYCorner(), outerRect.maxXMinYCorner() };
 
         if (!innerBorder.radii().topLeft().isZero())
             findIntersection(outerRect.minXMinYCorner(), innerRect.minXMinYCorner(), innerRect.minXMaxYCorner(), innerRect.maxXMinYCorner(), quad[1]);
@@ -503,10 +497,7 @@ void BorderPainter::clipBorderSidePolygon(PaintingContext& paintingContext, cons
         break;
 
     case BoxSide::Left:
-        quad.uncheckedAppend(outerRect.minXMinYCorner());
-        quad.uncheckedAppend(innerRect.minXMinYCorner());
-        quad.uncheckedAppend(innerRect.minXMaxYCorner());
-        quad.uncheckedAppend(outerRect.minXMaxYCorner());
+        quad = { outerRect.minXMinYCorner(), innerRect.minXMinYCorner(), innerRect.minXMaxYCorner(), outerRect.minXMaxYCorner() };
 
         if (!innerBorder.radii().topLeft().isZero())
             findIntersection(outerRect.minXMinYCorner(), innerRect.minXMinYCorner(), innerRect.minXMaxYCorner(), innerRect.maxXMinYCorner(), quad[1]);
@@ -516,10 +507,7 @@ void BorderPainter::clipBorderSidePolygon(PaintingContext& paintingContext, cons
         break;
 
     case BoxSide::Bottom:
-        quad.uncheckedAppend(outerRect.minXMaxYCorner());
-        quad.uncheckedAppend(innerRect.minXMaxYCorner());
-        quad.uncheckedAppend(innerRect.maxXMaxYCorner());
-        quad.uncheckedAppend(outerRect.maxXMaxYCorner());
+        quad = { outerRect.minXMaxYCorner(), innerRect.minXMaxYCorner(), innerRect.maxXMaxYCorner(), outerRect.maxXMaxYCorner() };
 
         if (!innerBorder.radii().bottomLeft().isZero())
             findIntersection(outerRect.minXMaxYCorner(), innerRect.minXMaxYCorner(), innerRect.minXMinYCorner(), innerRect.maxXMaxYCorner(), quad[1]);
@@ -529,10 +517,7 @@ void BorderPainter::clipBorderSidePolygon(PaintingContext& paintingContext, cons
         break;
 
     case BoxSide::Right:
-        quad.uncheckedAppend(outerRect.maxXMinYCorner());
-        quad.uncheckedAppend(innerRect.maxXMinYCorner());
-        quad.uncheckedAppend(innerRect.maxXMaxYCorner());
-        quad.uncheckedAppend(outerRect.maxXMaxYCorner());
+        quad = { outerRect.maxXMinYCorner(), innerRect.maxXMinYCorner(), innerRect.maxXMaxYCorner(), outerRect.maxXMaxYCorner() };
 
         if (!innerBorder.radii().topRight().isZero())
             findIntersection(outerRect.maxXMinYCorner(), innerRect.maxXMinYCorner(), innerRect.minXMinYCorner(), innerRect.maxXMaxYCorner(), quad[1]);
@@ -547,7 +532,7 @@ void BorderPainter::clipBorderSidePolygon(PaintingContext& paintingContext, cons
     if (firstEdgeMatches == secondEdgeMatches) {
         bool wasAntialiased = paintingContext.context.shouldAntialias();
         paintingContext.context.setShouldAntialias(!firstEdgeMatches);
-        paintingContext.context.clipPath(Path::polygonPathFromPoints(quad), WindRule::NonZero);
+        paintingContext.context.clipPath(Path(quad), WindRule::NonZero);
         paintingContext.context.setShouldAntialias(wasAntialiased);
         return;
     }
@@ -562,7 +547,7 @@ void BorderPainter::clipBorderSidePolygon(PaintingContext& paintingContext, cons
     };
     bool wasAntialiased = paintingContext.context.shouldAntialias();
     paintingContext.context.setShouldAntialias(!firstEdgeMatches);
-    paintingContext.context.clipPath(Path::polygonPathFromPoints(firstQuad), WindRule::NonZero);
+    paintingContext.context.clipPath(Path(firstQuad), WindRule::NonZero);
 
     Vector<FloatPoint> secondQuad = {
         quad[0],
@@ -573,7 +558,7 @@ void BorderPainter::clipBorderSidePolygon(PaintingContext& paintingContext, cons
     };
     // Antialiasing affects the second side.
     paintingContext.context.setShouldAntialias(!secondEdgeMatches);
-    paintingContext.context.clipPath(Path::polygonPathFromPoints(secondQuad), WindRule::NonZero);
+    paintingContext.context.clipPath(Path(secondQuad), WindRule::NonZero);
 
     paintingContext.context.setShouldAntialias(wasAntialiased);
 }
@@ -624,7 +609,7 @@ void BorderPainter::drawLineForBoxSide(PaintingContext& paintingContext, const F
         paintingContext.context.setShouldAntialias(antialias);
         paintingContext.context.setStrokeColor(color);
         paintingContext.context.setStrokeThickness(thickness);
-        paintingContext.context.setStrokeStyle(borderStyle == BorderStyle::Dashed ? DashedStroke : DottedStroke);
+        paintingContext.context.setStrokeStyle(borderStyle == BorderStyle::Dashed ? StrokeStyle::DashedStroke : StrokeStyle::DottedStroke);
         paintingContext.context.drawLine({ x1, y1 }, { x2, y2 });
         paintingContext.context.setShouldAntialias(wasAntialiased);
         paintingContext.context.setStrokeStyle(oldStrokeStyle);
@@ -634,7 +619,7 @@ void BorderPainter::drawLineForBoxSide(PaintingContext& paintingContext, const F
         float thirdOfThickness = ceilToDevicePixel(thickness / 3, deviceScaleFactor);
         if (!adjacentWidth1 && !adjacentWidth2) {
             StrokeStyle oldStrokeStyle = paintingContext.context.strokeStyle();
-            paintingContext.context.setStrokeStyle(NoStroke);
+            paintingContext.context.setStrokeStyle(StrokeStyle::NoStroke);
             paintingContext.context.setFillColor(color);
 
             bool wasAntialiased = paintingContext.context.shouldAntialias();
@@ -665,8 +650,8 @@ void BorderPainter::drawLineForBoxSide(PaintingContext& paintingContext, const F
             float adjacent1BigThird = ceilToDevicePixel(adjacentWidth1 / 3, deviceScaleFactor);
             float adjacent2BigThird = ceilToDevicePixel(adjacentWidth2 / 3, deviceScaleFactor);
 
-            float offset1 = floorToDevicePixel(fabs(adjacentWidth1) * 2 / 3, deviceScaleFactor);
-            float offset2 = floorToDevicePixel(fabs(adjacentWidth2) * 2 / 3, deviceScaleFactor);
+            float offset1 = floorToDevicePixel(std::abs(adjacentWidth1) * 2 / 3, deviceScaleFactor);
+            float offset2 = floorToDevicePixel(std::abs(adjacentWidth2) * 2 / 3, deviceScaleFactor);
 
             float mitreOffset1 = adjacentWidth1 < 0 ? offset1 : 0;
             float mitreOffset2 = adjacentWidth1 > 0 ? offset1 : 0;
@@ -737,7 +722,7 @@ void BorderPainter::drawLineForBoxSide(PaintingContext& paintingContext, const F
             offset2 = ceilToDevicePixel(adjacentWidth2 / 2, deviceScaleFactor);
 
         if (((side == BoxSide::Top || side == BoxSide::Left) && adjacentWidth1 > 0) || ((side == BoxSide::Bottom || side == BoxSide::Right) && adjacentWidth1 < 0))
-            offset3 = floorToDevicePixel(fabs(adjacentWidth1) / 2, deviceScaleFactor);
+            offset3 = floorToDevicePixel(std::abs(adjacentWidth1) / 2, deviceScaleFactor);
 
         if (((side == BoxSide::Top || side == BoxSide::Left) && adjacentWidth2 > 0) || ((side == BoxSide::Bottom || side == BoxSide::Right) && adjacentWidth2 < 0))
             offset4 = ceilToDevicePixel(adjacentWidth2 / 2, deviceScaleFactor);
@@ -779,7 +764,7 @@ void BorderPainter::drawLineForBoxSide(PaintingContext& paintingContext, const F
         ASSERT(x2 >= x1);
         ASSERT(y2 >= y1);
         if (!adjacentWidth1 && !adjacentWidth2) {
-            paintingContext.context.setStrokeStyle(NoStroke);
+            paintingContext.context.setStrokeStyle(StrokeStyle::NoStroke);
             paintingContext.context.setFillColor(color);
             bool wasAntialiased = paintingContext.context.shouldAntialias();
             paintingContext.context.setShouldAntialias(antialias);
@@ -796,39 +781,46 @@ void BorderPainter::drawLineForBoxSide(PaintingContext& paintingContext, const F
         y2 = roundToDevicePixel(y2, deviceScaleFactor);
 
         Vector<FloatPoint> quad;
-        quad.reserveInitialCapacity(4);
         switch (side) {
         case BoxSide::Top:
-            quad.uncheckedAppend({ x1 + std::max<float>(-adjacentWidth1, 0), y1 });
-            quad.uncheckedAppend({ x1 + std::max<float>( adjacentWidth1, 0), y2 });
-            quad.uncheckedAppend({ x2 - std::max<float>( adjacentWidth2, 0), y2 });
-            quad.uncheckedAppend({ x2 - std::max<float>(-adjacentWidth2, 0), y1 });
+            quad = {
+                { x1 + std::max<float>(-adjacentWidth1, 0), y1 },
+                { x1 + std::max<float>(adjacentWidth1, 0), y2 },
+                { x2 - std::max<float>(adjacentWidth2, 0), y2 },
+                { x2 - std::max<float>(-adjacentWidth2, 0), y1 }
+            };
             break;
         case BoxSide::Bottom:
-            quad.uncheckedAppend({ x1 + std::max<float>( adjacentWidth1, 0), y1 });
-            quad.uncheckedAppend({ x1 + std::max<float>(-adjacentWidth1, 0), y2 });
-            quad.uncheckedAppend({ x2 - std::max<float>(-adjacentWidth2, 0), y2 });
-            quad.uncheckedAppend({ x2 - std::max<float>( adjacentWidth2, 0), y1 });
+            quad = {
+                { x1 + std::max<float>(adjacentWidth1, 0), y1 },
+                { x1 + std::max<float>(-adjacentWidth1, 0), y2 },
+                { x2 - std::max<float>(-adjacentWidth2, 0), y2 },
+                { x2 - std::max<float>(adjacentWidth2, 0), y1 }
+            };
             break;
         case BoxSide::Left:
-            quad.uncheckedAppend({ x1, y1 + std::max<float>(-adjacentWidth1, 0) });
-            quad.uncheckedAppend({ x1, y2 - std::max<float>(-adjacentWidth2, 0) });
-            quad.uncheckedAppend({ x2, y2 - std::max<float>( adjacentWidth2, 0) });
-            quad.uncheckedAppend({ x2, y1 + std::max<float>( adjacentWidth1, 0) });
+            quad = {
+                { x1, y1 + std::max<float>(-adjacentWidth1, 0) },
+                { x1, y2 - std::max<float>(-adjacentWidth2, 0) },
+                { x2, y2 - std::max<float>(adjacentWidth2, 0) },
+                { x2, y1 + std::max<float>(adjacentWidth1, 0) }
+            };
             break;
         case BoxSide::Right:
-            quad.uncheckedAppend({ x1, y1 + std::max<float>( adjacentWidth1, 0) });
-            quad.uncheckedAppend({ x1, y2 - std::max<float>( adjacentWidth2, 0) });
-            quad.uncheckedAppend({ x2, y2 - std::max<float>(-adjacentWidth2, 0) });
-            quad.uncheckedAppend({ x2, y1 + std::max<float>(-adjacentWidth1, 0) });
+            quad = {
+                { x1, y1 + std::max<float>(adjacentWidth1, 0) },
+                { x1, y2 - std::max<float>(adjacentWidth2, 0) },
+                { x2, y2 - std::max<float>(-adjacentWidth2, 0) },
+                { x2, y1 + std::max<float>(-adjacentWidth1, 0) }
+            };
             break;
         }
 
-        paintingContext.context.setStrokeStyle(NoStroke);
+        paintingContext.context.setStrokeStyle(StrokeStyle::NoStroke);
         paintingContext.context.setFillColor(color);
         bool wasAntialiased = paintingContext.context.shouldAntialias();
         paintingContext.context.setShouldAntialias(antialias);
-        paintingContext.context.fillPath(Path::polygonPathFromPoints(quad));
+        paintingContext.context.fillPath(Path(quad));
         paintingContext.context.setShouldAntialias(wasAntialiased);
 
         paintingContext.context.setStrokeStyle(oldStrokeStyle);
@@ -1213,6 +1205,7 @@ void BoxDecorationPainter::paintFillLayer(PaintingContext& paintingContext, cons
         case FillBox::Content:
             return box.absoluteContentBoxRect();
         case FillBox::Text:
+        case FillBox::NoClip:
             break;
         }
         return { };
@@ -1227,6 +1220,7 @@ void BoxDecorationPainter::paintFillLayer(PaintingContext& paintingContext, cons
         break;
     }
     case FillBox::Text:
+    case FillBox::NoClip:
         break;
     }
 
@@ -1248,7 +1242,7 @@ void BoxDecorationPainter::paintFillLayer(PaintingContext& paintingContext, cons
         op == CompositeOperator::SourceOver ? layer.composite() : op,
         layer.blendMode(),
         DecodingMode::Synchronous,
-        ImageOrientation::FromImage,
+        ImageOrientation::Orientation::FromImage,
         InterpolationQuality::Default
     };
 
@@ -1266,12 +1260,21 @@ void BoxDecorationPainter::paintBoxShadow(PaintingContext& paintingContext, Shad
 
     bool hasOpaqueBackground = m_box.style().backgroundColor().isOpaque();
 
-    auto paintNormalShadow = [&](const ShadowData& shadow) {
+    auto resolveColor = [] (const StyleColor& styleColor) {
+        // FIXME: StyleColor should have been properly resolved already,
+        // but unfortunately it's not enforced in the type system.
+        // We should create a new class such as ResolvedShadowData to make it explicit.
+        // https://bugs.webkit.org/show_bug.cgi?id=248467
+        ASSERT(styleColor.isAbsoluteColor());
+        return styleColor.absoluteColor();
+    };
+
+    auto paintNormalShadow = [&] (const ShadowData& shadow) {
         // FIXME: Snapping here isn't ideal. It would be better to compute a rect which is border rect + offset + spread, and snap that at tree building time.
-        auto shadowOffset = roundSizeToDevicePixels({ shadow.x(), shadow.y() }, paintingContext.deviceScaleFactor);
+        auto shadowOffset = roundSizeToDevicePixels({ shadow.x().value(), shadow.y().value() }, paintingContext.deviceScaleFactor);
         float shadowPaintingExtent = ceilToDevicePixel(shadow.paintingExtent(), paintingContext.deviceScaleFactor);
-        float shadowSpread = roundToDevicePixel(shadow.spread(), paintingContext.deviceScaleFactor);
-        int shadowRadius = shadow.radius();
+        float shadowSpread = roundToDevicePixel(shadow.spread().value(), paintingContext.deviceScaleFactor);
+        auto shadowRadius = shadow.radius();
 
         auto fillRect = borderRect;
         fillRect.inflate(shadowSpread);
@@ -1298,7 +1301,7 @@ void BoxDecorationPainter::paintBoxShadow(PaintingContext& paintingContext, Shad
         auto shadowRectOrigin = fillRect.rect().location() + shadowOffset;
         auto adjustedShadowOffset = shadowRectOrigin - adjustedFillRect.rect().location();
 
-        paintingContext.context.setShadow(adjustedShadowOffset, shadowRadius, shadow.color(), shadow.isWebkitBoxShadow() ? ShadowRadiusMode::Legacy : ShadowRadiusMode::Default);
+        paintingContext.context.setDropShadow({ adjustedShadowOffset, shadowRadius.value(), resolveColor(shadow.color()), shadow.isWebkitBoxShadow() ? ShadowRadiusMode::Legacy : ShadowRadiusMode::Default });
 
         if (hasBorderRadius) {
             // If the box is opaque, it is unnecessary to clip it out. However, doing so saves time
@@ -1339,10 +1342,10 @@ void BoxDecorationPainter::paintBoxShadow(PaintingContext& paintingContext, Shad
     };
 
     auto paintInsetShadow = [&](const ShadowData& shadow) {
-        auto shadowOffset = roundSizeToDevicePixels({ shadow.x(), shadow.y() }, paintingContext.deviceScaleFactor);
+        auto shadowOffset = roundSizeToDevicePixels({ shadow.x().value(), shadow.y().value() }, paintingContext.deviceScaleFactor);
         float shadowPaintingExtent = ceilToDevicePixel(shadow.paintingExtent(), paintingContext.deviceScaleFactor);
-        float shadowSpread = roundToDevicePixel(shadow.spread(), paintingContext.deviceScaleFactor);
-        int shadowRadius = shadow.radius();
+        float shadowSpread = roundToDevicePixel(shadow.spread().value(), paintingContext.deviceScaleFactor);
+        auto shadowRadius = shadow.radius();
 
         auto holeRect = borderRect.rect();
         holeRect.inflate(-shadowSpread);
@@ -1375,9 +1378,9 @@ void BoxDecorationPainter::paintBoxShadow(PaintingContext& paintingContext, Shad
 
         if (roundedHoleRect.isEmpty()) {
             if (hasBorderRadius)
-                paintingContext.context.fillRoundedRect(borderRect, shadow.color());
+                paintingContext.context.fillRoundedRect(borderRect, resolveColor(shadow.color()));
             else
-                paintingContext.context.fillRect(borderRect.rect(), shadow.color());
+                paintingContext.context.fillRect(borderRect.rect(), resolveColor(shadow.color()));
             return;
         }
 
@@ -1394,7 +1397,7 @@ void BoxDecorationPainter::paintBoxShadow(PaintingContext& paintingContext, Shad
             return unionRect(bounds, offsetBounds);
         };
 
-        Color fillColor = shadow.color().opaqueColor();
+        Color fillColor = resolveColor(shadow.color()).opaqueColor();
         auto shadowCastingRect = areaCastingShadowInHole(borderRect.rect(), shadowPaintingExtent, shadowSpread, shadowOffset);
 
         GraphicsContextStateSaver stateSaver(paintingContext.context);
@@ -1409,7 +1412,7 @@ void BoxDecorationPainter::paintBoxShadow(PaintingContext& paintingContext, Shad
         paintingContext.context.translate(extraOffset);
         shadowOffset -= extraOffset;
 
-        paintingContext.context.setShadow(shadowOffset, shadowRadius, shadow.color(), shadow.isWebkitBoxShadow() ? ShadowRadiusMode::Legacy : ShadowRadiusMode::Default);
+        paintingContext.context.setDropShadow({ shadowOffset, shadowRadius.value(), resolveColor(shadow.color()), shadow.isWebkitBoxShadow() ? ShadowRadiusMode::Legacy : ShadowRadiusMode::Default });
         paintingContext.context.fillRectWithRoundedHole(shadowCastingRect, roundedHoleRect, fillColor);
     };
 
@@ -1418,8 +1421,8 @@ void BoxDecorationPainter::paintBoxShadow(PaintingContext& paintingContext, Shad
         if (shadow->style() != shadowStyle)
             continue;
 
-        LayoutSize shadowOffset(shadow->x(), shadow->y());
-        if (shadowOffset.isZero() && !shadow->radius() && !shadow->spread())
+        LayoutSize shadowOffset(shadow->x().value(), shadow->y().value());
+        if (shadowOffset.isZero() && shadow->radius().isZero() && shadow->spread().isZero())
             continue;
 
         if (shadow->style() == ShadowStyle::Normal)
@@ -1558,4 +1561,3 @@ void BoxDecorationPainter::paintBackgroundAndBorders(PaintingContext& paintingCo
 } // namespace Display
 } // namespace WebCore
 
-#endif // ENABLE(LAYOUT_FORMATTING_CONTEXT)

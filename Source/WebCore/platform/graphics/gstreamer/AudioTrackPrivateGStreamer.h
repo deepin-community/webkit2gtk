@@ -42,9 +42,9 @@ public:
         return adoptRef(*new AudioTrackPrivateGStreamer(player, index, WTFMove(pad), shouldHandleStreamStartEvent));
     }
 
-    static Ref<AudioTrackPrivateGStreamer> create(WeakPtr<MediaPlayerPrivateGStreamer> player, unsigned index, GRefPtr<GstStream>&& stream)
+    static Ref<AudioTrackPrivateGStreamer> create(WeakPtr<MediaPlayerPrivateGStreamer> player, unsigned index, GstStream* stream)
     {
-        return adoptRef(*new AudioTrackPrivateGStreamer(player, index, WTFMove(stream)));
+        return adoptRef(*new AudioTrackPrivateGStreamer(player, index, stream));
     }
 
     Kind kind() const final;
@@ -60,9 +60,16 @@ public:
     AtomString label() const final { return m_label; }
     AtomString language() const final { return m_language; }
 
+protected:
+    void updateConfigurationFromCaps(const GRefPtr<GstCaps>&);
+    void updateConfigurationFromTags(const GRefPtr<GstTagList>&);
+
+    void tagsChanged(const GRefPtr<GstTagList>& tags) final { updateConfigurationFromTags(tags); }
+    void capsChanged(const String& streamId, const GRefPtr<GstCaps>&) final;
+
 private:
     AudioTrackPrivateGStreamer(WeakPtr<MediaPlayerPrivateGStreamer>, unsigned index, GRefPtr<GstPad>&&, bool shouldHandleStreamStartEvent);
-    AudioTrackPrivateGStreamer(WeakPtr<MediaPlayerPrivateGStreamer>, unsigned index, GRefPtr<GstStream>&&);
+    AudioTrackPrivateGStreamer(WeakPtr<MediaPlayerPrivateGStreamer>, unsigned index, GstStream*);
 
     WeakPtr<MediaPlayerPrivateGStreamer> m_player;
 };

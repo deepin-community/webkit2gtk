@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,7 +26,6 @@
 #include "config.h"
 #include "JSDOMWindowProperties.h"
 
-#include "Frame.h"
 #include "HTMLDocument.h"
 #include "JSDOMBinding.h"
 #include "JSDOMBindingSecurity.h"
@@ -34,19 +33,20 @@
 #include "JSDOMWindowBase.h"
 #include "JSElement.h"
 #include "JSHTMLCollection.h"
+#include "LocalFrame.h"
 #include "WebCoreJSClientData.h"
 
 namespace WebCore {
 
 using namespace JSC;
 
-const ClassInfo JSDOMWindowProperties::s_info = { "WindowProperties", &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSDOMWindowProperties) };
+const ClassInfo JSDOMWindowProperties::s_info = { "WindowProperties"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSDOMWindowProperties) };
 
 // https://html.spec.whatwg.org/multipage/window-object.html#dom-window-nameditem
-static bool jsDOMWindowPropertiesGetOwnPropertySlotNamedItemGetter(JSDOMWindowProperties* thisObject, DOMWindow& window, JSGlobalObject* lexicalGlobalObject, PropertyName propertyName, PropertySlot& slot)
+static bool jsDOMWindowPropertiesGetOwnPropertySlotNamedItemGetter(JSDOMWindowProperties* thisObject, LocalDOMWindow& window, JSGlobalObject* lexicalGlobalObject, PropertyName propertyName, PropertySlot& slot)
 {
     if (auto* frame = window.frame()) {
-        if (auto* scopedChild = frame->tree().scopedChild(propertyNameToAtomString(propertyName))) {
+        if (auto* scopedChild = dynamicDowncast<LocalFrame>(frame->tree().scopedChildBySpecifiedName(propertyNameToAtomString(propertyName)))) {
             slot.setValue(thisObject, static_cast<unsigned>(PropertyAttribute::DontEnum), toJS(lexicalGlobalObject, scopedChild->document()->domWindow()));
             return true;
         }
@@ -80,25 +80,24 @@ void JSDOMWindowProperties::finishCreation(JSGlobalObject& globalObject)
 {
     VM& vm = globalObject.vm();
     Base::finishCreation(vm);
-    ASSERT(inherits(vm, info()));
+    ASSERT(inherits(info()));
     JSC_TO_STRING_TAG_WITHOUT_TRANSITION();
     JSObject::preventExtensions(this, &globalObject);
 }
 
 bool JSDOMWindowProperties::getOwnPropertySlot(JSObject* object, JSGlobalObject* lexicalGlobalObject, PropertyName propertyName, PropertySlot& slot)
 {
-    VM& vm = lexicalGlobalObject->vm();
     auto* thisObject = jsCast<JSDOMWindowProperties*>(object);
     ASSERT_GC_OBJECT_INHERITS(thisObject, info());
 
     if (Base::getOwnPropertySlot(thisObject, lexicalGlobalObject, propertyName, slot))
         return true;
-    JSObject* proto = asObject(thisObject->getPrototypeDirect(vm));
+    JSObject* proto = asObject(thisObject->getPrototypeDirect());
     if (proto->hasProperty(lexicalGlobalObject, propertyName))
         return false;
 
     // FIXME: We should probably add support for JSRemoteDOMWindowBase too.
-    auto* jsWindow = jsDynamicCast<JSDOMWindowBase*>(vm, thisObject->globalObject());
+    auto* jsWindow = jsDynamicCast<JSDOMWindowBase*>(thisObject->globalObject());
     if (!jsWindow)
         return false;
 
@@ -138,7 +137,7 @@ bool JSDOMWindowProperties::defineOwnProperty(JSObject*, JSGlobalObject* lexical
     return typeError(lexicalGlobalObject, scope, shouldThrow, "Defining a property on a WindowProperties object is not allowed."_s);
 }
 
-JSC::IsoSubspace* JSDOMWindowProperties::subspaceForImpl(JSC::VM& vm)
+JSC::GCClient::IsoSubspace* JSDOMWindowProperties::subspaceForImpl(JSC::VM& vm)
 {
     return &static_cast<JSVMClientData*>(vm.clientData)->domWindowPropertiesSpace();
 }

@@ -35,8 +35,11 @@
 
 #include "AudioContext.h"
 #include "AudioFileReader.h"
+#include "AudioUtilities.h"
+#include "WebCoreOpaqueRoot.h"
 #include <JavaScriptCore/JSCInlines.h>
 #include <JavaScriptCore/TypedArrayInlines.h>
+#include <wtf/CheckedArithmetic.h>
 
 namespace WebCore {
 
@@ -86,41 +89,59 @@ AudioBuffer::AudioBuffer(unsigned numberOfChannels, size_t length, float sampleR
     , m_originalLength(length)
     , m_isDetachable(preventDetaching == LegacyPreventDetaching::No)
 {
-    m_channels.reserveCapacity(numberOfChannels);
+    auto totalLength = CheckedUint64(m_originalLength) * numberOfChannels;
+    if (totalLength.hasOverflowed() || totalLength.value() > s_maxLength || static_cast<uint64_t>(m_originalLength) > s_maxChannelLength) {
+        invalidate();
+        return;
+    }
+
+    Vector<RefPtr<Float32Array>> channels;
+    channels.reserveInitialCapacity(numberOfChannels);
 
     for (unsigned i = 0; i < numberOfChannels; ++i) {
         auto channelDataArray = Float32Array::tryCreate(m_originalLength);
         if (!channelDataArray) {
             invalidate();
-            break;
+            return;
         }
 
         if (preventDetaching == LegacyPreventDetaching::Yes)
             channelDataArray->setDetachable(false);
 
-        m_channels.append(WTFMove(channelDataArray));
+        channels.uncheckedAppend(WTFMove(channelDataArray));
     }
-    m_channelWrappers.resize(m_channels.size());
+
+    m_channels = WTFMove(channels);
+    m_channelWrappers = FixedVector<JSValueInWrappedObject> { m_channels.size() };
 }
 
 AudioBuffer::AudioBuffer(AudioBus& bus)
     : m_sampleRate(bus.sampleRate())
     , m_originalLength(bus.length())
 {
-    // Copy audio data from the bus to the Float32Arrays we manage.
     unsigned numberOfChannels = bus.numberOfChannels();
-    m_channels.reserveCapacity(numberOfChannels);
+    auto totalLength = CheckedUint64(m_originalLength) * numberOfChannels;
+    if (totalLength.hasOverflowed() || totalLength.value() > s_maxLength || static_cast<uint64_t>(m_originalLength) > s_maxChannelLength) {
+        invalidate();
+        return;
+    }
+
+    // Copy audio data from the bus to the Float32Arrays we manage.
+    Vector<RefPtr<Float32Array>> channels;
+    channels.reserveInitialCapacity(numberOfChannels);
     for (unsigned i = 0; i < numberOfChannels; ++i) {
         auto channelDataArray = Float32Array::tryCreate(m_originalLength);
         if (!channelDataArray) {
             invalidate();
-            break;
+            return;
         }
 
         channelDataArray->setRange(bus.channel(i)->data(), m_originalLength, 0);
-        m_channels.append(WTFMove(channelDataArray));
+        channels.uncheckedAppend(WTFMove(channelDataArray));
     }
-    m_channelWrappers.resize(m_channels.size());
+
+    m_channels = WTFMove(channels);
+    m_channelWrappers = FixedVector<JSValueInWrappedObject> { m_channels.size() };
 }
 
 void AudioBuffer::invalidate()
@@ -132,8 +153,9 @@ void AudioBuffer::invalidate()
 void AudioBuffer::releaseMemory()
 {
     Locker locker { m_channelsLock };
-    m_channels.clear();
-    m_channelWrappers.clear();
+    m_channels = { };
+    m_channelWrappers = { };
+    m_needsAdditionalNoise = false;
 }
 
 ExceptionOr<JSC::JSValue> AudioBuffer::getChannelData(JSDOMGlobalObject& globalObject, unsigned channelIndex)
@@ -142,15 +164,18 @@ ExceptionOr<JSC::JSValue> AudioBuffer::getChannelData(JSDOMGlobalObject& globalO
     if (channelIndex >= m_channelWrappers.size())
         return Exception { IndexSizeError, "Index must be less than number of channels."_s };
 
+    applyNoiseIfNeeded();
+
     auto& channelData = m_channels[channelIndex];
     auto constructJSArray = [&] {
-        return JSC::JSFloat32Array::create(globalObject.vm(), globalObject.typedArrayStructure(JSC::TypeFloat32), channelData.copyRef());
+        constexpr bool isResizableOrGrowableShared = false;
+        return JSC::JSFloat32Array::create(globalObject.vm(), globalObject.typedArrayStructure(JSC::TypeFloat32, isResizableOrGrowableShared), channelData.copyRef());
     };
 
     if (globalObject.worldIsNormal()) {
         if (!m_channelWrappers[channelIndex])
-            m_channelWrappers[channelIndex] = { constructJSArray() };
-        return static_cast<JSC::JSValue>(m_channelWrappers[channelIndex]);
+            m_channelWrappers[channelIndex].setWeakly(constructJSArray());
+        return m_channelWrappers[channelIndex].getValue();
     }
     return constructJSArray();
 }
@@ -158,6 +183,7 @@ ExceptionOr<JSC::JSValue> AudioBuffer::getChannelData(JSDOMGlobalObject& globalO
 template<typename Visitor>
 void AudioBuffer::visitChannelWrappers(Visitor& visitor)
 {
+    Locker locker { m_channelsLock };
     for (auto& channelWrapper : m_channelWrappers)
         channelWrapper.visit(visitor);
 }
@@ -198,7 +224,9 @@ ExceptionOr<void> AudioBuffer::copyFromChannel(Ref<Float32Array>&& destination, 
     if (bufferOffset >= dataLength)
         return { };
     
-    unsigned count = dataLength - bufferOffset;
+    applyNoiseIfNeeded();
+
+    size_t count = dataLength - bufferOffset;
     count = std::min(destination.get().length(), count);
     
     const float* src = channelData->data();
@@ -226,7 +254,7 @@ ExceptionOr<void> AudioBuffer::copyToChannel(Ref<Float32Array>&& source, unsigne
     if (bufferOffset >= dataLength)
         return { };
     
-    unsigned count = dataLength - bufferOffset;
+    size_t count = dataLength - bufferOffset;
     count = std::min(source.get().length(), count);
     
     const float* src = source->data();
@@ -236,6 +264,7 @@ ExceptionOr<void> AudioBuffer::copyToChannel(Ref<Float32Array>&& source, unsigne
     ASSERT(dst);
     
     memmove(dst + bufferOffset, src, count * sizeof(*dst));
+    m_needsAdditionalNoise = false;
     return { };
 }
 
@@ -243,6 +272,8 @@ void AudioBuffer::zero()
 {
     for (auto& channel : m_channels)
         channel->zeroFill();
+
+    m_needsAdditionalNoise = false;
 }
 
 size_t AudioBuffer::memoryCost() const
@@ -284,6 +315,7 @@ bool AudioBuffer::copyTo(AudioBuffer& other) const
     for (unsigned channelIndex = 0; channelIndex < numberOfChannels(); ++channelIndex)
         memcpy(other.rawChannelData(channelIndex), m_channels[channelIndex]->data(), length() * sizeof(float));
 
+    other.m_needsAdditionalNoise = m_needsAdditionalNoise;
     return true;
 }
 
@@ -294,6 +326,22 @@ Ref<AudioBuffer> AudioBuffer::clone(ShouldCopyChannelData shouldCopyChannelData)
     if (shouldCopyChannelData == ShouldCopyChannelData::Yes)
         copyTo(*clone);
     return clone.releaseNonNull();
+}
+
+WebCoreOpaqueRoot root(AudioBuffer* buffer)
+{
+    return WebCoreOpaqueRoot { buffer };
+}
+
+void AudioBuffer::applyNoiseIfNeeded()
+{
+    if (!m_needsAdditionalNoise)
+        return;
+
+    for (auto& channel : m_channels)
+        AudioUtilities::applyNoise(channel->data(), channel->length(), 0.001);
+
+    m_needsAdditionalNoise = false;
 }
 
 } // namespace WebCore

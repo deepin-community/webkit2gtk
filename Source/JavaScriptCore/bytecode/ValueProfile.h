@@ -31,28 +31,37 @@
 #include "ConcurrentJSLock.h"
 #include "SpeculatedType.h"
 #include "Structure.h"
+#include "VirtualRegister.h"
 #include <wtf/PrintStream.h>
 #include <wtf/StringPrintStream.h>
 
 namespace JSC {
 
+class UnlinkedValueProfile;
+
 template<unsigned numberOfBucketsArgument>
 struct ValueProfileBase {
+    friend class UnlinkedValueProfile;
+
     static constexpr unsigned numberOfBuckets = numberOfBucketsArgument;
     static constexpr unsigned numberOfSpecFailBuckets = 1;
-    static constexpr unsigned bucketIndexMask = numberOfBuckets - 1;
     static constexpr unsigned totalNumberOfBuckets = numberOfBuckets + numberOfSpecFailBuckets;
     
     ValueProfileBase()
     {
-        for (unsigned i = 0; i < totalNumberOfBuckets; ++i)
-            m_buckets[i] = JSValue::encode(JSValue());
+        clearBuckets();
     }
     
     EncodedJSValue* specFailBucket(unsigned i)
     {
         ASSERT(numberOfBuckets + i < totalNumberOfBuckets);
         return m_buckets + numberOfBuckets + i;
+    }
+
+    void clearBuckets()
+    {
+        for (unsigned i = 0; i < totalNumberOfBuckets; ++i)
+            m_buckets[i] = JSValue::encode(JSValue());
     }
     
     const ClassInfo* classInfo(unsigned bucket) const
@@ -61,7 +70,7 @@ struct ValueProfileBase {
         if (!!value) {
             if (!value.isCell())
                 return nullptr;
-            return value.asCell()->structure()->classInfo();
+            return value.asCell()->classInfo();
         }
         return nullptr;
     }
@@ -94,10 +103,10 @@ struct ValueProfileBase {
     
     CString briefDescription(const ConcurrentJSLocker& locker)
     {
-        computeUpdatedPrediction(locker);
+        SpeculatedType prediction = computeUpdatedPrediction(locker);
         
         StringPrintStream out;
-        out.print("predicting ", SpeculationDump(m_prediction));
+        out.print("predicting ", SpeculationDump(prediction));
         return out.toCString();
     }
     
@@ -118,23 +127,24 @@ struct ValueProfileBase {
         }
     }
     
-    // Updates the prediction and returns the new one. Never call this from any thread
-    // that isn't executing the code.
     SpeculatedType computeUpdatedPrediction(const ConcurrentJSLocker&)
     {
+        SpeculatedType merged = SpecNone;
         for (unsigned i = 0; i < totalNumberOfBuckets; ++i) {
             JSValue value = JSValue::decode(m_buckets[i]);
             if (!value)
                 continue;
             
-            mergeSpeculation(m_prediction, speculationFromValue(value));
+            mergeSpeculation(merged, speculationFromValue(value));
             
             m_buckets[i] = JSValue::encode(JSValue());
         }
+
+        mergeSpeculation(m_prediction, merged);
         
         return m_prediction;
     }
-    
+
     EncodedJSValue m_buckets[totalNumberOfBuckets];
 
     SpeculatedType m_prediction { SpecNone };
@@ -156,6 +166,7 @@ struct ValueProfileWithLogNumberOfBuckets : public ValueProfileBase<1 << logNumb
 
 struct ValueProfile : public ValueProfileWithLogNumberOfBuckets<0> {
     ValueProfile() : ValueProfileWithLogNumberOfBuckets<0>() { }
+    static ptrdiff_t offsetOfFirstBucket() { return OBJECT_OFFSETOF(ValueProfile, m_buckets[0]); }
 };
 
 struct ValueProfileAndVirtualRegister : public ValueProfile {
@@ -211,6 +222,21 @@ private:
     }
 
     unsigned m_size;
+};
+
+class UnlinkedValueProfile {
+public:
+    UnlinkedValueProfile() = default;
+
+    void update(ValueProfile& profile)
+    {
+        SpeculatedType newType = profile.m_prediction | m_prediction;
+        profile.m_prediction = newType;
+        m_prediction = newType;
+    }
+
+private:
+    SpeculatedType m_prediction { SpecNone };
 };
 
 } // namespace JSC

@@ -28,8 +28,10 @@
 
 #include "CachedResourceLoader.h"
 #include "Document.h"
-#include "Frame.h"
+#include "FrameDestructionObserverInlines.h"
 #include "FrameLoader.h"
+#include "LocalFrame.h"
+#include "OriginAccessPatterns.h"
 #include "Page.h"
 #include "PageConsoleClient.h"
 #include "ResourceError.h"
@@ -49,10 +51,6 @@
 #include <libxslt/xsltutils.h>
 #include <wtf/Assertions.h>
 #include <wtf/CheckedArithmetic.h>
-
-#if OS(DARWIN) && !PLATFORM(GTK)
-#include "SoftLinkLibxslt.h"
-#endif
 
 namespace WebCore {
 
@@ -83,7 +81,7 @@ void XSLTProcessor::parseErrorFunc(void* userData, xmlError* error)
     }
 
     // xmlError->int2 is the column number of the error or 0 if N/A.
-    console->addMessage(MessageSource::XML, level, error->message, error->file, error->line, error->int2);
+    console->addMessage(MessageSource::XML, level, String::fromLatin1(error->message), String::fromLatin1(error->file), error->line, error->int2);
 }
 
 // FIXME: There seems to be no way to control the ctxt pointer for loading here, thus we have globals.
@@ -102,21 +100,21 @@ static xmlDocPtr docLoaderFunc(const xmlChar* uri,
     case XSLT_LOAD_DOCUMENT: {
         xsltTransformContextPtr context = (xsltTransformContextPtr)ctxt;
         xmlChar* base = xmlNodeGetBase(context->document->doc, context->node);
-        URL url(URL({ }, reinterpret_cast<const char*>(base)), reinterpret_cast<const char*>(uri));
+        URL url(URL({ }, String::fromLatin1(reinterpret_cast<const char*>(base))), String::fromLatin1(reinterpret_cast<const char*>(uri)));
         xmlFree(base);
         ResourceError error;
         ResourceResponse response;
 
         RefPtr<SharedBuffer> data;
 
-        bool requestAllowed = globalCachedResourceLoader->frame() && globalCachedResourceLoader->document()->securityOrigin().canRequest(url);
+        bool requestAllowed = globalCachedResourceLoader->frame() && globalCachedResourceLoader->document()->securityOrigin().canRequest(url, OriginAccessPatternsForWebProcess::singleton());
         if (requestAllowed) {
             FetchOptions options;
             options.mode = FetchOptions::Mode::SameOrigin;
             options.credentials = FetchOptions::Credentials::Include;
             globalCachedResourceLoader->frame()->loader().loadResourceSynchronously(url, ClientCredentialPolicy::MayAskClientForCredentials, options, { }, error, response, data);
             if (error.isNull())
-                requestAllowed = globalCachedResourceLoader->document()->securityOrigin().canRequest(response.url());
+                requestAllowed = globalCachedResourceLoader->document()->securityOrigin().canRequest(response.url(), OriginAccessPatternsForWebProcess::singleton());
             else if (data)
                 data = nullptr;
         }
@@ -127,7 +125,7 @@ static xmlDocPtr docLoaderFunc(const xmlChar* uri,
         }
 
         PageConsoleClient* console = nullptr;
-        Frame* frame = globalProcessor->xslStylesheet()->ownerDocument()->frame();
+        auto* frame = globalProcessor->xslStylesheet()->ownerDocument()->frame();
         if (frame && frame->page())
             console = &frame->page()->console();
         xmlSetStructuredErrorFunc(console, XSLTProcessor::parseErrorFunc);
@@ -300,11 +298,11 @@ static inline String resultMIMEType(xmlDocPtr resultDoc, xsltStylesheetPtr sheet
         resultType = (const xmlChar*)"html";
 
     if (xmlStrEqual(resultType, (const xmlChar*)"html"))
-        return "text/html";
+        return "text/html"_s;
     if (xmlStrEqual(resultType, (const xmlChar*)"text"))
-        return "text/plain";
+        return "text/plain"_s;
 
-    return "application/xml";
+    return "application/xml"_s;
 }
 
 bool XSLTProcessor::transformToString(Node& sourceNode, String& mimeType, String& resultString, String& resultEncoding)
@@ -320,16 +318,11 @@ bool XSLTProcessor::transformToString(Node& sourceNode, String& mimeType, String
     }
     m_stylesheet->clearDocuments();
 
-#if OS(DARWIN) && !PLATFORM(GTK)
-    int origXsltMaxDepth = *xsltMaxDepth;
-    *xsltMaxDepth = 1000;
-#else
     int origXsltMaxDepth = xsltMaxDepth;
     xsltMaxDepth = 1000;
-#endif
 
     xmlChar* origMethod = sheet->method;
-    if (!origMethod && mimeType == "text/html")
+    if (!origMethod && mimeType == "text/html"_s)
         sheet->method = reinterpret_cast<xmlChar*>(const_cast<char*>("html"));
 
     bool success = false;
@@ -374,17 +367,13 @@ bool XSLTProcessor::transformToString(Node& sourceNode, String& mimeType, String
 
         if ((success = saveResultToString(resultDoc, sheet, resultString))) {
             mimeType = resultMIMEType(resultDoc, sheet);
-            resultEncoding = reinterpret_cast<const char*>(resultDoc->encoding);
+            resultEncoding = String::fromLatin1(reinterpret_cast<const char*>(resultDoc->encoding));
         }
         xmlFreeDoc(resultDoc);
     }
 
     sheet->method = origMethod;
-#if OS(DARWIN) && !PLATFORM(GTK)
-    *xsltMaxDepth = origXsltMaxDepth;
-#else
     xsltMaxDepth = origXsltMaxDepth;
-#endif
     setXSLTLoadCallBack(0, 0, 0);
     xsltFreeStylesheet(sheet);
     m_stylesheet = nullptr;

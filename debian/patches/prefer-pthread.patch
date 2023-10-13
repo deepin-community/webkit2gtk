@@ -8,15 +8,15 @@ Index: webkitgtk/Source/cmake/OptionsGTK.cmake
 ===================================================================
 --- webkitgtk.orig/Source/cmake/OptionsGTK.cmake
 +++ webkitgtk/Source/cmake/OptionsGTK.cmake
-@@ -8,6 +8,8 @@ SET_PROJECT_VERSION(2 33 90)
+@@ -13,6 +13,8 @@ endif ()
  
  set(USER_AGENT_BRANDING "" CACHE STRING "Branding to add to user agent string")
  
 +set(THREADS_PREFER_PTHREAD_FLAG ON)
 +
- find_package(Cairo 1.14.0 REQUIRED)
- find_package(Fontconfig 2.8.0 REQUIRED)
- find_package(Freetype 2.4.2 REQUIRED)
+ find_package(Cairo 1.16.0 REQUIRED)
+ find_package(Fontconfig 2.13.0 REQUIRED)
+ find_package(Freetype 2.9.0 REQUIRED)
 Index: webkitgtk/Source/cmake/OptionsJSCOnly.cmake
 ===================================================================
 --- webkitgtk.orig/Source/cmake/OptionsJSCOnly.cmake

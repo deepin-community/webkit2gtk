@@ -52,14 +52,14 @@ class MediaSourceTrackGStreamer;
 
 class SourceBufferPrivateGStreamer final : public SourceBufferPrivate {
 public:
+    static bool isContentTypeSupported(const ContentType&);
     static Ref<SourceBufferPrivateGStreamer> create(MediaSourcePrivateGStreamer*, const ContentType&, MediaPlayerPrivateGStreamerMSE&);
     virtual ~SourceBufferPrivateGStreamer() = default;
 
     void clearMediaSource() { m_mediaSource = nullptr; }
 
-    void append(Vector<unsigned char>&&) final;
-    void abort() final;
-    void resetParserState() final;
+    void appendInternal(Ref<SharedBuffer>&&) final;
+    void resetParserStateInternal() final;
     void removedFromMediaSource() final;
     MediaPlayer::ReadyState readyState() const final;
     void setReadyState(MediaPlayer::ReadyState) final;
@@ -71,7 +71,7 @@ public:
     void setActive(bool) final;
     bool isActive() const final;
 
-    void didReceiveInitializationSegment(SourceBufferPrivateClient::InitializationSegment&&, CompletionHandler<void()>&&);
+    void didReceiveInitializationSegment(InitializationSegment&&, CompletionHandler<void(ReceiveResult)>&&);
     void didReceiveSample(Ref<MediaSample>&&);
     void didReceiveAllPendingSamples();
     void appendParsingFailed();
@@ -93,6 +93,9 @@ public:
     const Logger& sourceBufferLogger() const final { return m_logger; }
     const void* sourceBufferLogIdentifier() final { return logIdentifier(); }
 #endif
+
+    size_t platformMaximumBufferSize() const override;
+    size_t platformEvictionThreshold() const final;
 
 private:
     SourceBufferPrivateGStreamer(MediaSourcePrivateGStreamer*, const ContentType&, MediaPlayerPrivateGStreamerMSE&);

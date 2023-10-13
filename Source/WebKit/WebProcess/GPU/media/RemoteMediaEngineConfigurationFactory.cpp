@@ -40,8 +40,7 @@
 namespace WebKit {
 using namespace WebCore;
 
-RemoteMediaEngineConfigurationFactory::RemoteMediaEngineConfigurationFactory(WebProcess& process)
-    : m_process(process)
+RemoteMediaEngineConfigurationFactory::RemoteMediaEngineConfigurationFactory(WebProcess&)
 {
 }
 
@@ -51,7 +50,7 @@ void RemoteMediaEngineConfigurationFactory::registerFactory()
 {
     MediaEngineConfigurationFactory::clearFactories();
 
-    auto createDecodingConfiguration = [weakThis = makeWeakPtr(this)] (MediaDecodingConfiguration&& configuration, MediaEngineConfigurationFactory::DecodingConfigurationCallback&& callback) {
+    auto createDecodingConfiguration = [weakThis = WeakPtr { *this }] (MediaDecodingConfiguration&& configuration, MediaEngineConfigurationFactory::DecodingConfigurationCallback&& callback) {
         if (!weakThis) {
             callback({{ }, WTFMove(configuration)});
             return;
@@ -63,7 +62,7 @@ void RemoteMediaEngineConfigurationFactory::registerFactory()
 #if PLATFORM(COCOA)
     MediaEngineConfigurationFactory::CreateEncodingConfiguration createEncodingConfiguration = nullptr;
 #else
-    auto createEncodingConfiguration = [weakThis = makeWeakPtr(this)] (MediaEncodingConfiguration&& configuration, MediaEngineConfigurationFactory::EncodingConfigurationCallback&& callback) {
+    auto createEncodingConfiguration = [weakThis = WeakPtr { *this }] (MediaEncodingConfiguration&& configuration, MediaEngineConfigurationFactory::EncodingConfigurationCallback&& callback) {
         if (!weakThis) {
             callback({{ }, WTFMove(configuration)});
             return;
@@ -83,7 +82,7 @@ const char* RemoteMediaEngineConfigurationFactory::supplementName()
 
 GPUProcessConnection& RemoteMediaEngineConfigurationFactory::gpuProcessConnection()
 {
-    return m_process.ensureGPUProcessConnection();
+    return WebProcess::singleton().ensureGPUProcessConnection();
 }
 
 void RemoteMediaEngineConfigurationFactory::createDecodingConfiguration(MediaDecodingConfiguration&& configuration, MediaEngineConfigurationFactory::DecodingConfigurationCallback&& callback)

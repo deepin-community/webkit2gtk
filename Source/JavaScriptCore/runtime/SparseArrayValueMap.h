@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2011-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -93,7 +93,7 @@ private:
 
     SparseArrayValueMap(VM&);
     
-    void finishCreation(VM&);
+    DECLARE_DEFAULT_FINISH_CREATION;
 
 public:
     DECLARE_EXPORT_INFO;
@@ -108,9 +108,9 @@ public:
     static void destroy(JSCell*);
 
     template<typename CellType, SubspaceAccess>
-    static IsoSubspace* subspaceFor(VM& vm)
+    static GCClient::IsoSubspace* subspaceFor(VM& vm)
     {
-        return &vm.sparseArrayValueMapSpace;
+        return &vm.sparseArrayValueMapSpace();
     }
     
     static Structure* createStructure(VM&, JSGlobalObject*, JSValue prototype);

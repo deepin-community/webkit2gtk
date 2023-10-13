@@ -20,11 +20,13 @@
 
 #pragma once
 
+#include "Path.h"
 #include "RenderSVGInline.h"
 
 namespace WebCore {
 
 class SVGGeometryElement;
+class SVGTextPathElement;
 
 class RenderSVGTextPath final : public RenderSVGInline {
     WTF_MAKE_ISO_ALLOCATED(RenderSVGTextPath);
@@ -36,14 +38,12 @@ public:
 
     Path layoutPath() const;
     const SVGLengthValue& startOffset() const;
-    bool exactAlignment() const;
-    bool stretchMethod() const;
 
 private:
     void graphicsElement() const = delete;
 
     bool isSVGTextPath() const override { return true; }
-    const char* renderName() const override { return "RenderSVGTextPath"; }
+    ASCIILiteral renderName() const override { return "RenderSVGTextPath"_s; }
 
     Path m_layoutPath;
 };

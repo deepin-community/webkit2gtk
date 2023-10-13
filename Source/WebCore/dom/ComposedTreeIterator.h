@@ -26,6 +26,7 @@
 #pragma once
 
 #include "ElementAndTextDescendantIterator.h"
+#include "ElementRareData.h"
 #include "HTMLSlotElement.h"
 #include "ShadowRoot.h"
 
@@ -44,7 +45,6 @@ public:
     Node* operator->() { return &current(); }
 
     bool operator==(const ComposedTreeIterator& other) const { return context().iterator == other.context().iterator; }
-    bool operator!=(const ComposedTreeIterator& other) const { return context().iterator != other.context().iterator; }
 
     ComposedTreeIterator& operator++() { return traverseNext(); }
 
@@ -224,8 +224,8 @@ inline Node* firstChildInComposedTreeIgnoringUserAgentShadow(Node& node)
 {
     if (auto* shadowRoot = shadowRootIgnoringUserAgentShadow(node))
         return shadowRoot->firstChild();
-    if (is<HTMLSlotElement>(node)) {
-        if (auto* assignedNodes = downcast<HTMLSlotElement>(node).assignedNodes())
+    if (auto slot = dynamicDowncast<HTMLSlotElement>(node)) {
+        if (auto* assignedNodes = slot->assignedNodes())
             return assignedNodes->at(0).get();
     }
     return node.firstChild();

@@ -38,17 +38,25 @@ OBJC_CLASS NSScrollerImp;
 
 namespace WebCore {
 
-struct RequestedScrollData {
-    FloatPoint scrollPosition;
-    ScrollType scrollType { ScrollType::User };
-    ScrollClamping clamping { ScrollClamping::Clamped };
-    
-    bool operator==(const RequestedScrollData& other) const
+struct ScrollbarHoverState {
+    bool mouseIsOverHorizontalScrollbar { false };
+    bool mouseIsOverVerticalScrollbar { false };
+
+    bool operator==(const ScrollbarHoverState& other) const
     {
-        return scrollPosition == other.scrollPosition
-            && scrollType == other.scrollType
-            && clamping == other.clamping;
+        return mouseIsOverHorizontalScrollbar == other.mouseIsOverHorizontalScrollbar
+            && mouseIsOverVerticalScrollbar == other.mouseIsOverVerticalScrollbar;
     }
+};
+
+struct MouseLocationState {
+    IntPoint locationInHorizontalScrollbar;
+    IntPoint locationInVerticalScrollbar;
+};
+
+struct ScrollbarEnabledState {
+    bool horizontalScrollbarIsEnabled { false };
+    bool verticalScrollbarIsEnabled { false };
 };
 
 class ScrollingStateScrollingNode : public ScrollingStateNode {
@@ -88,8 +96,15 @@ public:
     bool hasSynchronousScrollingReasons() const { return !m_synchronousScrollingReasons.isEmpty(); }
 #endif
 
+    const RequestedKeyboardScrollData& keyboardScrollData() const { return m_keyboardScrollData; }
+    WEBCORE_EXPORT void setKeyboardScrollData(const RequestedKeyboardScrollData&);
+
     const RequestedScrollData& requestedScrollData() const { return m_requestedScrollData; }
-    WEBCORE_EXPORT void setRequestedScrollData(const RequestedScrollData&);
+
+    enum class CanMergeScrollData : bool { No, Yes };
+    WEBCORE_EXPORT void setRequestedScrollData(RequestedScrollData&&, CanMergeScrollData = CanMergeScrollData::Yes);
+
+    WEBCORE_EXPORT bool hasScrollPositionRequest() const;
 
     bool isMonitoringWheelEvents() const { return m_isMonitoringWheelEvents; }
     WEBCORE_EXPORT void setIsMonitoringWheelEvents(bool);
@@ -111,14 +126,26 @@ public:
     NSScrollerImp *verticalScrollerImp() const { return m_verticalScrollerImp.get(); }
     NSScrollerImp *horizontalScrollerImp() const { return m_horizontalScrollerImp.get(); }
 #endif
+    ScrollbarHoverState scrollbarHoverState() const { return m_scrollbarHoverState; }
+    WEBCORE_EXPORT void setScrollbarHoverState(ScrollbarHoverState);
+
+    ScrollbarEnabledState scrollbarEnabledState() const { return m_scrollbarEnabledState; }
+    WEBCORE_EXPORT void setScrollbarEnabledState(ScrollbarOrientation, bool);
+
     void setScrollerImpsFromScrollbars(Scrollbar* verticalScrollbar, Scrollbar* horizontalScrollbar);
+
+    WEBCORE_EXPORT void setMouseIsOverContentArea(bool);
+    bool mouseIsOverContentArea() const { return m_mouseIsOverContentArea; }
+
+    WEBCORE_EXPORT void setMouseMovedInContentArea(const MouseLocationState&);
+    const MouseLocationState& mouseLocationState() const { return m_mouseLocationState; }
 
 protected:
     ScrollingStateScrollingNode(ScrollingStateTree&, ScrollingNodeType, ScrollingNodeID);
     ScrollingStateScrollingNode(const ScrollingStateScrollingNode&, ScrollingStateTree&);
 
     OptionSet<Property> applicableProperties() const override;
-    void dumpProperties(WTF::TextStream&, ScrollingStateTreeAsTextBehavior) const override;
+    void dumpProperties(WTF::TextStream&, OptionSet<ScrollingStateTreeAsTextBehavior>) const override;
 
 private:
     FloatSize m_scrollableAreaSize;
@@ -135,6 +162,10 @@ private:
     LayerRepresentation m_scrolledContentsLayer;
     LayerRepresentation m_horizontalScrollbarLayer;
     LayerRepresentation m_verticalScrollbarLayer;
+    
+    ScrollbarHoverState m_scrollbarHoverState;
+    MouseLocationState m_mouseLocationState;
+    ScrollbarEnabledState m_scrollbarEnabledState;
 
 #if PLATFORM(MAC)
     RetainPtr<NSScrollerImp> m_verticalScrollerImp;
@@ -143,10 +174,13 @@ private:
 
     ScrollableAreaParameters m_scrollableAreaParameters;
     RequestedScrollData m_requestedScrollData;
+    RequestedKeyboardScrollData m_keyboardScrollData;
 #if ENABLE(SCROLLING_THREAD)
     OptionSet<SynchronousScrollingReason> m_synchronousScrollingReasons;
 #endif
     bool m_isMonitoringWheelEvents { false };
+    bool m_mouseIsOverContentArea { false };
+
 };
 
 } // namespace WebCore

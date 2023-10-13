@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,25 +25,21 @@
 
 #pragma once
 
-#if ENABLE(GPU_PROCESS)
-
+#include "CGDisplayList.h"
 #include "ShareableBitmap.h"
-#include "SharedBufferCopy.h"
+#include <variant>
 #include <wtf/MachSendRight.h>
-#include <wtf/Variant.h>
 
 namespace WebKit {
 
-using ImageBufferBackendHandle = Variant<
+using ImageBufferBackendHandle = std::variant<
     ShareableBitmap::Handle
 #if PLATFORM(COCOA) // FIXME: This is really about IOSurface.
     , MachSendRight
 #endif
 #if ENABLE(CG_DISPLAY_LIST_BACKED_IMAGE_BUFFER)
-    , IPC::SharedBufferCopy
+    , CGDisplayList
 #endif
 >;
 
 } // namespace WebKit
-
-#endif // ENABLE(GPU_PROCESS)

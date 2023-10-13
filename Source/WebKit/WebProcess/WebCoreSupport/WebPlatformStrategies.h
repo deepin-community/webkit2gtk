@@ -81,6 +81,7 @@ private:
     RefPtr<WebCore::SharedBuffer> readBufferFromClipboard(const String& pasteboardName, const String& pasteboardType) override;
     void writeToClipboard(const String& pasteboardName, WebCore::SelectionData&&) override;
     void clearClipboard(const String& pasteboardName) override;
+    int64_t changeCount(const String& pasteboardName) override;
 #endif
 #if USE(LIBWPE)
     void getTypes(Vector<String>& types) override;
@@ -89,7 +90,7 @@ private:
 #endif
 
     String readStringFromPasteboard(size_t index, const String& pasteboardType, const String& pasteboardName, const WebCore::PasteboardContext*) override;
-    RefPtr<WebCore::SharedBuffer> readBufferFromPasteboard(size_t index, const String& pasteboardType, const String& pasteboardName, const WebCore::PasteboardContext*) override;
+    RefPtr<WebCore::SharedBuffer> readBufferFromPasteboard(std::optional<size_t> index, const String& pasteboardType, const String& pasteboardName, const WebCore::PasteboardContext*) override;
     URL readURLFromPasteboard(size_t index, const String& pasteboardName, String& title, const WebCore::PasteboardContext*) override;
     int getPasteboardItemsCount(const String& pasteboardName, const WebCore::PasteboardContext*) override;
     std::optional<WebCore::PasteboardItemInfo> informationForItemAtIndex(size_t index, const String& pasteboardName, int64_t changeCount, const WebCore::PasteboardContext*) override;

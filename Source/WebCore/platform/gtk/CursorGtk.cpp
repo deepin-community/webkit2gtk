@@ -39,7 +39,7 @@ namespace WebCore {
 #if USE(GTK4)
 static GRefPtr<GdkCursor> fallbackCursor()
 {
-    static WTF::NeverDestroyed<GRefPtr<GdkCursor>> cursor(adoptGRef(gdk_cursor_new_from_name("default", nullptr)));
+    static NeverDestroyed<GRefPtr<GdkCursor>> cursor(adoptGRef(gdk_cursor_new_from_name("default", nullptr)));
     return cursor;
 }
 #endif // USE(GTK4)
@@ -56,7 +56,7 @@ static GRefPtr<GdkCursor> createNamedCursor(const char* name)
 static GRefPtr<GdkCursor> createCustomCursor(Image* image, const IntPoint& hotSpot)
 {
 #if USE(GTK4)
-    auto texture = adoptGRef(image->gdkTexture());
+    auto texture = image->gdkTexture();
     if (!texture)
         return nullptr;
 

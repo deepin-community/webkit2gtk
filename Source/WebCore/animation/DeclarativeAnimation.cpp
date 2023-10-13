@@ -27,15 +27,15 @@
 #include "DeclarativeAnimation.h"
 
 #include "Animation.h"
-#include "AnimationEvent.h"
 #include "CSSAnimation.h"
 #include "CSSTransition.h"
+#include "DeclarativeAnimationEvent.h"
 #include "DocumentTimeline.h"
 #include "Element.h"
 #include "EventNames.h"
 #include "KeyframeEffect.h"
 #include "Logging.h"
-#include "PseudoElement.h"
+#include "RenderStyle.h"
 #include <wtf/IsoMallocInlines.h>
 #include <wtf/text/TextStream.h>
 
@@ -45,7 +45,7 @@ WTF_MAKE_ISO_ALLOCATED_IMPL(DeclarativeAnimation);
 
 DeclarativeAnimation::DeclarativeAnimation(const Styleable& styleable, const Animation& backingAnimation)
     : WebAnimation(styleable.element.document())
-    , m_owningElement(makeWeakPtr(styleable.element))
+    , m_owningElement(styleable.element)
     , m_owningPseudoId(styleable.pseudoId)
     , m_backingAnimation(const_cast<Animation&>(backingAnimation))
 {
@@ -69,7 +69,7 @@ void DeclarativeAnimation::tick()
     bool wasRelevant = isRelevant();
     
     WebAnimation::tick();
-    invalidateDOMEvents();
+    invalidateDOMEvents(shouldFireDOMEvents());
 
     // If a declarative animation transitions from a non-idle state to an idle state, it means it was
     // canceled using the Web Animations API and it should be disassociated from its owner element.
@@ -105,8 +105,10 @@ void DeclarativeAnimation::setBackingAnimation(const Animation& backingAnimation
     syncPropertiesWithBackingAnimation();
 }
 
-void DeclarativeAnimation::initialize(const RenderStyle* oldStyle, const RenderStyle& newStyle, const RenderStyle* parentElementStyle)
+void DeclarativeAnimation::initialize(const RenderStyle* oldStyle, const RenderStyle& newStyle, const Style::ResolutionContext& resolutionContext)
 {
+    WebAnimation::initialize();
+
     // We need to suspend invalidation of the animation's keyframe effect during its creation
     // as it would otherwise trigger invalidation of the document's style and this would be
     // incorrect since it would happen during style invalidation.
@@ -116,7 +118,7 @@ void DeclarativeAnimation::initialize(const RenderStyle* oldStyle, const RenderS
 
     setEffect(KeyframeEffect::create(*m_owningElement, m_owningPseudoId));
     setTimeline(&m_owningElement->document().timeline());
-    downcast<KeyframeEffect>(effect())->computeDeclarativeAnimationBlendingKeyframes(oldStyle, newStyle, parentElementStyle);
+    downcast<KeyframeEffect>(effect())->computeDeclarativeAnimationBlendingKeyframes(oldStyle, newStyle, resolutionContext);
     syncPropertiesWithBackingAnimation();
     if (backingAnimation().playState() == AnimationPlayState::Playing)
         play();
@@ -136,22 +138,10 @@ std::optional<double> DeclarativeAnimation::bindingsStartTime() const
     return WebAnimation::bindingsStartTime();
 }
 
-void DeclarativeAnimation::setBindingsStartTime(std::optional<double> startTime)
-{
-    flushPendingStyleChanges();
-    return WebAnimation::setBindingsStartTime(startTime);
-}
-
 std::optional<double> DeclarativeAnimation::bindingsCurrentTime() const
 {
     flushPendingStyleChanges();
     return WebAnimation::bindingsCurrentTime();
-}
-
-ExceptionOr<void> DeclarativeAnimation::setBindingsCurrentTime(std::optional<double> currentTime)
-{
-    flushPendingStyleChanges();
-    return WebAnimation::setBindingsCurrentTime(currentTime);
 }
 
 WebAnimation::PlayState DeclarativeAnimation::bindingsPlayState() const
@@ -198,11 +188,9 @@ ExceptionOr<void> DeclarativeAnimation::bindingsPause()
 
 void DeclarativeAnimation::flushPendingStyleChanges() const
 {
-    if (auto* animationEffect = effect()) {
-        if (is<KeyframeEffect>(animationEffect)) {
-            if (auto* target = downcast<KeyframeEffect>(animationEffect)->target())
-                target->document().updateStyleIfNeeded();
-        }
+    if (auto* keyframeEffect = dynamicDowncast<KeyframeEffect>(effect())) {
+        if (auto* target = keyframeEffect->target())
+            target->document().updateStyleIfNeeded();
     }
 }
 
@@ -217,14 +205,18 @@ void DeclarativeAnimation::setTimeline(RefPtr<AnimationTimeline>&& newTimeline)
 void DeclarativeAnimation::cancel()
 {
     auto cancelationTime = 0_s;
-    if (auto* animationEffect = effect()) {
-        if (auto activeTime = animationEffect->getBasicTiming().activeTime)
-            cancelationTime = *activeTime;
+
+    auto shouldFireEvents = shouldFireDOMEvents();
+    if (shouldFireEvents != ShouldFireEvents::No) {
+        if (auto* animationEffect = effect()) {
+            if (auto activeTime = animationEffect->getBasicTiming().activeTime)
+                cancelationTime = *activeTime;
+        }
     }
 
     WebAnimation::cancel();
 
-    invalidateDOMEvents(cancelationTime);
+    invalidateDOMEvents(shouldFireEvents, cancelationTime);
 }
 
 void DeclarativeAnimation::cancelFromStyle()
@@ -246,7 +238,45 @@ AnimationEffectPhase DeclarativeAnimation::phaseWithoutEffect() const
     return *animationCurrentTime < 0_s ? AnimationEffectPhase::Before : AnimationEffectPhase::After;
 }
 
-void DeclarativeAnimation::invalidateDOMEvents(Seconds elapsedTime)
+Seconds DeclarativeAnimation::effectTimeAtStart() const
+{
+    if (auto* effect = this->effect())
+        return effect->delay();
+    return 0_s;
+}
+
+Seconds DeclarativeAnimation::effectTimeAtIteration(double iteration) const
+{
+    if (auto* effect = this->effect())
+        return effect->delay() + effect->iterationDuration() * iteration;
+    return 0_s;
+}
+
+Seconds DeclarativeAnimation::effectTimeAtEnd() const
+{
+    if (auto* effect = this->effect())
+        return effect->endTime();
+    return 0_s;
+}
+
+auto DeclarativeAnimation::shouldFireDOMEvents() const -> ShouldFireEvents
+{
+    if (!m_owningElement)
+        return ShouldFireEvents::No;
+
+    auto& document = m_owningElement->document();
+    if (is<CSSAnimation>(*this)) {
+        if (document.hasListenerType(Document::ListenerType::CSSAnimation))
+            return ShouldFireEvents::YesForCSSAnimation;
+        return ShouldFireEvents::No;
+    }
+    ASSERT(is<CSSTransition>(*this));
+    if (document.hasListenerType(Document::ListenerType::CSSTransition))
+        return ShouldFireEvents::YesForCSSTransition;
+    return ShouldFireEvents::No;
+}
+
+void DeclarativeAnimation::invalidateDOMEvents(ShouldFireEvents shouldFireEvents, Seconds elapsedTime)
 {
     if (!m_owningElement)
         return;
@@ -285,57 +315,63 @@ void DeclarativeAnimation::invalidateDOMEvents(Seconds elapsedTime)
     bool isBefore = currentPhase == AnimationEffectPhase::Before;
     bool isIdle = currentPhase == AnimationEffectPhase::Idle;
 
-    if (is<CSSAnimation>(this)) {
+    switch (shouldFireEvents) {
+    case ShouldFireEvents::YesForCSSAnimation:
         // https://drafts.csswg.org/css-animations-2/#events
         if ((wasIdle || wasBefore) && isActive)
-            enqueueDOMEvent(eventNames().animationstartEvent, intervalStart);
+            enqueueDOMEvent(eventNames().animationstartEvent, intervalStart, effectTimeAtStart());
         else if ((wasIdle || wasBefore) && isAfter) {
-            enqueueDOMEvent(eventNames().animationstartEvent, intervalStart);
-            enqueueDOMEvent(eventNames().animationendEvent, intervalEnd);
+            enqueueDOMEvent(eventNames().animationstartEvent, intervalStart, effectTimeAtStart());
+            enqueueDOMEvent(eventNames().animationendEvent, intervalEnd, effectTimeAtEnd());
         } else if (wasActive && isBefore)
-            enqueueDOMEvent(eventNames().animationendEvent, intervalStart);
+            enqueueDOMEvent(eventNames().animationendEvent, intervalStart, effectTimeAtEnd());
         else if (wasActive && isActive && m_previousIteration != iteration) {
             auto iterationBoundary = iteration;
             if (m_previousIteration > iteration)
                 iterationBoundary++;
             auto elapsedTime = animationEffect ? animationEffect->iterationDuration() * (iterationBoundary - animationEffect->iterationStart()) : 0_s;
-            enqueueDOMEvent(eventNames().animationiterationEvent, elapsedTime);
+            enqueueDOMEvent(eventNames().animationiterationEvent, elapsedTime, effectTimeAtIteration(iteration));
         } else if (wasActive && isAfter)
-            enqueueDOMEvent(eventNames().animationendEvent, intervalEnd);
+            enqueueDOMEvent(eventNames().animationendEvent, intervalEnd, effectTimeAtEnd());
         else if (wasAfter && isActive)
-            enqueueDOMEvent(eventNames().animationstartEvent, intervalEnd);
+            enqueueDOMEvent(eventNames().animationstartEvent, intervalEnd, effectTimeAtStart());
         else if (wasAfter && isBefore) {
-            enqueueDOMEvent(eventNames().animationstartEvent, intervalEnd);
-            enqueueDOMEvent(eventNames().animationendEvent, intervalStart);
+            enqueueDOMEvent(eventNames().animationstartEvent, intervalEnd, effectTimeAtStart());
+            enqueueDOMEvent(eventNames().animationendEvent, intervalStart, effectTimeAtEnd());
         } else if ((!wasIdle && !wasAfter) && isIdle)
-            enqueueDOMEvent(eventNames().animationcancelEvent, elapsedTime);
-    } else if (is<CSSTransition>(this)) {
+            enqueueDOMEvent(eventNames().animationcancelEvent, elapsedTime, elapsedTime);
+        break;
+    case ShouldFireEvents::YesForCSSTransition:
         // https://drafts.csswg.org/css-transitions-2/#transition-events
         if (wasIdle && (isPending || isBefore))
-            enqueueDOMEvent(eventNames().transitionrunEvent, intervalStart);
+            enqueueDOMEvent(eventNames().transitionrunEvent, intervalStart, effectTimeAtStart());
         else if (wasIdle && isActive) {
-            enqueueDOMEvent(eventNames().transitionrunEvent, intervalStart);
-            enqueueDOMEvent(eventNames().transitionstartEvent, intervalStart);
+            auto scheduledEffectTime = effectTimeAtStart();
+            enqueueDOMEvent(eventNames().transitionrunEvent, intervalStart, scheduledEffectTime);
+            enqueueDOMEvent(eventNames().transitionstartEvent, intervalStart, scheduledEffectTime);
         } else if (wasIdle && isAfter) {
-            enqueueDOMEvent(eventNames().transitionrunEvent, intervalStart);
-            enqueueDOMEvent(eventNames().transitionstartEvent, intervalStart);
-            enqueueDOMEvent(eventNames().transitionendEvent, intervalEnd);
+            enqueueDOMEvent(eventNames().transitionrunEvent, intervalStart, effectTimeAtStart());
+            enqueueDOMEvent(eventNames().transitionstartEvent, intervalStart, effectTimeAtStart());
+            enqueueDOMEvent(eventNames().transitionendEvent, intervalEnd, effectTimeAtEnd());
         } else if ((m_wasPending || wasBefore) && isActive)
-            enqueueDOMEvent(eventNames().transitionstartEvent, intervalStart);
+            enqueueDOMEvent(eventNames().transitionstartEvent, intervalStart, effectTimeAtStart());
         else if ((m_wasPending || wasBefore) && isAfter) {
-            enqueueDOMEvent(eventNames().transitionstartEvent, intervalStart);
-            enqueueDOMEvent(eventNames().transitionendEvent, intervalEnd);
+            enqueueDOMEvent(eventNames().transitionstartEvent, intervalStart, effectTimeAtStart());
+            enqueueDOMEvent(eventNames().transitionendEvent, intervalEnd, effectTimeAtEnd());
         } else if (wasActive && isAfter)
-            enqueueDOMEvent(eventNames().transitionendEvent, intervalEnd);
+            enqueueDOMEvent(eventNames().transitionendEvent, intervalEnd, effectTimeAtEnd());
         else if (wasActive && isBefore)
-            enqueueDOMEvent(eventNames().transitionendEvent, intervalStart);
+            enqueueDOMEvent(eventNames().transitionendEvent, intervalStart, effectTimeAtEnd());
         else if (wasAfter && isActive)
-            enqueueDOMEvent(eventNames().transitionstartEvent, intervalEnd);
+            enqueueDOMEvent(eventNames().transitionstartEvent, intervalEnd, effectTimeAtStart());
         else if (wasAfter && isBefore) {
-            enqueueDOMEvent(eventNames().transitionstartEvent, intervalEnd);
-            enqueueDOMEvent(eventNames().transitionendEvent, intervalStart);
+            enqueueDOMEvent(eventNames().transitionstartEvent, intervalEnd, effectTimeAtStart());
+            enqueueDOMEvent(eventNames().transitionendEvent, intervalStart, effectTimeAtEnd());
         } else if ((!wasIdle && !wasAfter) && isIdle)
-            enqueueDOMEvent(eventNames().transitioncancelEvent, elapsedTime);
+            enqueueDOMEvent(eventNames().transitioncancelEvent, elapsedTime, elapsedTime);
+        break;
+    case ShouldFireEvents::No:
+        break;
     }
 
     m_wasPending = isPending;
@@ -343,16 +379,22 @@ void DeclarativeAnimation::invalidateDOMEvents(Seconds elapsedTime)
     m_previousIteration = iteration;
 }
 
-void DeclarativeAnimation::enqueueDOMEvent(const AtomString& eventType, Seconds elapsedTime)
+void DeclarativeAnimation::enqueueDOMEvent(const AtomString& eventType, Seconds elapsedTime, Seconds scheduledEffectTime)
 {
     if (!m_owningElement)
         return;
 
+    auto scheduledTimelineTime = [&]() -> std::optional<Seconds> {
+        if (auto* documentTimeline = dynamicDowncast<DocumentTimeline>(timeline())) {
+            if (auto scheduledAnimationTime = convertAnimationTimeToTimelineTime(scheduledEffectTime))
+                return documentTimeline->convertTimelineTimeToOriginRelativeTime(*scheduledAnimationTime);
+        }
+        return std::nullopt;
+    }();
+
     auto time = secondsToWebAnimationsAPITime(elapsedTime) / 1000;
-    auto pseudoId = pseudoIdAsString(m_owningPseudoId);
-    auto timelineTime = timeline() ? timeline()->currentTime() : std::nullopt;
-    auto event = createEvent(eventType, time, pseudoId, timelineTime);
-    event->setTarget(m_owningElement.get());
+    auto event = createEvent(eventType, scheduledTimelineTime, time, m_owningPseudoId);
+    event->setTarget(RefPtr { m_owningElement.get() });
     enqueueAnimationEvent(WTFMove(event));
 }
 

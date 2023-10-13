@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,6 +28,7 @@
 #include "Gate.h"
 #include "Opcode.h"
 #include "OptionsList.h"
+#include "SecureARM64EHashPins.h"
 #include <wtf/WTFConfig.h>
 
 namespace JSC {
@@ -63,6 +64,8 @@ struct Config {
     bool disabledFreezingForTesting;
     bool restrictedOptionsEnabled;
     bool jitDisabled;
+    bool vmCreationDisallowed;
+    bool vmEntryDisallowed;
 
     bool useFastJITPermissions;
 
@@ -76,11 +79,17 @@ struct Config {
         bool canUseJIT;
     } vm;
 
+#if CPU(ARM64E)
+    bool canUseFPAC;
+#endif
+
     ExecutableAllocator* executableAllocator;
     FixedVMPoolExecutableAllocator* fixedVMPoolExecutableAllocator;
     void* startExecutableMemory;
     void* endExecutableMemory;
     uintptr_t startOfFixedWritableMemoryPool;
+    uintptr_t startOfStructureHeap;
+    uintptr_t sizeOfStructureHeap;
 
 #if ENABLE(SEPARATED_WX_HEAP)
     JITWriteSeparateHeapsFunction jitWriteSeparateHeaps;
@@ -91,13 +100,17 @@ struct Config {
     void (*shellTimeoutCheckCallback)(VM&);
 
     struct {
-        uint8_t exceptionInstructions[maxOpcodeLength + 1];
-        uint8_t wasmExceptionInstructions[maxOpcodeLength + 1];
+        uint8_t exceptionInstructions[maxBytecodeStructLength + 1];
+        uint8_t wasmExceptionInstructions[maxBytecodeStructLength + 1];
         const void* gateMap[numberOfGates];
     } llint;
 
 #if CPU(ARM64E) && ENABLE(PTRTAG_DEBUGGING)
     WTF::PtrTagLookup ptrTagLookupRecord;
+#endif
+
+#if CPU(ARM64E) && ENABLE(JIT)
+    SecureARM64EHashPins arm64eHashPins;
 #endif
 };
 
@@ -118,6 +131,12 @@ extern "C" JS_EXPORT_PRIVATE Config g_jscConfig;
 
 constexpr size_t offsetOfJSCConfigInitializeHasBeenCalled = offsetof(JSC::Config, initializeHasBeenCalled);
 constexpr size_t offsetOfJSCConfigGateMap = offsetof(JSC::Config, llint.gateMap);
+constexpr size_t offsetOfJSCConfigStartOfStructureHeap = offsetof(JSC::Config, startOfStructureHeap);
+
+ALWAYS_INLINE PURE_FUNCTION uintptr_t startOfStructureHeap()
+{
+    return g_jscConfig.startOfStructureHeap;
+}
 
 } // namespace JSC
 

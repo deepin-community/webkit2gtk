@@ -26,6 +26,7 @@
 #include "config.h"
 #include "SpeechRecognitionServer.h"
 
+#include "MessageSenderInlines.h"
 #include "UserMediaProcessManager.h"
 #include "WebProcessProxy.h"
 #include "WebSpeechRecognitionConnectionMessages.h"
@@ -63,7 +64,7 @@ void SpeechRecognitionServer::start(WebCore::SpeechRecognitionConnectionClientId
 
 void SpeechRecognitionServer::requestPermissionForRequest(WebCore::SpeechRecognitionRequest& request)
 {
-    m_permissionChecker(request, [this, weakThis = makeWeakPtr(this), weakRequest = makeWeakPtr(request)](auto error) mutable {
+    m_permissionChecker(request, [this, weakThis = WeakPtr { *this }, weakRequest = WeakPtr { request }](auto error) mutable {
         if (!weakThis || !weakRequest)
             return;
 
@@ -87,7 +88,7 @@ void SpeechRecognitionServer::handleRequest(UniqueRef<WebCore::SpeechRecognition
     }
 
     auto clientIdentifier = request->clientIdentifier();
-    m_recognizer = makeUnique<WebCore::SpeechRecognizer>([this, weakThis = makeWeakPtr(this)](auto& update) {
+    m_recognizer = makeUnique<WebCore::SpeechRecognizer>([this, weakThis = WeakPtr { *this }](auto& update) {
         if (!weakThis)
             return;
 
@@ -102,7 +103,7 @@ void SpeechRecognitionServer::handleRequest(UniqueRef<WebCore::SpeechRecognition
 #if ENABLE(MEDIA_STREAM)
     auto sourceOrError = m_realtimeMediaSourceCreateFunction();
     if (!sourceOrError) {
-        sendUpdate(WebCore::SpeechRecognitionUpdate::createError(clientIdentifier, WebCore::SpeechRecognitionError { WebCore::SpeechRecognitionErrorType::AudioCapture, sourceOrError.errorMessage }));
+        sendUpdate(WebCore::SpeechRecognitionUpdate::createError(clientIdentifier, WebCore::SpeechRecognitionError { WebCore::SpeechRecognitionErrorType::AudioCapture, sourceOrError.error.errorMessage }));
         return;
     }
 

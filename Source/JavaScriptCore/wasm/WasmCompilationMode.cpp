@@ -34,16 +34,24 @@ namespace JSC { namespace Wasm {
 const char* makeString(CompilationMode mode)
 {
     switch (mode) {
+    case CompilationMode::IPIntMode:
+        return "IPInt";
     case CompilationMode::LLIntMode:
         return "LLInt";
     case CompilationMode::BBQMode:
         return "BBQ";
+    case CompilationMode::BBQForOSREntryMode:
+        return "BBQForOSREntry";
     case CompilationMode::OMGMode:
         return "OMG";
     case CompilationMode::OMGForOSREntryMode:
         return "OMGForOSREntry";
-    case CompilationMode::EmbedderEntrypointMode:
-        return "EmbedderEntrypoint";
+    case CompilationMode::JSEntrypointMode:
+        return "JSEntrypoint";
+    case CompilationMode::JSToWasmICMode:
+        return "JSToWasmIC";
+    case CompilationMode::WasmToJSMode:
+        return "WasmToJS";
     }
     RELEASE_ASSERT_NOT_REACHED();
     return "";

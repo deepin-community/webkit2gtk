@@ -27,7 +27,7 @@
 #include "config.h"
 #include "RemoteTextTrackProxy.h"
 
-#if ENABLE(GPU_PROCESS)
+#if ENABLE(GPU_PROCESS) && ENABLE(VIDEO)
 
 #include "Connection.h"
 #include "DataReference.h"
@@ -44,17 +44,18 @@ namespace WebKit {
 using namespace WebCore;
 
 RemoteTextTrackProxy::RemoteTextTrackProxy(GPUConnectionToWebProcess& connectionToWebProcess, TrackPrivateRemoteIdentifier identifier, InbandTextTrackPrivate& trackPrivate, MediaPlayerIdentifier mediaPlayerIdentifier)
-    : m_connectionToWebProcess(makeWeakPtr(connectionToWebProcess))
+    : m_connectionToWebProcess(connectionToWebProcess)
     , m_identifier(identifier)
     , m_trackPrivate(trackPrivate)
     , m_mediaPlayerIdentifier(mediaPlayerIdentifier)
 {
-    m_trackPrivate->setClient(this);
+    m_trackPrivate->setClient(*this);
     m_connectionToWebProcess->connection().send(Messages::MediaPlayerPrivateRemote::AddRemoteTextTrack(m_identifier, configuration()), m_mediaPlayerIdentifier);
 }
 
 RemoteTextTrackProxy::~RemoteTextTrackProxy()
 {
+    m_trackPrivate->clearClient();
 }
 
 TextTrackPrivateRemoteConfiguration& RemoteTextTrackProxy::configuration()
@@ -192,4 +193,4 @@ void RemoteTextTrackProxy::parseWebVTTCueData(ISOWebVTTCue&& cueData)
 
 } // namespace WebKit
 
-#endif // ENABLE(GPU_PROCESS)
+#endif // ENABLE(GPU_PROCESS) && ENABLE(VIDEO)

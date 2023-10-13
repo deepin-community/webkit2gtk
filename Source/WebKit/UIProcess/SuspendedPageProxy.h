@@ -29,7 +29,8 @@
 #include "MessageSender.h"
 #include "ProcessThrottler.h"
 #include "WebBackForwardListItem.h"
-#include "WebPageProxyMessagesReplies.h"
+#include "WebPageProxyMessageReceiverRegistration.h"
+#include "WebProcessProxy.h"
 #include <WebCore/FrameIdentifier.h>
 #include <wtf/RefCounted.h>
 #include <wtf/WeakPtr.h>
@@ -40,10 +41,10 @@ class RegistrableDomain;
 
 namespace WebKit {
 
+class RemotePageProxy;
 class WebBackForwardCache;
 class WebPageProxy;
 class WebProcessPool;
-class WebProcessProxy;
 class WebsiteDataStore;
 
 #if HAVE(VISIBILITY_PROPAGATION_VIEW)
@@ -55,15 +56,16 @@ enum class ShouldDelayClosingUntilFirstLayerFlush : bool { No, Yes };
 class SuspendedPageProxy final: public IPC::MessageReceiver, public IPC::MessageSender {
     WTF_MAKE_FAST_ALLOCATED;
 public:
-    SuspendedPageProxy(WebPageProxy&, Ref<WebProcessProxy>&&, WebCore::FrameIdentifier mainFrameID, ShouldDelayClosingUntilFirstLayerFlush);
+    SuspendedPageProxy(WebPageProxy&, Ref<WebProcessProxy>&&, Ref<WebFrameProxy>&& mainFrame, ShouldDelayClosingUntilFirstLayerFlush);
     ~SuspendedPageProxy();
 
-    static RefPtr<WebProcessProxy> findReusableSuspendedPageProcess(WebProcessPool&, const WebCore::RegistrableDomain&, WebsiteDataStore&);
+    static RefPtr<WebProcessProxy> findReusableSuspendedPageProcess(WebProcessPool&, const WebCore::RegistrableDomain&, WebsiteDataStore&, WebProcessProxy::LockdownMode);
 
     WebPageProxy& page() const { return m_page; }
     WebCore::PageIdentifier webPageID() const { return m_webPageID; }
     WebProcessProxy& process() const { return m_process.get(); }
-    WebCore::FrameIdentifier mainFrameID() const { return m_mainFrameID; }
+    WebFrameProxy& mainFrame() { return m_mainFrame.get(); }
+    HashMap<WebCore::RegistrableDomain, WeakPtr<RemotePageProxy>> takeRemotePageMap();
 
     WebBackForwardCache& backForwardCache() const;
 
@@ -92,6 +94,7 @@ private:
     void suspensionTimedOut();
 
     void close();
+    void didDestroyNavigation(uint64_t navigationID);
 
     // IPC::MessageReceiver
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) final;
@@ -100,20 +103,22 @@ private:
     // IPC::MessageSender
     IPC::Connection* messageSenderConnection() const final;
     uint64_t messageSenderDestinationID() const final;
-    bool sendMessage(UniqueRef<IPC::Encoder>&&, OptionSet<IPC::SendOption>, std::optional<std::pair<CompletionHandler<void(IPC::Decoder*)>, uint64_t>>&&) final;
+    bool sendMessage(UniqueRef<IPC::Encoder>&&, OptionSet<IPC::SendOption>) final;
+    bool sendMessageWithAsyncReply(UniqueRef<IPC::Encoder>&&, AsyncReplyHandler, OptionSet<IPC::SendOption>) final;
 
     WebPageProxy& m_page;
     WebCore::PageIdentifier m_webPageID;
     Ref<WebProcessProxy> m_process;
-    WebCore::FrameIdentifier m_mainFrameID;
+    Ref<WebFrameProxy> m_mainFrame;
+    WebPageProxyMessageReceiverRegistration m_messageReceiverRegistration;
     bool m_isClosed { false };
     ShouldDelayClosingUntilFirstLayerFlush m_shouldDelayClosingUntilFirstLayerFlush { ShouldDelayClosingUntilFirstLayerFlush::No };
     bool m_shouldCloseWhenEnteringAcceleratedCompositingMode { false };
 
     SuspensionState m_suspensionState { SuspensionState::Suspending };
     CompletionHandler<void(SuspendedPageProxy*)> m_readyToUnsuspendHandler;
-    RunLoop::Timer<SuspendedPageProxy> m_suspensionTimeoutTimer;
-#if PLATFORM(IOS_FAMILY)
+    RunLoop::Timer m_suspensionTimeoutTimer;
+#if USE(RUNNINGBOARD)
     std::unique_ptr<ProcessThrottler::BackgroundActivity> m_suspensionActivity;
 #endif
 #if HAVE(VISIBILITY_PROPAGATION_VIEW)
@@ -122,6 +127,7 @@ private:
     LayerHostingContextID m_contextIDForVisibilityPropagationInGPUProcess { 0 };
 #endif
 #endif
+    HashMap<WebCore::RegistrableDomain, WeakPtr<RemotePageProxy>> m_remotePageMap;
 };
 
 } // namespace WebKit

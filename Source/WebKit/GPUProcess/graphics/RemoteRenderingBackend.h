@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,170 +28,160 @@
 #if ENABLE(GPU_PROCESS)
 
 #include "Connection.h"
-#include "GPUProcessWakeupMessageArguments.h"
-#include "IPCSemaphore.h"
 #include "ImageBufferBackendHandle.h"
+#include "MarkSurfacesAsVolatileRequestIdentifier.h"
 #include "MessageReceiver.h"
 #include "MessageSender.h"
-#include "RemoteRenderingBackendState.h"
+#include "QualifiedRenderingResourceIdentifier.h"
+#include "RemoteRenderingBackendCreationParameters.h"
 #include "RemoteResourceCache.h"
+#include "RemoteSerializedImageBufferIdentifier.h"
 #include "RenderingBackendIdentifier.h"
 #include "RenderingUpdateID.h"
+#include "ScopedActiveMessageReceiveQueue.h"
 #include "ScopedRenderingResourcesRequest.h"
-#include <WebCore/ColorSpace.h>
-#include <WebCore/DisplayList.h>
-#include <WebCore/DisplayListItems.h>
-#include <WebCore/DisplayListReplayer.h>
-#include <wtf/WeakPtr.h>
+#include "ShapeDetectionIdentifier.h"
+#include "StreamConnectionWorkQueue.h"
+#include "StreamMessageReceiver.h"
+#include "StreamServerConnection.h"
+#include <WebCore/MediaPlayerIdentifier.h>
+#include <WebCore/ProcessIdentity.h>
+#include <wtf/HashMap.h>
 
-namespace WebCore {
-
-namespace DisplayList {
-class DisplayList;
-class Item;
+namespace WTF {
+enum class Critical : bool;
+enum class Synchronous : bool;
 }
 
+namespace WebCore {
 class DestinationColorSpace;
 class FloatSize;
+class MediaPlayer;
 class NativeImage;
-
 enum class RenderingMode : bool;
+
+namespace ShapeDetection {
+struct BarcodeDetectorOptions;
+enum class BarcodeFormat : uint8_t;
+struct FaceDetectorOptions;
+}
 
 }
 
 namespace WebKit {
 
-class DisplayListReaderHandle;
 class GPUConnectionToWebProcess;
+class RemoteDisplayListRecorder;
+class RemoteImageBuffer;
+struct BufferIdentifierSet;
+struct PrepareBackingStoreBuffersInputData;
+struct PrepareBackingStoreBuffersOutputData;
 struct RemoteRenderingBackendCreationParameters;
+enum class SwapBuffersDisplayRequirement : uint8_t;
 
-class RemoteRenderingBackend
-    : private IPC::MessageSender
-    , public IPC::Connection::WorkQueueMessageReceiver
-    , public WebCore::DisplayList::ItemBufferReadingClient {
+namespace ShapeDetection {
+class ObjectHeap;
+}
+
+class RemoteRenderingBackend : private IPC::MessageSender, public IPC::StreamMessageReceiver {
 public:
-
-    static Ref<RemoteRenderingBackend> create(GPUConnectionToWebProcess&, RemoteRenderingBackendCreationParameters&&);
+    static Ref<RemoteRenderingBackend> create(GPUConnectionToWebProcess&, RemoteRenderingBackendCreationParameters&&, Ref<IPC::StreamServerConnection>&&);
     virtual ~RemoteRenderingBackend();
     void stopListeningForIPC();
 
     RemoteResourceCache& remoteResourceCache() { return m_remoteResourceCache; }
 
-    // Rendering operations.
-    bool applyMediaItem(WebCore::DisplayList::ItemHandle, WebCore::GraphicsContext&);
+    void didReceiveStreamMessage(IPC::StreamServerConnection&, IPC::Decoder&) final;
 
-    // Messages to be sent.
-    void didCreateImageBufferBackend(ImageBufferBackendHandle, WebCore::RenderingResourceIdentifier);
-    void didFlush(WebCore::DisplayList::FlushIdentifier, WebCore::RenderingResourceIdentifier);
-
-    void setNextItemBufferToRead(WebCore::DisplayList::ItemBufferIdentifier, WebCore::RenderingResourceIdentifier destination);
-
-    void didCreateMaskImageBuffer(WebCore::ImageBuffer&);
-    void didResetMaskImageBuffer();
-
-    void populateGetPixelBufferSharedMemory(std::optional<WebCore::PixelBuffer>&&);
-
-    bool allowsExitUnderMemoryPressure() const;
+    void didCreateImageBuffer(Ref<RemoteImageBuffer>, QualifiedRenderingResourceIdentifier);
 
     // Runs Function in RemoteRenderingBackend task queue.
     void dispatch(Function<void()>&&);
 
-    RemoteRenderingBackendState lastKnownState() const;
+    IPC::StreamServerConnection& streamConnection() const { return m_streamConnection.get(); }
+
+    void lowMemoryHandler(WTF::Critical, WTF::Synchronous);
+
+#if HAVE(IOSURFACE)
+    WebCore::IOSurfacePool& ioSurfacePool() const { return m_ioSurfacePool; }
+#endif
+
+    const WebCore::ProcessIdentity& resourceOwner() const { return m_resourceOwner; }
+
+    GPUConnectionToWebProcess& gpuConnectionToWebProcess() { return m_gpuConnectionToWebProcess.get(); }
 
 private:
-    RemoteRenderingBackend(GPUConnectionToWebProcess&, RemoteRenderingBackendCreationParameters&&);
+    RemoteRenderingBackend(GPUConnectionToWebProcess&, RemoteRenderingBackendCreationParameters&&, Ref<IPC::StreamServerConnection>&&);
     void startListeningForIPC();
-
-    std::optional<WebCore::DisplayList::ItemHandle> WARN_UNUSED_RETURN decodeItem(const uint8_t* data, size_t length, WebCore::DisplayList::ItemType, uint8_t* handleLocation) override;
-
-    template<typename T>
-    std::optional<WebCore::DisplayList::ItemHandle> WARN_UNUSED_RETURN decodeAndCreate(const uint8_t* data, size_t length, uint8_t* handleLocation)
-    {
-        if (auto item = IPC::Decoder::decodeSingleObject<T>(data, length)) {
-            // FIXME: WebKit2 should not need to know that the first 8 bytes at the handle are reserved for the type.
-            // Need to figure out a way to keep this knowledge within display list code in WebCore.
-            new (handleLocation + sizeof(uint64_t)) T(WTFMove(*item));
-            return {{ handleLocation }};
-        }
-        return std::nullopt;
-    }
-
-    WebCore::DisplayList::ReplayResult submit(const WebCore::DisplayList::DisplayList&, WebCore::ImageBuffer& destination);
-    RefPtr<WebCore::ImageBuffer> nextDestinationImageBufferAfterApplyingDisplayLists(WebCore::ImageBuffer& initialDestination, size_t initialOffset, DisplayListReaderHandle&, GPUProcessWakeupReason);
-
-    std::optional<SharedMemory::IPCHandle> updateSharedMemoryForGetPixelBufferHelper(size_t byteCount);
-    void updateRenderingResourceRequest();
-
-    void updateLastKnownState(RemoteRenderingBackendState);
+    void workQueueInitialize();
+    void workQueueUninitialize();
 
     // IPC::MessageSender.
     IPC::Connection* messageSenderConnection() const override;
     uint64_t messageSenderDestinationID() const override;
 
-    // IPC::MessageReceiver
-    void didReceiveMessage(IPC::Connection&, IPC::Decoder&) override;
-    bool didReceiveSyncMessage(IPC::Connection&, IPC::Decoder&, UniqueRef<IPC::Encoder>&) override;
-
     // Messages to be received.
-    void createImageBuffer(const WebCore::FloatSize& logicalSize, WebCore::RenderingMode, float resolutionScale, const WebCore::DestinationColorSpace&, WebCore::PixelFormat, WebCore::RenderingResourceIdentifier);
-    void wakeUpAndApplyDisplayList(const GPUProcessWakeupMessageArguments&);
-    void updateSharedMemoryForGetPixelBuffer(uint32_t byteCount, CompletionHandler<void(const SharedMemory::IPCHandle&)>&&);
-    void semaphoreForGetPixelBuffer(CompletionHandler<void(const IPC::Semaphore&)>&&);
-    void updateSharedMemoryAndSemaphoreForGetPixelBuffer(uint32_t byteCount, CompletionHandler<void(const SharedMemory::IPCHandle&, const IPC::Semaphore&)>&&);
+    void createImageBuffer(const WebCore::FloatSize& logicalSize, WebCore::RenderingMode, WebCore::RenderingPurpose, float resolutionScale, const WebCore::DestinationColorSpace&, WebCore::PixelFormat, WebCore::RenderingResourceIdentifier);
+    void moveToSerializedBuffer(WebCore::RenderingResourceIdentifier);
+    void moveToImageBuffer(WebCore::RenderingResourceIdentifier);
+    void getPixelBufferForImageBuffer(WebCore::RenderingResourceIdentifier, WebCore::PixelBufferFormat&&, WebCore::IntRect&& srcRect, CompletionHandler<void()>&&);
+    void getPixelBufferForImageBufferWithNewMemory(WebCore::RenderingResourceIdentifier, SharedMemory::Handle&&, WebCore::PixelBufferFormat&& destinationFormat, WebCore::IntRect&& srcRect, CompletionHandler<void()>&&);
     void destroyGetPixelBufferSharedMemory();
-    void getDataURLForImageBuffer(const String& mimeType, std::optional<double> quality, WebCore::PreserveResolution, WebCore::RenderingResourceIdentifier, CompletionHandler<void(String&&)>&&);
-    void getDataForImageBuffer(const String& mimeType, std::optional<double> quality, WebCore::RenderingResourceIdentifier, CompletionHandler<void(Vector<uint8_t>&&)>&&);
+    void putPixelBufferForImageBuffer(WebCore::RenderingResourceIdentifier, Ref<WebCore::PixelBuffer>&&, WebCore::IntRect&& srcRect, WebCore::IntPoint&& destPoint, WebCore::AlphaPremultiplication destFormat);
     void getShareableBitmapForImageBuffer(WebCore::RenderingResourceIdentifier, WebCore::PreserveResolution, CompletionHandler<void(ShareableBitmap::Handle&&)>&&);
-    void cacheNativeImage(const ShareableBitmap::Handle&, WebCore::RenderingResourceIdentifier);
-    void cacheFont(Ref<WebCore::Font>&&);
-    void deleteAllFonts();
-    void releaseRemoteResource(WebCore::RenderingResourceIdentifier, uint64_t useCount);
+    void getFilteredImageForImageBuffer(WebCore::RenderingResourceIdentifier, Ref<WebCore::Filter>, CompletionHandler<void(ShareableBitmap::Handle&&)>&&);
+    void cacheNativeImage(ShareableBitmap::Handle&&, WebCore::RenderingResourceIdentifier);
+    void cacheDecomposedGlyphs(Ref<WebCore::DecomposedGlyphs>&&);
+    void cacheGradient(Ref<WebCore::Gradient>&&, WebCore::RenderingResourceIdentifier);
+    void cacheFilter(Ref<WebCore::Filter>&&, WebCore::RenderingResourceIdentifier);
+    void cacheFont(const WebCore::Font::Attributes&, WebCore::FontPlatformData::Attributes, std::optional<WebCore::RenderingResourceIdentifier>);
+    void cacheFontCustomPlatformData(Ref<WebCore::FontCustomPlatformData>&&);
+    void releaseAllResources();
+    void releaseAllImageResources();
+    void releaseRenderingResource(WebCore::RenderingResourceIdentifier);
     void finalizeRenderingUpdate(RenderingUpdateID);
-    void didCreateSharedDisplayListHandle(WebCore::DisplayList::ItemBufferIdentifier, const SharedMemory::IPCHandle&, WebCore::RenderingResourceIdentifier destinationBufferIdentifier);
+    void markSurfacesVolatile(MarkSurfacesAsVolatileRequestIdentifier, const Vector<WebCore::RenderingResourceIdentifier>&);
+#if PLATFORM(COCOA)
+    void prepareBuffersForDisplay(Vector<PrepareBackingStoreBuffersInputData> swapBuffersInput, CompletionHandler<void(Vector<PrepareBackingStoreBuffersOutputData>&&)>&&);
+#endif
+    
+    // Received messages translated to use QualifiedRenderingResourceIdentifier.
+    void getShareableBitmapForImageBufferWithQualifiedIdentifier(QualifiedRenderingResourceIdentifier, WebCore::PreserveResolution, CompletionHandler<void(ShareableBitmap::Handle&&)>&&);
+    void cacheNativeImageWithQualifiedIdentifier(ShareableBitmap::Handle&&, QualifiedRenderingResourceIdentifier);
+    void cacheDecomposedGlyphsWithQualifiedIdentifier(Ref<WebCore::DecomposedGlyphs>&&, QualifiedRenderingResourceIdentifier);
+    void cacheGradientWithQualifiedIdentifier(Ref<WebCore::Gradient>&&, QualifiedRenderingResourceIdentifier);
+    void cacheFilterWithQualifiedIdentifier(Ref<WebCore::Filter>&&, QualifiedRenderingResourceIdentifier);
+    void releaseRenderingResourceWithQualifiedIdentifier(QualifiedRenderingResourceIdentifier);
+    void cacheFontWithQualifiedIdentifier(Ref<WebCore::Font>&&, QualifiedRenderingResourceIdentifier);
+    void cacheFontCustomPlatformDataWithQualifiedIdentifier(Ref<WebCore::FontCustomPlatformData>&&, QualifiedRenderingResourceIdentifier);
 
-    class ReplayerDelegate : public WebCore::DisplayList::Replayer::Delegate {
-    public:
-        ReplayerDelegate(WebCore::ImageBuffer&, RemoteRenderingBackend&);
+#if PLATFORM(COCOA)
+    void prepareLayerBuffersForDisplay(const PrepareBackingStoreBuffersInputData&, PrepareBackingStoreBuffersOutputData&);
+#endif
 
-    private:
-        bool apply(WebCore::DisplayList::ItemHandle, WebCore::GraphicsContext&) final;
-        void didCreateMaskImageBuffer(WebCore::ImageBuffer&) final;
-        void didResetMaskImageBuffer() final;
-        void recordResourceUse(WebCore::RenderingResourceIdentifier) final;
+    void createRemoteBarcodeDetector(ShapeDetectionIdentifier, const WebCore::ShapeDetection::BarcodeDetectorOptions&);
+    void releaseRemoteBarcodeDetector(ShapeDetectionIdentifier);
+    void getRemoteBarcodeDetectorSupportedFormats(CompletionHandler<void(Vector<WebCore::ShapeDetection::BarcodeFormat>&&)>&&);
+    void createRemoteFaceDetector(ShapeDetectionIdentifier, const WebCore::ShapeDetection::FaceDetectorOptions&);
+    void releaseRemoteFaceDetector(ShapeDetectionIdentifier);
+    void createRemoteTextDetector(ShapeDetectionIdentifier);
+    void releaseRemoteTextDetector(ShapeDetectionIdentifier);
 
-        WebCore::ImageBuffer& m_destination;
-        RemoteRenderingBackend& m_remoteRenderingBackend;
-    };
+    IPC::StreamConnectionWorkQueue& workQueue() const { return m_workQueue; }
 
-    struct PendingWakeupInformation {
-        GPUProcessWakeupMessageArguments arguments;
-        std::optional<WebCore::RenderingResourceIdentifier> missingCachedResourceIdentifier;
-        RemoteRenderingBackendState state { RemoteRenderingBackendState::Initialized };
-
-        bool shouldPerformWakeup(WebCore::RenderingResourceIdentifier identifier) const
-        {
-            return arguments.destinationImageBufferIdentifier == identifier
-                || missingCachedResourceIdentifier == identifier;
-        }
-
-        bool shouldPerformWakeup(WebCore::DisplayList::ItemBufferIdentifier identifier) const
-        {
-            return arguments.itemBufferIdentifier == identifier;
-        }
-    };
-
-    Ref<WorkQueue> m_workQueue;
+    Ref<IPC::StreamConnectionWorkQueue> m_workQueue;
+    Ref<IPC::StreamServerConnection> m_streamConnection;
     RemoteResourceCache m_remoteResourceCache;
     Ref<GPUConnectionToWebProcess> m_gpuConnectionToWebProcess;
+    WebCore::ProcessIdentity m_resourceOwner;
     RenderingBackendIdentifier m_renderingBackendIdentifier;
-    HashMap<WebCore::DisplayList::ItemBufferIdentifier, RefPtr<DisplayListReaderHandle>> m_sharedDisplayListHandles;
-    std::optional<PendingWakeupInformation> m_pendingWakeupInfo;
-    IPC::Semaphore m_resumeDisplayListSemaphore;
-    IPC::Semaphore m_getPixelBufferSemaphore;
     RefPtr<SharedMemory> m_getPixelBufferSharedMemory;
-    ScopedRenderingResourcesRequest m_renderingResourcesRequest;
-    RefPtr<WebCore::ImageBuffer> m_currentMaskImageBuffer;
-    Atomic<RemoteRenderingBackendState> m_lastKnownState { RemoteRenderingBackendState::Initialized };
+#if HAVE(IOSURFACE)
+    Ref<WebCore::IOSurfacePool> m_ioSurfacePool;
+#endif
+
+    HashMap<QualifiedRenderingResourceIdentifier, IPC::ScopedActiveMessageReceiveQueue<RemoteDisplayListRecorder>> m_remoteDisplayLists WTF_GUARDED_BY_CAPABILITY(workQueue());
+    Ref<ShapeDetection::ObjectHeap> m_shapeDetectionObjectHeap;
 };
 
 } // namespace WebKit

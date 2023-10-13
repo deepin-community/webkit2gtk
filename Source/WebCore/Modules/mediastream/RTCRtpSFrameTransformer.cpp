@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -206,7 +206,7 @@ ExceptionOr<void> RTCRtpSFrameTransformer::updateEncryptionKey(const Vector<uint
     return { };
 }
 
-RTCRtpSFrameTransformer::TransformResult RTCRtpSFrameTransformer::decryptFrame(Span<const uint8_t> data)
+RTCRtpSFrameTransformer::TransformResult RTCRtpSFrameTransformer::decryptFrame(std::span<const uint8_t> data)
 {
     auto* frameData = data.data();
     auto frameSize = data.size();
@@ -246,7 +246,7 @@ RTCRtpSFrameTransformer::TransformResult RTCRtpSFrameTransformer::decryptFrame(S
     m_counter = header->counter;
 
     if (header->keyId != m_keyId) {
-        auto position = m_keys.findMatching([keyId = header->keyId](auto& item) { return item.keyId == keyId; });
+        auto position = m_keys.findIf([keyId = header->keyId](auto& item) { return item.keyId == keyId; });
         if (position == notFound)
             return makeUnexpected(ErrorInformation { Error::KeyID,  "Key ID is unknown"_s, header->keyId });
         auto result = updateEncryptionKey(m_keys[position].keyData, header->keyId, ShouldUpdateKeys::No);
@@ -279,7 +279,7 @@ RTCRtpSFrameTransformer::TransformResult RTCRtpSFrameTransformer::decryptFrame(S
     return result.releaseReturnValue();
 }
 
-RTCRtpSFrameTransformer::TransformResult RTCRtpSFrameTransformer::encryptFrame(Span<const uint8_t> data)
+RTCRtpSFrameTransformer::TransformResult RTCRtpSFrameTransformer::encryptFrame(std::span<const uint8_t> data)
 {
     auto* frameData = data.data();
     auto frameSize = data.size();
@@ -343,10 +343,10 @@ RTCRtpSFrameTransformer::TransformResult RTCRtpSFrameTransformer::encryptFrame(S
     return transformedData;
 }
 
-RTCRtpSFrameTransformer::TransformResult RTCRtpSFrameTransformer::transform(Span<const uint8_t> data)
+RTCRtpSFrameTransformer::TransformResult RTCRtpSFrameTransformer::transform(std::span<const uint8_t> data)
 {
     if (!m_hasKey)
-        return makeUnexpected(ErrorInformation { Error::KeyID,  "Key is not initialized", 0 });
+        return makeUnexpected(ErrorInformation { Error::KeyID,  "Key is not initialized"_s, 0 });
 
     return m_isEncrypting ? encryptFrame(data) : decryptFrame(data);
 }

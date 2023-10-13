@@ -25,6 +25,8 @@
 
 #include "config.h"
 #include "SessionHost.h"
+
+#include <wtf/NeverDestroyed.h>
 #include <wtf/UUID.h>
 
 namespace WebDriver {
@@ -105,7 +107,7 @@ std::optional<Vector<SessionHost::Target>> SessionHost::parseTargetList(const st
         if (!targetId
             || !itemObject->getString("name"_s, name)
             || !itemObject->getString("type"_s, type)
-            || type != "automation")
+            || type != "automation"_s)
             continue;
 
         target.id = *targetId;
@@ -150,7 +152,7 @@ void SessionHost::startAutomationSession(Function<void (bool, std::optional<Stri
 {
     ASSERT(!m_startSessionCompletionHandler);
     m_startSessionCompletionHandler = WTFMove(completionHandler);
-    m_sessionID = createCanonicalUUIDString();
+    m_sessionID = createVersion4UUIDString();
 
     auto sendMessageEvent = JSON::Object::create();
     sendMessageEvent->setString("event"_s, "StartAutomationSession"_s);

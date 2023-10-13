@@ -25,10 +25,10 @@
 
 #pragma once
 
-#include "ArrayReference.h"
+#include <span>
 
 namespace IPC {
 
-using DataReference = ArrayReference<uint8_t, arrayReferenceDynamicExtent>;
+using DataReference = std::span<const uint8_t>;
 
 } // namespace IPC

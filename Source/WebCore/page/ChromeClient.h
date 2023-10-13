@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006-2018 Apple, Inc. All rights reserved.
+ * Copyright (C) 2006-2023 Apple, Inc. All rights reserved.
  * Copyright (C) 2010 Nokia Corporation and/or its subsidiary(-ies).
  * Copyright (C) 2012 Samsung Electronics. All rights reserved.
  *
@@ -23,6 +23,9 @@
 
 #include "AXObjectCache.h"
 #include "AutoplayEvent.h"
+#include "BarcodeDetectorInterface.h"
+#include "BarcodeDetectorOptionsInterface.h"
+#include "BarcodeFormatInterface.h"
 #include "ContactInfo.h"
 #include "Cursor.h"
 #include "DatabaseDetails.h"
@@ -30,10 +33,11 @@
 #include "DisabledAdaptations.h"
 #include "DisplayRefreshMonitor.h"
 #include "DocumentStorageAccess.h"
+#include "FaceDetectorInterface.h"
+#include "FaceDetectorOptionsInterface.h"
 #include "FocusDirection.h"
 #include "FrameLoader.h"
 #include "GraphicsContext.h"
-#include "GraphicsLayer.h"
 #include "HTMLMediaElementEnums.h"
 #include "HighlightVisibility.h"
 #include "HostWindow.h"
@@ -50,13 +54,18 @@
 #include "ScrollTypes.h"
 #include "ScrollingCoordinator.h"
 #include "SearchPopupMenu.h"
+#include "TextDetectorInterface.h"
 #include "WebCoreKeyboardUIMode.h"
+#include "WebGPU.h"
+#include "WorkerClient.h"
 #include <JavaScriptCore/ConsoleTypes.h>
 #include <wtf/Assertions.h>
 #include <wtf/CompletionHandler.h>
 #include <wtf/Forward.h>
 #include <wtf/MonotonicTime.h>
 #include <wtf/Seconds.h>
+#include <wtf/URL.h>
+#include <wtf/Vector.h>
 
 #if ENABLE(WIRELESS_PLAYBACK_TARGET)
 #include "MediaPlaybackTargetContext.h"
@@ -78,7 +87,7 @@ class WAKResponder;
 #include "MediaUsageInfo.h"
 #endif
 
-#if HAVE(ARKIT_INLINE_PREVIEW)
+#if ENABLE(ARKIT_INLINE_PREVIEW)
 class HTMLModelElement;
 #endif
 
@@ -101,7 +110,6 @@ class Element;
 class FileChooser;
 class FileIconLoader;
 class FloatRect;
-class Frame;
 class Geolocation;
 class GraphicsLayer;
 class GraphicsLayerFactory;
@@ -111,6 +119,7 @@ class HTMLMediaElement;
 class HTMLVideoElement;
 class HitTestResult;
 class IntRect;
+class LocalFrame;
 class NavigationAction;
 class Node;
 class Page;
@@ -119,22 +128,30 @@ class SecurityOrigin;
 class ViewportConstraints;
 class Widget;
 
-#if ENABLE(VIDEO) && USE(GSTREAMER)
-class MediaPlayerRequestInstallMissingPluginsCallback;
+#if ENABLE(WEBGL)
+class GraphicsContextGL;
+struct GraphicsContextGLAttributes;
 #endif
 
 struct AppHighlight;
+struct ApplePayAMSUIRequest;
 struct ContactsRequestData;
 struct ContentRuleListResults;
 struct DataDetectorElementInfo;
 struct DateTimeChooserParameters;
+struct FocusOptions;
 struct GraphicsDeviceAdapter;
 struct MockWebAuthenticationConfiguration;
+class SecurityOriginData;
 struct ShareDataWithParsedURL;
 struct TextIndicatorData;
+struct TextRecognitionOptions;
 struct ViewportArguments;
 struct WindowFeatures;
 
+enum class CookieConsentDecisionResult : uint8_t;
+enum class ModalContainerControlType : uint8_t;
+enum class ModalContainerDecision : uint8_t;
 enum class RouteSharingPolicy : uint8_t;
 
 class ChromeClient {
@@ -142,54 +159,55 @@ public:
     virtual void chromeDestroyed() = 0;
 
     virtual void setWindowRect(const FloatRect&) = 0;
-    virtual FloatRect windowRect() = 0;
+    virtual FloatRect windowRect() const = 0;
 
-    virtual FloatRect pageRect() = 0;
+    virtual FloatRect pageRect() const = 0;
 
     virtual void focus() = 0;
     virtual void unfocus() = 0;
 
-    virtual bool canTakeFocus(FocusDirection) = 0;
+    virtual bool canTakeFocus(FocusDirection) const = 0;
     virtual void takeFocus(FocusDirection) = 0;
 
     virtual void focusedElementChanged(Element*) = 0;
-    virtual void focusedFrameChanged(Frame*) = 0;
+    virtual void focusedFrameChanged(LocalFrame*) = 0;
 
     // The Frame pointer provides the ChromeClient with context about which
     // Frame wants to create the new Page. Also, the newly created window
     // should not be shown to the user until the ChromeClient of the newly
     // created Page has its show method called.
     // The ChromeClient should not load the request.
-    virtual Page* createWindow(Frame&, const WindowFeatures&, const NavigationAction&) = 0;
+    virtual Page* createWindow(LocalFrame&, const WindowFeatures&, const NavigationAction&) = 0;
     virtual void show() = 0;
 
-    virtual bool canRunModal() = 0;
+    virtual bool canRunModal() const = 0;
     virtual void runModal() = 0;
 
     virtual void setToolbarsVisible(bool) = 0;
-    virtual bool toolbarsVisible() = 0;
+    virtual bool toolbarsVisible() const = 0;
 
     virtual void setStatusbarVisible(bool) = 0;
-    virtual bool statusbarVisible() = 0;
+    virtual bool statusbarVisible() const = 0;
 
     virtual void setScrollbarsVisible(bool) = 0;
-    virtual bool scrollbarsVisible() = 0;
+    virtual bool scrollbarsVisible() const = 0;
 
     virtual void setMenubarVisible(bool) = 0;
-    virtual bool menubarVisible() = 0;
+    virtual bool menubarVisible() const = 0;
 
     virtual void setResizable(bool) = 0;
 
     virtual void addMessageToConsole(MessageSource, MessageLevel, const String& message, unsigned lineNumber, unsigned columnNumber, const String& sourceID) = 0;
+    virtual void addMessageWithArgumentsToConsole(MessageSource, MessageLevel, const String& message, std::span<const String> messageArguments, unsigned lineNumber, unsigned columnNumber, const String& sourceID) { UNUSED_PARAM(message); UNUSED_PARAM(messageArguments); UNUSED_PARAM(lineNumber); UNUSED_PARAM(columnNumber); UNUSED_PARAM(sourceID); }
 
     virtual bool canRunBeforeUnloadConfirmPanel() = 0;
-    virtual bool runBeforeUnloadConfirmPanel(const String& message, Frame&) = 0;
+    virtual bool runBeforeUnloadConfirmPanel(const String& message, LocalFrame&) = 0;
 
-    virtual void closeWindowSoon() = 0;
+    virtual void closeWindow() = 0;
 
-    virtual void runJavaScriptAlert(Frame&, const String&) = 0;
-    virtual bool runJavaScriptConfirm(Frame&, const String&) = 0;
-    virtual bool runJavaScriptPrompt(Frame&, const String& message, const String& defaultValue, String& result) = 0;
+    virtual void runJavaScriptAlert(LocalFrame&, const String&) = 0;
+    virtual bool runJavaScriptConfirm(LocalFrame&, const String&) = 0;
+    virtual bool runJavaScriptPrompt(LocalFrame&, const String& message, const String& defaultValue, String& result) = 0;
     virtual void setStatusbarText(const String&) = 0;
     virtual KeyboardUIMode keyboardUIMode() = 0;
 
@@ -198,7 +216,6 @@ public:
     virtual std::optional<PointerCharacteristics> pointerCharacteristicsOfPrimaryPointingDevice() const = 0;
     virtual OptionSet<PointerCharacteristics> pointerCharacteristicsOfAllAvailablePointingDevices() const = 0;
 
-    virtual bool supportsImmediateInvalidation() { return false; }
     virtual void invalidateRootView(const IntRect&) = 0;
     virtual void invalidateContentsAndRootView(const IntRect&) = 0;
     virtual void invalidateContentsForSlowScroll(const IntRect&) = 0;
@@ -226,7 +243,7 @@ public:
     virtual void dispatchDisabledAdaptationsDidChange(const OptionSet<DisabledAdaptations>&) const { }
     virtual void dispatchViewportPropertiesDidChange(const ViewportArguments&) const { }
 
-    virtual void contentsSizeChanged(Frame&, const IntSize&) const = 0;
+    virtual void contentsSizeChanged(LocalFrame&, const IntSize&) const = 0;
     virtual void intrinsicContentsSizeChanged(const IntSize&) const = 0;
 
     virtual void scrollContainingScrollViewsToRevealRect(const IntRect&) const { }; // Currently only Mac has a non empty implementation.
@@ -234,9 +251,9 @@ public:
 
     virtual bool shouldUnavailablePluginMessageBeButton(RenderEmbeddedObject::PluginUnavailabilityReason) const { return false; }
     virtual void unavailablePluginButtonClicked(Element&, RenderEmbeddedObject::PluginUnavailabilityReason) const { }
-    virtual void mouseDidMoveOverElement(const HitTestResult&, unsigned modifierFlags, const String& toolTip, TextDirection) = 0;
+    virtual void mouseDidMoveOverElement(const HitTestResult&, OptionSet<PlatformEventModifier>, const String& toolTip, TextDirection) = 0;
 
-    virtual void print(Frame&, const StringWithDirection&) = 0;
+    virtual void print(LocalFrame&, const StringWithDirection&) = 0;
 
     virtual Color underlayColor() const { return Color(); }
 
@@ -248,7 +265,7 @@ public:
     virtual WebCore::HighlightVisibility appHighlightsVisiblility() const { return HighlightVisibility::Hidden; };
 #endif
 
-    virtual void exceededDatabaseQuota(Frame&, const String& databaseName, DatabaseDetails) = 0;
+    virtual void exceededDatabaseQuota(LocalFrame&, const String& databaseName, DatabaseDetails) = 0;
 
     // Callback invoked when the application cache fails to save a cache object
     // because storing it would grow the database file past its defined maximum
@@ -267,6 +284,8 @@ public:
     // the new cache.
     virtual void reachedApplicationCacheOriginQuota(SecurityOrigin&, int64_t totalSpaceNeeded) = 0;
 
+    virtual std::unique_ptr<WorkerClient> createWorkerClient(SerialFunctionDispatcher&) { return nullptr; }
+
 #if ENABLE(IOS_TOUCH_EVENTS)
     virtual void didPreventDefaultForEvent() = 0;
 #endif
@@ -275,9 +294,9 @@ public:
 
 #if PLATFORM(IOS_FAMILY)
     virtual void didReceiveMobileDocType(bool) = 0;
-    virtual void setNeedsScrollNotifications(Frame&, bool) = 0;
-    virtual void didFinishContentChangeObserving(Frame&, WKContentChange) = 0;
-    virtual void notifyRevealedSelectionByScrollingFrame(Frame&) = 0;
+    virtual void setNeedsScrollNotifications(LocalFrame&, bool) = 0;
+    virtual void didFinishContentChangeObserving(LocalFrame&, WKContentChange) = 0;
+    virtual void notifyRevealedSelectionByScrollingFrame(LocalFrame&) = 0;
 
     enum LayoutType { NormalLayout, Scroll };
     virtual void didLayout(LayoutType = NormalLayout) = 0;
@@ -306,7 +325,7 @@ public:
 #endif
 
 #if ENABLE(ORIENTATION_EVENTS)
-    virtual int deviceOrientation() const = 0;
+    virtual IntDegrees deviceOrientation() const = 0;
 #endif
 
 #if ENABLE(INPUT_TYPE_COLOR)
@@ -328,16 +347,16 @@ public:
 
     virtual void setTextIndicator(const TextIndicatorData&) const = 0;
 
-    virtual void runOpenPanel(Frame&, FileChooser&) = 0;
-    virtual void showShareSheet(ShareDataWithParsedURL&, WTF::CompletionHandler<void(bool)>&& callback) { callback(false); }
-    virtual void showContactPicker(const ContactsRequestData&, WTF::CompletionHandler<void(std::optional<Vector<ContactInfo>>&&)>&& callback) { callback(std::nullopt); }
+    virtual void runOpenPanel(LocalFrame&, FileChooser&) = 0;
+    virtual void showShareSheet(ShareDataWithParsedURL&, CompletionHandler<void(bool)>&& callback) { callback(false); }
+    virtual void showContactPicker(const ContactsRequestData&, CompletionHandler<void(std::optional<Vector<ContactInfo>>&&)>&& callback) { callback(std::nullopt); }
     
     // Asynchronous request to load an icon for specified filenames.
     virtual void loadIconForFiles(const Vector<String>&, FileIconLoader&) = 0;
         
-    virtual void elementDidFocus(Element&) { }
+    virtual void elementDidFocus(Element&, const FocusOptions&) { }
     virtual void elementDidBlur(Element&) { }
-    virtual void elementDidRefocus(Element&) { }
+    virtual void elementDidRefocus(Element&, const FocusOptions&) { }
 
     virtual void focusedElementDidChangeInputMode(Element&, InputMode) { }
 
@@ -349,14 +368,22 @@ public:
     
     virtual DisplayRefreshMonitorFactory* displayRefreshMonitorFactory() const { return nullptr; }
 
-    virtual RefPtr<ImageBuffer> createImageBuffer(const FloatSize&, RenderingMode, RenderingPurpose, float, const DestinationColorSpace&, PixelFormat) const { return nullptr; }
+    virtual RefPtr<ImageBuffer> createImageBuffer(const FloatSize&, RenderingMode, RenderingPurpose, float, const DestinationColorSpace&, PixelFormat, bool avoidBackendSizeCheck = false) const { UNUSED_PARAM(avoidBackendSizeCheck); return nullptr; }
+    WEBCORE_EXPORT virtual RefPtr<WebCore::ImageBuffer> sinkIntoImageBuffer(std::unique_ptr<WebCore::SerializedImageBuffer>);
 
 #if ENABLE(WEBGL)
-    virtual RefPtr<GraphicsContextGL> createGraphicsContextGL(const GraphicsContextGLAttributes&, WebCore::PlatformDisplayID) const { return nullptr; }
+    WEBCORE_EXPORT virtual RefPtr<GraphicsContextGL> createGraphicsContextGL(const GraphicsContextGLAttributes&) const;
 #endif
 
+    virtual RefPtr<WebGPU::GPU> createGPUForWebGPU() const { return nullptr; }
+
+    virtual RefPtr<ShapeDetection::BarcodeDetector> createBarcodeDetector(const ShapeDetection::BarcodeDetectorOptions&) const { return nullptr; }
+    virtual void getBarcodeDetectorSupportedFormats(CompletionHandler<void(Vector<ShapeDetection::BarcodeFormat>&&)>&& completionHandler) const { completionHandler({ }); }
+    virtual RefPtr<ShapeDetection::FaceDetector> createFaceDetector(const ShapeDetection::FaceDetectorOptions&) const { return nullptr; }
+    virtual RefPtr<ShapeDetection::TextDetector> createTextDetector() const { return nullptr; }
+
     // Pass nullptr as the GraphicsLayer to detatch the root layer.
-    virtual void attachRootGraphicsLayer(Frame&, GraphicsLayer*) = 0;
+    virtual void attachRootGraphicsLayer(LocalFrame&, GraphicsLayer*) = 0;
     virtual void attachViewOverlayGraphicsLayer(GraphicsLayer*) = 0;
     // Sets a flag to specify that the next time content is drawn to the window,
     // the changes appear on the screen in synchrony with updates to GraphicsLayers.
@@ -367,6 +394,9 @@ public:
     virtual void triggerRenderingUpdate() = 0;
     // Schedule a rendering update that coordinates with display refresh. Returns true if scheduled. (This is only used by SVGImageChromeClient.)
     virtual bool scheduleRenderingUpdate() { return false; }
+    virtual void renderingUpdateFramesPerSecondChanged() { }
+
+    virtual unsigned remoteImagesCountForTesting() const { return 0; }
 
     // Returns whether or not the client can render the composited layer,
     // regardless of the settings.
@@ -392,11 +422,9 @@ public:
     virtual bool layerTreeStateIsFrozen() const { return false; }
 
     virtual RefPtr<ScrollingCoordinator> createScrollingCoordinator(Page&) const { return nullptr; }
+    WEBCORE_EXPORT virtual std::unique_ptr<ScrollbarsController> createScrollbarsController(Page&, ScrollableArea&) const;
 
-#if PLATFORM(WIN) && USE(AVFOUNDATION)
-    virtual GraphicsDeviceAdapter* graphicsDeviceAdapter() const { return nullptr; }
-#endif
-
+    virtual bool canEnterVideoFullscreen(HTMLMediaElementEnums::VideoFullscreenMode) const { return false; }
     virtual bool supportsVideoFullscreen(HTMLMediaElementEnums::VideoFullscreenMode) { return false; }
     virtual bool supportsVideoFullscreenStandby() { return false; }
 
@@ -417,7 +445,7 @@ public:
     virtual void removeMediaUsageManagerSession(MediaSessionIdentifier) { }
 #endif
 
-    virtual void exitVideoFullscreenForVideoElement(HTMLVideoElement&, WTF::CompletionHandler<void(bool)>&& completionHandler = [](bool) { }) { completionHandler(true); }
+    virtual void exitVideoFullscreenForVideoElement(HTMLVideoElement&, CompletionHandler<void(bool)>&& completionHandler = [](bool) { }) { completionHandler(true); }
     virtual void exitVideoFullscreenToModeWithoutAnimation(HTMLVideoElement&, HTMLMediaElementEnums::VideoFullscreenMode) { }
     virtual bool requiresFullscreenForVideoPlayback() { return false; } 
 
@@ -493,15 +521,18 @@ public:
     virtual String plugInExtraStyleSheet() const { return String(); }
     virtual String plugInExtraScript() const { return String(); }
 
-    virtual void didAssociateFormControls(const Vector<RefPtr<Element>>&, Frame&) { };
+    virtual void didAssociateFormControls(const Vector<RefPtr<Element>>&, LocalFrame&) { };
     virtual bool shouldNotifyOnFormChanges() { return false; };
 
     virtual void didAddHeaderLayer(GraphicsLayer&) { }
     virtual void didAddFooterLayer(GraphicsLayer&) { }
 
-    virtual bool shouldUseTiledBackingForFrameView(const FrameView&) const { return false; }
+    virtual bool shouldUseTiledBackingForFrameView(const LocalFrameView&) const { return false; }
 
-    virtual void isPlayingMediaDidChange(MediaProducer::MediaStateFlags) { }
+#if ENABLE(ACCESSIBILITY_ANIMATION_CONTROL)
+    virtual void isAnyAnimationAllowedToPlayDidChange(bool /* anyAnimationCanPlay */) { };
+#endif
+    virtual void isPlayingMediaDidChange(MediaProducerMediaStateFlags) { }
     virtual void handleAutoplayEvent(AutoplayEvent, OptionSet<AutoplayEventFlags>) { }
 
 #if ENABLE(WEB_CRYPTO)
@@ -510,7 +541,7 @@ public:
 #endif
 
 #if ENABLE(TELEPHONE_NUMBER_DETECTION) && PLATFORM(MAC)
-    virtual void handleTelephoneNumberClick(const String&, const IntPoint&) { }
+    virtual void handleTelephoneNumberClick(const String&, const IntPoint&, const IntRect&) { }
 #endif
 
 #if ENABLE(DATA_DETECTION)
@@ -520,7 +551,12 @@ public:
 #if ENABLE(SERVICE_CONTROLS)
     virtual void handleSelectionServiceClick(FrameSelection&, const Vector<String>&, const IntPoint&) { }
     virtual bool hasRelevantSelectionServices(bool /*isTextOnly*/) const { return false; }
+    virtual void handleImageServiceClick(const IntPoint&, Image&, HTMLImageElement&) { }
+    virtual void handlePDFServiceClick(const IntPoint&, HTMLAttachmentElement&) { }
 #endif
+
+    virtual URL applyLinkDecorationFiltering(const URL& url, LinkDecorationFilteringTrigger) const { return url; }
+    virtual URL allowedQueryParametersForAdvancedPrivacyProtections(const URL& url) const { return url; }
 
     virtual bool shouldDispatchFakeMouseMoveEvents() const { return true; }
 
@@ -532,7 +568,7 @@ public:
     virtual void addPlaybackTargetPickerClient(PlaybackTargetClientContextIdentifier) { }
     virtual void removePlaybackTargetPickerClient(PlaybackTargetClientContextIdentifier) { }
     virtual void showPlaybackTargetPicker(PlaybackTargetClientContextIdentifier, const IntPoint&, bool /*isVideo*/) { }
-    virtual void playbackTargetPickerClientStateDidChange(PlaybackTargetClientContextIdentifier, MediaProducer::MediaStateFlags) { }
+    virtual void playbackTargetPickerClientStateDidChange(PlaybackTargetClientContextIdentifier, MediaProducerMediaStateFlags) { }
     virtual void setMockMediaPlaybackTargetPickerEnabled(bool)  { }
     virtual void setMockMediaPlaybackTargetPickerState(const String&, MediaPlaybackTargetContext::MockState) { }
     virtual void mockMediaPlaybackTargetPickerDismissPopup() { }
@@ -540,30 +576,25 @@ public:
 
     virtual void imageOrMediaDocumentSizeChanged(const IntSize&) { }
 
-#if ENABLE(VIDEO) && USE(GSTREAMER)
-    virtual void requestInstallMissingMediaPlugins(const String& /*details*/, const String& /*description*/, MediaPlayerRequestInstallMissingPluginsCallback&) { }
-#endif
-
     virtual void didInvalidateDocumentMarkerRects() { }
 
     virtual void reportProcessCPUTime(Seconds, ActivityStateForCPUSampling) { }
     virtual RefPtr<Icon> createIconForFiles(const Vector<String>& /* filenames */) = 0;
 
-#if ENABLE(RESOURCE_LOAD_STATISTICS)
-    virtual void hasStorageAccess(RegistrableDomain&& /*subFrameDomain*/, RegistrableDomain&& /*topFrameDomain*/, Frame&, WTF::CompletionHandler<void(bool)>&& completionHandler) { completionHandler(false); }
-    virtual void requestStorageAccess(RegistrableDomain&& subFrameDomain, RegistrableDomain&& topFrameDomain, Frame&, StorageAccessScope scope, WTF::CompletionHandler<void(RequestStorageAccessResult)>&& completionHandler) { completionHandler({ StorageAccessWasGranted::No, StorageAccessPromptWasShown::No, scope, WTFMove(topFrameDomain), WTFMove(subFrameDomain) }); }
+#if ENABLE(TRACKING_PREVENTION)
+    virtual void hasStorageAccess(RegistrableDomain&& /*subFrameDomain*/, RegistrableDomain&& /*topFrameDomain*/, LocalFrame&, CompletionHandler<void(bool)>&& completionHandler) { completionHandler(false); }
+    virtual void requestStorageAccess(RegistrableDomain&& subFrameDomain, RegistrableDomain&& topFrameDomain, LocalFrame&, StorageAccessScope scope, CompletionHandler<void(RequestStorageAccessResult)>&& completionHandler) { completionHandler({ StorageAccessWasGranted::No, StorageAccessPromptWasShown::No, scope, WTFMove(topFrameDomain), WTFMove(subFrameDomain) }); }
+    virtual bool hasPageLevelStorageAccess(const RegistrableDomain& /*topLevelDomain*/, const RegistrableDomain& /*resourceDomain*/) const { return false; }
 #endif
 
 #if ENABLE(DEVICE_ORIENTATION)
-    virtual void shouldAllowDeviceOrientationAndMotionAccess(Frame&, bool /* mayPrompt */, WTF::CompletionHandler<void(DeviceOrientationOrMotionPermissionState)>&& callback) { callback(DeviceOrientationOrMotionPermissionState::Denied); }
+    virtual void shouldAllowDeviceOrientationAndMotionAccess(LocalFrame&, bool /* mayPrompt */, CompletionHandler<void(DeviceOrientationOrMotionPermissionState)>&& callback) { callback(DeviceOrientationOrMotionPermissionState::Denied); }
 #endif
 
     virtual void didInsertMenuElement(HTMLMenuElement&) { }
     virtual void didRemoveMenuElement(HTMLMenuElement&) { }
     virtual void didInsertMenuItemElement(HTMLMenuItemElement&) { }
     virtual void didRemoveMenuItemElement(HTMLMenuItemElement&) { }
-
-    virtual String signedPublicKeyAndChallengeString(unsigned, const String&, const URL&) const { return emptyString(); }
 
     virtual void configureLoggingChannel(const String&, WTFLogChannelState, WTFLogLevel) { }
 
@@ -581,7 +612,7 @@ public:
 #endif
 
 #if ENABLE(IMAGE_ANALYSIS)
-    virtual void requestTextRecognition(Element&, CompletionHandler<void(RefPtr<Element>&&)>&& completion = { })
+    virtual void requestTextRecognition(Element&, TextRecognitionOptions&&, CompletionHandler<void(RefPtr<Element>&&)>&& completion = { })
     {
         if (completion)
             completion({ });
@@ -595,21 +626,34 @@ public:
 
 #if ENABLE(WEBXR)
     virtual void enumerateImmersiveXRDevices(CompletionHandler<void(const PlatformXR::Instance::DeviceList&)>&& completionHandler) { PlatformXR::Instance::singleton().enumerateImmersiveXRDevices(WTFMove(completionHandler)); }
+    virtual void requestPermissionOnXRSessionFeatures(const SecurityOriginData&, PlatformXR::SessionMode, const PlatformXR::Device::FeatureList& granted, const PlatformXR::Device::FeatureList& /* consentRequired */, const PlatformXR::Device::FeatureList& /* consentOptional */, const PlatformXR::Device::FeatureList& /* requiredFeaturesRequested */, const PlatformXR::Device::FeatureList& /* optionalFeaturesRequested */, CompletionHandler<void(std::optional<PlatformXR::Device::FeatureList>&&)>&& completionHandler) { completionHandler(granted); }
 #endif
 
 #if ENABLE(TEXT_AUTOSIZING)
     virtual void textAutosizingUsesIdempotentModeChanged() { }
 #endif
 
-#if HAVE(ARKIT_INLINE_PREVIEW_IOS)
-    virtual void takeModelElementFullscreen(WebCore::GraphicsLayer::PlatformLayerID) const { }
-#endif
-#if HAVE(ARKIT_INLINE_PREVIEW_MAC)
-    virtual void modelElementDidCreatePreview(WebCore::HTMLModelElement&, const URL&, const String&, const WebCore::FloatSize&) const { };
+#if ENABLE(APPLE_PAY_AMS_UI)
+    virtual void startApplePayAMSUISession(const URL&, const ApplePayAMSUIRequest&, CompletionHandler<void(std::optional<bool>&&)>&& completionHandler) { completionHandler(std::nullopt); }
+    virtual void abortApplePayAMSUISession() { }
 #endif
 
+#if USE(SYSTEM_PREVIEW)
+    virtual void beginSystemPreview(const URL&, const SystemPreviewInfo&, CompletionHandler<void()>&&) { }
+#endif
+
+    virtual void requestCookieConsent(CompletionHandler<void(CookieConsentDecisionResult)>&&) = 0;
+
+    virtual bool isUsingUISideCompositing() const { return false; }
+    
+    virtual bool isInStableState() const { return true; }
+
+    virtual FloatSize screenSizeForFingerprintingProtections(const LocalFrame&, FloatSize defaultSize) const { return defaultSize; }
+
+    WEBCORE_EXPORT virtual ~ChromeClient();
+
 protected:
-    virtual ~ChromeClient() = default;
+    WEBCORE_EXPORT ChromeClient();
 };
 
 } // namespace WebCore

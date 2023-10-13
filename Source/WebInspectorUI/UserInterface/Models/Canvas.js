@@ -25,12 +25,13 @@
 
 WI.Canvas = class Canvas extends WI.Object
 {
-    constructor(identifier, contextType, {domNode, cssCanvasName, contextAttributes, memoryCost, backtrace} = {})
+    constructor(identifier, contextType, {domNode, cssCanvasName, contextAttributes, memoryCost, stackTrace} = {})
     {
         super();
 
         console.assert(identifier);
         console.assert(contextType);
+        console.assert(!stackTrace || stackTrace instanceof WI.StackTrace, stackTrace);
 
         this._identifier = identifier;
         this._contextType = contextType;
@@ -39,7 +40,7 @@ WI.Canvas = class Canvas extends WI.Object
         this._contextAttributes = contextAttributes || {};
         this._extensions = new Set;
         this._memoryCost = memoryCost || NaN;
-        this._backtrace = backtrace || [];
+        this._stackTrace = stackTrace || null;
 
         this._clientNodes = null;
         this._shaderProgramCollection = new WI.ShaderProgramCollection;
@@ -63,6 +64,9 @@ WI.Canvas = class Canvas extends WI.Object
         case InspectorBackend.Enum.Canvas.ContextType.Canvas2D:
             contextType = WI.Canvas.ContextType.Canvas2D;
             break;
+        case InspectorBackend.Enum.Canvas.ContextType.OffscreenCanvas2D:
+            contextType = WI.Canvas.ContextType.OffscreenCanvas2D;
+            break;
         case InspectorBackend.Enum.Canvas.ContextType.BitmapRenderer:
             contextType = WI.Canvas.ContextType.BitmapRenderer;
             break;
@@ -82,12 +86,16 @@ WI.Canvas = class Canvas extends WI.Object
             console.error("Invalid canvas context type", payload.contextType);
         }
 
+        // COMPATIBILITY (macOS 13.0, iOS 16.0): `backtrace` was renamed to `stackTrace`.
+        if (payload.backtrace)
+            payload.stackTrace = {callFrames: payload.backtrace};
+
         return new WI.Canvas(payload.canvasId, contextType, {
             domNode: payload.nodeId ? WI.domManager.nodeForId(payload.nodeId) : null,
             cssCanvasName: payload.cssCanvasName,
             contextAttributes: payload.contextAttributes,
             memoryCost: payload.memoryCost,
-            backtrace: Array.isArray(payload.backtrace) ? payload.backtrace.map((item) => WI.CallFrame.fromPayload(WI.mainTarget, item)) : [],
+            stackTrace: WI.StackTrace.fromPayload(WI.assumingMainTarget(), payload.stackTrace),
         });
     }
 
@@ -96,6 +104,8 @@ WI.Canvas = class Canvas extends WI.Object
         switch (contextType) {
         case WI.Canvas.ContextType.Canvas2D:
             return WI.UIString("2D");
+        case WI.Canvas.ContextType.OffscreenCanvas2D:
+            return WI.UIString("Offscreen2D");
         case WI.Canvas.ContextType.BitmapRenderer:
             return WI.UIString("Bitmap Renderer", "Canvas Context Type Bitmap Renderer", "Bitmap Renderer is a type of rendering context associated with a <canvas> element");
         case WI.Canvas.ContextType.WebGL:
@@ -109,6 +119,19 @@ WI.Canvas = class Canvas extends WI.Object
         }
 
         console.assert(false, "Unknown canvas context type", contextType);
+        return null;
+    }
+
+    static displayNameForColorSpace(colorSpace)
+    {
+        switch(colorSpace) {
+        case WI.Canvas.ColorSpace.SRGB:
+            return WI.unlocalizedString("sRGB");
+        case WI.Canvas.ColorSpace.DisplayP3:
+            return WI.unlocalizedString("Display P3");
+        }
+
+        console.assert(false, "Unknown canvas color space", colorSpace);
         return null;
     }
 
@@ -135,7 +158,7 @@ WI.Canvas = class Canvas extends WI.Object
     get cssCanvasName() { return this._cssCanvasName; }
     get contextAttributes() { return this._contextAttributes; }
     get extensions() { return this._extensions; }
-    get backtrace() { return this._backtrace; }
+    get stackTrace() { return this._stackTrace; }
     get shaderProgramCollection() { return this._shaderProgramCollection; }
     get recordingCollection() { return this._recordingCollection; }
     get recordingFrameCount() { return this._recordingFrames.length; }
@@ -181,6 +204,11 @@ WI.Canvas = class Canvas extends WI.Object
         if (!this._uniqueDisplayNameNumber)
             this._uniqueDisplayNameNumber = Canvas._nextContextUniqueDisplayNameNumber++;
         return WI.UIString("Canvas %d").format(this._uniqueDisplayNameNumber);
+    }
+
+    is2D()
+    {
+        return this._contextType === Canvas.ContextType.Canvas2D || this._contextType === Canvas.ContextType.OffscreenCanvas2D;
     }
 
     requestNode()
@@ -447,11 +475,17 @@ WI.Canvas.CSSCanvasNameCookieKey = "canvas-css-canvas-name";
 
 WI.Canvas.ContextType = {
     Canvas2D: "canvas-2d",
+    OffscreenCanvas2D: "offscreen-canvas-2d",
     BitmapRenderer: "bitmaprenderer",
     WebGL: "webgl",
     WebGL2: "webgl2",
     WebGPU: "webgpu",
     WebMetal: "webmetal",
+};
+
+WI.Canvas.ColorSpace = {
+    SRGB: "srgb",
+    DisplayP3: "display-p3",
 };
 
 WI.Canvas.RecordingState = {

@@ -34,10 +34,6 @@
 #include <CoreGraphics/CoreGraphics.h>
 #endif
 
-#if PLATFORM(WIN)
-#include <d2d1.h>
-#endif
-
 namespace TestWebKitAPI {
 
 static void testGetAndSet(WebCore::FloatRect rect)
@@ -572,38 +568,7 @@ TEST(FloatRect, Transpose)
     EXPECT_FLOAT_EQ(120.0f, transposed.maxY());
 }
 
-TEST(FloatRect, FitToPoints)
-{
-    WebCore::FloatRect rect(10.0f, 20.0f, 30.0f, 40.0f);
-
-    WebCore::FloatPoint p0(20.0f, 30.0f);
-    WebCore::FloatPoint p1(70.0f, 130.0f);
-    WebCore::FloatPoint p2(50.0f, 20.0f);
-    WebCore::FloatPoint p3(90.0f, 190.0f);
-
-    rect.fitToPoints(p0, p1);
-
-    EXPECT_FLOAT_EQ(20.0f, rect.x());
-    EXPECT_FLOAT_EQ(70.0f, rect.maxX());
-    EXPECT_FLOAT_EQ(30.0f, rect.y());
-    EXPECT_FLOAT_EQ(130.0f, rect.maxY());
-
-    rect.fitToPoints(p0, p1, p2);
-
-    EXPECT_FLOAT_EQ(20.0f, rect.x());
-    EXPECT_FLOAT_EQ(70.0f, rect.maxX());
-    EXPECT_FLOAT_EQ(20.0f, rect.y());
-    EXPECT_FLOAT_EQ(130.0f, rect.maxY());
-
-    rect.fitToPoints(p0, p1, p2, p3);
-
-    EXPECT_FLOAT_EQ(20.0f, rect.x());
-    EXPECT_FLOAT_EQ(90.0f, rect.maxX());
-    EXPECT_FLOAT_EQ(20.0f, rect.y());
-    EXPECT_FLOAT_EQ(190.0f, rect.maxY());
-}
-
-#if USE(CG) || PLATFORM(WIN)
+#if USE(CG)
 static void checkCastRect(const WebCore::FloatRect& rect)
 {
     EXPECT_FLOAT_EQ(10.0f, rect.x());
@@ -630,19 +595,6 @@ TEST(FloatRect, Casting)
     WebCore::FloatRect rectFromCGRect(cgRect);
 
     checkCastRect(rectFromCGRect);
-#endif
-
-#if PLATFORM(WIN)
-    D2D1_RECT_F d2dRect = rect;
-
-    EXPECT_FLOAT_EQ(10.0f, d2dRect.left);
-    EXPECT_FLOAT_EQ(20.0f, d2dRect.top);
-    EXPECT_FLOAT_EQ(40.0f, d2dRect.right);
-    EXPECT_FLOAT_EQ(60.0f, d2dRect.bottom);
-
-    WebCore::FloatRect rectFromD2DRect(d2dRect);
-
-    checkCastRect(rectFromD2DRect);
 #endif
 }
 
@@ -709,7 +661,7 @@ TEST(FloatRect, InfiniteRect)
 
     // FIXME: We have an unusual representation for our infinite rect.
     // WebCore::Float::infiniteRect is (negative infinity)/2 for the upper left corner,
-    // while CoreGraphics and D2D use (negative infinity).
+    // while CoreGraphics uses (negative infinity).
 
 #if USE(CG)
     CGRect cgInfiniteRect = CGRectInfinite;
@@ -726,16 +678,6 @@ TEST(FloatRect, InfiniteRect)
     EXPECT_FLOAT_EQ(std::numeric_limits<float>::max(), cgInfiniteRect.origin.y + cgInfiniteRect.size.height);
 #endif
     // ASSERT_TRUE(infinite == cgInfiniteRect);
-#endif
-
-#if PLATFORM(WIN)
-    D2D1_RECT_F d2dInfiniteRect = D2D1::InfiniteRect();
-
-    EXPECT_FLOAT_EQ(-std::numeric_limits<float>::max(), d2dInfiniteRect.left);
-    EXPECT_FLOAT_EQ(-std::numeric_limits<float>::max(), d2dInfiniteRect.top);
-    EXPECT_FLOAT_EQ(std::numeric_limits<float>::max(), d2dInfiniteRect.right);
-    EXPECT_FLOAT_EQ(std::numeric_limits<float>::max(), d2dInfiniteRect.bottom);
-    // ASSERT_TRUE(infinite == d2dInfiniteRect);
 #endif
 }
 

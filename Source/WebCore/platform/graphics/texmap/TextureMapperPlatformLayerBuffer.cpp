@@ -34,8 +34,8 @@
 namespace WebCore {
 
 TextureMapperPlatformLayerBuffer::TextureMapperPlatformLayerBuffer(RefPtr<BitmapTexture>&& texture, TextureMapperGL::Flags flags)
-    : m_texture(WTFMove(texture))
-    , m_variant(RGBTexture { 0 })
+    : m_variant(RGBTexture { 0 })
+    , m_texture(WTFMove(texture))
     , m_extraFlags(flags)
     , m_hasManagedTexture(true)
 {
@@ -78,17 +78,17 @@ std::unique_ptr<TextureMapperPlatformLayerBuffer> TextureMapperPlatformLayerBuff
                 return nullptr;
             }
 
-            auto clonedTexture = BitmapTextureGL::create(TextureMapperContextAttributes::get(), m_internalFormat);
+            auto clonedTexture = BitmapTextureGL::create(TextureMapperContextAttributes::get(), TextureMapperGL::NoFlag, m_internalFormat);
             clonedTexture->reset(m_size);
             static_cast<BitmapTextureGL&>(clonedTexture.get()).copyFromExternalTexture(texture.id);
             return makeUnique<TextureMapperPlatformLayerBuffer>(WTFMove(clonedTexture), m_extraFlags);
         },
-        [](const YUVTexture&)
+        [](const YUVTexture&) -> std::unique_ptr<TextureMapperPlatformLayerBuffer>
         {
             notImplemented();
             return nullptr;
         },
-        [](const ExternalOESTexture&)
+        [](const ExternalOESTexture&) -> std::unique_ptr<TextureMapperPlatformLayerBuffer>
         {
             notImplemented();
             return nullptr;
@@ -102,10 +102,7 @@ void TextureMapperPlatformLayerBuffer::paintToTextureMapper(TextureMapper& textu
     if (m_hasManagedTexture) {
         ASSERT(m_texture);
         BitmapTextureGL* textureGL = static_cast<BitmapTextureGL*>(m_texture.get());
-#if USE(ANGLE)
-        textureGL->updatePendingContents(IntRect(IntPoint(), textureGL->contentSize()), IntPoint());
-#endif
-        texmapGL.drawTexture(textureGL->id(), m_extraFlags | textureGL->colorConvertFlags(), textureGL->size(), targetRect, modelViewMatrix, opacity);
+        texmapGL.drawTexture(textureGL->id(), m_extraFlags | textureGL->colorConvertFlags(), targetRect, modelViewMatrix, opacity);
         return;
     }
 
@@ -125,7 +122,7 @@ void TextureMapperPlatformLayerBuffer::paintToTextureMapper(TextureMapper& textu
     WTF::switchOn(m_variant,
         [&](const RGBTexture& texture) {
             ASSERT(texture.id);
-            texmapGL.drawTexture(texture.id, m_extraFlags, m_size, targetRect, modelViewMatrix, opacity);
+            texmapGL.drawTexture(texture.id, m_extraFlags, targetRect, modelViewMatrix, opacity);
         },
         [&](const YUVTexture& texture) {
             switch (texture.numberOfPlanes) {
@@ -133,28 +130,28 @@ void TextureMapperPlatformLayerBuffer::paintToTextureMapper(TextureMapper& textu
                 ASSERT(texture.yuvPlane[0] == texture.yuvPlane[1] && texture.yuvPlane[1] == texture.yuvPlane[2]);
                 ASSERT(texture.yuvPlaneOffset[0] == 2 && texture.yuvPlaneOffset[1] == 1 && !texture.yuvPlaneOffset[2]);
                 texmapGL.drawTexturePackedYUV(texture.planes[texture.yuvPlane[0]],
-                    texture.yuvToRgbMatrix, m_extraFlags, m_size, targetRect, modelViewMatrix, opacity);
+                    texture.yuvToRgbMatrix, m_extraFlags, targetRect, modelViewMatrix, opacity);
                 break;
             case 2:
                 ASSERT(!texture.yuvPlaneOffset[0]);
                 texmapGL.drawTextureSemiPlanarYUV(std::array<GLuint, 2> { texture.planes[texture.yuvPlane[0]], texture.planes[texture.yuvPlane[1]] }, !!texture.yuvPlaneOffset[1],
-                    texture.yuvToRgbMatrix, m_extraFlags, m_size, targetRect, modelViewMatrix, opacity);
+                    texture.yuvToRgbMatrix, m_extraFlags, targetRect, modelViewMatrix, opacity);
                 break;
             case 3:
                 ASSERT(!texture.yuvPlaneOffset[0] && !texture.yuvPlaneOffset[1] && !texture.yuvPlaneOffset[2]);
                 texmapGL.drawTexturePlanarYUV(std::array<GLuint, 3> { texture.planes[texture.yuvPlane[0]], texture.planes[texture.yuvPlane[1]], texture.planes[texture.yuvPlane[2]] },
-                    texture.yuvToRgbMatrix, m_extraFlags, m_size, targetRect, modelViewMatrix, opacity, std::nullopt);
+                    texture.yuvToRgbMatrix, m_extraFlags, targetRect, modelViewMatrix, opacity, std::nullopt);
                 break;
             case 4:
                 ASSERT(!texture.yuvPlaneOffset[0] && !texture.yuvPlaneOffset[1] && !texture.yuvPlaneOffset[2]);
                 texmapGL.drawTexturePlanarYUV(std::array<GLuint, 3> { texture.planes[texture.yuvPlane[0]], texture.planes[texture.yuvPlane[1]], texture.planes[texture.yuvPlane[2]] },
-                    texture.yuvToRgbMatrix, m_extraFlags, m_size, targetRect, modelViewMatrix, opacity, texture.planes[texture.yuvPlane[3]]);
+                    texture.yuvToRgbMatrix, m_extraFlags, targetRect, modelViewMatrix, opacity, texture.planes[texture.yuvPlane[3]]);
                 break;
             }
         },
         [&](const ExternalOESTexture& texture) {
             ASSERT(texture.id);
-            texmapGL.drawTextureExternalOES(texture.id, m_extraFlags, m_size, targetRect, modelViewMatrix, opacity);
+            texmapGL.drawTextureExternalOES(texture.id, m_extraFlags, targetRect, modelViewMatrix, opacity);
         });
 }
 

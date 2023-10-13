@@ -35,6 +35,8 @@
 #include "MathMLElement.h"
 #include "MathMLNames.h"
 #include "MathMLPresentationElement.h"
+#include "RenderBoxInlines.h"
+#include "RenderTableInlines.h"
 #include "RenderView.h"
 #include <wtf/IsoMallocInlines.h>
 
@@ -79,7 +81,7 @@ static LayoutUnit axisHeight(const RenderStyle& style)
 
     // Otherwise, the idea is to try and use the middle of operators as the math axis which we thus approximate by "half of the x-height".
     // Note that Gecko has a slower but more accurate version that measures half of the height of U+2212 MINUS SIGN.
-    return LayoutUnit(style.fontMetrics().xHeight() / 2);
+    return LayoutUnit(style.metricsOfPrimaryFont().xHeight() / 2);
 }
 
 LayoutUnit RenderMathMLBlock::mathAxisHeight() const
@@ -118,7 +120,7 @@ void RenderMathMLBlock::paint(PaintInfo& info, const LayoutPoint& paintOffset)
     GraphicsContextStateSaver stateSaver(info.context());
 
     info.context().setStrokeThickness(1.0f);
-    info.context().setStrokeStyle(SolidStroke);
+    info.context().setStrokeStyle(StrokeStyle::SolidStroke);
     info.context().setStrokeColor(Color::blue);
 
     info.context().drawLine(adjustedPaintOffset, IntPoint(adjustedPaintOffset.x() + pixelSnappedOffsetWidth(), adjustedPaintOffset.y()));
@@ -161,7 +163,7 @@ LayoutUnit toUserUnits(const MathMLElement::Length& length, const RenderStyle& s
     case MathMLElement::LengthType::Em:
         return LayoutUnit(length.value * style.fontCascade().size());
     case MathMLElement::LengthType::Ex:
-        return LayoutUnit(length.value * style.fontMetrics().xHeight());
+        return LayoutUnit(length.value * style.metricsOfPrimaryFont().xHeight());
     case MathMLElement::LengthType::MathUnit:
         return LayoutUnit(length.value * style.fontCascade().size() / 18);
     case MathMLElement::LengthType::Percentage:
@@ -199,6 +201,7 @@ void RenderMathMLBlock::layoutItems(bool relayoutChildren)
 
     LayoutUnit currentHorizontalExtent = contentLogicalWidth();
     for (auto* child = firstChildBox(); child; child = child->nextSiblingBox()) {
+        auto everHadLayout = child->everHadLayout();
         LayoutUnit childSize = child->maxPreferredLogicalWidth() - child->horizontalBorderAndPaddingExtent();
 
         if (preferredHorizontalExtent > currentHorizontalExtent)
@@ -225,6 +228,8 @@ void RenderMathMLBlock::layoutItems(bool relayoutChildren)
 
         child->setLocation(childLocation);
         horizontalOffset += childHorizontalExtent + child->marginEnd();
+        if (!everHadLayout && child->checkForRepaintDuringLayout())
+            child->repaint();
     }
 }
 
@@ -260,8 +265,13 @@ void RenderMathMLBlock::layoutInvalidMarkup(bool relayoutChildren)
     // Invalid MathML subtrees are just renderered as empty boxes.
     // FIXME: https://webkit.org/b/135460 - Should we display some "invalid" markup message instead?
     ASSERT(needsLayout());
-    for (auto child = firstChildBox(); child; child = child->nextSiblingBox())
+    for (auto* child = firstChildBox(); child; child = child->nextSiblingBox()) {
+        if (child->isOutOfFlowPositioned()) {
+            child->containingBlock()->insertPositionedObject(*child);
+            continue;
+        }
         child->layoutIfNeeded();
+    }
     setLogicalWidth(0);
     setLogicalHeight(0);
     layoutPositionedObjects(relayoutChildren);

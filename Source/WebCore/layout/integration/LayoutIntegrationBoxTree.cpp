@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,145 +26,295 @@
 #include "config.h"
 #include "LayoutIntegrationBoxTree.h"
 
-#if ENABLE(LAYOUT_FORMATTING_CONTEXT)
-
-#include "InlineIterator.h"
-#include "LayoutContainerBox.h"
+#include "InlineWalker.h"
+#include "LayoutElementBox.h"
 #include "LayoutInlineTextBox.h"
-#include "LayoutLineBreakBox.h"
-#include "LayoutReplacedBox.h"
+#include "RenderBlock.h"
 #include "RenderBlockFlow.h"
 #include "RenderChildIterator.h"
+#include "RenderCombineText.h"
+#include "RenderCounter.h"
+#include "RenderDetailsMarker.h"
+#include "RenderFlexibleBox.h"
 #include "RenderImage.h"
 #include "RenderLineBreak.h"
+#include "RenderListItem.h"
+#include "RenderListMarker.h"
+#include "RenderStyleSetters.h"
+#include "RenderTable.h"
+#include "RenderView.h"
+#include "TextUtil.h"
+
+#if ENABLE(TREE_DEBUGGING)
+#include "LayoutIntegrationLineLayout.h"
+#endif
 
 namespace WebCore {
 namespace LayoutIntegration {
 
 static constexpr size_t smallTreeThreshold = 8;
 
-static RenderStyle rootBoxStyle(const RenderStyle& style)
+static std::unique_ptr<RenderStyle> firstLineStyleFor(const RenderObject& renderer)
 {
-    auto clonedStyle = RenderStyle::clone(style);
-    clonedStyle.setEffectiveDisplay(DisplayType::Block);
-    return clonedStyle;
+    auto& firstLineStyle = renderer.firstLineStyle();
+    if (&renderer.style() == &firstLineStyle)
+        return { };
+    return RenderStyle::clonePtr(firstLineStyle);
 }
 
-BoxTree::BoxTree(RenderBlockFlow& flow)
-    : m_flow(flow)
-    , m_root(rootBoxStyle(flow.style()))
+static Layout::Box::IsAnonymous isAnonymous(const RenderObject& renderer)
 {
-    if (flow.isAnonymous())
-        m_root.setIsAnonymous();
-
-    buildTree();
+    return renderer.isAnonymous() ? Layout::Box::IsAnonymous::Yes : Layout::Box::IsAnonymous::No;
 }
 
-void BoxTree::buildTree()
+static Layout::Box::ElementAttributes elementAttributes(const RenderElement& renderer)
 {
-    auto createChildBox = [&](RenderObject& childRenderer) -> std::unique_ptr<Layout::Box> {
-        if (is<RenderText>(childRenderer)) {
-            auto& textRenderer = downcast<RenderText>(childRenderer);
-            auto style = RenderStyle::createAnonymousStyleWithDisplay(textRenderer.style(), DisplayType::Inline);
-            return makeUnique<Layout::InlineTextBox>(
-                style.textSecurity() == TextSecurity::None ? textRenderer.text() : RenderBlock::updateSecurityDiscCharacters(style, textRenderer.text())
-                , textRenderer.canUseSimplifiedTextMeasuring(), WTFMove(style));
-        }
+    auto nodeType = [&] {
+        if (is<RenderListMarker>(renderer))
+            return Layout::Box::NodeType::ListMarker;
+        if (is<RenderReplaced>(renderer))
+            return is<RenderImage>(renderer) ? Layout::Box::NodeType::Image : Layout::Box::NodeType::ReplacedElement;
+        if (is<RenderLineBreak>(renderer))
+            return downcast<RenderLineBreak>(renderer).isWBR() ? Layout::Box::NodeType::WordBreakOpportunity : Layout::Box::NodeType::LineBreak;
+        return Layout::Box::NodeType::GenericElement;
+    }();
 
-        auto style = RenderStyle::clone(childRenderer.style());
-        if (childRenderer.isLineBreak()) {
-            style.setDisplay(DisplayType::Inline);
-            style.setFloating(Float::None);
-            style.setPosition(PositionType::Static);
-            return makeUnique<Layout::LineBreakBox>(downcast<RenderLineBreak>(childRenderer).isWBR(), WTFMove(style));
-        }
+    return { nodeType, isAnonymous(renderer) };
+}
 
-        if (is<RenderReplaced>(childRenderer))
-            return makeUnique<Layout::ReplacedBox>(Layout::Box::ElementAttributes { is<RenderImage>(childRenderer) ? Layout::Box::ElementType::Image : Layout::Box::ElementType::GenericElement }, WTFMove(style));
+BoxTree::BoxTree(RenderBlock& rootRenderer)
+    : m_rootRenderer(rootRenderer)
+{
+    auto* rootBox = m_rootRenderer.layoutBox();
+    if (!rootBox) {
+        auto newRootBox = createLayoutBox(rootRenderer);
+        rootBox = downcast<Layout::ElementBox>(newRootBox.ptr());
+        m_rootRenderer.setLayoutBox(*rootBox);
+        initialContainingBlock().appendChild(WTFMove(newRootBox));
+    }
 
-        if (is<RenderBlock>(childRenderer))
-            return makeUnique<Layout::ReplacedBox>(Layout::Box::ElementAttributes { Layout::Box::ElementType::GenericElement }, WTFMove(style));
+    if (is<RenderBlockFlow>(rootRenderer)) {
+        rootBox->setIsInlineIntegrationRoot();
+        rootBox->setIsFirstChildForIntegration(rootRenderer.parent()->firstChild() == &rootRenderer);
+        buildTreeForInlineContent();
+    } else if (is<RenderFlexibleBox>(rootRenderer))
+        buildTreeForFlexContent();
+    else
+        ASSERT_NOT_IMPLEMENTED_YET();
+}
 
-        if (is<RenderInline>(childRenderer)) {
-            if (childRenderer.parent()->isAnonymousBlock()) {
-                // This looks like continuation renderer.
-                auto& renderInline = downcast<RenderInline>(childRenderer);
-                auto shouldNotRetainBorderPaddingAndMarginStart = renderInline.isContinuation();
-                auto shouldNotRetainBorderPaddingAndMarginEnd = !renderInline.isContinuation() && renderInline.inlineContinuation();
-                if (shouldNotRetainBorderPaddingAndMarginStart) {
-                    style.setMarginStart(RenderStyle::initialMargin());
-                    style.resetBorderLeft();
-                    style.setPaddingLeft(RenderStyle::initialPadding());
-                }
-                if (shouldNotRetainBorderPaddingAndMarginEnd) {
-                    style.setMarginEnd(RenderStyle::initialMargin());
-                    style.resetBorderRight();
-                    style.setPaddingRight(RenderStyle::initialPadding());
-                }
-            }
-            return makeUnique<Layout::ContainerBox>(Layout::Box::ElementAttributes { Layout::Box::ElementType::GenericElement }, WTFMove(style));
-        }
-
-        ASSERT_NOT_REACHED();
-        return nullptr;
-    };
-
-    for (auto walker = InlineWalker(m_flow); !walker.atEnd(); walker.advance()) {
-        if (walker.atEndOfInline())
+BoxTree::~BoxTree()
+{
+    for (auto& renderer : m_renderers) {
+        if (!renderer)
             continue;
-        auto& childRenderer = *walker.current();
-        auto childBox = createChildBox(childRenderer);
-        appendChild(WTFMove(childBox), childRenderer);
+
+        bool isLFCInlineBlock = is<RenderBlockFlow>(*renderer) && downcast<RenderBlockFlow>(*renderer).modernLineLayout();
+        if (isLFCInlineBlock) {
+            auto detachedBox = renderer->layoutBox()->removeFromParent();
+            initialContainingBlock().appendChild(WTFMove(detachedBox));
+            continue;
+        }
+
+        renderer->clearLayoutBox();
     }
+
+    m_boxToRendererMap = { };
+
+    if (&rootLayoutBox().parent() == &initialContainingBlock()) {
+        auto toDelete = rootLayoutBox().removeFromParent();
+        m_rootRenderer.clearLayoutBox();
+    } else
+        rootLayoutBox().destroyChildren();
 }
 
-void BoxTree::appendChild(std::unique_ptr<Layout::Box> childBox, RenderObject& childRenderer)
+void BoxTree::adjustStyleIfNeeded(const RenderElement& renderer, RenderStyle& style, RenderStyle* firstLineStyle)
 {
-    auto& parentBox = downcast<Layout::ContainerBox>(layoutBoxForRenderer(*childRenderer.parent()));
-    parentBox.appendChild(*childBox);
+    auto adjustStyle = [&] (auto& styleToAdjust) {
+        if (is<RenderBlock>(renderer)) {
+            if (styleToAdjust.display() == DisplayType::Inline)
+                styleToAdjust.setDisplay(DisplayType::InlineBlock);
+            if (renderer.isAnonymousBlock()) {
+                auto& anonBlockParentStyle = renderer.parent()->style();
+                // overflow and text-overflow property values don't get forwarded to anonymous block boxes.
+                // e.g. <div style="overflow: hidden; text-overflow: ellipsis; width: 100px; white-space: pre;">this text should have ellipsis<div></div></div>
+                styleToAdjust.setTextOverflow(anonBlockParentStyle.textOverflow());
+                styleToAdjust.setOverflowX(anonBlockParentStyle.overflowX());
+                styleToAdjust.setOverflowY(anonBlockParentStyle.overflowY());
+            }
+            return;
+        }
+        if (is<RenderInline>(renderer)) {
+            auto& renderInline = downcast<RenderInline>(renderer);
+            auto shouldNotRetainBorderPaddingAndMarginStart = renderInline.isContinuation();
+            auto shouldNotRetainBorderPaddingAndMarginEnd = !renderInline.isContinuation() && renderInline.inlineContinuation();
+            // This looks like continuation renderer.
+            if (shouldNotRetainBorderPaddingAndMarginStart) {
+                styleToAdjust.setMarginStart(RenderStyle::initialMargin());
+                styleToAdjust.resetBorderLeft();
+                styleToAdjust.setPaddingLeft(RenderStyle::initialPadding());
+            }
+            if (shouldNotRetainBorderPaddingAndMarginEnd) {
+                styleToAdjust.setMarginEnd(RenderStyle::initialMargin());
+                styleToAdjust.resetBorderRight();
+                styleToAdjust.setPaddingRight(RenderStyle::initialPadding());
+            }
+            return;
+        }
+        if (renderer.isLineBreak()) {
+            if (!styleToAdjust.hasOutOfFlowPosition()) {
+                // Force in-flow display value to inline (see webkit.org/b/223151).
+                styleToAdjust.setDisplay(DisplayType::Inline);
+            }
+            styleToAdjust.setFloating(Float::None);
+            // Clear property should only apply on block elements, however,
+            // it appears that browsers seem to ignore it on <br> inline elements.
+            // https://drafts.csswg.org/css2/#propdef-clear
+            if (downcast<RenderLineBreak>(renderer).isWBR())
+                styleToAdjust.setClear(Clear::None);
+            return;
+        }
+    };
+    adjustStyle(style);
+    if (firstLineStyle)
+        adjustStyle(*firstLineStyle);
+}
 
-    m_boxes.append({ WTFMove(childBox), &childRenderer });
+UniqueRef<Layout::Box> BoxTree::createLayoutBox(RenderObject& renderer)
+{
+    std::unique_ptr<RenderStyle> firstLineStyle = firstLineStyleFor(renderer);
 
-    if (m_boxes.size() > smallTreeThreshold) {
-        if (m_rendererToBoxMap.isEmpty()) {
-            for (auto& entry : m_boxes)
-                m_rendererToBoxMap.add(entry.renderer, entry.box.get());
-        } else
-            m_rendererToBoxMap.add(&childRenderer, m_boxes.last().box.get());
+    if (is<RenderText>(renderer)) {
+        auto& textRenderer = downcast<RenderText>(renderer);
+
+        auto style = RenderStyle::createAnonymousStyleWithDisplay(textRenderer.style(), DisplayType::Inline);
+        auto isCombinedText = is<RenderCombineText>(textRenderer) && downcast<RenderCombineText>(textRenderer).isCombined();
+        auto text = style.textSecurity() == TextSecurity::None
+            ? (isCombinedText ? textRenderer.originalText() : textRenderer.text())
+            : RenderBlock::updateSecurityDiscCharacters(style, isCombinedText ? textRenderer.originalText() : textRenderer.text());
+        auto canUseSimpleFontCodePath = textRenderer.canUseSimpleFontCodePath();
+        auto canUseSimplifiedTextMeasuring = canUseSimpleFontCodePath && Layout::TextUtil::canUseSimplifiedTextMeasuring(text, style, firstLineStyle.get());
+        return makeUniqueRef<Layout::InlineTextBox>(text, isCombinedText, canUseSimplifiedTextMeasuring, canUseSimpleFontCodePath, WTFMove(style), WTFMove(firstLineStyle));
     }
+
+    auto& renderElement = downcast<RenderElement>(renderer);
+
+    auto style = RenderStyle::clone(renderer.style());
+    adjustStyleIfNeeded(renderElement, style, firstLineStyle.get());
+
+    if (is<RenderListMarker>(renderElement)) {
+        auto& listMarkerRenderer = downcast<RenderListMarker>(renderElement);
+        OptionSet<Layout::ElementBox::ListMarkerAttribute> listMarkerAttributes;
+        if (listMarkerRenderer.isImage())
+            listMarkerAttributes.add(Layout::ElementBox::ListMarkerAttribute::Image);
+        if (!listMarkerRenderer.isInside())
+            listMarkerAttributes.add(Layout::ElementBox::ListMarkerAttribute::Outside);
+        return makeUniqueRef<Layout::ElementBox>(elementAttributes(renderElement), listMarkerAttributes, WTFMove(style), WTFMove(firstLineStyle));
+    }
+
+    return makeUniqueRef<Layout::ElementBox>(elementAttributes(renderElement), WTFMove(style), WTFMove(firstLineStyle));
+};
+
+void BoxTree::buildTreeForInlineContent()
+{
+    for (auto walker = InlineWalker(downcast<RenderBlockFlow>(m_rootRenderer)); !walker.atEnd(); walker.advance()) {
+        auto& childRenderer = *walker.current();
+        auto childLayoutBox = [&] {
+            if (auto existingChildBox = childRenderer.layoutBox())
+                return existingChildBox->removeFromParent();
+            return createLayoutBox(childRenderer);
+        };
+        insertChild(childLayoutBox(), childRenderer, childRenderer.previousSibling());
+    }
+    m_renderers.shrinkToFit();
+}
+
+void BoxTree::buildTreeForFlexContent()
+{
+    for (auto& flexItemRenderer : childrenOfType<RenderElement>(m_rootRenderer)) {
+        auto style = RenderStyle::clone(flexItemRenderer.style());
+        auto flexItem = makeUniqueRef<Layout::ElementBox>(elementAttributes(flexItemRenderer), WTFMove(style));
+        insertChild(WTFMove(flexItem), flexItemRenderer, flexItemRenderer.previousSibling());
+    }
+    m_renderers.shrinkToFit();
+}
+
+void BoxTree::insertChild(UniqueRef<Layout::Box> childBox, RenderObject& childRenderer, const RenderObject* beforeChild)
+{
+    auto& parentBox = layoutBoxForRenderer(*childRenderer.parent());
+    auto* beforeChildBox = beforeChild ? &layoutBoxForRenderer(*beforeChild) : nullptr;
+
+    m_renderers.append(&childRenderer);
+
+    childRenderer.setLayoutBox(childBox);
+    parentBox.insertChild(WTFMove(childBox), beforeChildBox);
 }
 
 void BoxTree::updateStyle(const RenderBoxModelObject& renderer)
 {
     auto& layoutBox = layoutBoxForRenderer(renderer);
-    auto& style = renderer.style();
-    if (&layoutBox == &rootLayoutBox())
-        layoutBox.updateStyle(rootBoxStyle(style));
-    else
-        layoutBox.updateStyle(style);
+    auto& rendererStyle = renderer.style();
 
-    if (is<Layout::ContainerBox>(layoutBox)) {
-        for (auto* child = downcast<Layout::ContainerBox>(layoutBox).firstChild(); child; child = child->nextSibling()) {
-            if (child->isInlineTextBox())
-                child->updateStyle(RenderStyle::createAnonymousStyleWithDisplay(style, DisplayType::Inline));
-        }
+    auto firstLineNewStyle = firstLineStyleFor(renderer);
+    auto newStyle = RenderStyle::clone(rendererStyle);
+    adjustStyleIfNeeded(renderer, newStyle, firstLineNewStyle.get());
+    layoutBox.updateStyle(WTFMove(newStyle), WTFMove(firstLineNewStyle));
+
+    for (auto* child = layoutBox.firstChild(); child; child = child->nextSibling()) {
+        if (child->isInlineTextBox())
+            child->updateStyle(RenderStyle::createAnonymousStyleWithDisplay(rendererStyle, DisplayType::Inline), firstLineStyleFor(renderer));
     }
+}
+
+void BoxTree::updateContent(const RenderText& textRenderer)
+{
+    auto& inlineTextBox = downcast<Layout::InlineTextBox>(layoutBoxForRenderer(textRenderer));
+    auto& style = inlineTextBox.style();
+    auto isCombinedText = is<RenderCombineText>(textRenderer) && downcast<RenderCombineText>(textRenderer).isCombined();
+    auto text = style.textSecurity() == TextSecurity::None ? (isCombinedText ? textRenderer.originalText() : textRenderer.text()) : RenderBlock::updateSecurityDiscCharacters(style, isCombinedText ? textRenderer.originalText() : textRenderer.text());
+    auto canUseSimpleFontCodePath = textRenderer.canUseSimpleFontCodePath();
+    auto canUseSimplifiedTextMeasuring = canUseSimpleFontCodePath && Layout::TextUtil::canUseSimplifiedTextMeasuring(text, style, &inlineTextBox.firstLineStyle());
+
+    inlineTextBox.updateContent(text, canUseSimpleFontCodePath, canUseSimplifiedTextMeasuring);
+}
+
+const Layout::Box& BoxTree::insert(const RenderElement& parent, RenderObject& child, const RenderObject* beforeChild)
+{
+    UNUSED_PARAM(parent);
+
+    insertChild(createLayoutBox(child), child, beforeChild);
+    if (!m_boxToRendererMap.isEmpty())
+        m_boxToRendererMap.add(*child.layoutBox(), child);
+    return layoutBoxForRenderer(child);
+}
+
+UniqueRef<Layout::Box> BoxTree::remove(const RenderElement& parent, RenderObject& child)
+{
+    UNUSED_PARAM(parent);
+    ASSERT(child.layoutBox());
+
+    auto* layoutBox = child.layoutBox();
+
+    m_boxToRendererMap = { };
+    child.clearLayoutBox();
+    // FIXME: Move over to WeakListHashSet if this turns out to be too expensive.
+    m_renderers.removeFirst(&child);
+    return layoutBox->removeFromParent();
+}
+
+const Layout::ElementBox& BoxTree::rootLayoutBox() const
+{
+    return *m_rootRenderer.layoutBox();
+}
+
+Layout::ElementBox& BoxTree::rootLayoutBox()
+{
+    return *m_rootRenderer.layoutBox();
 }
 
 Layout::Box& BoxTree::layoutBoxForRenderer(const RenderObject& renderer)
 {
-    if (&renderer == &m_flow)
-        return m_root;
-
-    if (m_boxes.size() <= smallTreeThreshold) {
-        auto index = m_boxes.findMatching([&](auto& entry) {
-            return entry.renderer == &renderer;
-        });
-        RELEASE_ASSERT(index != notFound);
-        return *m_boxes[index].box;
-    }
-
-    return *m_rendererToBoxMap.get(&renderer);
+    return *const_cast<RenderObject&>(renderer).layoutBox();
 }
 
 const Layout::Box& BoxTree::layoutBoxForRenderer(const RenderObject& renderer) const
@@ -172,22 +322,32 @@ const Layout::Box& BoxTree::layoutBoxForRenderer(const RenderObject& renderer) c
     return const_cast<BoxTree&>(*this).layoutBoxForRenderer(renderer);
 }
 
+const Layout::ElementBox& BoxTree::layoutBoxForRenderer(const RenderElement& renderer) const
+{
+    return downcast<Layout::ElementBox>(layoutBoxForRenderer(static_cast<const RenderObject&>(renderer)));
+}
+
+Layout::ElementBox& BoxTree::layoutBoxForRenderer(const RenderElement& renderer)
+{
+    return downcast<Layout::ElementBox>(layoutBoxForRenderer(static_cast<const RenderObject&>(renderer)));
+}
+
 RenderObject& BoxTree::rendererForLayoutBox(const Layout::Box& box)
 {
-    if (&box == &m_root)
-        return m_flow;
+    if (&box == &rootLayoutBox())
+        return m_rootRenderer;
 
-    if (m_boxes.size() <= smallTreeThreshold) {
-        auto index = m_boxes.findMatching([&](auto& entry) {
-            return entry.box.get() == &box;
+    if (m_renderers.size() <= smallTreeThreshold) {
+        auto index = m_renderers.findIf([&](auto& renderer) {
+            return renderer->layoutBox() == &box;
         });
         RELEASE_ASSERT(index != notFound);
-        return *m_boxes[index].renderer;
+        return *m_renderers[index];
     }
 
     if (m_boxToRendererMap.isEmpty()) {
-        for (auto& entry : m_boxes)
-            m_boxToRendererMap.add(entry.box.get(), entry.renderer);
+        for (auto& renderer : m_renderers)
+            m_boxToRendererMap.add(*renderer->layoutBox(), renderer);
     }
     return *m_boxToRendererMap.get(&box);
 }
@@ -197,9 +357,89 @@ const RenderObject& BoxTree::rendererForLayoutBox(const Layout::Box& box) const
     return const_cast<BoxTree&>(*this).rendererForLayoutBox(box);
 }
 
-}
+Layout::InitialContainingBlock& BoxTree::initialContainingBlock()
+{
+    return m_rootRenderer.view().initialContainingBlock();
 }
 
+#if ENABLE(TREE_DEBUGGING)
+void showInlineContent(TextStream& stream, const InlineContent& inlineContent, size_t depth)
+{
+    auto& lines = inlineContent.displayContent().lines;
+    auto& boxes = inlineContent.displayContent().boxes;
+
+    for (size_t lineIndex = 0, boxIndex = 0; lineIndex < lines.size() && boxIndex < boxes.size(); ++lineIndex) {
+        auto addSpacing = [&](auto& streamToUse) {
+            size_t printedCharacters = 0;
+            streamToUse << "-------- --";
+            while (++printedCharacters <= depth * 2)
+                streamToUse << " ";
+
+        };
+        addSpacing(stream);
+        auto& line = lines[lineIndex];
+        stream << "line at (" << line.lineBoxLeft() << "," << line.lineBoxTop() << ") size (" << line.lineBoxRight() - line.lineBoxLeft() << "x" << line.lineBoxBottom() - line.lineBoxTop() << ") baseline (" << line.baseline() << ") enclosing top (" << line.enclosingContentLogicalTop() << ") bottom (" << line.enclosingContentLogicalBottom() << ")";
+        stream.nextLine();
+
+        addSpacing(stream);
+
+        auto& rootInlineBox = boxes[boxIndex++];
+        auto rootInlineBoxRect = rootInlineBox.visualRectIgnoringBlockDirection();
+        stream << "  ";
+        stream << "Root inline box at (" << rootInlineBoxRect.x() << "," << rootInlineBoxRect.y() << ")" << " size (" << rootInlineBoxRect.width() << "x" << rootInlineBoxRect.height() << ")";
+        stream.nextLine();
+
+        auto inlineBoxStream = TextStream { TextStream::LineMode::MultipleLine, TextStream::Formatting::SVGStyleRect };
+        auto runStream = TextStream { TextStream::LineMode::MultipleLine, TextStream::Formatting::SVGStyleRect };
+        for (; boxIndex < boxes.size(); ++boxIndex) {
+            auto& box = boxes[boxIndex];
+            if (box.lineIndex() != lineIndex)
+                break;
+
+            if (box.isNonRootInlineBox()) {
+                addSpacing(inlineBoxStream);
+                inlineBoxStream << "  ";
+
+                for (auto* ancestor = &box.layoutBox(); ancestor != &rootInlineBox.layoutBox(); ancestor = &ancestor->parent())
+                    inlineBoxStream << "  ";
+                auto rect = box.visualRectIgnoringBlockDirection();
+                inlineBoxStream << "Inline box at (" << rect.x() << "," << rect.y() << ") size (" << rect.width() << "x" << rect.height() << ") renderer->(" << &inlineContent.rendererForLayoutBox(box.layoutBox()) << ")";
+                inlineBoxStream.nextLine();
+            } else {
+                addSpacing(runStream);
+                runStream << "    ";
+
+                if (box.isText())
+                    runStream << "Text";
+                else if (box.isWordSeparator())
+                    runStream << "Word separator";
+                else if (box.isLineBreak())
+                    runStream << "Line break";
+                else if (box.isAtomicInlineLevelBox())
+                    runStream << "Atomic box";
+                else if (box.isGenericInlineLevelBox())
+                    runStream << "Generic inline level box";
+                runStream << " at (" << box.left() << "," << box.top() << ") size " << box.width() << "x" << box.height();
+                if (box.isText())
+                    runStream << " run(" << box.text().start() << ", " << box.text().end() << ")";
+                runStream << " renderer->(" << &inlineContent.rendererForLayoutBox(box.layoutBox()) << ")";
+                runStream.nextLine();
+            }
+        }
+
+        stream << inlineBoxStream.release();
+
+        addSpacing(stream);
+        stream << "  ";
+        stream << "Run(s):";
+        stream.nextLine();
+
+        stream << runStream.release();
+    }
+}
 #endif
+
+}
+}
 
 

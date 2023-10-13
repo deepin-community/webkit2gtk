@@ -196,6 +196,24 @@ inline bool is(const CheckedRef<ArgType, ArgPtrTraits>& source)
     return is<ExpectedType>(source.get());
 }
 
+template<typename ExpectedType, typename ArgType, typename ArgPtrTraits>
+inline ExpectedType& downcast(CheckedRef<ArgType, ArgPtrTraits>& source)
+{
+    return downcast<ExpectedType>(source.get());
+}
+
+template<typename ExpectedType, typename ArgType, typename ArgPtrTraits>
+inline const ExpectedType& downcast(const CheckedRef<ArgType, ArgPtrTraits>& source)
+{
+    return downcast<ExpectedType>(source.get());
+}
+
+template<typename ExpectedType, typename ArgType, typename ArgPtrTraits>
+inline const ExpectedType& downcast(CheckedRef<const ArgType, ArgPtrTraits>& source)
+{
+    return downcast<ExpectedType>(source.get());
+}
+
 template<typename P> struct CheckedRefHashTraits : SimpleClassHashTraits<CheckedRef<P>> {
     static constexpr bool emptyValueIsZero = true;
     static CheckedRef<P> emptyValue() { return HashTableEmptyValue; }
@@ -230,11 +248,11 @@ public:
     ~CanMakeCheckedPtrBase() { RELEASE_ASSERT(!m_count); }
 
     PtrCounterType ptrCount() const { return m_count; }
-    void incrementPtrCount() { ++m_count; }
-    void decrementPtrCount() { ASSERT(m_count); --m_count; }
+    void incrementPtrCount() const { ++m_count; }
+    void decrementPtrCount() const { ASSERT(m_count); --m_count; }
 
 private:
-    StorageType m_count { 0 };
+    mutable StorageType m_count { 0 };
 };
 
 template <typename IntegralType>
@@ -298,8 +316,8 @@ inline SingleThreadIntegralWrapper<IntegralType>& SingleThreadIntegralWrapper<In
     return *this;
 }
 
-using CanMakeCheckedPtr = CanMakeCheckedPtrBase<SingleThreadIntegralWrapper<uint16_t>, uint16_t>;
-using CanMakeThreadSafeCheckedPtr = CanMakeCheckedPtrBase<std::atomic<uint16_t>, uint16_t>;
+using CanMakeCheckedPtr = CanMakeCheckedPtrBase<SingleThreadIntegralWrapper<uint32_t>, uint32_t>;
+using CanMakeThreadSafeCheckedPtr = CanMakeCheckedPtrBase<std::atomic<uint32_t>, uint32_t>;
 
 } // namespace WTF
 

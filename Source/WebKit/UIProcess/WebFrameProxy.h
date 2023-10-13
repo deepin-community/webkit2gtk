@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010 Apple Inc. All rights reserved.
+ * Copyright (C) 2010-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,12 +27,13 @@
 
 #include "APIObject.h"
 #include "FrameLoadState.h"
-#include "GenericCallback.h"
 #include "WebFramePolicyListenerProxy.h"
-#include "WebPageProxy.h"
+#include "WebProcessProxy.h"
 #include <WebCore/FrameLoaderTypes.h>
 #include <wtf/Forward.h>
 #include <wtf/Function.h>
+#include <wtf/ListHashSet.h>
+#include <wtf/WeakPtr.h>
 #include <wtf/text/WTFString.h>
 
 #if ENABLE(CONTENT_FILTERING)
@@ -40,34 +41,50 @@
 #endif
 
 namespace API {
+class Data;
 class Navigation;
+class URL;
 }
 
 namespace IPC {
 class Connection;
 class Decoder;
+using DataReference = std::span<const uint8_t>;
 }
 
 namespace WebKit {
+
+class ProvisionalFrameProxy;
+class RemotePageProxy;
 class SafeBrowsingWarning;
-class WebCertificateInfo;
+class UserData;
 class WebFramePolicyListenerProxy;
+class WebPageProxy;
+class WebProcessProxy;
 class WebsiteDataStore;
+
 enum class ShouldExpectSafeBrowsingResult : bool;
 enum class ProcessSwapRequestedByClient : bool;
+
+struct FrameInfoData;
+struct FrameTreeCreationParameters;
+struct FrameTreeNodeData;
 struct WebsitePoliciesData;
 
-class WebFrameProxy : public API::ObjectImpl<API::Object::Type::Frame> {
+class WebFrameProxy : public API::ObjectImpl<API::Object::Type::Frame>, public CanMakeWeakPtr<WebFrameProxy>, public CanMakeCheckedPtr {
 public:
-    static Ref<WebFrameProxy> create(WebPageProxy& page, WebCore::FrameIdentifier frameID)
+    static Ref<WebFrameProxy> create(WebPageProxy& page, WebProcessProxy& process, WebCore::FrameIdentifier frameID)
     {
-        return adoptRef(*new WebFrameProxy(page, frameID));
+        return adoptRef(*new WebFrameProxy(page, process, frameID));
     }
+
+    static WebFrameProxy* webFrame(WebCore::FrameIdentifier);
+    static bool canCreateFrame(WebCore::FrameIdentifier);
 
     virtual ~WebFrameProxy();
 
     WebCore::FrameIdentifier frameID() const { return m_frameID; }
-    WebPageProxy* page() const { return m_page.get(); }
+    WebPageProxy* page() const;
 
     bool pageIsClosed() const { return !m_page; } // Needs to be thread-safe.
 
@@ -77,10 +94,11 @@ public:
 
     FrameLoadState& frameLoadState() { return m_frameLoadState; }
 
+    void navigateServiceWorkerClient(WebCore::ScriptExecutionContextIdentifier, const URL&, CompletionHandler<void(std::optional<WebCore::PageIdentifier>, std::optional<WebCore::FrameIdentifier>)>&&);
+
     void loadURL(const URL&, const String& referrer = String());
     // Sub frames only. For main frames, use WebPageProxy::loadData.
     void loadData(const IPC::DataReference&, const String& MIMEType, const String& encodingName, const URL& baseURL);
-    void stopLoading() const;
 
     const URL& url() const { return m_frameLoadState.url(); }
     const URL& provisionalURL() const { return m_frameLoadState.provisionalURL(); }
@@ -93,10 +111,9 @@ public:
 
     const String& title() const { return m_title; }
 
-    WebCertificateInfo* certificateInfo() const { return m_certificateInfo.get(); }
+    const WebCore::CertificateInfo& certificateInfo() const { return m_certificateInfo; }
 
     bool canProvideSource() const;
-    bool canShowMIMEType(const String& mimeType) const;
 
     bool isDisplayingStandaloneImageDocument() const;
     bool isDisplayingStandaloneMediaDocument() const;
@@ -111,13 +128,13 @@ public:
     void didExplicitOpen(URL&&, String&& mimeType);
     void didReceiveServerRedirectForProvisionalLoad(const URL&);
     void didFailProvisionalLoad();
-    void didCommitLoad(const String& contentType, WebCertificateInfo&, bool containsPluginDocument);
+    void didCommitLoad(const String& contentType, const WebCore::CertificateInfo&, bool containsPluginDocument);
     void didFinishLoad();
     void didFailLoad();
     void didSameDocumentNavigation(const URL&); // eg. anchor navigation, session state change.
     void didChangeTitle(const String&);
 
-    WebFramePolicyListenerProxy& setUpPolicyListenerProxy(CompletionHandler<void(WebCore::PolicyAction, API::WebsitePolicies*, ProcessSwapRequestedByClient, RefPtr<SafeBrowsingWarning>&&, std::optional<NavigatingToAppBoundDomain>)>&&, ShouldExpectSafeBrowsingResult, ShouldExpectAppBoundDomainResult);
+    WebFramePolicyListenerProxy& setUpPolicyListenerProxy(CompletionHandler<void(WebCore::PolicyAction, API::WebsitePolicies*, ProcessSwapRequestedByClient, RefPtr<SafeBrowsingWarning>&&, std::optional<NavigatingToAppBoundDomain>)>&&, ShouldExpectSafeBrowsingResult, ShouldExpectAppBoundDomainResult, ShouldWaitForInitialLinkDecorationFilteringData);
 
 #if ENABLE(CONTENT_FILTERING)
     void contentFilterDidBlockLoad(WebCore::ContentFilterUnblockHandler contentFilterUnblockHandler) { m_contentFilterUnblockHandler = WTFMove(contentFilterUnblockHandler); }
@@ -128,22 +145,50 @@ public:
     void collapseSelection();
 #endif
 
+    void transferNavigationCallbackToFrame(WebFrameProxy&);
+    void setNavigationCallback(CompletionHandler<void(std::optional<WebCore::PageIdentifier>, std::optional<WebCore::FrameIdentifier>)>&&);
+
+    void disconnect();
+    void didCreateSubframe(WebCore::FrameIdentifier);
+    ProcessID processID() const;
+    void prepareForProvisionalNavigationInProcess(WebProcessProxy&, CompletionHandler<void()>&&);
+
+    void commitProvisionalFrame(WebCore::FrameIdentifier, FrameInfoData&&, WebCore::ResourceRequest&&, uint64_t navigationID, const String& mimeType, bool frameHasCustomContentProvider, WebCore::FrameLoadType, const WebCore::CertificateInfo&, bool usedLegacyTLS, bool privateRelayed, bool containsPluginDocument, WebCore::HasInsecureContent, WebCore::MouseEventPolicy, const UserData&);
+    void setRemotePageProxy(RemotePageProxy&);
+
+    void getFrameInfo(CompletionHandler<void(FrameTreeNodeData&&)>&&);
+    FrameTreeCreationParameters frameTreeCreationParameters() const;
+
+    WebFrameProxy* parentFrame() { return m_parentFrame.get(); }
+    WebProcessProxy& process() { return m_process.get(); }
+    void setProcess(WebProcessProxy& process) { m_process = process; }
+    ProvisionalFrameProxy* provisionalFrame() { return m_provisionalFrame.get(); }
+
 private:
-    WebFrameProxy(WebPageProxy&, WebCore::FrameIdentifier);
+    WebFrameProxy(WebPageProxy&, WebProcessProxy&, WebCore::FrameIdentifier);
+
+    std::optional<WebCore::PageIdentifier> pageIdentifier() const;
 
     WeakPtr<WebPageProxy> m_page;
+    Ref<WebProcessProxy> m_process;
+    WebCore::PageIdentifier m_webPageID;
 
     FrameLoadState m_frameLoadState;
 
     String m_MIMEType;
     String m_title;
     bool m_containsPluginDocument { false };
-    RefPtr<WebCertificateInfo> m_certificateInfo;
+    WebCore::CertificateInfo m_certificateInfo;
     RefPtr<WebFramePolicyListenerProxy> m_activeListener;
     WebCore::FrameIdentifier m_frameID;
+    ListHashSet<Ref<WebFrameProxy>> m_childFrames;
+    WeakPtr<WebFrameProxy> m_parentFrame;
+    std::unique_ptr<ProvisionalFrameProxy> m_provisionalFrame;
+    RefPtr<RemotePageProxy> m_remotePageProxy;
 #if ENABLE(CONTENT_FILTERING)
     WebCore::ContentFilterUnblockHandler m_contentFilterUnblockHandler;
 #endif
+    CompletionHandler<void(std::optional<WebCore::PageIdentifier>, std::optional<WebCore::FrameIdentifier>)> m_navigateCallback;
 };
 
 } // namespace WebKit

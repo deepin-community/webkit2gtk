@@ -32,9 +32,15 @@
 #include "Logging.h"
 #include "NetworkRTCProvider.h"
 #include "WebRTCMonitorMessages.h"
-#include <webrtc/rtc_base/third_party/sigslot/sigslot.h>
 #include <wtf/Function.h>
+#include <wtf/NeverDestroyed.h>
 #include <wtf/WeakHashSet.h>
+
+ALLOW_COMMA_BEGIN
+
+#include <webrtc/rtc_base/third_party/sigslot/sigslot.h>
+
+ALLOW_COMMA_END
 
 namespace WebKit {
 
@@ -53,7 +59,6 @@ private:
 
     bool m_didReceiveResults { false };
     Vector<RTCNetwork> m_networkList;
-    Vector<RTCNetwork> m_filteredNetworkList;
     RTCNetwork::IPAddress m_ipv4;
     RTCNetwork::IPAddress m_ipv6;
 };
@@ -66,11 +71,11 @@ static NetworkManagerWrapper& networkManager()
 
 void NetworkManagerWrapper::addListener(NetworkRTCMonitor& monitor)
 {
-    bool shouldStart = m_observers.computesEmpty();
+    bool shouldStart = m_observers.isEmptyIgnoringNullReferences();
     m_observers.add(monitor);
     if (!shouldStart) {
         if (m_didReceiveResults)
-            monitor.onNetworksChanged(m_networkList, m_filteredNetworkList, m_ipv4, m_ipv6);
+            monitor.onNetworksChanged(m_networkList, m_ipv4, m_ipv6);
         return;
     }
 
@@ -79,7 +84,7 @@ void NetworkManagerWrapper::addListener(NetworkRTCMonitor& monitor)
             return;
 
         RELEASE_LOG(WebRTC, "NetworkManagerWrapper startUpdating");
-        m_manager = makeUniqueWithoutFastMallocCheck<rtc::BasicNetworkManager>();
+        m_manager = makeUniqueWithoutFastMallocCheck<rtc::BasicNetworkManager>(NetworkRTCProvider::rtcNetworkThread().socketserver());
         m_manager->SignalNetworksChanged.connect(this, &NetworkManagerWrapper::onNetworksChanged);
         m_manager->StartUpdating();
     });
@@ -88,7 +93,7 @@ void NetworkManagerWrapper::addListener(NetworkRTCMonitor& monitor)
 void NetworkManagerWrapper::removeListener(NetworkRTCMonitor& monitor)
 {
     m_observers.remove(monitor);
-    if (!m_observers.computesEmpty())
+    if (!m_observers.isEmptyIgnoringNullReferences())
         return;
 
     monitor.rtcProvider().callOnRTCNetworkThread([this]() {
@@ -105,33 +110,23 @@ void NetworkManagerWrapper::onNetworksChanged()
 {
     RELEASE_LOG(WebRTC, "NetworkManagerWrapper::onNetworksChanged");
 
-    rtc::BasicNetworkManager::NetworkList networks;
-
     RTCNetwork::IPAddress ipv4;
     m_manager->GetDefaultLocalAddress(AF_INET, &ipv4.value);
     RTCNetwork::IPAddress ipv6;
     m_manager->GetDefaultLocalAddress(AF_INET6, &ipv6.value);
 
-    m_manager->GetNetworks(&networks);
+    auto networks = m_manager->GetNetworks();
 
     auto networkList = WTF::map(networks, [](auto& network) { return RTCNetwork { *network }; });
-    Vector<RTCNetwork> filteredNetworkList;
-    for (auto& network : networks) {
-        const auto& ips = network->GetIPs();
-        if (WTF::anyOf(ips, [&](const auto& ip) { return ipv4.value == ip || ipv6.value == ip; }))
-            filteredNetworkList.append(RTCNetwork { *network });
-    }
-
-    callOnMainRunLoop([this, networkList = WTFMove(networkList), filteredNetworkList = WTFMove(filteredNetworkList), ipv4 = WTFMove(ipv4), ipv6 = WTFMove(ipv6)]() mutable {
+    callOnMainRunLoop([this, networkList = WTFMove(networkList), ipv4 = WTFMove(ipv4), ipv6 = WTFMove(ipv6)]() mutable {
         m_didReceiveResults = true;
 
         m_networkList = WTFMove(networkList);
-        m_filteredNetworkList = WTFMove(filteredNetworkList);
         m_ipv4 = WTFMove(ipv4);
         m_ipv6 = WTFMove(ipv6);
 
         m_observers.forEach([this](auto& observer) {
-            observer.onNetworksChanged(m_networkList, m_filteredNetworkList, m_ipv4, m_ipv6);
+            observer.onNetworksChanged(m_networkList, m_ipv4, m_ipv6);
         });
     });
 }
@@ -141,10 +136,9 @@ NetworkRTCMonitor::~NetworkRTCMonitor()
     ASSERT(!m_manager);
 }
 
-void NetworkRTCMonitor::startUpdatingIfNeeded(bool enableEnumeratingAllNetworkInterfaces)
+void NetworkRTCMonitor::startUpdatingIfNeeded()
 {
     RTC_RELEASE_LOG("startUpdatingIfNeeded m_isStarted=%d", m_isStarted);
-    m_enableEnumeratingAllNetworkInterfaces = enableEnumeratingAllNetworkInterfaces;
     networkManager().addListener(*this);
 }
 
@@ -154,10 +148,10 @@ void NetworkRTCMonitor::stopUpdating()
     networkManager().removeListener(*this);
 }
 
-void NetworkRTCMonitor::onNetworksChanged(const Vector<RTCNetwork>& networkList, const Vector<RTCNetwork>& filteredNetworkList, const RTCNetwork::IPAddress& ipv4, const RTCNetwork::IPAddress& ipv6)
+void NetworkRTCMonitor::onNetworksChanged(const Vector<RTCNetwork>& networkList, const RTCNetwork::IPAddress& ipv4, const RTCNetwork::IPAddress& ipv6)
 {
     RTC_RELEASE_LOG("onNetworksChanged sent");
-    m_rtcProvider.connection().send(Messages::WebRTCMonitor::NetworksChanged(m_enableEnumeratingAllNetworkInterfaces ? networkList : filteredNetworkList, ipv4, ipv6), 0);
+    m_rtcProvider.connection().send(Messages::WebRTCMonitor::NetworksChanged(networkList, ipv4, ipv6), 0);
 }
 
 } // namespace WebKit

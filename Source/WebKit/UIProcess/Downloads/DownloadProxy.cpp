@@ -37,13 +37,16 @@
 #include "NetworkProcessProxy.h"
 #include "WebPageProxy.h"
 #include "WebProcessMessages.h"
-#include "WebProcessPool.h"
 #include "WebProtectionSpace.h"
 #include <WebCore/MIMETypeRegistry.h>
 #include <WebCore/ResourceResponseBase.h>
 #include <wtf/FileSystem.h>
 #include <wtf/text/CString.h>
 #include <wtf/text/WTFString.h>
+
+#if PLATFORM(MAC)
+#include <pal/spi/mac/QuarantineSPI.h>
+#endif
 
 namespace WebKit {
 using namespace WebCore;
@@ -54,7 +57,7 @@ DownloadProxy::DownloadProxy(DownloadProxyMap& downloadProxyMap, WebsiteDataStor
     , m_client(client)
     , m_downloadID(DownloadID::generate())
     , m_request(resourceRequest)
-    , m_originatingPage(makeWeakPtr(originatingPage))
+    , m_originatingPage(originatingPage)
     , m_frameInfo(API::FrameInfo::create(FrameInfoData { frameInfoData }, originatingPage))
 {
 }
@@ -67,7 +70,7 @@ DownloadProxy::~DownloadProxy()
 
 static RefPtr<API::Data> createData(const IPC::DataReference& data)
 {
-    if (data.isEmpty())
+    if (data.empty())
         return nullptr;
     return API::Data::create(data.data(), data.size());
 }
@@ -75,7 +78,7 @@ static RefPtr<API::Data> createData(const IPC::DataReference& data)
 void DownloadProxy::cancel(CompletionHandler<void(API::Data*)>&& completionHandler)
 {
     if (m_dataStore) {
-        m_dataStore->networkProcess().sendWithAsyncReply(Messages::NetworkProcess::CancelDownload(m_downloadID), [this, protectedThis = makeRef(*this), completionHandler = WTFMove(completionHandler)] (const IPC::DataReference& resumeData) mutable {
+        m_dataStore->networkProcess().sendWithAsyncReply(Messages::NetworkProcess::CancelDownload(m_downloadID), [this, protectedThis = Ref { *this }, completionHandler = WTFMove(completionHandler)] (const IPC::DataReference& resumeData) mutable {
             m_legacyResumeData = createData(resumeData);
             completionHandler(m_legacyResumeData.get());
             m_downloadProxyMap.downloadFinished(*this);
@@ -106,13 +109,12 @@ void DownloadProxy::publishProgress(const URL& URL)
     if (!m_dataStore)
         return;
 
-    SandboxExtension::Handle handle;
-    if (auto createdHandle = SandboxExtension::createHandle(URL.fileSystemPath(), SandboxExtension::Type::ReadWrite))
-        handle = WTFMove(*createdHandle);
-    else
-        ASSERT_NOT_REACHED();
+    auto handle = SandboxExtension::createHandle(URL.fileSystemPath(), SandboxExtension::Type::ReadWrite);
+    ASSERT(handle);
+    if (!handle)
+        return;
 
-    m_dataStore->networkProcess().send(Messages::NetworkProcess::PublishDownloadProgress(m_downloadID, URL, handle), 0);
+    m_dataStore->networkProcess().send(Messages::NetworkProcess::PublishDownloadProgress(m_downloadID, URL, *handle), 0);
 }
 #endif // PLATFORM(COCOA)
 
@@ -129,23 +131,20 @@ void DownloadProxy::didStart(const ResourceRequest& request, const String& sugge
     m_client->legacyDidStart(*this);
 }
 
-void DownloadProxy::didReceiveAuthenticationChallenge(AuthenticationChallenge&& authenticationChallenge, uint64_t challengeID)
+void DownloadProxy::didReceiveAuthenticationChallenge(AuthenticationChallenge&& authenticationChallenge, AuthenticationChallengeIdentifier challengeID)
 {
     if (!m_dataStore)
         return;
 
-    auto authenticationChallengeProxy = AuthenticationChallengeProxy::create(WTFMove(authenticationChallenge), challengeID, makeRef(*m_dataStore->networkProcess().connection()), nullptr);
+    auto authenticationChallengeProxy = AuthenticationChallengeProxy::create(WTFMove(authenticationChallenge), challengeID, *m_dataStore->networkProcess().connection(), nullptr);
     m_client->didReceiveAuthenticationChallenge(*this, authenticationChallengeProxy.get());
 }
 
-void DownloadProxy::willSendRequest(ResourceRequest&& proposedRequest, const ResourceResponse& redirectResponse)
+void DownloadProxy::willSendRequest(ResourceRequest&& proposedRequest, const ResourceResponse& redirectResponse, CompletionHandler<void(ResourceRequest&&)>&& completionHandler)
 {
-    m_client->willSendRequest(*this, WTFMove(proposedRequest), redirectResponse, [this, protectedThis = makeRef(*this)](ResourceRequest&& newRequest) {
+    m_client->willSendRequest(*this, WTFMove(proposedRequest), redirectResponse, [this, protectedThis = Ref { *this }, completionHandler = WTFMove(completionHandler)] (ResourceRequest&& newRequest) mutable {
         m_redirectChain.append(newRequest.url());
-        if (!protectedThis->m_dataStore)
-            return;
-        auto& networkProcessProxy = protectedThis->m_dataStore->networkProcess();
-        networkProcessProxy.send(Messages::NetworkProcess::ContinueWillSendRequest(protectedThis->m_downloadID, newRequest), 0);
+        completionHandler(WTFMove(newRequest));
     });
 }
 
@@ -164,7 +163,7 @@ void DownloadProxy::decideDestinationWithSuggestedFilename(const WebCore::Resour
         suggestedFilename = m_suggestedFilename;
     suggestedFilename = MIMETypeRegistry::appendFileExtensionIfNecessary(suggestedFilename, response.mimeType());
 
-    m_client->decideDestinationWithSuggestedFilename(*this, response, ResourceResponseBase::sanitizeSuggestedFilename(suggestedFilename), [this, protectedThis = makeRef(*this), completionHandler = WTFMove(completionHandler)] (AllowOverwrite allowOverwrite, String destination) mutable {
+    m_client->decideDestinationWithSuggestedFilename(*this, response, ResourceResponseBase::sanitizeSuggestedFilename(suggestedFilename), [this, protectedThis = Ref { *this }, completionHandler = WTFMove(completionHandler)] (AllowOverwrite allowOverwrite, String destination) mutable {
         SandboxExtension::Handle sandboxExtensionHandle;
         if (!destination.isNull()) {
             if (auto handle = SandboxExtension::createHandle(destination, SandboxExtension::Type::ReadWrite))
@@ -181,8 +180,36 @@ void DownloadProxy::didCreateDestination(const String& path)
     m_client->didCreateDestination(*this, path);
 }
 
+#if PLATFORM(MAC)
+void DownloadProxy::updateQuarantinePropertiesIfPossible()
+{
+    auto fileURL = URL::fileURLWithFileSystemPath(m_destinationFilename);
+    auto path = fileURL.fileSystemPath().utf8();
+
+    auto file = std::unique_ptr<_qtn_file, QuarantineFileDeleter>(qtn_file_alloc());
+    if (!file)
+        return;
+
+    auto error = qtn_file_init_with_path(file.get(), path.data());
+    if (error)
+        return;
+
+    uint32_t flags = qtn_file_get_flags(file.get());
+    ASSERT_WITH_MESSAGE(flags & QTN_FLAG_HARD, "Downloaded files written by the sandboxed network process should have QTN_FLAG_HARD");
+    flags &= ~QTN_FLAG_HARD;
+    error = qtn_file_set_flags(file.get(), flags);
+    if (error)
+        return;
+
+    qtn_file_apply_to_path(file.get(), path.data());
+}
+#endif
+
 void DownloadProxy::didFinish()
 {
+#if PLATFORM(MAC)
+    updateQuarantinePropertiesIfPossible();
+#endif
     m_client->didFinish(*this);
 
     // This can cause the DownloadProxy object to be deleted.

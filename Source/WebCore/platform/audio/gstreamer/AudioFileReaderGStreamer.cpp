@@ -41,15 +41,6 @@ namespace WebCore {
 GST_DEBUG_CATEGORY(webkit_audio_file_reader_debug);
 #define GST_CAT_DEFAULT webkit_audio_file_reader_debug
 
-static void initializeDebugCategory()
-{
-    ensureGStreamerInitialized();
-    static std::once_flag onceFlag;
-    std::call_once(onceFlag, [] {
-        GST_DEBUG_CATEGORY_INIT(webkit_audio_file_reader_debug, "webkitaudiofilereader", 0, "WebKit WebAudio FileReader");
-    });
-}
-
 class AudioFileReader : public CanMakeWeakPtr<AudioFileReader> {
     WTF_MAKE_FAST_ALLOCATED;
     WTF_MAKE_NONCOPYABLE(AudioFileReader);
@@ -78,11 +69,52 @@ private:
     int m_channels { 0 };
     HashMap<int, GRefPtr<GstBufferList>> m_buffers;
     GRefPtr<GstElement> m_pipeline;
+    std::optional<int> m_firstChannelType;
     unsigned m_channelSize { 0 };
     GRefPtr<GstElement> m_decodebin;
     GRefPtr<GstElement> m_deInterleave;
     bool m_errorOccurred { false };
 };
+
+#if PLATFORM(BCM_NEXUS) || PLATFORM(BROADCOM) || PLATFORM(REALTEK)
+int decodebinAutoplugSelectCallback(GstElement*, GstPad*, GstCaps*, GstElementFactory* factory, gpointer)
+{
+    static int GST_AUTOPLUG_SELECT_SKIP;
+    static int GST_AUTOPLUG_SELECT_TRY;
+    static std::once_flag onceFlag;
+    std::call_once(onceFlag, [] {
+        GEnumClass* enumClass = G_ENUM_CLASS(g_type_class_ref(g_type_from_name("GstAutoplugSelectResult")));
+        GEnumValue* value = g_enum_get_value_by_name(enumClass, "GST_AUTOPLUG_SELECT_SKIP");
+        GST_AUTOPLUG_SELECT_SKIP = value->value;
+        value = g_enum_get_value_by_name(enumClass, "GST_AUTOPLUG_SELECT_TRY");
+        GST_AUTOPLUG_SELECT_TRY = value->value;
+        g_type_class_unref(enumClass);
+    });
+
+    const Vector<String> pluginsToSkip = {
+#if PLATFORM(BCM_NEXUS) || PLATFORM(BROADCOM)
+        "brcmaudfilter"_s,
+#endif
+#if PLATFORM(REALTEK)
+        "omxaacdec"_s,
+        "omxac3dec"_s,
+        "omxac4dec"_s,
+        "omxeac3dec"_s,
+        "omxflacdec"_s,
+        "omxlpcmdec"_s,
+        "omxmp3dec"_s,
+        "omxopusdec"_s,
+        "omxvorbisdec"_s,
+#endif
+    };
+    auto factoryName = StringView::fromLatin1(gst_plugin_feature_get_name(GST_PLUGIN_FEATURE(factory)));
+    for (const auto& pluginToSkip : pluginsToSkip) {
+        if (pluginToSkip == factoryName)
+            return GST_AUTOPLUG_SELECT_SKIP;
+    }
+    return GST_AUTOPLUG_SELECT_TRY;
+}
+#endif
 
 static void copyGstreamerBuffersToAudioChannel(const GRefPtr<GstBufferList>& buffers, AudioChannel* audioChannel)
 {
@@ -132,6 +164,9 @@ AudioFileReader::~AudioFileReader()
 
     if (m_decodebin) {
         g_signal_handlers_disconnect_matched(m_decodebin.get(), G_SIGNAL_MATCH_DATA, 0, 0, nullptr, nullptr, this);
+#if PLATFORM(BCM_NEXUS) || PLATFORM(BROADCOM) || PLATFORM(REALTEK)
+        g_signal_handlers_disconnect_matched(m_decodebin.get(), G_SIGNAL_MATCH_FUNC, 0, 0, nullptr, reinterpret_cast<gpointer>(decodebinAutoplugSelectCallback), nullptr);
+#endif
         m_decodebin = nullptr;
     }
 
@@ -141,20 +176,8 @@ AudioFileReader::~AudioFileReader()
     }
 }
 
-GstFlowReturn AudioFileReader::handleSample(GstAppSink* sink)
+static inline std::optional<int> channelTypeFromCaps(GstCaps* caps)
 {
-    auto sample = adoptGRef(gst_app_sink_try_pull_sample(sink, 0));
-    if (!sample)
-        return gst_app_sink_is_eos(sink) ? GST_FLOW_EOS : GST_FLOW_ERROR;
-
-    GstBuffer* buffer = gst_sample_get_buffer(sample.get());
-    if (!buffer)
-        return GST_FLOW_ERROR;
-
-    GstCaps* caps = gst_sample_get_caps(sample.get());
-    if (!caps)
-        return GST_FLOW_ERROR;
-
     int channelId = 0;
     GstAudioInfo info;
     gst_audio_info_from_caps(&info, caps);
@@ -182,14 +205,44 @@ GstFlowReturn AudioFileReader::handleSample(GstAppSink* sink)
         break;
     default:
         GST_WARNING("Unhandled channel: %d", GST_AUDIO_INFO_POSITION(&info, 0));
-        return GST_FLOW_ERROR;
+        return { };
     };
+    return channelId;
+}
 
-    channelId++;
-    if (channelId == 1)
+GstFlowReturn AudioFileReader::handleSample(GstAppSink* sink)
+{
+    auto sample = adoptGRef(gst_app_sink_try_pull_sample(sink, 0));
+    if (!sample)
+        return gst_app_sink_is_eos(sink) ? GST_FLOW_EOS : GST_FLOW_ERROR;
+
+    GstBuffer* buffer = gst_sample_get_buffer(sample.get());
+    if (!buffer)
+        return GST_FLOW_ERROR;
+
+    GstCaps* caps = gst_sample_get_caps(sample.get());
+    if (!caps)
+        return GST_FLOW_ERROR;
+
+    auto channelType = channelTypeFromCaps(caps);
+    if (!channelType)
+        return GST_FLOW_ERROR;
+
+    if (!m_firstChannelType) {
+        ASSERT_NOT_REACHED();
+        return GST_FLOW_ERROR;
+    }
+
+    if (*channelType == *m_firstChannelType) {
+        GstAudioInfo info;
+        gst_audio_info_from_caps(&info, caps);
         m_channelSize += gst_buffer_get_size(buffer) / info.bpf;
+    }
 
-    auto result = m_buffers.ensure(channelId, [] {
+    // Shift hash table key values by one, otherwise we would hit an ASSERT here when channelType is
+    // 0 (Left), which is also KeyTraits::emptyValue() which is not allowed.
+    int keyId = *channelType + 1;
+    auto result = m_buffers.ensure(keyId, [] {
         return adoptGRef(gst_buffer_list_new());
     });
     auto& bufferList = result.iterator->value;
@@ -220,22 +273,22 @@ void AudioFileReader::handleMessage(GstMessage* message)
         gst_element_set_state(m_pipeline.get(), GST_STATE_NULL);
         m_runLoop.stop();
         break;
-    case GST_MESSAGE_STATE_CHANGED:
-        if (GST_MESSAGE_SRC(message) == GST_OBJECT(m_pipeline.get())) {
-            GstState oldState, newState, pending;
-            gst_message_parse_state_changed(message, &oldState, &newState, &pending);
+    case GST_MESSAGE_STATE_CHANGED: {
+        if (GST_MESSAGE_SRC(message) != GST_OBJECT(m_pipeline.get()))
+            break;
 
-            GST_INFO_OBJECT(m_pipeline.get(), "State changed (old: %s, new: %s, pending: %s)",
-                gst_element_state_get_name(oldState),
-                gst_element_state_get_name(newState),
-                gst_element_state_get_name(pending));
+        GstState oldState, newState, pending;
+        gst_message_parse_state_changed(message, &oldState, &newState, &pending);
+        GST_INFO_OBJECT(m_pipeline.get(), "State changed (old: %s, new: %s, pending: %s)",
+            gst_element_state_get_name(oldState), gst_element_state_get_name(newState), gst_element_state_get_name(pending));
 
-            WTF::String dotFileName = makeString(GST_OBJECT_NAME(m_pipeline.get()), '_',
-                gst_element_state_get_name(oldState), '_',
-                gst_element_state_get_name(newState));
-
-            GST_DEBUG_BIN_TO_DOT_FILE_WITH_TS(GST_BIN_CAST(m_pipeline.get()), GST_DEBUG_GRAPH_SHOW_ALL, dotFileName.utf8().data());
-        }
+        auto dotFileName = makeString(GST_OBJECT_NAME(m_pipeline.get()), '_', gst_element_state_get_name(oldState), '_', gst_element_state_get_name(newState));
+        GST_DEBUG_BIN_TO_DOT_FILE_WITH_TS(GST_BIN_CAST(m_pipeline.get()), GST_DEBUG_GRAPH_SHOW_ALL, dotFileName.utf8().data());
+        break;
+    }
+    case GST_MESSAGE_LATENCY:
+        gst_bin_recalculate_latency(GST_BIN_CAST(m_pipeline.get()));
+        break;
     default:
         break;
     }
@@ -249,6 +302,12 @@ void AudioFileReader::handleNewDeinterleavePad(GstPad* pad)
     // ... deinterleave ! appsink.
     GstElement* sink = makeGStreamerElement("appsink", nullptr);
 
+    if (!m_firstChannelType) {
+        auto caps = adoptGRef(gst_pad_query_caps(pad, nullptr));
+        auto channelType = channelTypeFromCaps(caps.get());
+        if (channelType)
+            m_firstChannelType = WTFMove(channelType);
+    }
     m_channels++;
 
     static GstAppSinkCallbacks callbacks = {
@@ -258,8 +317,12 @@ void AudioFileReader::handleNewDeinterleavePad(GstPad* pad)
         [](GstAppSink* sink, gpointer userData) -> GstFlowReturn {
             return static_cast<AudioFileReader*>(userData)->handleSample(sink);
         },
-#if GST_CHECK_VERSION(1, 19, 1)
+#if GST_CHECK_VERSION(1, 20, 0)
         // new_event
+        nullptr,
+#endif
+#if GST_CHECK_VERSION(1, 23, 0)
+        // propose_allocation
         nullptr,
 #endif
         { nullptr }
@@ -341,7 +404,7 @@ void AudioFileReader::decodeAudioForBusCreation()
             reader.handleMessage(message);
         else {
             GRefPtr<GstMessage> protectMessage(message);
-            auto weakThis = makeWeakPtr(reader);
+            WeakPtr weakThis { reader };
             reader.m_runLoop.dispatch([weakThis, protectMessage] {
                 if (weakThis)
                     weakThis->handleMessage(protectMessage.get());
@@ -358,6 +421,9 @@ void AudioFileReader::decodeAudioForBusCreation()
     g_object_set(source, "stream", memoryStream.get(), nullptr);
 
     m_decodebin = makeGStreamerElement("decodebin", "decodebin");
+#if PLATFORM(BCM_NEXUS) || PLATFORM(BROADCOM) || PLATFORM(REALTEK)
+    g_signal_connect(m_decodebin.get(), "autoplug-select", G_CALLBACK(decodebinAutoplugSelectCallback), nullptr);
+#endif
     g_signal_connect_swapped(m_decodebin.get(), "pad-added", G_CALLBACK(decodebinPadAddedCallback), this);
 
     gst_bin_add_many(GST_BIN(m_pipeline.get()), source, m_decodebin.get(), nullptr);
@@ -395,8 +461,9 @@ RefPtr<AudioBus> AudioFileReader::createBus(float sampleRate, bool mixToMono)
     auto audioBus = AudioBus::create(m_channels, m_channelSize, true);
     audioBus->setSampleRate(m_sampleRate);
 
-    for (auto& it : m_buffers)
-        copyGstreamerBuffersToAudioChannel(it.value, audioBus->channel(it.key - 1));
+    for (auto& [key, buffer] : m_buffers)
+        copyGstreamerBuffersToAudioChannel(buffer, audioBus->channelByType(key - 1));
+
     m_buffers.clear();
 
     if (mixToMono)
@@ -406,7 +473,12 @@ RefPtr<AudioBus> AudioFileReader::createBus(float sampleRate, bool mixToMono)
 
 RefPtr<AudioBus> createBusFromInMemoryAudioFile(const void* data, size_t dataSize, bool mixToMono, float sampleRate)
 {
-    initializeDebugCategory();
+    ensureGStreamerInitialized();
+    static std::once_flag onceFlag;
+    std::call_once(onceFlag, [] {
+        GST_DEBUG_CATEGORY_INIT(webkit_audio_file_reader_debug, "webkitaudiofilereader", 0, "WebKit WebAudio FileReader");
+    });
+
     GST_DEBUG("Creating bus from in-memory audio data (%zu bytes)", dataSize);
     RefPtr<AudioBus> bus;
     auto thread = Thread::create("AudioFileReader", [&bus, data, dataSize, mixToMono, sampleRate] {
@@ -415,6 +487,8 @@ RefPtr<AudioBus> createBusFromInMemoryAudioFile(const void* data, size_t dataSiz
     thread->waitForCompletion();
     return bus;
 }
+
+#undef GST_CAT_DEFAULT
 
 } // WebCore
 

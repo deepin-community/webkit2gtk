@@ -27,6 +27,8 @@
 
 #include <memory>
 #include <wtf/Assertions.h>
+#include <wtf/GetPtr.h>
+#include <wtf/TypeCasts.h>
 
 namespace WTF {
 
@@ -82,7 +84,12 @@ public:
     operator T&() { ASSERT(m_ref); return *m_ref; }
     operator const T&() const { ASSERT(m_ref); return *m_ref; }
 
+    T& operator*() { ASSERT(m_ref); return *m_ref.get(); }
+    const T& operator*() const { ASSERT(m_ref); return *m_ref.get(); }
+
     std::unique_ptr<T> moveToUniquePtr() { return WTFMove(m_ref); }
+
+    explicit UniqueRef(HashTableEmptyValueType) { }
 
 private:
     template<class U, class... Args> friend UniqueRef<U> makeUniqueRefWithoutFastMallocCheck(Args&&...);
@@ -97,6 +104,29 @@ private:
 
     std::unique_ptr<T> m_ref;
 };
+
+template <typename T>
+struct GetPtrHelper<UniqueRef<T>> {
+    using PtrType = T*;
+    static T* getPtr(const UniqueRef<T>& p) { return const_cast<T*>(p.ptr()); }
+};
+
+template <typename T>
+struct IsSmartPtr<UniqueRef<T>> {
+    static constexpr bool value = true;
+};
+
+template<typename ExpectedType, typename ArgType>
+inline bool is(UniqueRef<ArgType>& source)
+{
+    return is<ExpectedType>(source.get());
+}
+
+template<typename ExpectedType, typename ArgType>
+inline bool is(const UniqueRef<ArgType>& source)
+{
+    return is<ExpectedType>(source.get());
+}
 
 } // namespace WTF
 

@@ -32,7 +32,7 @@ namespace WebKit {
 
 class IconDatabase : public ThreadSafeRefCounted<IconDatabase> {
 public:
-    enum class AllowDatabaseWrite { No, Yes };
+    enum class AllowDatabaseWrite : bool { No, Yes };
 
     static Ref<IconDatabase> create(const String& path, AllowDatabaseWrite allowDatabaseWrite)
     {
@@ -85,8 +85,8 @@ private:
     std::unique_ptr<WebCore::SQLiteStatement> m_deleteIconStatement;
     std::unique_ptr<WebCore::SQLiteStatement> m_pruneIconsStatement;
 
-    std::unique_ptr<RunLoop::Timer<IconDatabase>> m_pruneTimer;
-    RunLoop::Timer<IconDatabase> m_clearLoadedIconsTimer;
+    std::unique_ptr<RunLoop::Timer> m_pruneTimer;
+    RunLoop::Timer m_clearLoadedIconsTimer;
 };
 
 } // namespace WebKit

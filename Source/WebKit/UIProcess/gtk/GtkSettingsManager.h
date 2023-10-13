@@ -53,6 +53,8 @@ private:
     bool cursorBlink() const;
     int cursorBlinkTime() const;
     bool primaryButtonWarpsSlider() const;
+    bool overlayScrolling() const;
+    bool enableAnimations() const;
 
     GtkSettings* m_settings;
     GtkSettingsState m_settingsState;

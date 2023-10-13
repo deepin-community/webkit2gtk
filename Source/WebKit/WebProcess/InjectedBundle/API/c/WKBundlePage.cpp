@@ -30,11 +30,13 @@
 #include "APIArray.h"
 #include "APIDictionary.h"
 #include "APIFrameHandle.h"
+#include "APIInjectedBundlePageContextMenuClient.h"
 #include "APINumber.h"
 #include "APIString.h"
 #include "APIURL.h"
 #include "APIURLRequest.h"
 #include "InjectedBundleNodeHandle.h"
+#include "InjectedBundlePageContextMenuClient.h"
 #include "InjectedBundlePageEditorClient.h"
 #include "InjectedBundlePageFormClient.h"
 #include "InjectedBundlePageLoaderClient.h"
@@ -60,9 +62,10 @@
 #include <WebCore/AXObjectCache.h>
 #include <WebCore/AccessibilityObjectInterface.h>
 #include <WebCore/ApplicationCacheStorage.h>
+#include <WebCore/CSSParser.h>
 #include <WebCore/CompositionHighlight.h>
 #include <WebCore/FocusController.h>
-#include <WebCore/Frame.h>
+#include <WebCore/LocalFrame.h>
 #include <WebCore/Page.h>
 #include <WebCore/PageOverlay.h>
 #include <WebCore/PageOverlayController.h>
@@ -108,9 +111,8 @@ void WKBundlePageSetResourceLoadClient(WKBundlePageRef pageRef, WKBundlePageReso
     WebKit::toImpl(pageRef)->setInjectedBundleResourceLoadClient(makeUnique<WebKit::InjectedBundlePageResourceLoadClient>(wkClient));
 }
 
-void WKBundlePageSetPolicyClient(WKBundlePageRef pageRef, WKBundlePagePolicyClientBase* wkClient)
+void WKBundlePageSetPolicyClient(WKBundlePageRef, WKBundlePagePolicyClientBase*)
 {
-    WebKit::toImpl(pageRef)->initializeInjectedBundlePolicyClient(wkClient);
 }
 
 void WKBundlePageSetUIClient(WKBundlePageRef pageRef, WKBundlePageUIClientBase* wkClient)
@@ -131,6 +133,7 @@ void WKBundlePageSetFullScreenClient(WKBundlePageRef pageRef, WKBundlePageFullSc
 void WKBundlePageWillEnterFullScreen(WKBundlePageRef pageRef)
 {
 #if ENABLE(FULLSCREEN_API)
+    WebKit::toImpl(pageRef)->fullScreenManager()->saveScrollPosition();
     WebKit::toImpl(pageRef)->fullScreenManager()->willEnterFullScreen();
 #else
     UNUSED_PARAM(pageRef);
@@ -159,6 +162,7 @@ void WKBundlePageDidExitFullScreen(WKBundlePageRef pageRef)
 {
 #if ENABLE(FULLSCREEN_API)
     WebKit::toImpl(pageRef)->fullScreenManager()->didExitFullScreen();
+    WebKit::toImpl(pageRef)->fullScreenManager()->restoreScrollPosition();
 #else
     UNUSED_PARAM(pageRef);
 #endif
@@ -187,14 +191,9 @@ void WKBundlePageClickMenuItem(WKBundlePageRef pageRef, WKContextMenuItemRef ite
 #if ENABLE(CONTEXT_MENUS)
 static Ref<API::Array> contextMenuItems(const WebKit::WebContextMenu& contextMenu)
 {
-    auto items = contextMenu.items();
-
-    Vector<RefPtr<API::Object>> menuItems;
-    menuItems.reserveInitialCapacity(items.size());
-
-    for (const auto& item : items)
-        menuItems.uncheckedAppend(WebKit::WebContextMenuItem::create(item));
-
+    auto menuItems = contextMenu.items().map([](auto& item) -> RefPtr<API::Object> {
+        return WebKit::WebContextMenuItem::create(item);
+    });
     return API::Array::create(WTFMove(menuItems));
 }
 #endif
@@ -246,12 +245,16 @@ void* WKAccessibilityRootObject(WKBundlePageRef pageRef)
 #if ENABLE(ACCESSIBILITY)
     if (!pageRef)
         return 0;
-    
+
     WebCore::Page* page = WebKit::toImpl(pageRef)->corePage();
     if (!page)
         return 0;
+
+    auto* localMainFrame = dynamicDowncast<WebCore::LocalFrame>(page->mainFrame());
+    if (!localMainFrame)
+        return 0;
     
-    WebCore::Frame& core = page->mainFrame();
+    auto& core = *localMainFrame;
     if (!core.document())
         return 0;
     
@@ -273,12 +276,12 @@ void* WKAccessibilityFocusedObject(WKBundlePageRef pageRef)
 #if ENABLE(ACCESSIBILITY)
     if (!pageRef)
         return 0;
-    
+
     WebCore::Page* page = WebKit::toImpl(pageRef)->corePage();
     if (!page)
         return 0;
 
-    auto* focusedDocument = page->focusController().focusedOrMainFrame().document();
+    RefPtr focusedDocument = CheckedRef(page->focusController())->focusedOrMainFrame().document();
     if (!focusedDocument)
         return 0;
 
@@ -288,42 +291,26 @@ void* WKAccessibilityFocusedObject(WKBundlePageRef pageRef)
     if (!axObjectCache)
         return 0;
 
-    auto* focusedObject = axObjectCache->focusedUIElementForPage(page);
-    if (!focusedObject)
-        return 0;
-    
-    return focusedObject->wrapper();
+    auto* focus = axObjectCache->focusedObjectForPage(page);
+    return focus ? focus->wrapper() : 0;
 #else
     UNUSED_PARAM(pageRef);
+    return 0;
+#endif // ENABLE(ACCESSIBILITY)
+}
+
+void* WKAccessibilityFocusedUIElement()
+{
+#if ENABLE(ACCESSIBILITY) && PLATFORM(COCOA)
+    return WebKit::WebProcess::accessibilityFocusedUIElement();
+#else
     return 0;
 #endif
 }
 
-bool WKAccessibilityCanUseSecondaryAXThread(WKBundlePageRef pageRef)
+void WKAccessibilitySetForceDeferredSpellChecking(bool shouldForce)
 {
-#if ENABLE(ACCESSIBILITY) && ENABLE(ACCESSIBILITY_ISOLATED_TREE)
-    if (!pageRef)
-        return false;
-
-    WebCore::Page* page = WebKit::toImpl(pageRef)->corePage();
-    if (!page)
-        return false;
-
-    WebCore::Frame& core = page->mainFrame();
-    if (!core.document())
-        return false;
-
-    WebCore::AXObjectCache::enableAccessibility();
-
-    auto* axObjectCache = core.document()->axObjectCache();
-    if (!axObjectCache)
-        return false;
-
-    return axObjectCache->usedOnAXThread();
-#else
-    UNUSED_PARAM(pageRef);
-    return false;
-#endif
+    WebCore::AXObjectCache::setForceDeferredSpellChecking(shouldForce);
 }
 
 void WKAccessibilityEnableEnhancedAccessibility(bool enable)
@@ -476,7 +463,7 @@ void WKBundlePageSetFooterBanner(WKBundlePageRef pageRef, WKBundlePageBannerRef 
 
 bool WKBundlePageHasLocalDataForURL(WKBundlePageRef pageRef, WKURLRef urlRef)
 {
-    return WebKit::toImpl(pageRef)->hasLocalDataForURL(URL(URL(), WebKit::toWTFString(urlRef)));
+    return WebKit::toImpl(pageRef)->corePage()->hasLocalDataForURL(URL { WebKit::toWTFString(urlRef) });
 }
 
 bool WKBundlePageCanHandleRequest(WKURLRequestRef requestRef)
@@ -618,22 +605,48 @@ WKArrayRef WKBundlePageCopyTrackedRepaintRects(WKBundlePageRef pageRef)
     return WebKit::toAPI(&WebKit::toImpl(pageRef)->trackedRepaintRects().leakRef());
 }
 
-void WKBundlePageSetComposition(WKBundlePageRef pageRef, WKStringRef text, int from, int length, bool suppressUnderline, WKArrayRef highlightData)
+void WKBundlePageSetComposition(WKBundlePageRef pageRef, WKStringRef text, int from, int length, bool suppressUnderline, WKArrayRef highlightData, WKArrayRef annotationData)
 {
     Vector<WebCore::CompositionHighlight> highlights;
     if (highlightData) {
         auto* highlightDataArray = WebKit::toImpl(highlightData);
         highlights.reserveInitialCapacity(highlightDataArray->size());
         for (auto dictionary : highlightDataArray->elementsOfType<API::Dictionary>()) {
-            auto startOffset = static_cast<API::UInt64*>(dictionary->get("from"))->value();
+            auto startOffset = static_cast<API::UInt64*>(dictionary->get("from"_s))->value();
+
+            std::optional<WebCore::Color> backgroundHighlightColor;
+            std::optional<WebCore::Color> foregroundHighlightColor;
+
+            if (auto backgroundColor = dictionary->get("color"_s))
+                backgroundHighlightColor = WebCore::CSSParser::parseColorWithoutContext(static_cast<API::String*>(backgroundColor)->string());
+
+            if (auto foregroundColor = dictionary->get("foregroundColor"_s))
+                foregroundHighlightColor = WebCore::CSSParser::parseColorWithoutContext(static_cast<API::String*>(foregroundColor)->string());
+
             highlights.uncheckedAppend({
                 static_cast<unsigned>(startOffset),
-                static_cast<unsigned>(startOffset + static_cast<API::UInt64*>(dictionary->get("length"))->value()),
-                WebCore::CSSParser::parseColor(static_cast<API::String*>(dictionary->get("color"))->string())
+                static_cast<unsigned>(startOffset + static_cast<API::UInt64*>(dictionary->get("length"_s))->value()),
+                backgroundHighlightColor,
+                foregroundHighlightColor
             });
         }
     }
-    WebKit::toImpl(pageRef)->setCompositionForTesting(WebKit::toWTFString(text), from, length, suppressUnderline, highlights);
+    HashMap<String, Vector<WebCore::CharacterRange>> annotations;
+    if (annotationData) {
+        auto* annotationDataArray = WebKit::toImpl(annotationData);
+        for (auto dictionary : annotationDataArray->elementsOfType<API::Dictionary>()) {
+            auto location = static_cast<API::UInt64*>(dictionary->get("from"_s))->value();
+            auto length = static_cast<API::UInt64*>(dictionary->get("length"_s))->value();
+            auto name = static_cast<API::String*>(dictionary->get("annotation"_s))->string();
+
+            auto it = annotations.find(name);
+            if (it == annotations.end())
+                it = annotations.add(name, Vector<WebCore::CharacterRange> { }).iterator;
+            it->value.append({ location, length });
+        }
+    }
+
+    WebKit::toImpl(pageRef)->setCompositionForTesting(WebKit::toWTFString(text), from, length, suppressUnderline, highlights, annotations);
 }
 
 bool WKBundlePageHasComposition(WKBundlePageRef pageRef)
@@ -736,8 +749,12 @@ void WKBundlePageCallAfterTasksAndTimers(WKBundlePageRef pageRef, WKBundlePageTe
     WebCore::Page* page = webPage ? webPage->corePage() : nullptr;
     if (!page)
         return;
+    
+    auto* localMainFrame = dynamicDowncast<WebCore::LocalFrame>(page->mainFrame());
+    if (!localMainFrame)
+        return;
 
-    WebCore::Document* document = page->mainFrame().document();
+    WebCore::Document* document = localMainFrame->document();
     if (!document)
         return;
 
@@ -767,6 +784,11 @@ void WKBundlePageCallAfterTasksAndTimers(WKBundlePageRef pageRef, WKBundlePageTe
     });
 }
 
+void WKBundlePageFlushDeferredDidReceiveMouseEventForTesting(WKBundlePageRef page)
+{
+    WebKit::toImpl(page)->flushDeferredDidReceiveMouseEvent();
+}
+
 void WKBundlePagePostMessage(WKBundlePageRef pageRef, WKStringRef messageNameRef, WKTypeRef messageBodyRef)
 {
     WebKit::toImpl(pageRef)->postMessage(WebKit::toWTFString(messageNameRef), WebKit::toImpl(messageBodyRef));
@@ -779,11 +801,8 @@ void WKBundlePagePostMessageIgnoringFullySynchronousMode(WKBundlePageRef pageRef
 
 void WKBundlePagePostSynchronousMessageForTesting(WKBundlePageRef pageRef, WKStringRef messageNameRef, WKTypeRef messageBodyRef, WKTypeRef* returnRetainedDataRef)
 {
-    WebKit::WebPage* page = WebKit::toImpl(pageRef);
-    page->layoutIfNeeded();
-
     RefPtr<API::Object> returnData;
-    page->postSynchronousMessageForTesting(WebKit::toWTFString(messageNameRef), WebKit::toImpl(messageBodyRef), returnData);
+    WebKit::toImpl(pageRef)->postSynchronousMessageForTesting(WebKit::toWTFString(messageNameRef), WebKit::toImpl(messageBodyRef), returnData);
     if (returnRetainedDataRef)
         *returnRetainedDataRef = WebKit::toAPI(returnData.leakRef());
 }
@@ -825,7 +844,7 @@ void WKBundlePageClearApplicationCache(WKBundlePageRef page)
 
 void WKBundlePageClearApplicationCacheForOrigin(WKBundlePageRef page, WKStringRef origin)
 {
-    WebKit::toImpl(page)->corePage()->applicationCacheStorage().deleteCacheForOrigin(WebCore::SecurityOriginData::fromURL(URL(URL(), WebKit::toImpl(origin)->string())));
+    WebKit::toImpl(page)->corePage()->applicationCacheStorage().deleteCacheForOrigin(WebCore::SecurityOriginData::fromURL(URL { WebKit::toImpl(origin)->string() }));
 }
 
 void WKBundlePageSetAppCacheMaximumSize(WKBundlePageRef page, uint64_t size)
@@ -835,7 +854,7 @@ void WKBundlePageSetAppCacheMaximumSize(WKBundlePageRef page, uint64_t size)
 
 uint64_t WKBundlePageGetAppCacheUsageForOrigin(WKBundlePageRef page, WKStringRef origin)
 {
-    return WebKit::toImpl(page)->corePage()->applicationCacheStorage().diskUsageForOrigin(WebCore::SecurityOriginData::fromURL(URL(URL(), WebKit::toImpl(origin)->string())));
+    return WebKit::toImpl(page)->corePage()->applicationCacheStorage().diskUsageForOrigin(WebCore::SecurityOriginData::fromURL(URL { WebKit::toImpl(origin)->string() }));
 }
 
 void WKBundlePageSetApplicationCacheOriginQuota(WKBundlePageRef page, WKStringRef origin, uint64_t bytes)
@@ -851,13 +870,9 @@ void WKBundlePageResetApplicationCacheOriginQuota(WKBundlePageRef page, WKString
 WKArrayRef WKBundlePageCopyOriginsWithApplicationCache(WKBundlePageRef page)
 {
     auto origins = WebKit::toImpl(page)->corePage()->applicationCacheStorage().originsWithCache();
-
-    Vector<RefPtr<API::Object>> originIdentifiers;
-    originIdentifiers.reserveInitialCapacity(origins.size());
-
-    for (const auto& origin : origins)
-        originIdentifiers.uncheckedAppend(API::String::create(origin.databaseIdentifier()));
-
+    auto originIdentifiers = WTF::map(origins, [](auto& origin) -> RefPtr<API::Object> {
+        return API::String::create(origin.databaseIdentifier());
+    });
     return WebKit::toAPI(&API::Array::create(WTFMove(originIdentifiers)).leakRef());
 }
 
@@ -876,4 +891,14 @@ void WKBundlePageSetEventThrottlingBehaviorOverride(WKBundlePageRef page, WKEven
     }
 
     WebKit::toImpl(page)->corePage()->setEventThrottlingBehaviorOverride(behaviorValue);
+}
+
+void WKBundlePageLayoutIfNeeded(WKBundlePageRef page)
+{
+    WebKit::toImpl(page)->layoutIfNeeded();
+}
+
+void WKBundlePageSetSkipDecidePolicyForResponseIfPossible(WKBundlePageRef page, bool skip)
+{
+    WebKit::toImpl(page)->setSkipDecidePolicyForResponseIfPossible(skip);
 }

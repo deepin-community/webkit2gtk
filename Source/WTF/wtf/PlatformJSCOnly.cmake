@@ -15,6 +15,7 @@ if (WIN32)
         win/MainThreadWin.cpp
         win/OSAllocatorWin.cpp
         win/PathWalker.cpp
+        win/SignalsWin.cpp
         win/ThreadingWin.cpp
     )
     list(APPEND WTF_PUBLIC_HEADERS
@@ -93,12 +94,14 @@ elseif (APPLE)
         ${WTF_DERIVED_SOURCES_DIR}/mach_excUser.c
     )
     list(APPEND WTF_PUBLIC_HEADERS
+        spi/darwin/AbortWithReasonSPI.h
         spi/darwin/ProcessMemoryFootprint.h
     )
 elseif (CMAKE_SYSTEM_NAME MATCHES "Linux")
     list(APPEND WTF_SOURCES
         linux/CurrentProcessMemoryStatus.cpp
         linux/MemoryFootprintLinux.cpp
+        linux/RealTimeThreads.cpp
 
         unix/MemoryPressureHandlerUnix.cpp
     )

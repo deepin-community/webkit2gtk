@@ -34,7 +34,7 @@
 #include <WebCore/Credential.h>
 #include <WebCore/DictionaryPopupInfo.h>
 #include <WebCore/Font.h>
-#include <WebCore/FontAttributes.h>
+#include <WebCore/FontCustomPlatformData.h>
 #include <WebCore/ResourceError.h>
 #include <WebCore/ResourceRequest.h>
 #include <WebCore/ResourceResponse.h>
@@ -43,45 +43,6 @@
 
 namespace IPC {
 using namespace WebCore;
-
-void ArgumentCoder<ResourceRequest>::encodePlatformData(Encoder& encoder, const ResourceRequest& resourceRequest)
-{
-    resourceRequest.encodeWithPlatformData(encoder);
-}
-
-bool ArgumentCoder<ResourceRequest>::decodePlatformData(Decoder& decoder, ResourceRequest& resourceRequest)
-{
-    return resourceRequest.decodeWithPlatformData(decoder);
-}
-
-void ArgumentCoder<CertificateInfo>::encode(Encoder& encoder, const CertificateInfo& certificateInfo)
-{
-    GRefPtr<GTlsCertificate> certificate = certificateInfo.certificate();
-    encoder << certificate;
-    if (!certificate)
-        return;
-
-    encoder << static_cast<uint32_t>(certificateInfo.tlsErrors());
-}
-
-bool ArgumentCoder<CertificateInfo>::decode(Decoder& decoder, CertificateInfo& certificateInfo)
-{
-    std::optional<GRefPtr<GTlsCertificate>> certificate;
-    decoder >> certificate;
-    if (!certificate)
-        return false;
-
-    if (certificate.value()) {
-        uint32_t tlsErrors;
-        if (!decoder.decode(tlsErrors))
-            return false;
-
-        certificateInfo.setCertificate(certificate->get());
-        certificateInfo.setTLSErrors(static_cast<GTlsCertificateFlags>(tlsErrors));
-    }
-
-    return true;
-}
 
 void ArgumentCoder<ResourceError>::encodePlatformData(Encoder& encoder, const ResourceError& resourceError)
 {
@@ -111,13 +72,13 @@ bool ArgumentCoder<ResourceError>::decodePlatformData(Decoder& decoder, Resource
     if (!decoder.decode(localizedDescription))
         return false;
 
-    resourceError = ResourceError(domain, errorCode, URL(URL(), failingURL), localizedDescription);
+    resourceError = ResourceError(domain, errorCode, URL { failingURL }, localizedDescription);
 
     CertificateInfo certificateInfo;
     if (!decoder.decode(certificateInfo))
         return false;
 
-    resourceError.setCertificate(certificateInfo.certificate());
+    resourceError.setCertificate(certificateInfo.certificate().get());
     resourceError.setTLSErrors(certificateInfo.tlsErrors());
     return true;
 }
@@ -126,10 +87,13 @@ void ArgumentCoder<SoupNetworkProxySettings>::encode(Encoder& encoder, const Sou
 {
     ASSERT(!settings.isEmpty());
     encoder << settings.mode;
-    if (settings.mode != SoupNetworkProxySettings::Mode::Custom)
+    if (settings.mode != SoupNetworkProxySettings::Mode::Custom && settings.mode != SoupNetworkProxySettings::Mode::Auto)
         return;
 
     encoder << settings.defaultProxyURL;
+    if (settings.mode == SoupNetworkProxySettings::Mode::Auto)
+        return;
+
     uint32_t ignoreHostsCount = settings.ignoreHosts ? g_strv_length(settings.ignoreHosts.get()) : 0;
     encoder << ignoreHostsCount;
     if (ignoreHostsCount) {
@@ -144,11 +108,14 @@ bool ArgumentCoder<SoupNetworkProxySettings>::decode(Decoder& decoder, SoupNetwo
     if (!decoder.decode(settings.mode))
         return false;
 
-    if (settings.mode != SoupNetworkProxySettings::Mode::Custom)
+    if (settings.mode != SoupNetworkProxySettings::Mode::Custom && settings.mode != SoupNetworkProxySettings::Mode::Auto)
         return true;
 
     if (!decoder.decode(settings.defaultProxyURL))
         return false;
+
+    if (settings.mode == SoupNetworkProxySettings::Mode::Auto)
+        return !settings.isEmpty();
 
     uint32_t ignoreHostsCount;
     if (!decoder.decode(ignoreHostsCount))
@@ -169,17 +136,6 @@ bool ArgumentCoder<SoupNetworkProxySettings>::decode(Decoder& decoder, SoupNetwo
         return false;
 
     return !settings.isEmpty();
-}
-
-void ArgumentCoder<ProtectionSpace>::encodePlatformData(Encoder&, const ProtectionSpace&)
-{
-    ASSERT_NOT_REACHED();
-}
-
-bool ArgumentCoder<ProtectionSpace>::decodePlatformData(Decoder&, ProtectionSpace&)
-{
-    ASSERT_NOT_REACHED();
-    return false;
 }
 
 void ArgumentCoder<Credential>::encodePlatformData(Encoder& encoder, const Credential& credential)
@@ -204,46 +160,13 @@ bool ArgumentCoder<Credential>::decodePlatformData(Decoder& decoder, Credential&
     return true;
 }
 
-void ArgumentCoder<FontAttributes>::encodePlatformData(Encoder&, const FontAttributes&)
-{
-    ASSERT_NOT_REACHED();
-}
-
-std::optional<FontAttributes> ArgumentCoder<FontAttributes>::decodePlatformData(Decoder&, FontAttributes&)
-{
-    ASSERT_NOT_REACHED();
-    return std::nullopt;
-}
-
-void ArgumentCoder<DictionaryPopupInfo>::encodePlatformData(Encoder&, const DictionaryPopupInfo&)
-{
-    ASSERT_NOT_REACHED();
-}
-
-bool ArgumentCoder<DictionaryPopupInfo>::decodePlatformData(Decoder&, DictionaryPopupInfo&)
-{
-    ASSERT_NOT_REACHED();
-    return false;
-}
-
-void ArgumentCoder<Ref<Font>>::encodePlatformData(Encoder&, const Ref<Font>&)
-{
-    ASSERT_NOT_REACHED();
-}
-
-std::optional<FontPlatformData> ArgumentCoder<Ref<Font>>::decodePlatformData(Decoder&)
-{
-    ASSERT_NOT_REACHED();
-    return std::nullopt;
-}
-
 #if ENABLE(VIDEO)
 void ArgumentCoder<SerializedPlatformDataCueValue>::encodePlatformData(Encoder& encoder, const SerializedPlatformDataCueValue& value)
 {
     ASSERT_NOT_REACHED();
 }
 
-std::optional<SerializedPlatformDataCueValue>  ArgumentCoder<SerializedPlatformDataCueValue>::decodePlatformData(Decoder& decoder, WebCore::SerializedPlatformDataCueValue::PlatformType platformType)
+std::optional<SerializedPlatformDataCueValue>  ArgumentCoder<SerializedPlatformDataCueValue>::decodePlatformData(Decoder& decoder, SerializedPlatformDataCueValue::PlatformType platformType)
 {
     ASSERT_NOT_REACHED();
     return std::nullopt;

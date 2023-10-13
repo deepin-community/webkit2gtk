@@ -47,7 +47,7 @@ class SuspendedPageProxy;
 class WebBackForwardCache;
 class WebBackForwardCacheEntry;
 
-class WebBackForwardListItem : public API::ObjectImpl<API::Object::Type::BackForwardListItem> {
+class WebBackForwardListItem : public API::ObjectImpl<API::Object::Type::BackForwardListItem>, public CanMakeWeakPtr<WebBackForwardListItem> {
 public:
     static Ref<WebBackForwardListItem> create(BackForwardListItemState&&, WebPageProxyIdentifier);
     virtual ~WebBackForwardListItem();
@@ -68,6 +68,7 @@ public:
     const String& originalURL() const { return m_itemState.pageState.mainFrameState.originalURLString; }
     const String& url() const { return m_itemState.pageState.mainFrameState.urlString; }
     const String& title() const { return m_itemState.pageState.title; }
+    bool wasCreatedByJSWithoutUserInteraction() const { return m_itemState.pageState.wasCreatedByJSWithoutUserInteraction; }
 
     const URL& resourceDirectoryURL() const { return m_resourceDirectoryURL; }
     void setResourceDirectoryURL(URL&& url) { m_resourceDirectoryURL = WTFMove(url); }

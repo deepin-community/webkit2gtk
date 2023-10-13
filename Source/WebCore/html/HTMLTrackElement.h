@@ -30,11 +30,12 @@
 
 #include "ActiveDOMObject.h"
 #include "HTMLElement.h"
-#include "LoadableTextTrack.h"
+#include "TextTrackClient.h"
 
 namespace WebCore {
 
 class HTMLMediaElement;
+class LoadableTextTrack;
 
 class HTMLTrackElement final : public HTMLElement, public ActiveDOMObject, public TextTrackClient {
     WTF_MAKE_ISO_ALLOCATED(HTMLTrackElement);
@@ -52,7 +53,7 @@ public:
     ReadyState readyState() const;
     void setReadyState(ReadyState);
 
-    LoadableTextTrack& track();
+    TextTrack& track();
 
     void scheduleLoad();
 
@@ -72,7 +73,7 @@ private:
     const char* activeDOMObjectName() const final;
     bool virtualHasPendingActivity() const final;
 
-    void parseAttribute(const QualifiedName&, const AtomString&) final;
+    void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) final;
 
     InsertedIntoAncestorResult insertedIntoAncestor(InsertionType, ContainerNode&) final;
     void removedFromAncestor(RemovalType, ContainerNode&) final;
@@ -84,15 +85,10 @@ private:
 
     // TextTrackClient
     void textTrackModeChanged(TextTrack&) final;
-    void textTrackKindChanged(TextTrack&) final;
-    void textTrackAddCues(TextTrack&, const TextTrackCueList&) final;
-    void textTrackRemoveCues(TextTrack&, const TextTrackCueList&) final;
-    void textTrackAddCue(TextTrack&, TextTrackCue&) final;
-    void textTrackRemoveCue(TextTrack&, TextTrackCue&) final;
 
     bool canLoadURL(const URL&);
 
-    RefPtr<LoadableTextTrack> m_track;
+    Ref<LoadableTextTrack> m_track;
     bool m_loadPending { false };
     bool m_hasRelevantLoadEventsListener { false };
 };

@@ -34,7 +34,9 @@
 #include "WebContextMenuItemData.h"
 #include "WebKitWebViewBasePrivate.h"
 #include "WebPageProxy.h"
+#include "WebPopupMenuProxy.h"
 #include "WebProcessProxy.h"
+#include <WebCore/GUniquePtrGtk.h>
 #include <WebCore/GtkUtilities.h>
 #include <gio/gio.h>
 #include <gtk/gtk.h>
@@ -73,7 +75,8 @@ static inline void popdownMenuWidget(GtkWidget* widget)
 
 static inline bool menuWidgetHasItems(GtkWidget* widget)
 {
-    return g_menu_model_get_n_items(gtk_popover_menu_get_menu_model(GTK_POPOVER_MENU(widget)));
+    GMenuModel* model = gtk_popover_menu_get_menu_model(GTK_POPOVER_MENU(widget));
+    return model ? g_menu_model_get_n_items(model) : 0;
 }
 
 static inline void bindModelToMenuWidget(GtkWidget* widget, GMenuModel* model)
@@ -260,6 +263,16 @@ Vector<Ref<WebContextMenuItem>> WebContextMenuProxyGtk::proposedItems() const
     return proposedAPIItems;
 }
 
+void WebContextMenuProxyGtk::show()
+{
+    if (m_context.type() != ContextMenuContext::Type::ContextMenu) {
+        useContextMenuItems(proposedItems());
+        return;
+    }
+
+    WebContextMenuProxy::show();
+}
+
 void WebContextMenuProxyGtk::showContextMenuWithItems(Vector<Ref<WebContextMenuItem>>&& items)
 {
     if (!items.isEmpty())
@@ -268,7 +281,7 @@ void WebContextMenuProxyGtk::showContextMenuWithItems(Vector<Ref<WebContextMenuI
     if (!menuWidgetHasItems(m_menu))
         return;
 
-    NativeWebMouseEvent* mouseEvent = page()->currentlyProcessedMouseDownEvent();
+    NativeWebMouseEvent* mouseEvent = page()->popupMenuClient().currentlyProcessedMouseDownEvent();
     const GdkEvent* event = mouseEvent ? mouseEvent->nativeEvent() : nullptr;
     const GdkRectangle rect = { m_context.menuLocation().x(), m_context.menuLocation().y(), 1, 1 };
     popupMenuWidget(m_menu, event, rect);

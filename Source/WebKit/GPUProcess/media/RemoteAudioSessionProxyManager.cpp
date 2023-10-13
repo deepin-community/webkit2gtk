@@ -32,6 +32,7 @@
 #include "GPUProcessConnectionMessages.h"
 #include "RemoteAudioSessionProxy.h"
 #include <WebCore/AudioSession.h>
+#include <WebCore/CoreAudioCaptureSource.h>
 #include <wtf/HashCountedSet.h>
 
 namespace WebKit {
@@ -43,7 +44,8 @@ static bool categoryCanMixWithOthers(AudioSession::CategoryType category)
     return category == AudioSession::CategoryType::AmbientSound;
 }
 
-RemoteAudioSessionProxyManager::RemoteAudioSessionProxyManager()
+RemoteAudioSessionProxyManager::RemoteAudioSessionProxyManager(GPUProcess& gpuProcess)
+    : m_gpuProcess(gpuProcess)
 {
     AudioSession::sharedSession().addInterruptionObserver(*this);
     AudioSession::sharedSession().addConfigurationChangeObserver(*this);
@@ -55,11 +57,14 @@ RemoteAudioSessionProxyManager::~RemoteAudioSessionProxyManager()
     AudioSession::sharedSession().removeConfigurationChangeObserver(*this);
 }
 
-void RemoteAudioSessionProxyManager::addProxy(RemoteAudioSessionProxy& proxy)
+void RemoteAudioSessionProxyManager::addProxy(RemoteAudioSessionProxy& proxy, std::optional<audit_token_t> auditToken)
 {
     ASSERT(!m_proxies.contains(proxy));
     m_proxies.add(proxy);
     updateCategory();
+
+    if (auditToken)
+        AudioSession::sharedSession().setHostProcessAttribution(*auditToken);
 }
 
 void RemoteAudioSessionProxyManager::removeProxy(RemoteAudioSessionProxy& proxy)
@@ -71,16 +76,16 @@ void RemoteAudioSessionProxyManager::removeProxy(RemoteAudioSessionProxy& proxy)
 
 void RemoteAudioSessionProxyManager::updateCategory()
 {
-    AudioSession::CategoryType category = AudioSession::CategoryType::None;
-    RouteSharingPolicy policy = RouteSharingPolicy::Default;
-
     HashCountedSet<AudioSession::CategoryType, WTF::IntHash<AudioSession::CategoryType>, WTF::StrongEnumHashTraits<AudioSession::CategoryType>> categoryCounts;
+    HashCountedSet<AudioSession::Mode, WTF::IntHash<AudioSession::Mode>, WTF::StrongEnumHashTraits<AudioSession::Mode>> modeCounts;
     HashCountedSet<RouteSharingPolicy, WTF::IntHash<RouteSharingPolicy>, WTF::StrongEnumHashTraits<RouteSharingPolicy>> policyCounts;
     for (auto& otherProxy : m_proxies) {
         categoryCounts.add(otherProxy.category());
+        modeCounts.add(otherProxy.mode());
         policyCounts.add(otherProxy.routeSharingPolicy());
     }
 
+    AudioSession::CategoryType category = AudioSession::CategoryType::None;
     if (categoryCounts.contains(AudioSession::CategoryType::PlayAndRecord))
         category = AudioSession::CategoryType::PlayAndRecord;
     else if (categoryCounts.contains(AudioSession::CategoryType::RecordAudio))
@@ -93,10 +98,14 @@ void RemoteAudioSessionProxyManager::updateCategory()
         category = AudioSession::CategoryType::AmbientSound;
     else if (categoryCounts.contains(AudioSession::CategoryType::AudioProcessing))
         category = AudioSession::CategoryType::AudioProcessing;
-    else
-        category = AudioSession::CategoryType::None;
 
-    policy = RouteSharingPolicy::Default;
+    AudioSession::Mode mode = AudioSession::Mode::Default;
+    if (modeCounts.contains(AudioSession::Mode::MoviePlayback))
+        mode = AudioSession::Mode::MoviePlayback;
+    else if (modeCounts.contains(AudioSession::Mode::VideoChat))
+        mode = AudioSession::Mode::VideoChat;
+
+    RouteSharingPolicy policy = RouteSharingPolicy::Default;
     if (policyCounts.contains(RouteSharingPolicy::LongFormVideo))
         policy = RouteSharingPolicy::LongFormVideo;
     else if (policyCounts.contains(RouteSharingPolicy::LongFormAudio))
@@ -104,17 +113,28 @@ void RemoteAudioSessionProxyManager::updateCategory()
     else if (policyCounts.contains(RouteSharingPolicy::Independent))
         ASSERT_NOT_REACHED();
 
-    AudioSession::sharedSession().setCategory(category, policy);
+    AudioSession::sharedSession().setCategory(category, mode, policy);
 }
 
-void RemoteAudioSessionProxyManager::setPreferredBufferSizeForProcess(RemoteAudioSessionProxy& proxy, size_t preferredBufferSize)
+void RemoteAudioSessionProxyManager::updatePreferredBufferSizeForProcess()
 {
-    for (auto& otherProxy : m_proxies) {
-        if (otherProxy.preferredBufferSize() && otherProxy.preferredBufferSize() < preferredBufferSize)
-            preferredBufferSize = otherProxy.preferredBufferSize();
+#if ENABLE(MEDIA_STREAM)
+    if (CoreAudioCaptureSourceFactory::singleton().isAudioCaptureUnitRunning()) {
+        CoreAudioCaptureSourceFactory::singleton().whenAudioCaptureUnitIsNotRunning([weakThis = WeakPtr { *this }] {
+            if (weakThis)
+                weakThis->updatePreferredBufferSizeForProcess();
+        });
+        return;
+    }
+#endif
+    size_t preferredBufferSize = std::numeric_limits<size_t>::max();
+    for (auto& proxy : m_proxies) {
+        if (proxy.preferredBufferSize() && proxy.preferredBufferSize() < preferredBufferSize)
+            preferredBufferSize = proxy.preferredBufferSize();
     }
 
-    AudioSession::sharedSession().setPreferredBufferSize(preferredBufferSize);
+    if (preferredBufferSize != std::numeric_limits<size_t>::max())
+        AudioSession::sharedSession().setPreferredBufferSize(preferredBufferSize);
 }
 
 bool RemoteAudioSessionProxyManager::tryToSetActiveForProcess(RemoteAudioSessionProxy& proxy, bool active)
@@ -123,7 +143,7 @@ bool RemoteAudioSessionProxyManager::tryToSetActiveForProcess(RemoteAudioSession
 
     size_t activeProxyCount { 0 };
     for (auto& otherProxy : m_proxies) {
-        if (otherProxy.isActive())
+        if (otherProxy.isActive() && !otherProxy.isInterrupted())
             ++activeProxyCount;
     }
 
@@ -170,6 +190,45 @@ bool RemoteAudioSessionProxyManager::tryToSetActiveForProcess(RemoteAudioSession
     }
 #endif
     return true;
+}
+
+void RemoteAudioSessionProxyManager::updatePresentingProcesses()
+{
+    Vector<audit_token_t> presentingProcesses;
+
+    if (auto token = m_gpuProcess.parentProcessConnection()->getAuditToken())
+        presentingProcesses.append(*token);
+
+    // AVAudioSession will take out an assertion on all the "presenting applications"
+    // when it moves to a "playing" state. But it's possible that (e.g.) multiple
+    // applications may be using SafariViewService simultaneously. So only include
+    // tokens from those proxies whose sessions are currently "active". Only their
+    // presenting applications will be kept from becoming "suspended" during playback.
+    m_proxies.forEach([&](auto& proxy) {
+        if (!proxy.isActive())
+            return;
+        if (auto& token = proxy.gpuConnectionToWebProcess().presentingApplicationAuditToken())
+            presentingProcesses.append(*token);
+    });
+    AudioSession::sharedSession().setPresentingProcesses(WTFMove(presentingProcesses));
+}
+
+void RemoteAudioSessionProxyManager::beginInterruptionRemote()
+{
+    auto& session = this->session();
+    // Temporarily remove as an observer to avoid a spurious IPC back to the web process.
+    session.removeInterruptionObserver(*this);
+    session.beginInterruption();
+    session.addInterruptionObserver(*this);
+}
+
+void RemoteAudioSessionProxyManager::endInterruptionRemote(AudioSession::MayResume mayResume)
+{
+    auto& session = this->session();
+    // Temporarily remove as an observer to avoid a spurious IPC back to the web process.
+    session.removeInterruptionObserver(*this);
+    session.endInterruption(mayResume);
+    session.addInterruptionObserver(*this);
 }
 
 void RemoteAudioSessionProxyManager::beginAudioSessionInterruption()

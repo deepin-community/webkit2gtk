@@ -33,9 +33,9 @@
 
 #include "DestinationColorSpace.h"
 #include "FloatRect.h"
-#include "FrameView.h"
 #include "GtkUtilities.h"
 #include "HostWindow.h"
+#include "LocalFrameView.h"
 #include "NotImplemented.h"
 #include "Widget.h"
 
@@ -44,6 +44,7 @@
 #include <wtf/HashMap.h>
 #include <wtf/HashSet.h>
 #include <wtf/NeverDestroyed.h>
+#include <wtf/glib/GRefPtr.h>
 #include <wtf/glib/GUniquePtr.h>
 
 namespace WebCore {
@@ -141,9 +142,9 @@ double screenDPI()
     return cachedDpi;
 }
 
-static WTF::HashMap<void*, Function<void()>>& screenDPIObserverHandlersMap()
+static HashMap<void*, Function<void()>>& screenDPIObserverHandlersMap()
 {
-    static WTF::NeverDestroyed<WTF::HashMap<void*, Function<void()>>> handlersMap;
+    static NeverDestroyed<HashMap<void*, Function<void()>>> handlersMap;
     return handlersMap;
 }
 

@@ -55,7 +55,7 @@ public:
     static void setUsesGameControllerFramework();
 #endif
 
-    Vector<GamepadData> snapshotGamepads();
+    Vector<std::optional<GamepadData>> snapshotGamepads();
 
     size_t numberOfConnectedGamepads() const { return m_gamepads.size(); }
 
@@ -83,7 +83,7 @@ private:
 
     Vector<std::unique_ptr<UIGamepad>> m_gamepads;
 
-    RunLoop::Timer<UIGamepadProvider> m_gamepadSyncTimer;
+    RunLoop::Timer m_gamepadSyncTimer;
 
     bool m_isMonitoringGamepads { false };
     bool m_shouldMakeGamepadsVisibleOnSync { false };

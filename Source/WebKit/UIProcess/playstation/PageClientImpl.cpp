@@ -29,6 +29,16 @@
 #include "DrawingAreaProxyCoordinatedGraphics.h"
 #include "PlayStationWebView.h"
 #include "WebPageProxy.h"
+#include <WebCore/DOMPasteAccess.h>
+#include <WebCore/NotImplemented.h>
+
+#if USE(GRAPHICS_LAYER_WC)
+#include "DrawingAreaProxyWC.h"
+#endif
+
+#if USE(WPE_RENDERER)
+#include <wpe/wpe.h>
+#endif
 
 namespace WebKit {
 
@@ -38,9 +48,13 @@ PageClientImpl::PageClientImpl(PlayStationWebView& view)
 }
 
 // PageClient's pure virtual functions
-std::unique_ptr<DrawingAreaProxy> PageClientImpl::createDrawingAreaProxy(WebProcessProxy& processProxy)
+std::unique_ptr<DrawingAreaProxy> PageClientImpl::createDrawingAreaProxy()
 {
-    return makeUnique<DrawingAreaProxyCoordinatedGraphics>(*m_view.page(), processProxy);
+#if USE(GRAPHICS_LAYER_WC)
+    return makeUnique<DrawingAreaProxyWC>(*m_view.page());
+#else
+    return makeUnique<DrawingAreaProxyCoordinatedGraphics>(*m_view.page());
+#endif
 }
 
 void PageClientImpl::setViewNeedsDisplay(const WebCore::Region& region)
@@ -48,7 +62,7 @@ void PageClientImpl::setViewNeedsDisplay(const WebCore::Region& region)
     m_view.setViewNeedsDisplay(region);
 }
 
-void PageClientImpl::requestScroll(const WebCore::FloatPoint& scrollPosition, const WebCore::IntPoint& scrollOrigin)
+void PageClientImpl::requestScroll(const WebCore::FloatPoint& scrollPosition, const WebCore::IntPoint& scrollOrigin, WebCore::ScrollIsAnimated)
 {
 }
 
@@ -105,10 +119,6 @@ void PageClientImpl::toolTipChanged(const String&, const String&)
 void PageClientImpl::didCommitLoadForMainFrame(const String& mimeType, bool useCustomContentProvider)
 {
     notImplemented();
-}
-
-void PageClientImpl::handleDownloadRequest(DownloadProxy&)
-{
 }
 
 void PageClientImpl::didChangeContentSize(const WebCore::IntSize& size)
@@ -185,11 +195,25 @@ void PageClientImpl::doneWithKeyEvent(const NativeWebKeyboardEvent& event, bool 
     notImplemented();
 }
 
+#if ENABLE(TOUCH_EVENTS)
+void PageClientImpl::doneWithTouchEvent(const NativeWebTouchEvent& event, bool wasEventHandled)
+{
+    notImplemented();
+}
+#endif // ENABLE(TOUCH_EVENTS)
+
 RefPtr<WebPopupMenuProxy> PageClientImpl::createPopupMenuProxy(WebPageProxy&  pageProxy)
 {
     notImplemented();
     return { };
 }
+
+#if USE(GRAPHICS_LAYER_WC)
+bool PageClientImpl::usesOffscreenRendering() const
+{
+    return false;
+}
+#endif
 
 void PageClientImpl::enterAcceleratedCompositingMode(const LayerTreeContext& context)
 {
@@ -317,9 +341,16 @@ WebCore::UserInterfaceLayoutDirection PageClientImpl::userInterfaceLayoutDirecti
     return WebCore::UserInterfaceLayoutDirection::LTR;
 }
 
-void PageClientImpl::requestDOMPasteAccess(const WebCore::IntRect&, const String&, CompletionHandler<void(WebCore::DOMPasteAccessResponse)>&& completionHandler)
+void PageClientImpl::requestDOMPasteAccess(WebCore::DOMPasteAccessCategory, const WebCore::IntRect&, const String&, CompletionHandler<void(WebCore::DOMPasteAccessResponse)>&& completionHandler)
 {
     completionHandler(WebCore::DOMPasteAccessResponse::DeniedForGesture);
 }
+
+#if USE(WPE_RENDERER)
+UnixFileDescriptor PageClientImpl::hostFileDescriptor()
+{
+    return UnixFileDescriptor { wpe_view_backend_get_renderer_host_fd(m_view.backend()), UnixFileDescriptor::Adopt };
+}
+#endif
 
 } // namespace WebKit

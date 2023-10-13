@@ -26,10 +26,13 @@
 #pragma once
 
 #include "ResourceLoadStatisticsParameters.h"
+#include "UnifiedOriginStorageLevel.h"
+#include "WebPushDaemonConnectionConfiguration.h"
 #include <WebCore/NetworkStorageSession.h>
 #include <pal/SessionID.h>
 #include <wtf/Seconds.h>
 #include <wtf/URL.h>
+#include <wtf/UUID.h>
 
 #if USE(SOUP)
 #include "SoupCookiePersistentStorageType.h"
@@ -55,6 +58,7 @@ struct NetworkSessionCreationParameters {
     static std::optional<NetworkSessionCreationParameters> decode(IPC::Decoder&);
     
     PAL::SessionID sessionID { PAL::SessionID::defaultSessionID() };
+    Markable<WTF::UUID> dataStoreIdentifier;
     String boundInterfaceIdentifier;
     AllowsCellularAccess allowsCellularAccess { AllowsCellularAccess::Yes };
 #if PLATFORM(COCOA)
@@ -65,10 +69,9 @@ struct NetworkSessionCreationParameters {
     URL httpProxy;
     URL httpsProxy;
 #endif
-#if HAVE(CFNETWORK_ALTERNATIVE_SERVICE)
+#if HAVE(ALTERNATIVE_SERVICE)
     String alternativeServiceDirectory;
     SandboxExtension::Handle alternativeServiceDirectoryExtensionHandle;
-    bool http3Enabled { false };
 #endif
     String hstsStorageDirectory;
     SandboxExtension::Handle hstsStorageDirectoryExtensionHandle;
@@ -86,6 +89,7 @@ struct NetworkSessionCreationParameters {
 #endif
     bool deviceManagementRestrictionsEnabled { false };
     bool allLoadsBlockedByDeviceManagementRestrictionsForTesting { false };
+    WebPushD::WebPushDaemonConnectionConfiguration webPushDaemonConnectionConfiguration;
 
     String networkCacheDirectory;
     SandboxExtension::Handle networkCacheDirectoryExtensionHandle;
@@ -98,10 +102,40 @@ struct NetworkSessionCreationParameters {
     bool suppressesConnectionTerminationOnSystemChange { false };
     bool allowsServerPreconnect { true };
     bool requiresSecureHTTPSProxyConnection { false };
+    bool shouldRunServiceWorkersOnMainThreadForTesting { false };
+    std::optional<unsigned> overrideServiceWorkerRegistrationCountTestingValue;
     bool preventsSystemHTTPProxyAuthentication { false };
     bool appHasRequestedCrossWebsiteTrackingPermission { false };
     bool useNetworkLoader { false };
     bool allowsHSTSWithUntrustedRootCertificate { false };
+    String pcmMachServiceName;
+    String webPushMachServiceName;
+    String webPushPartitionString;
+    bool enablePrivateClickMeasurementDebugMode { false };
+#if !HAVE(NSURLSESSION_WEBSOCKET)
+    bool shouldAcceptInsecureCertificatesForWebSockets { false };
+#endif
+    bool isBlobRegistryTopOriginPartitioningEnabled { false };
+
+    UnifiedOriginStorageLevel unifiedOriginStorageLevel { UnifiedOriginStorageLevel::Standard };
+    uint64_t perOriginStorageQuota;
+    std::optional<double> originQuotaRatio;
+    std::optional<double> totalQuotaRatio;
+    std::optional<uint64_t> standardVolumeCapacity;
+    std::optional<uint64_t> volumeCapacityOverride;
+    String localStorageDirectory;
+    SandboxExtension::Handle localStorageDirectoryExtensionHandle;
+    String indexedDBDirectory;
+    SandboxExtension::Handle indexedDBDirectoryExtensionHandle;
+    String cacheStorageDirectory;
+    SandboxExtension::Handle cacheStorageDirectoryExtensionHandle;
+    String generalStorageDirectory;
+    SandboxExtension::Handle generalStorageDirectoryHandle;
+#if ENABLE(SERVICE_WORKER)
+    String serviceWorkerRegistrationDirectory;
+    SandboxExtension::Handle serviceWorkerRegistrationDirectoryExtensionHandle;
+    bool serviceWorkerProcessTerminationDelayEnabled { true };
+#endif
 
     ResourceLoadStatisticsParameters resourceLoadStatisticsParameters;
 };

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010, 2014 Apple Inc. All rights reserved.
+ * Copyright (C) 2010-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -52,7 +52,7 @@ DisplayRefreshMonitor* DisplayRefreshMonitorManager::ensureMonitorForDisplayID(P
 
     LOG_WITH_STREAM(DisplayLink, stream << "[Web] DisplayRefreshMonitorManager::ensureMonitorForDisplayID() - created monitor " << monitor.get() << " for display " << displayID);
     DisplayRefreshMonitor* result = monitor.get();
-    m_monitors.append({ WTFMove(monitor) });
+    m_monitors.append(DisplayRefreshMonitorWrapper { WTFMove(monitor) });
     return result;
 }
 
@@ -85,7 +85,7 @@ bool DisplayRefreshMonitorManager::scheduleAnimation(DisplayRefreshMonitorClient
     return false;
 }
 
-void DisplayRefreshMonitorManager::displayDidRefresh(DisplayRefreshMonitor&)
+void DisplayRefreshMonitorManager::displayMonitorDisplayDidRefresh(DisplayRefreshMonitor&)
 {
     // Maybe we should remove monitors that haven't been active for some time.
 }
@@ -105,12 +105,12 @@ std::optional<FramesPerSecond> DisplayRefreshMonitorManager::nominalFramesPerSec
 {
     auto* monitor = ensureMonitorForDisplayID(displayID, factory);
     if (monitor)
-        monitor->displayNominalFramesPerSecond();
+        return monitor->displayNominalFramesPerSecond();
 
     return std::nullopt;
 }
 
-void DisplayRefreshMonitorManager::displayWasUpdated(PlatformDisplayID displayID, const DisplayUpdate& displayUpdate)
+void DisplayRefreshMonitorManager::displayDidRefresh(PlatformDisplayID displayID, const DisplayUpdate& displayUpdate)
 {
     auto* monitor = monitorForDisplayID(displayID);
     if (monitor)
@@ -119,7 +119,7 @@ void DisplayRefreshMonitorManager::displayWasUpdated(PlatformDisplayID displayID
 
 size_t DisplayRefreshMonitorManager::findMonitorForDisplayID(PlatformDisplayID displayID) const
 {
-    return m_monitors.findMatching([&](auto& monitorWrapper) {
+    return m_monitors.findIf([&](auto& monitorWrapper) {
         return monitorWrapper.monitor->displayID() == displayID;
     });
 }

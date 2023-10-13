@@ -42,19 +42,27 @@ namespace WebKit {
 using namespace WebCore;
 
 RemoteLegacyCDMFactoryProxy::RemoteLegacyCDMFactoryProxy(GPUConnectionToWebProcess& connection)
-    : m_gpuConnectionToWebProcess(makeWeakPtr(connection))
+    : m_gpuConnectionToWebProcess(connection)
 {
 }
 
 RemoteLegacyCDMFactoryProxy::~RemoteLegacyCDMFactoryProxy()
 {
+    clear();
+}
+
+void RemoteLegacyCDMFactoryProxy::clear()
+{
+    auto proxies = std::exchange(m_proxies, { });
+    auto sessions = std::exchange(m_sessions, { });
+
     if (!m_gpuConnectionToWebProcess)
         return;
 
-    for (auto const& session : m_sessions)
+    for (auto const& session : sessions)
         m_gpuConnectionToWebProcess->messageReceiverMap().removeMessageReceiver(Messages::RemoteLegacyCDMSessionProxy::messageReceiverName(), session.key.toUInt64());
 
-    for (auto const& proxy : m_proxies)
+    for (auto const& proxy : proxies)
         m_gpuConnectionToWebProcess->messageReceiverMap().removeMessageReceiver(Messages::RemoteLegacyCDMProxy::messageReceiverName(), proxy.key.toUInt64());
 }
 
@@ -70,7 +78,7 @@ void RemoteLegacyCDMFactoryProxy::createCDM(const String& keySystem, std::option
     if (optionalPlayerId)
         playerId = WTFMove(optionalPlayerId.value());
 
-    auto proxy = RemoteLegacyCDMProxy::create(makeWeakPtr(this), WTFMove(playerId), WTFMove(privateCDM));
+    auto proxy = RemoteLegacyCDMProxy::create(*this, WTFMove(playerId), WTFMove(privateCDM));
     auto identifier = RemoteLegacyCDMIdentifier::generate();
     addProxy(identifier, WTFMove(proxy));
     completion(WTFMove(identifier));
@@ -86,26 +94,26 @@ void RemoteLegacyCDMFactoryProxy::supportsKeySystem(const String& keySystem, std
 
 void RemoteLegacyCDMFactoryProxy::didReceiveCDMMessage(IPC::Connection& connection, IPC::Decoder& decoder)
 {
-    if (auto* proxy = m_proxies.get(makeObjectIdentifier<RemoteLegacyCDMIdentifierType>(decoder.destinationID())))
+    if (auto* proxy = m_proxies.get(ObjectIdentifier<RemoteLegacyCDMIdentifierType>(decoder.destinationID())))
         proxy->didReceiveMessage(connection, decoder);
 }
 
 void RemoteLegacyCDMFactoryProxy::didReceiveCDMSessionMessage(IPC::Connection& connection, IPC::Decoder& decoder)
 {
-    if (auto* session = m_sessions.get(makeObjectIdentifier<RemoteLegacyCDMSessionIdentifierType>(decoder.destinationID())))
+    if (auto* session = m_sessions.get(ObjectIdentifier<RemoteLegacyCDMSessionIdentifierType>(decoder.destinationID())))
         session->didReceiveMessage(connection, decoder);
 }
 
 bool RemoteLegacyCDMFactoryProxy::didReceiveSyncCDMMessage(IPC::Connection& connection, IPC::Decoder& decoder, UniqueRef<IPC::Encoder>& encoder)
 {
-    if (auto* proxy = m_proxies.get(makeObjectIdentifier<RemoteLegacyCDMIdentifierType>(decoder.destinationID())))
+    if (auto* proxy = m_proxies.get(ObjectIdentifier<RemoteLegacyCDMIdentifierType>(decoder.destinationID())))
         return proxy->didReceiveSyncMessage(connection, decoder, encoder);
     return false;
 }
 
 bool RemoteLegacyCDMFactoryProxy::didReceiveSyncCDMSessionMessage(IPC::Connection& connection, IPC::Decoder& decoder, UniqueRef<IPC::Encoder>& encoder)
 {
-    if (auto* session = m_sessions.get(makeObjectIdentifier<RemoteLegacyCDMSessionIdentifierType>(decoder.destinationID())))
+    if (auto* session = m_sessions.get(ObjectIdentifier<RemoteLegacyCDMSessionIdentifierType>(decoder.destinationID())))
         return session->didReceiveSyncMessage(connection, decoder, encoder);
     return false;
 }
@@ -169,6 +177,18 @@ bool RemoteLegacyCDMFactoryProxy::allowsExitUnderMemoryPressure() const
 {
     return m_sessions.isEmpty();
 }
+
+#if !RELEASE_LOG_DISABLED
+const Logger& RemoteLegacyCDMFactoryProxy::logger() const
+{
+    if (!m_logger) {
+        m_logger = Logger::create(this);
+        m_logger->setEnabled(this, m_gpuConnectionToWebProcess ? m_gpuConnectionToWebProcess->sessionID().isAlwaysOnLoggingAllowed() : false);
+    }
+
+    return *m_logger;
+}
+#endif
 
 }
 
