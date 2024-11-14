@@ -1,3 +1,152 @@
+webkit2gtk (2.46.3-1~deb12u1) bookworm-security; urgency=medium
+
+  * Rebuild for bookworm-security.
+  * Disable sysprof profiling integration to avoid new dependencies:
+    - debian/control.in: Don't depend on libsysprof-capture-4-dev.
+    - debian/rules: Build with -DUSE_SYSPROF_CAPTURE=OFF.
+  * Disable JPEG XL to avoid adding new dependencies.
+    - debian/control.in: Remove build dependency on libjxl-dev.
+    - debian/rules: Build with -DUSE_JPEGXL=OFF.
+  * debian/rules:
+    - Enable ENABLE_SOUP2, USE_OLD_DOC_PKG, USE_OLD_JSCBIN_PKG and
+      USE_OLD_WEBDRIVER_PKG to keep using the old package names.
+  * debian/control-common.in:
+    - Make the -dev packages depend on the gir packages.
+  * debian/control.in:
+    - Build depend on ccache.
+
+ -- Alberto Garcia <berto@igalia.com>  Thu, 07 Nov 2024 13:52:25 +0100
+
+webkit2gtk (2.46.3-1) unstable; urgency=medium
+
+  * New upstream release.
+
+ -- Alberto Garcia <berto@igalia.com>  Wed, 30 Oct 2024 14:39:03 +0100
+
+webkit2gtk (2.46.2-1) unstable; urgency=medium
+
+  * New upstream release.
+  * Drop socket-monitor-crash.patch (included in this release).
+  * debian/control-common.in:
+    - The libwebkit*-dev packages are no longer Multi-Arch: same.
+      The s390x versions of the WebKit*.gir files are different due to a
+      change in a default value (WebKit bug #279220).
+  * debian/copyright:
+    - Update copyright information of all files.
+  * debian/rules:
+    - Stop disabling jpeg-xl in Ubuntu (Jeremy Bícha).
+    - Remove the USE_PREBUILT_DOCS variable, we can always build the
+      documentation now.
+    - Fix build with -Nlibwebkitgtk-doc.
+    - Disable Skia on loong64 (Closes: #1082740).
+
+ -- Alberto Garcia <berto@igalia.com>  Wed, 23 Oct 2024 11:57:14 +0200
+
+webkit2gtk (2.46.1-2) unstable; urgency=medium
+
+  * Make the package Linux-only.
+    - debian/control*.in: Set Architecture: linux-any.
+    - debian/rules: Remove non-Linux quirks.
+  * debian/patches/socket-monitor-crash.patch:
+    - Fix crash due to a regression in 2.46.1 (WebKit bug #281495).
+  * debian/control.in:
+    - Require cmake 3.20.
+
+ -- Alberto Garcia <berto@igalia.com>  Thu, 17 Oct 2024 16:52:26 +0200
+
+webkit2gtk (2.46.1-1) unstable; urgency=medium
+
+  * New upstream release.
+  * debian/rules:
+    - Remove compiler overrides for sh4 (Closes: #1082305)
+      (thanks, John Paul Adrian Glaubitz).
+    - Build with -DENALE_WEBGL=OFF in the Hurd.
+  * Drop debian/patches/fix-epiphany-ftbfs.patch.
+  * debian/copyright:
+    - Update copyright information of all files.
+
+ -- Alberto Garcia <berto@igalia.com>  Mon, 30 Sep 2024 13:51:18 +0200
+
+webkit2gtk (2.46.0-2) unstable; urgency=medium
+
+  * debian/rules:
+    - Use -DUSE_SYSPROF_CAPTURE=OFF in unsupported arches.
+    - Enable bmalloc on armhf, using the system malloc is crashing the web
+      process (Closes: #1082148)
+  * debian/patches/fix-epiphany-ftbfs.patch:
+    - Disable webkit_settings_set_enable_2d_canvas_acceleration on
+      non-Skia builds. This fixes a FTBFS in epiphany-browser
+      (Closes: #1082149).
+  * debian/patches/disable-dmabuf-nvidia.patch:
+    - Bring back this patch (Closes: #1082139), see also #1039720.
+  * debian/patches/fix-bmalloc-armhf.patch:
+    - Fix the armhf build if bmalloc is enabled.
+
+ -- Alberto Garcia <berto@igalia.com>  Thu, 19 Sep 2024 19:11:43 +0200
+
+webkit2gtk (2.46.0-1) unstable; urgency=medium
+
+  * New upstream release.
+  * Bring all changes from the 2.45 (experimental) branch.
+  * Enable sysprof profiling integration on available architectures.
+  * Rename webkit2gtk-driver to webkitgtk-webdriver.
+    - debian/control.in: add the necessary Conflicts / Breaks / Replaces.
+    - debian/control-webdriver.in: control file for the transitional
+      package.
+    - debian/rules: Add USE_OLD_WEBDRIVER_PKG and the logic to decide
+      which packages to build.
+  * debian/rules:
+    - Disable bmalloc in armhf (WebKit bug #278858).
+    - Stop limiting parallel builds on Ubuntu.
+  * debian/copyright:
+    - Update copyright information of all files.
+  * debian/gbp.conf:
+    - Update upstream branch name.
+  * debian/libwebkit2gtk-4.0-37.symbols:
+    - Update symbols.
+  * debian/patches/dont-detect-sse2.patch:
+    - Update this patch.
+  * Remove the following patches:
+    - disable-dmabuf-nvidia.patch: all Nvidia-related bugs are supposed to
+      be fixed upstream.
+    - prefer-pthread.patch: this should not be needed anymore.
+    - reduce-memory-overheads.patch: Override LDFLAGS instead.
+  * debian/source/lintian-overrides:
+    - Update source-is-missing overrides.
+
+ -- Alberto Garcia <berto@igalia.com>  Tue, 17 Sep 2024 15:42:38 +0200
+
+webkit2gtk (2.44.4-1) unstable; urgency=medium
+
+  * New upstream release.
+  * Drop fix-clang-build.patch and fix-webasm-crash.patch.
+  * debian/rules:
+    - Disable dh_dwz, it breaks the build in at least i386 and amd64
+      (see #1081000).
+
+ -- Alberto Garcia <berto@igalia.com>  Mon, 09 Sep 2024 14:22:28 +0200
+
+webkit2gtk (2.44.3-1) unstable; urgency=high
+
+  * New upstream release.
+  * The WebKitGTK security advisory WSA-2024-0004 lists the following
+    security fixes in the latest versions of WebKitGTK:
+    - CVE-2024-40776, CVE-2024-40779, CVE-2024-40780, CVE-2024-40782,
+      CVE-2024-40785, CVE-2024-40789, CVE-2024-40794, CVE-2024-4558
+      (fixed in 2.44.3).
+  * debian/patches/fix-clang-build.patch,
+    debian/patches/fix-webasm-crash.patch:
+    - Patches recommended by upstream after 2.44.3 was released.
+  * debian/libwebkit2gtk-4.0-37.symbols:
+    - Update symbols.
+  * debian/control.in:
+    - Update Standards-Version to 4.7.0 (no changes).
+    - Replace gobject-introspection-bin with gobject-introspection. This
+      fixes a lintian error: missing-build-dependency-for-dh-addon gir
+      (does not satisfy gobject-introspection:any | dh-sequence-gir:any)
+
+ -- Alberto Garcia <berto@igalia.com>  Mon, 26 Aug 2024 15:24:02 +0200
+
 webkit2gtk (2.44.2-1) unstable; urgency=high
 
   * New upstream release.

@@ -11,17 +11,17 @@ export CCACHE_DIR=$(CURDIR)/ccache
 # soup2 build -> 4.0 API packages
 # soup3 build -> 4.1 API packages
 # gtk4 build  -> 6.0 API packages
-ENABLE_SOUP2=NO
+ENABLE_SOUP2=YES
 ENABLE_SOUP3=YES
 ENABLE_GTK4=YES
-# Set to YES to use the docs from the tarball instead of generating them.
-# Use only if gi-docgen is not available.
-USE_PREBUILT_DOCS=NO
 # Set to YES to build libwebkit2gtk-4.0-doc instead of libwebkitgtk-doc
-USE_OLD_DOC_PKG=NO
+USE_OLD_DOC_PKG=YES
 
 # Set to YES to build libjavascriptcoregtk-4.0-bin instead of libjavascriptcoregtk-bin
-USE_OLD_JSCBIN_PKG=NO
+USE_OLD_JSCBIN_PKG=YES
+
+# Set to YES to build webkit2gtk-driver instead of webkitgtk-webdriver
+USE_OLD_WEBDRIVER_PKG=YES
 
 EXTRA_DH_ARGUMENTS =
 EXTRA_CMAKE_ARGUMENTS = -DPORT=GTK \
@@ -32,6 +32,8 @@ EXTRA_CMAKE_ARGUMENTS = -DPORT=GTK \
 	   -DCMAKE_CXX_FLAGS_DEBUG="" \
 	   -DCMAKE_BUILD_WITH_INSTALL_RPATH=ON \
 	   -DUSE_LIBBACKTRACE=OFF \
+	   -DUSE_JPEGXL=OFF \
+	   -DUSE_SYSPROF_CAPTURE=OFF \
 	   -DENABLE_MINIBROWSER=ON
 EXTRA_BUILD_ARGUMENTS =
 DH_GENCONTROL_ARGS =
@@ -48,6 +50,9 @@ endif
 CFLAGS := $(CFLAGS:-g=-g1)
 CXXFLAGS := $(CXXFLAGS:-g=-g1)
 
+# https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=949621
+LDFLAGS += -Wl,--reduce-memory-overheads
+
 # Don't build with -gsplit-dwarf (see #1016936)
 EXTRA_CMAKE_ARGUMENTS += -DDEBUG_FISSION=OFF
 
@@ -57,29 +62,14 @@ ifneq (,$(filter $(DEB_HOST_ARCH),i386))
 	EXTRA_CMAKE_ARGUMENTS += -DENABLE_JIT=OFF -DENABLE_C_LOOP=ON
 endif
 
-# These are not available in the Hurd (#1033999)
-ifneq (,$(filter $(DEB_HOST_ARCH),hurd-i386))
-	EXTRA_CMAKE_ARGUMENTS += -DUSE_GBM=OFF -DUSE_LIBDRM=OFF
-endif
-
-# Systemd/elogind and libmanette are Linux-only
-ifneq ($(DEB_HOST_ARCH_OS),linux)
-	EXTRA_CMAKE_ARGUMENTS += -DENABLE_JOURNALD_LOG=OFF -DENABLE_GAMEPAD=OFF
+# https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=1082740
+ifneq (,$(filter $(DEB_HOST_ARCH),loong64))
+	EXTRA_CMAKE_ARGUMENTS += -DUSE_SKIA=OFF
 endif
 
 # See https://bugs.webkit.org/show_bug.cgi?id=197192
 ifneq (,$(filter $(DEB_HOST_ARCH),arm64))
 	EXTRA_CMAKE_ARGUMENTS += -DWTF_CPU_ARM64_CORTEXA53=OFF
-endif
-
-# See: https://gcc.gnu.org/bugzilla/show_bug.cgi?id=93876
-# and: https://gcc.gnu.org/bugzilla/show_bug.cgi?id=93877
-ifneq (,$(filter $(DEB_HOST_ARCH),sh3 sh4))
-	CFLAGS := $(CFLAGS:-g1=-g0)
-	CFLAGS := $(CFLAGS:-O2=-O1)
-	CXXFLAGS := $(CXXFLAGS:-g1=-g0)
-	CXXFLAGS := $(CXXFLAGS:-O2=-O1)
-	CPPFLAGS += --param ggc-min-expand=10
 endif
 
 ifneq (,$(filter noopt,$(DEB_BUILD_OPTIONS)))
@@ -89,11 +79,7 @@ endif
 
 ifeq (,$(filter %-doc,$(shell dh_listpackages)))
 	EXTRA_CMAKE_ARGUMENTS += -DENABLE_DOCUMENTATION=OFF
-	USE_PREBUILT_DOCS=NO
 else ifneq (,$(filter nodoc,$(DEB_BUILD_OPTIONS)))
-	EXTRA_CMAKE_ARGUMENTS += -DENABLE_DOCUMENTATION=OFF
-	USE_PREBUILT_DOCS=NO
-else ifeq ($(USE_PREBUILT_DOCS),YES)
 	EXTRA_CMAKE_ARGUMENTS += -DENABLE_DOCUMENTATION=OFF
 else
 	EXTRA_CMAKE_ARGUMENTS += -DENABLE_DOCUMENTATION=ON
@@ -119,13 +105,6 @@ else
 	EXTRA_CMAKE_ARGUMENTS += -DENABLE_BUBBLEWRAP_SANDBOX=OFF
 endif
 
-# Lower max parallel jobs on some builders
-ifeq ($(shell dpkg-vendor --is Ubuntu && echo yes),yes)
-ifneq (,$(filter $(DEB_HOST_ARCH),amd64 arm64))
-	EXTRA_BUILD_ARGUMENTS += --max-parallel=2
-endif
-endif
-
 # set the distributor agent for Ubuntu
 ifeq ($(shell dpkg-vendor --derives-from Ubuntu && echo yes),yes)
 	EXTRA_CMAKE_ARGUMENTS += -DUSER_AGENT_BRANDING="Ubuntu"
@@ -134,11 +113,6 @@ endif
 # libavif & gst-plugins-bad1.0 are not in Ubuntu main
 ifeq ($(shell dpkg-vendor --derives-from Ubuntu && echo yes),yes)
 	EXTRA_CMAKE_ARGUMENTS += -DUSE_AVIF=OFF -DUSE_GSTREAMER_TRANSCODER=OFF
-endif
-
-# jpegxl is not in Ubuntu main
-ifeq ($(shell dpkg-vendor --derives-from Ubuntu && echo yes),yes)
-	EXTRA_CMAKE_ARGUMENTS += -DUSE_JPEGXL=OFF
 endif
 
 # gstreamer1.0-libav and gstreamer1.0-plugins-bad are not in Ubuntu "main"
@@ -173,6 +147,14 @@ else
 	DH_GENCONTROL_ARGS += -Vjscbin:Replaces="libjavascriptcoregtk-4.0-bin (<< 2.43.4-2~)"
 endif
 
+ifeq ($(USE_OLD_WEBDRIVER_PKG),YES)
+	WEBDRIVER_PKG=webkit2gtk-driver
+	DH_GENCONTROL_ARGS += -Vwkwebdriver:Conflicts="webkitgtk-webdriver"
+else
+	WEBDRIVER_PKG=webkitgtk-webdriver
+	DH_GENCONTROL_ARGS += -Vwkwebdriver:Replaces="webkit2gtk-driver (<< 2.45.5~)"
+endif
+
 # Disable commands and binary packages of the builds that we don't want
 ifneq ($(ENABLE_SOUP2),YES)
 	SOUP2_BUILD = @:
@@ -191,9 +173,7 @@ else
 endif
 ifneq ($(ENABLE_GTK4),YES)
 	GTK4_BUILD = @:
-ifeq ($(USE_PREBUILT_DOCS),NO)
 	EXTRA_DH_ARGUMENTS += -N$(LIBWEBKITGTKDOC_PKG)
-endif
 else
 	SOUP3_BUILD_DEP=libsoup-3.0-dev,
 	GTK4_BUILD_DEP=libgtk-4-dev,
@@ -270,16 +250,17 @@ debian/control: debian/control.in debian/control-common.in debian/rules
 		    -e 's/@LIBWEBKITGTKDOC_PKG@/$(LIBWEBKITGTKDOC_PKG)/' \
 		    -e 's/@LIBJSCBIN_PKG@/$(LIBJSCBIN_PKG)/' \
 		    -e 's/@LIBJSCBIN_DEP_PKG@/$(LIBJSCBIN_DEP_PKG)/' \
+		    -e 's/@WEBDRIVER_PKG@/$(WEBDRIVER_PKG)/' \
 		    -e 's/@WEBDRIVER_DEP_PKG@/$(WEBDRIVER_DEP_PKG)/' \
 		>> debian/control
-ifeq ($(USE_PREBUILT_DOCS),YES)
-	sed -i -e 's/^\(Build-Depends-Indep:\).*/\1 jdupes/' debian/control
-endif
 ifeq ($(USE_OLD_DOC_PKG),NO)
 	cat debian/control-doc.in >> debian/control
 endif
 ifeq ($(USE_OLD_JSCBIN_PKG),NO)
 	cat debian/control-jscbin.in >> debian/control
+endif
+ifeq ($(USE_OLD_WEBDRIVER_PKG),NO)
+	cat debian/control-webdriver.in >> debian/control
 endif
 	$(SOUP2_BUILD) cat debian/control-common.in | \
 		sed -e 's/@SOUPDEV_PKG@/libsoup2.4-dev/g' \
@@ -334,8 +315,12 @@ override_dh_auto_configure:
 	fi
 	echo debian/jsc.1 > debian/$(LIBJSCBIN_PKG).manpages
 	echo 'usr/lib/$(DEB_HOST_MULTIARCH)/$(JSCBIN_BUILD)/jsc usr/bin/' > debian/$(LIBJSCBIN_PKG).install
+	echo debian/WebKitWebDriver.1 > debian/$(WEBDRIVER_PKG).manpages
+	echo usr/bin/WebKitWebDriver > debian/$(WEBDRIVER_PKG).install
 	echo debian/$(LIBJSCBIN_PKG).manpages >> debian/clean
 	echo debian/$(LIBJSCBIN_PKG).install >> debian/clean
+	echo debian/$(WEBDRIVER_PKG).manpages >> debian/clean
+	echo debian/$(WEBDRIVER_PKG).install >> debian/clean
 	$(SOUP2_BUILD) dh_auto_configure -Bbuild-soup2 -- \
 		$(EXTRA_CMAKE_ARGUMENTS) -DUSE_SOUP2=ON -DUSE_GTK4=OFF \
 		$(ENABLE_WEBDRIVER_SOUP2) -DENABLE_DOCUMENTATION=OFF
@@ -366,20 +351,14 @@ override_dh_auto_clean: debian/control
 	find Source Tools -depth -type d -name __pycache__ -exec rmdir {} \;
 	rm -rf ccache
 
-# If USE_PREBUILT_DOCS=YES then install them.
-# Otherwise create a dummy doc directory in case the "nodoc" build option is set.
+# Create a dummy doc directory in case the "nodoc" build option is set.
 override_dh_install-indep:
-ifeq ($(USE_PREBUILT_DOCS),YES)
-	mkdir -p debian/tmp/usr/share/doc
-	cp -r Documentation/webkitgtk-6.0 debian/tmp/usr/share/doc/
-	cp -r Documentation/jsc-glib-6.0 debian/tmp/usr/share/doc/javascriptcoregtk-6.0
-	cp -r Documentation/webkitgtk-web-process-extension-6.0 debian/tmp/usr/share/doc/
-else
 	mkdir -p debian/tmp/usr/share/doc/webkitgtk-6.0
 	touch debian/tmp/usr/share/doc/webkitgtk-6.0/index.html
-endif
 	dh_install -i
+ifneq (,$(filter $(LIBWEBKITGTKDOC_PKG),$(shell dh_listpackages)))
 	jdupes -rl debian/$(LIBWEBKITGTKDOC_PKG)/usr
+endif
 
 override_dh_makeshlibs:
 	$(SOUP2_BUILD) dh_makeshlibs -plibwebkit2gtk-4.0-37 -Xinjected-bundle
@@ -394,3 +373,5 @@ override_dh_builddeb:
 		dh_builddeb
 
 override_dh_auto_test:
+
+override_dh_dwz:
