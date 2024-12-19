@@ -1,3 +1,9 @@
+webkit2gtk (2.46.3-1deepin1) unstable; urgency=medium
+
+  * Rebuild against libjxl0.9.
+
+ -- StrangeZuo <strangezuo@foxmail.com>  Thu, 19 Dec 2024 15:38:48 +0800
+
 webkit2gtk (2.46.3-1) unstable; urgency=medium
 
   * New upstream release.
