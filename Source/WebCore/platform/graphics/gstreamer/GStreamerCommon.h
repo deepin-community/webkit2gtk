@@ -29,12 +29,19 @@
 #include <gst/video/video-info.h>
 #include <wtf/Logger.h>
 #include <wtf/MediaTime.h>
+#include <wtf/StdLibExtras.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/ThreadSafeRefCounted.h>
 
 namespace WebCore {
 
 class IntSize;
 class SharedBuffer;
+
+using TrackID = uint64_t;
+
+template<typename MappedArg>
+using TrackIDHashMap = HashMap<TrackID, MappedArg, WTF::IntHash<TrackID>, WTF::UnsignedWithZeroKeyHashTraits<TrackID>>;
 
 inline bool webkitGstCheckVersion(guint major, guint minor, guint micro)
 {
@@ -68,6 +75,9 @@ std::optional<FloatSize> getVideoResolutionFromCaps(const GstCaps*);
 bool getSampleVideoInfo(GstSample*, GstVideoInfo&);
 #endif
 StringView capsMediaType(const GstCaps*);
+std::optional<TrackID> getStreamIdFromPad(const GRefPtr<GstPad>&);
+std::optional<TrackID> getStreamIdFromStream(const GRefPtr<GstStream>&);
+std::optional<TrackID> parseStreamId(StringView stringId);
 bool doCapsHaveType(const GstCaps*, const char*);
 bool areEncryptedCaps(const GstCaps*);
 Vector<String> extractGStreamerOptionsFromCommandLine();
@@ -145,8 +155,8 @@ public:
     bool isValid() const { return m_isValid; }
     uint8_t* data() { RELEASE_ASSERT(m_isValid); return static_cast<uint8_t*>(m_info.data); }
     const uint8_t* data() const { RELEASE_ASSERT(m_isValid); return static_cast<uint8_t*>(m_info.data); }
-    std::span<uint8_t> mutableSpan() { return { data(), size() }; }
-    std::span<const uint8_t> span() const { return { data(), size() }; }
+    template<typename T> std::span<T> mutableSpan() { return unsafeMakeSpan(reinterpret_cast<T*>(data()), size() / sizeof(T)); }
+    template<typename T> std::span<const T> span() const { return unsafeMakeSpan(reinterpret_cast<const T*>(data()), size() / sizeof(T)); }
     size_t size() const { ASSERT(m_isValid); return m_isValid ? static_cast<size_t>(m_info.size) : 0; }
     MapType* mappedData() const  { ASSERT(m_isValid); return m_isValid ? const_cast<MapType*>(&m_info) : nullptr; }
     Vector<uint8_t> createVector() const;
@@ -204,7 +214,7 @@ private:
 };
 
 class GstMappedFrame {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(GstMappedFrame);
     WTF_MAKE_NONCOPYABLE(GstMappedFrame);
 public:
     GstMappedFrame(GstBuffer*, GstVideoInfo*, GstMapFlags);
@@ -216,6 +226,7 @@ public:
 
     uint8_t* componentData(int) const;
     int componentStride(int) const;
+    int componentWidth(int) const;
 
     GstVideoInfo* info();
 
@@ -235,14 +246,17 @@ private:
 };
 
 class GstMappedAudioBuffer {
+    WTF_MAKE_TZONE_ALLOCATED(GstMappedAudioBuffer);
     WTF_MAKE_NONCOPYABLE(GstMappedAudioBuffer);
 public:
     GstMappedAudioBuffer(GstBuffer*, GstAudioInfo, GstMapFlags);
-    GstMappedAudioBuffer(GRefPtr<GstSample>, GstMapFlags);
+    GstMappedAudioBuffer(const GRefPtr<GstSample>&, GstMapFlags);
     ~GstMappedAudioBuffer();
 
     GstAudioBuffer* get();
     GstAudioInfo* info();
+
+    template<typename T> Vector<std::span<T>> samples(size_t offset) const;
 
     explicit operator bool() const { return m_isValid; }
 
@@ -299,8 +313,11 @@ void configureVideoDecoderForHarnessing(const GRefPtr<GstElement>&);
 void configureMediaStreamVideoDecoder(GstElement*);
 void configureVideoRTPDepayloader(GstElement*);
 
+bool gstObjectHasProperty(GstObject*, const char* name);
 bool gstObjectHasProperty(GstElement*, const char* name);
 bool gstObjectHasProperty(GstPad*, const char* name);
+
+bool gstElementMatchesFactoryAndHasProperty(GstElement*, ASCIILiteral factoryNamePattern, ASCIILiteral propertyName);
 
 GRefPtr<GstBuffer> wrapSpanData(const std::span<const uint8_t>&);
 
@@ -310,7 +327,7 @@ void registerActivePipeline(const GRefPtr<GstElement>&);
 void unregisterPipeline(const GRefPtr<GstElement>&);
 
 class WebCoreLogObserver : public Logger::Observer {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(WebCoreLogObserver);
     WTF_MAKE_NONCOPYABLE(WebCoreLogObserver);
     friend NeverDestroyed<WebCoreLogObserver>;
 public:
@@ -326,6 +343,24 @@ public:
 private:
     Atomic<uint64_t> m_totalObservers;
 };
+
+#if GST_CHECK_VERSION(1, 25, 0)
+using GstId = const GstIdStr*;
+#else
+using GstId = GQuark;
+#endif
+
+bool gstStructureForeach(const GstStructure*, Function<bool(GstId, const GValue*)>&&);
+void gstStructureIdSetValue(GstStructure*, GstId, const GValue*);
+bool gstStructureMapInPlace(GstStructure*, Function<bool(GstId, GValue*)>&&);
+StringView gstIdToString(GstId);
+void gstStructureFilterAndMapInPlace(GstStructure*, Function<bool(GstId, GValue*)>&&);
+
+#if USE(GBM)
+WARN_UNUSED_RETURN GRefPtr<GstCaps> buildDMABufCaps();
+#endif
+
+bool setGstElementGLContext(GstElement*, const char* contextType);
 
 } // namespace WebCore
 

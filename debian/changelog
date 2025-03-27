@@ -1,3 +1,67 @@
+webkit2gtk (2.48.0-1) unstable; urgency=medium
+
+  * New upstream release.
+  * Bring all changes from the 2.47 (experimental) branch.
+  * debian/source/lintian-overrides:
+    - Update source-is-missing overrides.
+  * Remove libwebkit2gtk-4.0-37.lintian-overrides.
+  * debian/control.in:
+    - Add build dependency on flite1-dev (for speech synthesis).
+    - Remove the minimum versions of all build dependencies in the cases
+      where they are very old.
+    - Remove build dependencies on all lib*-doc packages.
+  * Enable clang again in the architectures where it's available and known
+    to work.
+  * Replace USE_OLD_*_PKG with USE_OLD_PKG_NAMES.
+  * debian/copyright:
+    - Update copyright information of all files.
+  * debian/gbp.conf:
+    - Update upstream branch name.
+  * debian/libwebkit2gtk-4.0-37.symbols:
+    - Update symbols.
+  * fix-bmalloc-armhf.patch:
+    - Drop this patch, the armhf build works fine now without it.
+  * fix-ftbfs-hurd.patch:
+    - Drop this patch, I forgot to do it in 2.46.1-2.
+  * disable-nvidia-dmabuf.patch:
+    - Update this patch for the 2.48.x branch.
+  * debian/rules:
+    - Stop overriding dh_builddeb, running it in parallel used to be a
+      problem when we were building without -g1 and had very large debug
+      packages.
+
+ -- Alberto Garcia <berto@igalia.com>  Fri, 14 Mar 2025 23:12:01 +0100
+
+webkit2gtk (2.46.6-1) unstable; urgency=high
+
+  * New upstream release (Closes: #1092311).
+  * Refresh debian/patches/disable-nvidia-dmabuf.patch
+  * debian/copyright:
+    - Update copyright information of all files.
+  * debian/rules:
+    - Stop using -DWTF_CPU_ARM64_CORTEXA53=OFF, this was fixed upstream a
+      long time ago (WebKit bug #197192).
+  * debian/upstream/signing-key.asc:
+    - sq complains about multiple concatenated ASCII Armor blocks, so put
+      all keys in the same block.
+
+ -- Alberto Garcia <berto@igalia.com>  Fri, 07 Feb 2025 14:40:10 +0100
+
+webkit2gtk (2.46.5-1) unstable; urgency=medium
+
+  * New upstream release.
+
+ -- Alberto Garcia <berto@igalia.com>  Thu, 19 Dec 2024 09:55:22 +0100
+
+webkit2gtk (2.46.4-1) unstable; urgency=high
+
+  * New upstream release.
+  * The WebKitGTK security advisory WSA-2024-0007 lists the following
+    security fixes in the latest versions of WebKitGTK:
+    - CVE-2024-44308, CVE-2024-44309 (fixed in 2.46.4).
+
+ -- Alberto Garcia <berto@igalia.com>  Wed, 27 Nov 2024 16:00:26 +0100
+
 webkit2gtk (2.46.3-1) unstable; urgency=medium
 
   * New upstream release.

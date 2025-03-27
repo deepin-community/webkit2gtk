@@ -102,8 +102,9 @@ public:
         GRefPtr<GstElementFactory> factory;
     };
 
-    CodecLookupResult isCodecSupported(Configuration, const String& codec, bool usingHardware = false) const;
-    MediaPlayerEnums::SupportsType isContentTypeSupported(Configuration, const ContentType&, const Vector<ContentType>& contentTypesRequiringHardwareSupport) const;
+    enum class CaseSensitiveCodecName : bool { No, Yes };
+    CodecLookupResult isCodecSupported(Configuration, const String& codec, bool usingHardware = false, CaseSensitiveCodecName = CaseSensitiveCodecName::Yes) const;
+    MediaPlayerEnums::SupportsType isContentTypeSupported(Configuration, const ContentType&, const Vector<ContentType>& contentTypesRequiringHardwareSupport, CaseSensitiveCodecName = CaseSensitiveCodecName::Yes) const;
     bool areAllCodecsSupported(Configuration, const Vector<String>& codecs, bool shouldCheckForHardwareUse = false) const;
 
     CodecLookupResult areCapsSupported(Configuration, const GRefPtr<GstCaps>&, bool shouldCheckForHardwareUse) const;
@@ -207,9 +208,9 @@ private:
 
     bool m_isMediaSource { false };
     HashSet<String> m_decoderMimeTypeSet;
-    HashMap<String, RegistryLookupResult> m_decoderCodecMap;
+    UncheckedKeyHashMap<String, RegistryLookupResult> m_decoderCodecMap;
     HashSet<String> m_encoderMimeTypeSet;
-    HashMap<String, RegistryLookupResult> m_encoderCodecMap;
+    UncheckedKeyHashMap<String, RegistryLookupResult> m_encoderCodecMap;
 };
 
 } // namespace WebCore

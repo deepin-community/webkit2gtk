@@ -40,22 +40,20 @@ static DoubleCapabilityRange defaultVolumeCapability()
 {
     return { 0.0, 1.0 };
 }
-const static RealtimeMediaSourceCapabilities::EchoCancellation defaultEchoCancellationCapability = RealtimeMediaSourceCapabilities::EchoCancellation::ReadWrite;
+const static RealtimeMediaSourceCapabilities::EchoCancellation defaultEchoCancellationCapability = RealtimeMediaSourceCapabilities::EchoCancellation::OnOrOff;
 
 GST_DEBUG_CATEGORY(webkit_audio_capture_source_debug);
 #define GST_CAT_DEFAULT webkit_audio_capture_source_debug
 
 class GStreamerAudioCaptureSourceFactory : public AudioCaptureFactory {
 public:
-    CaptureSourceOrError createAudioCaptureSource(const CaptureDevice& device, MediaDeviceHashSalts&& hashSalts, const MediaConstraints* constraints, PageIdentifier) final
+    CaptureSourceOrError createAudioCaptureSource(const CaptureDevice& device, MediaDeviceHashSalts&& hashSalts, const MediaConstraints* constraints, std::optional<PageIdentifier>) final
     {
         return GStreamerAudioCaptureSource::create(String { device.persistentId() }, WTFMove(hashSalts), constraints);
     }
 private:
     CaptureDeviceManager& audioCaptureDeviceManager() final { return GStreamerAudioCaptureDeviceManager::singleton(); }
-    const Vector<CaptureDevice>& speakerDevices() const { return m_speakerDevices; }
-
-    Vector<CaptureDevice> m_speakerDevices;
+    const Vector<CaptureDevice>& speakerDevices() const final { return GStreamerAudioCaptureDeviceManager::singleton().speakerDevices(); }
 };
 
 static GStreamerAudioCaptureSourceFactory& libWebRTCAudioCaptureSourceFactory()
@@ -98,7 +96,7 @@ GStreamerAudioCaptureSource::GStreamerAudioCaptureSource(GStreamerCaptureDevice&
     });
 
     auto& singleton = GStreamerAudioCaptureDeviceManager::singleton();
-    singleton.registerCapturer(m_capturer);
+    singleton.registerCapturer(m_capturer.copyRef());
 }
 
 GStreamerAudioCaptureSource::~GStreamerAudioCaptureSource()
@@ -111,6 +109,14 @@ void GStreamerAudioCaptureSource::captureEnded()
 {
     m_capturer->stop();
     captureFailed();
+}
+
+std::pair<GstClockTime, GstClockTime> GStreamerAudioCaptureSource::queryCaptureLatency() const
+{
+    if (!m_capturer)
+        return { GST_CLOCK_TIME_NONE, GST_CLOCK_TIME_NONE };
+
+    return m_capturer->queryLatency();
 }
 
 void GStreamerAudioCaptureSource::startProducingData()
