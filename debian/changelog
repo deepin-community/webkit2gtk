@@ -1,3 +1,9 @@
+webkit2gtk (2.48.0-1deepin1) unstable; urgency=medium
+
+  * feat: add sw64 support.
+
+ -- hudeng <hudeng@deepin.org>  Wed, 04 Jun 2025 18:16:27 +0800
+
 webkit2gtk (2.48.0-1) unstable; urgency=medium
 
   * New upstream release.
