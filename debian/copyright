@@ -112,7 +112,7 @@ Copyright: 1999 Antti Koivisto <koivisto@kde.org>
            2015, 2018 Andy VanWagoner <andy@vanwagoner.family>
            2015-2016 Sukolsak Sakshuwong <sukolsak@gmail.com>
            2015-2017 Canon Inc
-           2015-2020, 2023-2024 Devin Rousso <webkit@devinrousso.com>
+           2015-2020, 2023-2025 Devin Rousso <webkit@devinrousso.com>
            2015-2022 Metrological Group B.V
            2016 Caitlin Potter <caitp@igalia.com>
            2016 Konstantin Tokavev <annulen@yandex.ru>
@@ -149,7 +149,8 @@ Copyright: 1999 Antti Koivisto <koivisto@kde.org>
            2024 Marais Rossouw <me@marais.co>
            2024 SONY Interactive Entertainment Inc
            2024 Sosuke Suzuki <aosukeke@gmail.com>
-           2024 Tetsuharu Ohzeki <tetsuharu.ohzeki@gmail.com>
+           2024-2025 Tetsuharu Ohzeki <tetsuharu.ohzeki@gmail.com>
+           2025 Sam Weinig
 License: BSD-2-clause
 Comment:
  The default license of WebKit is BSD 2-clause. The exceptions are
@@ -469,6 +470,7 @@ Files: Source/JavaScriptCore/API/JSRetainPtr.h
        Source/WebCore/dom/CurrentScriptIncrementer.h
        Source/WebCore/dom/DOMException.cpp
        Source/WebCore/dom/DOMException.h
+       Source/WebCore/dom/DocumentEnums.h
        Source/WebCore/dom/StaticNodeList.cpp
        Source/WebCore/dom/StaticNodeList.h
        Source/WebCore/dom/make_event_factory.pl
@@ -737,6 +739,7 @@ Copyright: 2003, 2005-2025 Apple Inc
            2021 Red Hat Inc
            2024 Sosuke Suzuki <aosukeke@gmail.com>
            2024 Tetsuharu Ohzeki <tetsuharu.ohzeki@gmail.com>
+           2025 Sam Weinig
 License: BSD-3-clause-apple
 
 Files: Source/WebCore/Modules/fetch/FetchBody.cpp
@@ -762,7 +765,7 @@ Files: Source/WebCore/Modules/fetch/FetchBody.cpp
        Source/WebCore/loader/CrossOriginPreflightChecker.h
        Source/WebCore/loader/FetchOptions.h
 Copyright: 2015-2016 Canon Inc
-           2016-2024 Apple Inc
+           2016-2025 Apple Inc
 License: BSD-3-clause-canon
 
 Files: Source/WebCore/html/HTMLUnknownElement.h

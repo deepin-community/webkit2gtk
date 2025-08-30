@@ -1,8 +1,74 @@
-webkit2gtk (2.48.0-1deepin1) unstable; urgency=medium
+webkit2gtk (2.48.5-1) unstable; urgency=high
 
-  * feat: add sw64 support.
+  * New upstream release.
+  * The WebKitGTK security advisory WSA-2025-0005 lists the following
+    security fixes in the latest versions of WebKitGTK:
+    - CVE-2025-24189 (fixed in 2.48.0).
+    - CVE-2025-31273, CVE-2025-31278, CVE-2025-43211, CVE-2025-43212,
+      CVE-2025-43216, CVE-2025-43227, CVE-2025-43228, CVE-2025-43240,
+      CVE-2025-43265, CVE-2025-6558 (fixed in 2.48.5).
+  * debian/upstream/signing-key.asc:
+    - Update Adrian Perez's PGP key.
+  * debian/patches/fix-ftbfs-armv7.patch:
+    - Fix arm build.
 
- -- hudeng <hudeng@deepin.org>  Wed, 04 Jun 2025 18:16:27 +0800
+ -- Alberto Garcia <berto@igalia.com>  Mon, 11 Aug 2025 00:53:50 +0200
+
+webkit2gtk (2.48.3-1) unstable; urgency=high
+
+  * New upstream release (Closes: #1106164).
+  * debian/patches/disable-nvidia-dmabuf.patch:
+    - Check that GL_VENDOR is set (Closes: #1106454).
+
+ -- Alberto Garcia <berto@igalia.com>  Thu, 29 May 2025 01:56:24 +0200
+
+webkit2gtk (2.48.2-1) unstable; urgency=high
+
+  * New upstream release.
+  * The WebKitGTK security advisory WSA-2025-0004 lists the following
+    security fixes in the latest versions of WebKitGTK:
+    - CVE-2023-42875, CVE-2023-42970 (fixed in 2.42.0).
+    - CVE-2025-24223, CVE-2025-31204, CVE-2025-31205, CVE-2025-31206,
+      CVE-2025-31215, CVE-2025-31257 (fixed in 2.48.2).
+  * Drop fix-typo-denormaldisabler.patch.
+  * debian/rules:
+    - Stop building with HAVE_DENORMAL=0 on armel, WebKit bug #290994 has
+      been fixed in this release.
+  * debian/copyright:
+    - Update copyright information of all files.
+
+ -- Alberto Garcia <berto@igalia.com>  Fri, 16 May 2025 09:54:16 +0200
+
+webkit2gtk (2.48.1-3) unstable; urgency=high
+
+  * debian/rules:
+    - Build with -mbranch-protection=pac-ret on arm64 (Closes: #1104703).
+
+ -- Alberto Garcia <berto@igalia.com>  Mon, 05 May 2025 15:58:39 +0200
+
+webkit2gtk (2.48.1-2) unstable; urgency=high
+
+  * debian/rules:
+    - Build with HAVE_DENORMAL=0 on armel (WebKit bug #290994).
+
+ -- Alberto Garcia <berto@igalia.com>  Sat, 05 Apr 2025 13:20:18 +0200
+
+webkit2gtk (2.48.1-1) unstable; urgency=high
+
+  [ Alberto Garcia ]
+  * New upstream release.
+  * Refresh all patches.
+  * Build with -mlarge-data and -mlarge-text on alpha to fix build failure
+    (thanks, John Paul Adrian Glaubitz) (Closes: #1101547).
+  * debian/control.in:
+    - Update Standards-Version to 4.7.2 (no changes).
+  * fix-typo-denormaldisabler.patch:
+    - Fix build failure in i386 and others due to missing semicolon.
+
+  [ Jeremy Bicha ]
+  * Disable speech synthesis in Ubuntu builds.
+
+ -- Alberto Garcia <berto@igalia.com>  Wed, 02 Apr 2025 20:33:55 +0200
 
 webkit2gtk (2.48.0-1) unstable; urgency=medium
 

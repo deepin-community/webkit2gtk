@@ -1,0 +1,17 @@
+From: Justin Michaud <jmichaud@igalia.com>
+Subject: Fix build failure on ARMv7
+Bug: https://bugs.webkit.org/show_bug.cgi?id=296921
+Origin: https://github.com/WebKit/WebKit/commit/7999ecd5ee4ea3123f7e75634d2bc57f57ca7070
+Index: webkitgtk/Source/JavaScriptCore/llint/WebAssembly.asm
+===================================================================
+--- webkitgtk.orig/Source/JavaScriptCore/llint/WebAssembly.asm
++++ webkitgtk/Source/JavaScriptCore/llint/WebAssembly.asm
+@@ -736,7 +736,7 @@ if JSVALUE64
+     storep memoryBase, Callee[cfr]
+ else
+     loadp [sp], ws0
+-    addq 2 * SlotSize, sp
++    addp 2 * SlotSize, sp
+     storep ws0, Callee[cfr]
+ end
+ 

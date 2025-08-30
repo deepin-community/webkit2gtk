@@ -23,7 +23,7 @@ Index: webkitgtk/Source/WebKit/UIProcess/gtk/AcceleratedBackingStoreDMABuf.cpp
  #include <gbm.h>
  
  static constexpr uint64_t s_dmabufInvalidModifier = DRM_FORMAT_MOD_INVALID;
-@@ -77,6 +79,33 @@ namespace WebKit {
+@@ -77,6 +79,34 @@ namespace WebKit {
  
  WTF_MAKE_TZONE_ALLOCATED_IMPL(AcceleratedBackingStoreDMABuf);
  
@@ -49,7 +49,8 @@ Index: webkitgtk/Source/WebKit/UIProcess/gtk/AcceleratedBackingStoreDMABuf.cpp
 +        platformDisplay = WebCore::PlatformDisplaySurfaceless::create();
 +
 +    WebCore::GLContext::ScopedGLContext glContext(WebCore::GLContext::createOffscreen(platformDisplay ? *platformDisplay : WebCore::PlatformDisplay::sharedDisplay()));
-+    if (strstr(reinterpret_cast<const char*>(glGetString(GL_VENDOR)), "NVIDIA"))
++    const char* glVendor = reinterpret_cast<const char*>(glGetString(GL_VENDOR));
++    if (glVendor && strstr(glVendor, "NVIDIA"))
 +        return true;
 +    return false;
 +}
@@ -57,7 +58,7 @@ Index: webkitgtk/Source/WebKit/UIProcess/gtk/AcceleratedBackingStoreDMABuf.cpp
  OptionSet<RendererBufferTransportMode> AcceleratedBackingStoreDMABuf::rendererBufferTransportMode()
  {
      static OptionSet<RendererBufferTransportMode> mode;
-@@ -92,6 +121,9 @@ OptionSet<RendererBufferTransportMode> A
+@@ -92,6 +122,9 @@ OptionSet<RendererBufferTransportMode> A
              return;
          }
  
