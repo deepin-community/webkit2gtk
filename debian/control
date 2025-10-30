@@ -3,16 +3,17 @@ Source: webkit2gtk
 Priority: optional
 Section: web
 Maintainer: Debian WebKit Maintainers <pkg-webkit-maintainers@lists.alioth.debian.org>
-Uploaders: Gustavo Noronha Silva <kov@debian.org>,
-           Emilio Pozuelo Monfort <pochu@debian.org>,
-           Alberto Garcia <berto@igalia.com>
+Uploaders: Alberto Garcia <berto@igalia.com>,
+           Emilio Pozuelo Monfort <pochu@debian.org>
 X-Ubuntu-Use-Langpack: no
 Build-Depends: debhelper-compat (= 13),
-               bubblewrap [amd64 arm64 armel armhf i386 mips64el ppc64el riscv64 s390x hppa ppc64 x32],
-               xdg-dbus-proxy [amd64 arm64 armel armhf i386 mips64el ppc64el riscv64 s390x hppa ppc64 x32],
-               libseccomp-dev [amd64 arm64 armel armhf i386 mips64el ppc64el riscv64 s390x hppa ppc64 x32],
-               clang [amd64 arm64 armel armhf ppc64el riscv64 s390x],
+               bubblewrap [amd64 arm64 armel armhf i386 mips64el ppc64el riscv64 s390x loong64 hppa ppc64 x32],
+               xdg-dbus-proxy [amd64 arm64 armel armhf i386 mips64el ppc64el riscv64 s390x loong64 hppa ppc64 x32],
+               libseccomp-dev [amd64 arm64 armel armhf i386 mips64el ppc64el riscv64 s390x loong64 hppa ppc64 x32],
+               clang [amd64 arm64 armel armhf i386 ppc64el riscv64 s390x],
                cmake (>= 3.20),
+               gcc-14 [mips64el],
+               g++-14 [mips64el],
                flite1-dev,
                libglib2.0-dev,
                libharfbuzz-dev,
@@ -25,7 +26,7 @@ Build-Depends: debhelper-compat (= 13),
                libhyphen-dev,
                libjxl-dev,
                liblcms2-dev,
-               libmanette-0.2-dev,
+               libmanette-0.2-dev [!i386],
                libsysprof-capture-4-dev (>= 3.38.0) [amd64 arm64 armel armhf i386 mips64el ppc64el riscv64 s390x hppa loong64 powerpc ppc64 sh4],
                libxslt1-dev,
                libxml2-dev,
@@ -125,29 +126,6 @@ Description: WebKitGTK WebDriver support
  .
  This package provides the WebDriver service implementation for
  WebKitGTK.
-
-Package: libwebkit2gtk-4.0-doc
-Build-Profiles: <!nodoc>
-Section: oldlibs
-Architecture: all
-Multi-Arch: foreign
-Depends: libwebkitgtk-doc, ${misc:Depends}
-Description: WebKitGTK documentation (transitional dummy package)
- This is a transitional dummy package, it can be safely removed.
-
-Package: libjavascriptcoregtk-4.0-bin
-Section: oldlibs
-Architecture: all
-Depends: libjavascriptcoregtk-bin, ${misc:Depends}
-Description: WebKitGTK JavaScript command-line interpreter (transitional dummy package)
- This is a transitional dummy package, it can be safely removed.
-
-Package: webkit2gtk-driver
-Section: oldlibs
-Architecture: all
-Depends: webkitgtk-webdriver, ${misc:Depends}
-Description: WebKitGTK WebDriver support (transitional dummy package)
- This is a transitional dummy package, it can be safely removed.
 
 Package: libjavascriptcoregtk-4.1-0
 Section: libs

@@ -2194,6 +2194,7 @@ libwebkit2gtk-4.0.so.37 libwebkit2gtk-4.0-37 #MINVER#
  webkit_web_view_get_settings@Base 2.5.3
  webkit_web_view_get_snapshot@Base 2.5.3
  webkit_web_view_get_snapshot_finish@Base 2.5.3
+ webkit_web_view_get_theme_color@Base 2.49.90
  webkit_web_view_get_title@Base 2.5.3
  webkit_web_view_get_tls_info@Base 2.5.3
  webkit_web_view_get_type@Base 2.5.3

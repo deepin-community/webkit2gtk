@@ -10,17 +10,22 @@ configure_file(wpe-platform-uninstalled.pc.in ${CMAKE_BINARY_DIR}/wpe-platform-$
 configure_file(wpe/WPEConfig.h.in ${WPEPlatform_DERIVED_SOURCES_DIR}/wpe/WPEConfig.h)
 configure_file(wpe/WPEVersion.h.in ${WPEPlatform_DERIVED_SOURCES_DIR}/wpe/WPEVersion.h)
 
-set(WPEPlatform_SOURCES_FOR_INTROSPECTION
-    ${WEBKIT_DIR}/WPEPlatform/wpe/WPEEvent.cpp
+set(WPEPlatform_SOURCES
     ${WEBKIT_DIR}/WPEPlatform/wpe/WPEBuffer.cpp
+    ${WEBKIT_DIR}/WPEPlatform/wpe/WPEBufferAndroid.cpp
     ${WEBKIT_DIR}/WPEPlatform/wpe/WPEBufferDMABuf.cpp
     ${WEBKIT_DIR}/WPEPlatform/wpe/WPEBufferDMABufFormats.cpp
     ${WEBKIT_DIR}/WPEPlatform/wpe/WPEBufferSHM.cpp
+    ${WEBKIT_DIR}/WPEPlatform/wpe/WPEClipboard.cpp
     ${WEBKIT_DIR}/WPEPlatform/wpe/WPEColor.cpp
     ${WEBKIT_DIR}/WPEPlatform/wpe/WPECursorTheme.cpp
+    ${WEBKIT_DIR}/WPEPlatform/wpe/WPEDRMDevice.cpp
     ${WEBKIT_DIR}/WPEPlatform/wpe/WPEDisplay.cpp
     ${WEBKIT_DIR}/WPEPlatform/wpe/WPEEGLError.cpp
+    ${WEBKIT_DIR}/WPEPlatform/wpe/WPEEvent.cpp
     ${WEBKIT_DIR}/WPEPlatform/wpe/WPEExtensions.cpp
+    ${WEBKIT_DIR}/WPEPlatform/wpe/WPEGamepad.cpp
+    ${WEBKIT_DIR}/WPEPlatform/wpe/WPEGamepadManager.cpp
     ${WEBKIT_DIR}/WPEPlatform/wpe/WPEInputMethodContext.cpp
     ${WEBKIT_DIR}/WPEPlatform/wpe/WPEInputMethodContextNone.cpp
     ${WEBKIT_DIR}/WPEPlatform/wpe/WPEKeyUnicode.cpp
@@ -31,28 +36,30 @@ set(WPEPlatform_SOURCES_FOR_INTROSPECTION
     ${WEBKIT_DIR}/WPEPlatform/wpe/WPEGestureDetector.cpp
     ${WEBKIT_DIR}/WPEPlatform/wpe/WPERectangle.cpp
     ${WEBKIT_DIR}/WPEPlatform/wpe/WPEScreen.cpp
+    ${WEBKIT_DIR}/WPEPlatform/wpe/WPEScreenSyncObserver.cpp
     ${WEBKIT_DIR}/WPEPlatform/wpe/WPESettings.cpp
     ${WEBKIT_DIR}/WPEPlatform/wpe/WPEToplevel.cpp
     ${WEBKIT_DIR}/WPEPlatform/wpe/WPEVersion.cpp
     ${WEBKIT_DIR}/WPEPlatform/wpe/WPEView.cpp
+    ${WEBKIT_DIR}/WPEPlatform/wpe/WPEViewAccessible.cpp
     ${WPEPlatform_DERIVED_SOURCES_DIR}/wpe/WPEEnumTypes.cpp
 )
 
-set(WPEPlatform_SOURCES
-    ${WPEPlatform_SOURCES_FOR_INTROSPECTION}
-    ${WEBKIT_DIR}/WPEPlatform/wpe/LibDRMUtilities.cpp
-)
-
 set(WPEPlatform_INSTALLED_HEADERS
-    ${WEBKIT_DIR}/WPEPlatform/wpe/WPEEvent.h
     ${WEBKIT_DIR}/WPEPlatform/wpe/WPEBuffer.h
+    ${WEBKIT_DIR}/WPEPlatform/wpe/WPEBufferAndroid.h
     ${WEBKIT_DIR}/WPEPlatform/wpe/WPEBufferDMABuf.h
     ${WEBKIT_DIR}/WPEPlatform/wpe/WPEBufferDMABufFormats.h
     ${WEBKIT_DIR}/WPEPlatform/wpe/WPEBufferSHM.h
+    ${WEBKIT_DIR}/WPEPlatform/wpe/WPEClipboard.h
     ${WEBKIT_DIR}/WPEPlatform/wpe/WPEColor.h
+    ${WEBKIT_DIR}/WPEPlatform/wpe/WPEDRMDevice.h
     ${WEBKIT_DIR}/WPEPlatform/wpe/WPEDefines.h
     ${WEBKIT_DIR}/WPEPlatform/wpe/WPEDisplay.h
     ${WEBKIT_DIR}/WPEPlatform/wpe/WPEEGLError.h
+    ${WEBKIT_DIR}/WPEPlatform/wpe/WPEEvent.h
+    ${WEBKIT_DIR}/WPEPlatform/wpe/WPEGamepad.h
+    ${WEBKIT_DIR}/WPEPlatform/wpe/WPEGamepadManager.h
     ${WEBKIT_DIR}/WPEPlatform/wpe/WPEInputMethodContext.h
     ${WEBKIT_DIR}/WPEPlatform/wpe/WPEKeyUnicode.h
     ${WEBKIT_DIR}/WPEPlatform/wpe/WPEKeymap.h
@@ -61,9 +68,11 @@ set(WPEPlatform_INSTALLED_HEADERS
     ${WEBKIT_DIR}/WPEPlatform/wpe/WPEGestureController.h
     ${WEBKIT_DIR}/WPEPlatform/wpe/WPERectangle.h
     ${WEBKIT_DIR}/WPEPlatform/wpe/WPEScreen.h
+    ${WEBKIT_DIR}/WPEPlatform/wpe/WPEScreenSyncObserver.h
     ${WEBKIT_DIR}/WPEPlatform/wpe/WPESettings.h
     ${WEBKIT_DIR}/WPEPlatform/wpe/WPEToplevel.h
     ${WEBKIT_DIR}/WPEPlatform/wpe/WPEView.h
+    ${WEBKIT_DIR}/WPEPlatform/wpe/WPEViewAccessible.h
     ${WEBKIT_DIR}/WPEPlatform/wpe/wpe-platform.h
     ${WPEPlatform_DERIVED_SOURCES_DIR}/wpe/WPEConfig.h
     ${WPEPlatform_DERIVED_SOURCES_DIR}/wpe/WPEEnumTypes.h
@@ -112,8 +121,51 @@ set(WPEPlatform_LIBRARIES
 
 if (USE_GBM)
     list(APPEND WPEPlatform_LIBRARIES GBM::GBM)
-elseif (USE_LIBDRM)
+endif ()
+
+if (USE_LIBDRM)
     list(APPEND WPEPlatform_LIBRARIES LibDRM::LibDRM)
+
+    list(APPEND WPEPlatform_SOURCES
+        ${WEBKIT_DIR}/WPEPlatform/wpe/WPEScreenSyncObserverDRM.cpp
+    )
+endif ()
+
+if (ANDROID)
+    list(APPEND WPEPlatform_LIBRARIES Android::Android)
+endif ()
+
+if (USE_ATK)
+    list(APPEND WPEPlatform_SYSTEM_INCLUDE_DIRECTORIES
+        ${ATK_INCLUDE_DIRS}
+    )
+
+    list(APPEND WPEPlatform_PRIVATE_INCLUDE_DIRECTORIES
+        "${WEBKIT_DIR}/WPEPlatform/wpe/atk"
+    )
+
+    list(APPEND WPEPlatform_LIBRARIES
+        ATK::Bridge
+        ${ATK_LIBRARIES}
+    )
+
+    list(APPEND WPEPlatform_SOURCES
+        ${WEBKIT_DIR}/WPEPlatform/wpe/atk/WPEAccessibilityAtk.cpp
+        ${WEBKIT_DIR}/WPEPlatform/wpe/atk/WPEApplicationAccessibleAtk.cpp
+        ${WEBKIT_DIR}/WPEPlatform/wpe/atk/WPEToplevelAccessibleAtk.cpp
+        ${WEBKIT_DIR}/WPEPlatform/wpe/atk/WPEViewAccessibleAtk.cpp
+    )
+endif ()
+
+if (USE_MANETTE)
+    list(APPEND WPEPlatform_LIBRARIES
+        Manette::Manette
+    )
+
+    list(APPEND WPEPlatform_SOURCES
+        ${WEBKIT_DIR}/WPEPlatform/wpe/WPEGamepadManagerManette.cpp
+        ${WEBKIT_DIR}/WPEPlatform/wpe/WPEGamepadManette.cpp
+    )
 endif ()
 
 if (NOT USE_SYSTEM_MALLOC)
@@ -135,14 +187,13 @@ if (ENABLE_WPE_PLATFORM_WAYLAND)
     list(APPEND WPEPlatform_LIBRARIES WPEPlatformWayland)
 endif ()
 
-add_library(WPEPlatform-${WPE_API_VERSION} SHARED ${WPEPlatform_SOURCES})
-set_target_properties(WPEPlatform-${WPE_API_VERSION} PROPERTIES VERSION ${WPE_PLATFORM_VERSION} SOVERSION ${WPE_PLATFORM_VERSION_MAJOR})
-target_include_directories(WPEPlatform-${WPE_API_VERSION} PRIVATE ${WPEPlatform_PRIVATE_INCLUDE_DIRECTORIES})
-target_include_directories(WPEPlatform-${WPE_API_VERSION} SYSTEM PRIVATE ${WPEPlatform_SYSTEM_INCLUDE_DIRECTORIES})
-target_link_libraries(WPEPlatform-${WPE_API_VERSION} ${WPEPlatform_LIBRARIES})
+add_library(WPEPlatform OBJECT ${WPEPlatform_SOURCES})
+target_include_directories(WPEPlatform PRIVATE ${WPEPlatform_PRIVATE_INCLUDE_DIRECTORIES})
+target_include_directories(WPEPlatform SYSTEM PRIVATE ${WPEPlatform_SYSTEM_INCLUDE_DIRECTORIES})
+target_link_libraries(WPEPlatform ${WPEPlatform_LIBRARIES})
 
 GI_INTROSPECT(WPEPlatform ${WPE_API_VERSION} wpe/wpe-platform.h
-    TARGET WPEPlatform-${WPE_API_VERSION}
+    TARGET WebKit
     PACKAGE wpe-platform
     IDENTIFIER_PREFIX WPE
     SYMBOL_PREFIX wpe
@@ -152,7 +203,7 @@ GI_INTROSPECT(WPEPlatform ${WPE_API_VERSION} wpe/wpe-platform.h
         -I${WPEPlatform_DERIVED_SOURCES_DIR}
     SOURCES
         ${WPEPlatform_INSTALLED_HEADERS}
-        ${WPEPlatform_SOURCES_FOR_INTROSPECTION}
+        ${WPEPlatform_SOURCES}
     NO_IMPLICIT_SOURCES
 )
 
@@ -161,7 +212,7 @@ GI_DOCGEN(WPEPlatform docs/wpeplatform.toml.in)
 if (ENABLE_WPE_PLATFORM_DRM)
     get_target_property(WPEPlatformDRM_SOURCES_FOR_INTROSPECTION WPEPlatformDRM SOURCES_FOR_INTROSPECTION)
     GI_INTROSPECT(WPEPlatformDRM ${WPE_API_VERSION} wpe/drm/wpe-drm.h
-        TARGET WPEPlatform-${WPE_API_VERSION}
+        TARGET WebKit
         PACKAGE wpe-platform-drm
         IDENTIFIER_PREFIX WPE
         SYMBOL_PREFIX wpe
@@ -180,7 +231,7 @@ endif ()
 if (ENABLE_WPE_PLATFORM_HEADLESS)
     get_target_property(WPEPlatformHeadless_SOURCES_FOR_INTROSPECTION WPEPlatformHeadless SOURCES_FOR_INTROSPECTION)
     GI_INTROSPECT(WPEPlatformHeadless ${WPE_API_VERSION} wpe/headless/wpe-headless.h
-        TARGET WPEPlatform-${WPE_API_VERSION}
+        TARGET WebKit
         PACKAGE wpe-platform-headless
         IDENTIFIER_PREFIX WPE
         SYMBOL_PREFIX wpe
@@ -199,7 +250,7 @@ endif ()
 if (ENABLE_WPE_PLATFORM_WAYLAND)
     get_target_property(WPEPlatformWayland_SOURCES_FOR_INTROSPECTION WPEPlatformWayland SOURCES_FOR_INTROSPECTION)
     GI_INTROSPECT(WPEPlatformWayland ${WPE_API_VERSION} wpe/wayland/wpe-wayland.h
-        TARGET WPEPlatform-${WPE_API_VERSION}
+        TARGET WebKit
         PACKAGE wpe-platform-wayland
         IDENTIFIER_PREFIX WPE
         SYMBOL_PREFIX wpe
@@ -214,8 +265,6 @@ if (ENABLE_WPE_PLATFORM_WAYLAND)
 
     GI_DOCGEN(WPEPlatformWayland docs/wpeplatform-wayland.toml.in)
 endif ()
-
-install(TARGETS WPEPlatform-${WPE_API_VERSION} LIBRARY DESTINATION "${LIB_INSTALL_DIR}")
 
 install(FILES "${CMAKE_BINARY_DIR}/wpe-platform-${WPE_API_VERSION}.pc"
         DESTINATION "${LIB_INSTALL_DIR}/pkgconfig"
