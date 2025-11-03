@@ -1,3 +1,10 @@
+webkit2gtk (2.50.1-1deepin1) unstable; urgency=medium
+
+  [ hudeng ]
+  * feat: add sw64 support. 
+
+ -- zengwei <zengwei1@uniontech.com>  Mon, 03 Nov 2025 14:24:08 +0800
+
 webkit2gtk (2.50.1-1) unstable; urgency=medium
 
   * New upstream release.
