@@ -54,6 +54,7 @@ void WebDeviceOrientationUpdateProvider::startUpdatingDeviceOrientation(WebCore:
 {
     if (m_deviceOrientationClients.isEmptyIgnoringNullReferences() && m_page)
         m_page->send(Messages::WebDeviceOrientationUpdateProviderProxy::StartUpdatingDeviceOrientation());
+
     m_deviceOrientationClients.add(client);
 }
 
@@ -70,6 +71,7 @@ void WebDeviceOrientationUpdateProvider::startUpdatingDeviceMotion(WebCore::Moti
 {
     if (m_deviceMotionClients.isEmptyIgnoringNullReferences() && m_page)
         m_page->send(Messages::WebDeviceOrientationUpdateProviderProxy::StartUpdatingDeviceMotion());
+
     m_deviceMotionClients.add(client);
 }
 
@@ -77,6 +79,7 @@ void WebDeviceOrientationUpdateProvider::stopUpdatingDeviceMotion(WebCore::Motio
 {
     if (m_deviceMotionClients.isEmptyIgnoringNullReferences())
         return;
+
     m_deviceMotionClients.remove(client);
     if (m_deviceMotionClients.isEmptyIgnoringNullReferences() && m_page)
         m_page->send(Messages::WebDeviceOrientationUpdateProviderProxy::StopUpdatingDeviceMotion());

@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2010 Google Inc. All rights reserved.
+ * Copyright (C) 2016-2025 Apple Inc. All rights reserved.
  * Copyright (C) 2016 Igalia S.L.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -41,7 +42,6 @@
 #include "WebErrors.h"
 #include <WebCore/AsyncFileStream.h>
 #include <WebCore/BlobRegistryImpl.h>
-#include <WebCore/HTTPParsers.h>
 #include <WebCore/ParsedContentRange.h>
 #include <WebCore/PolicyContainer.h>
 #include <WebCore/ResourceError.h>
@@ -77,7 +77,7 @@ NetworkDataTaskBlob::NetworkDataTaskBlob(NetworkSession& session, NetworkDataTas
         RELEASE_LOG(Network, "Got request for blob without topOrigin but request specifies firstPartyForCookies");
         topOriginData = SecurityOriginData::fromURLWithoutStrictOpaqueness(request.firstPartyForCookies());
     }
-    m_blobData = session.blobRegistry().getBlobDataFromURL(request.url(), topOriginData);
+    m_blobData = session.blobRegistry().blobDataFromURL(request.url(), topOriginData);
 
     LOG(NetworkSession, "%p - Created NetworkDataTaskBlob for %s", this, request.url().string().utf8().data());
 }
@@ -112,7 +112,7 @@ void NetworkDataTaskBlob::resume()
 
     m_state = State::Running;
 
-    RunLoop::protectedMain()->dispatch([this, protectedThis = Ref { *this }] {
+    RunLoop::mainSingleton().dispatch([this, protectedThis = Ref { *this }] {
         if (m_state == State::Canceling || m_state == State::Completed || !m_client) {
             clearStream();
             return;
@@ -130,11 +130,13 @@ void NetworkDataTaskBlob::resume()
         }
 
         // Parse the "Range" header we care about.
-        String range = m_firstRequest.httpHeaderField(HTTPHeaderName::Range);
-        m_isRangeRequest = !range.isNull();
-        if (m_isRangeRequest && !parseRange(range, RangeAllowWhitespace::Yes, m_rangeStart, m_rangeEnd)) {
-            didFail(Error::RangeError);
-            return;
+        if (String range = m_firstRequest.httpHeaderField(HTTPHeaderName::Range); !range.isNull()) {
+            m_range = parseRange(range, RangeAllowWhitespace::Yes);
+            if (!m_range) {
+                didFail(Error::RangeError);
+                return;
+            }
+            m_isRangeRequest = true;
         }
 
         getSizeForNext();
@@ -209,52 +211,18 @@ void NetworkDataTaskBlob::didGetSize(long long size)
 
     // The size passed back is the size of the whole file. If the underlying item is a sliced file, we need to use the slice length.
     const BlobDataItem& item = m_blobData->items().at(m_sizeItemCount);
-    size = item.length();
+    uint64_t updatedSize = static_cast<uint64_t>(item.length());
 
     // Cache the size.
-    m_itemLengthList.append(size);
+    m_itemLengthList.append(updatedSize);
 
     // Count the size.
-    m_totalSize += size;
-    m_totalRemainingSize += size;
-    m_sizeItemCount++;
+    m_totalSize += updatedSize;
+    m_totalRemainingSize += updatedSize;
+    ++m_sizeItemCount;
 
     // Continue with the next item.
     getSizeForNext();
-}
-
-auto NetworkDataTaskBlob::seek() -> std::optional<Error>
-{
-    ASSERT(RunLoop::isMain());
-
-    // Bail out if the range is not provided.
-    if (!m_isRangeRequest)
-        return std::nullopt;
-
-    // Adjust m_rangeStart / m_rangeEnd
-    if (m_rangeStart == kPositionNotSpecified) {
-        m_rangeStart = m_totalSize - m_rangeEnd;
-        m_rangeEnd = m_rangeStart + m_rangeEnd - 1;
-    } else {
-        if (m_rangeStart >= m_totalSize)
-            return Error::RangeError;
-        if (m_rangeEnd == kPositionNotSpecified || m_rangeEnd >= m_totalSize)
-            m_rangeEnd = m_totalSize - 1;
-    }
-
-    // Skip the initial items that are not in the range.
-    long long offset = m_rangeStart;
-    for (m_readItemCount = 0; m_readItemCount < m_blobData->items().size() && offset >= m_itemLengthList[m_readItemCount]; ++m_readItemCount)
-        offset -= m_itemLengthList[m_readItemCount];
-
-    // Set the offset that need to jump to for the first item in the range.
-    m_currentItemReadSize = offset;
-
-    // Adjust the total remaining size in order not to go beyond the range.
-    long long rangeSize = m_rangeEnd - m_rangeStart + 1;
-    if (m_totalRemainingSize > rangeSize)
-        m_totalRemainingSize = rangeSize;
-    return std::nullopt;
 }
 
 void NetworkDataTaskBlob::dispatchDidReceiveResponse()
@@ -262,7 +230,7 @@ void NetworkDataTaskBlob::dispatchDidReceiveResponse()
     LOG(NetworkSession, "%p - NetworkDataTaskBlob::dispatchDidReceiveResponse()", this);
 
     Ref<NetworkDataTaskBlob> protectedThis(*this);
-    ResourceResponse response(m_firstRequest.url(), extractMIMETypeFromMediaType(m_blobData->contentType()), m_totalRemainingSize, String());
+    ResourceResponse response(URL { m_firstRequest.url() }, extractMIMETypeFromMediaType(m_blobData->contentType()), m_totalRemainingSize, String());
     response.setHTTPStatusCode(m_isRangeRequest ? httpPartialContent : httpOK);
     response.setHTTPStatusText(m_isRangeRequest ? httpPartialContentText : httpOKText);
 
@@ -272,14 +240,14 @@ void NetworkDataTaskBlob::dispatchDidReceiveResponse()
     addPolicyContainerHeaders(response, m_blobData->policyContainer());
 
     if (m_isRangeRequest)
-        response.setHTTPHeaderField(HTTPHeaderName::ContentRange, ParsedContentRange(m_rangeStart, m_rangeEnd, m_totalSize).headerValue());
+        response.setHTTPHeaderField(HTTPHeaderName::ContentRange, ParsedContentRange(*m_range->start, *m_range->end, m_totalSize).headerValue());
 
     // FIXME: If a resource identified with a blob: URL is a File object, user agents must use that file's name attribute,
     // as if the response had a Content-Disposition header with the filename parameter set to the File's name attribute.
     // Notably, this will affect a name suggested in "File Save As".
 
     didReceiveResponse(WTFMove(response), NegotiatedLegacyTLS::No, PrivateRelayed::No, std::nullopt, [this, protectedThis = Ref { *this }](PolicyAction policyAction) {
-        LOG(NetworkSession, "%p - NetworkDataTaskBlob::didReceiveResponse completionHandler (%u)", this, static_cast<unsigned>(policyAction));
+        LOG(NetworkSession, "%p - NetworkDataTaskBlob::didReceiveResponse completionHandler (%s)", this, toString(policyAction).characters());
 
         if (m_state == State::Canceling || m_state == State::Completed) {
             clearStream();
@@ -307,35 +275,35 @@ void NetworkDataTaskBlob::read()
 {
     ASSERT(RunLoop::isMain());
 
-    // If there is no more remaining data to read, we are done.
-    if (!m_totalRemainingSize || m_readItemCount >= m_blobData->items().size()) {
-        didFinish();
-        return;
+    while (m_totalRemainingSize && m_readItemCount < m_blobData->items().size()) {
+        const BlobDataItem& item = m_blobData->items().at(m_readItemCount);
+        switch (item.type()) {
+        case BlobDataItem::Type::Data:
+            if (!readData(item))
+                return; // error occurred
+            break;
+        case BlobDataItem::Type::File:
+            readFile(item);
+            return;
+        }
     }
-
-    const BlobDataItem& item = m_blobData->items().at(m_readItemCount);
-    if (item.type() == BlobDataItem::Type::Data)
-        readData(item);
-    else if (item.type() == BlobDataItem::Type::File)
-        readFile(item);
-    else
-        ASSERT_NOT_REACHED();
+    didFinish();
 }
 
-void NetworkDataTaskBlob::readData(const BlobDataItem& item)
+bool NetworkDataTaskBlob::readData(const BlobDataItem& item)
 {
     ASSERT(item.data());
 
-    long long bytesToRead = item.length() - m_currentItemReadSize;
-    ASSERT(bytesToRead >= 0);
+    ASSERT(m_currentItemReadSize <= static_cast<uint64_t>(item.length()));
+    uint64_t bytesToRead = item.length() - m_currentItemReadSize;
     if (bytesToRead > m_totalRemainingSize)
         bytesToRead = m_totalRemainingSize;
 
     RefPtr data = item.data();
-    auto dataSpan = data->span().subspan(item.offset() + m_currentItemReadSize, static_cast<size_t>(bytesToRead));
+    auto dataSpan = data->span().subspan(item.offset() + m_currentItemReadSize, static_cast<uint64_t>(bytesToRead));
     m_currentItemReadSize = 0;
 
-    consumeData(dataSpan);
+    return consumeData(dataSpan);
 }
 
 void NetworkDataTaskBlob::readFile(const BlobDataItem& item)
@@ -347,7 +315,7 @@ void NetworkDataTaskBlob::readFile(const BlobDataItem& item)
         return;
     }
 
-    long long bytesToRead = m_itemLengthList[m_readItemCount] - m_currentItemReadSize;
+    uint64_t bytesToRead = m_itemLengthList[m_readItemCount] - m_currentItemReadSize;
     if (bytesToRead > m_totalRemainingSize)
         bytesToRead = static_cast<int>(m_totalRemainingSize);
     m_stream->openForRead(item.protectedFile()->path(), item.offset() + m_currentItemReadSize, bytesToRead);
@@ -384,17 +352,18 @@ void NetworkDataTaskBlob::didRead(int bytesRead)
     }
 
     Ref<NetworkDataTaskBlob> protectedThis(*this);
-    consumeData(m_buffer.subspan(0, bytesRead));
+    if (consumeData(m_buffer.subspan(0, bytesRead)))
+        read();
 }
 
-void NetworkDataTaskBlob::consumeData(std::span<const uint8_t> data)
+bool NetworkDataTaskBlob::consumeData(std::span<const uint8_t> data)
 {
     m_totalRemainingSize -= data.size();
 
     if (!data.empty()) {
-        if (m_downloadFile != FileSystem::invalidPlatformFileHandle) {
+        if (m_downloadFile) {
             if (!writeDownload(data))
-                return;
+                return false;
         } else {
             ASSERT(m_client);
             protectedClient()->didReceiveData(SharedBuffer::create(data));
@@ -416,7 +385,7 @@ void NetworkDataTaskBlob::consumeData(std::span<const uint8_t> data)
         m_readItemCount++;
     }
 
-    read();
+    return true;
 }
 
 void NetworkDataTaskBlob::setPendingDownloadLocation(const String& filename, SandboxExtension::Handle&& sandboxExtensionHandle, bool allowOverwrite)
@@ -446,14 +415,14 @@ void NetworkDataTaskBlob::download()
     LOG(NetworkSession, "%p - NetworkDataTaskBlob::download to %s", this, m_pendingDownloadLocation.utf8().data());
 
     m_downloadFile = FileSystem::openFile(m_pendingDownloadLocation, FileSystem::FileOpenMode::Truncate);
-    if (m_downloadFile == FileSystem::invalidPlatformFileHandle) {
+    if (!m_downloadFile) {
         didFailDownload(cancelledError(m_firstRequest));
         return;
     }
 
-    auto& downloadManager = m_networkProcess->downloadManager();
-    Ref download = Download::create(downloadManager, *m_pendingDownloadID, *this, *m_session, suggestedFilename());
-    downloadManager.dataTaskBecameDownloadTask(*m_pendingDownloadID, download.copyRef());
+    CheckedRef downloadManager = m_networkProcess->downloadManager();
+    Ref download = Download::create(downloadManager, *m_pendingDownloadID, *this, *checkedNetworkSession(), suggestedFilename());
+    downloadManager->dataTaskBecameDownloadTask(*m_pendingDownloadID, download.copyRef());
     download->didCreateDestination(m_pendingDownloadLocation);
 
     ASSERT(!m_client);
@@ -465,25 +434,22 @@ void NetworkDataTaskBlob::download()
 bool NetworkDataTaskBlob::writeDownload(std::span<const uint8_t> data)
 {
     ASSERT(isDownload());
-    int bytesWritten = FileSystem::writeToFile(m_downloadFile, data);
-    if (static_cast<size_t>(bytesWritten) != data.size()) {
+    auto bytesWritten = m_downloadFile.write(data);
+    if (bytesWritten != data.size()) {
         didFailDownload(cancelledError(m_firstRequest));
         return false;
     }
 
-    m_downloadBytesWritten += bytesWritten;
-    RefPtr download = m_networkProcess->downloadManager().download(*m_pendingDownloadID);
+    m_downloadBytesWritten += *bytesWritten;
+    RefPtr download = m_networkProcess->checkedDownloadManager()->download(*m_pendingDownloadID);
     ASSERT(download);
-    download->didReceiveData(bytesWritten, m_downloadBytesWritten, m_totalSize);
+    download->didReceiveData(*bytesWritten, m_downloadBytesWritten, m_totalSize);
     return true;
 }
 
 void NetworkDataTaskBlob::cleanDownloadFiles()
 {
-    if (m_downloadFile != FileSystem::invalidPlatformFileHandle) {
-        FileSystem::closeFile(m_downloadFile);
-        m_downloadFile = FileSystem::invalidPlatformFileHandle;
-    }
+    m_downloadFile = { };
     FileSystem::deleteFile(m_pendingDownloadLocation);
 }
 
@@ -500,7 +466,7 @@ void NetworkDataTaskBlob::didFailDownload(const ResourceError& error)
     if (RefPtr client = m_client.get())
         client->didCompleteWithError(error);
     else {
-        RefPtr download = m_networkProcess->downloadManager().download(*m_pendingDownloadID);
+        RefPtr download = m_networkProcess->checkedDownloadManager()->download(*m_pendingDownloadID);
         ASSERT(download);
         download->didFail(error, { });
     }
@@ -511,8 +477,7 @@ void NetworkDataTaskBlob::didFinishDownload()
     LOG(NetworkSession, "%p - NetworkDataTaskBlob::didFinishDownload", this);
 
     ASSERT(isDownload());
-    FileSystem::closeFile(m_downloadFile);
-    m_downloadFile = FileSystem::invalidPlatformFileHandle;
+    m_downloadFile = { };
 
 #if !HAVE(MODERN_DOWNLOADPROGRESS)
     if (RefPtr extension = std::exchange(m_sandboxExtension, nullptr))
@@ -520,7 +485,7 @@ void NetworkDataTaskBlob::didFinishDownload()
 #endif
 
     clearStream();
-    RefPtr download = m_networkProcess->downloadManager().download(*m_pendingDownloadID);
+    RefPtr download = m_networkProcess->checkedDownloadManager()->download(*m_pendingDownloadID);
     ASSERT(download);
 
 #if HAVE(MODERN_DOWNLOADPROGRESS)
@@ -550,7 +515,7 @@ void NetworkDataTaskBlob::didFail(Error errorCode)
 
 void NetworkDataTaskBlob::didFinish()
 {
-    if (m_downloadFile != FileSystem::invalidPlatformFileHandle) {
+    if (m_downloadFile) {
         didFinishDownload();
         return;
     }

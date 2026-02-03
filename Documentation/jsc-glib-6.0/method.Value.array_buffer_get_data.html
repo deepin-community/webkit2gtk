@@ -62,7 +62,7 @@ SPDX-License-Identifier: BSD, LGPL-2.1
         <h3><a href="index.html">JavaScriptCore</a></h3>
         <p>API Version: 6.0</p>
         
-        <p>Library Version: 2.48.5</p>
+        <p>Library Version: 2.50.4</p>
         
       </div>
       
@@ -256,14 +256,14 @@ in asynchronous&nbsp;code.</p>
             <p><em>Type:</em>&nbsp;<code>gsize*</code></p>
             <p>Location where to store the size of the memory&nbsp;region.</p>
             <table>
+            <tr><td title="direction: out">The argument will be set by the function.</td></tr>
+            
             
             <tr><td>The argument can be <code>NULL</code>.</td></tr>
             
             
             
             
-            
-            <tr><td title="transfer: none">The data is owned by the caller of the method.</td></tr>
             
             </table>
           </dd>
@@ -285,16 +285,16 @@ in asynchronous&nbsp;code.</p>
       <div class="docblock">
         <div class="returns">
           <div class="arg-description">
-            <p><em>Type:</em>&nbsp;<code>gpointer</code></p>
-            <p>Pointer to&nbsp;memory.</p>
+            <p><em>Type:</em>&nbsp;An array of&nbsp;<code>guint8</code></p>
+            <p>pointer to&nbsp;memory.</p>
           </div>
           <div>
             <table>
             
             
+            <tr><td>The length of the array is in the <code>size</code> argument.</td></tr>
             
-            <tr><td title="transfer: none">The returned data is owned by the instance.</td></tr>
-            <tr><td>The return value can be <code>NULL</code>.</td></tr>
+            
             
             </table>
           </div>

@@ -62,7 +62,7 @@ SPDX-License-Identifier: BSD, LGPL-2.1
         <h3><a href="index.html">WebKit</a></h3>
         <p>API Version: 6.0</p>
         
-        <p>Library Version: 2.48.5</p>
+        <p>Library Version: 2.50.4</p>
         
       </div>
       
@@ -104,6 +104,36 @@ Defines a comma-separated list of logging channels and their levels for WebKit&#
 </ul>
 </li>
 </ul>
+<h2 id="graphics-related-variables">Graphics-related variables<a class="md-anchor" href="#graphics-related-variables" title="Permanent link"></a></h2>
+<ul>
+<li>
+<p><code>WEBKIT_SKIA_CPU_PAINTING_THREADS</code>:
+Specifies the amount of <span class="caps">CPU</span> worker threads to use for multi-threaded tile rendering using Skia.
+By default we use as much <span class="caps">CPU</span> worker threads as the amount of <span class="caps">CPU</span> cores in the system divided by two, capped at eight.
+Example: <code>2</code></p>
+</li>
+<li>
+<p><code>WEBKIT_SKIA_GPU_PAINTING_THREADS</code>:
+Specifies the amount of <span class="caps">GPU</span> worker threads to use for multi-threaded tile rendering using Skia.
+By default we use two <span class="caps">GPU</span> worker threads if the number of <span class="caps">CPU</span> cores in the system exceeds 3,
+otherwise we a single <span class="caps">GPU</span> worker thread.
+Example: <code>0</code> (don&#8217;t use <span class="caps">GPU</span> for tile&nbsp;rendering)</p>
+</li>
+<li>
+<p><code>WEBKIT_SKIA_ENABLE_CPU_RENDERING</code>:
+Disallow the use of <span class="caps">GPU</span> for rendering purposes. If only setting <code>WEBKIT_SKIA_GPU_PAINTING_THREADS=0</code>,
+the <span class="caps">GPU</span> may still be used for e.g. accelerated filters (anything using accelerated ImageBuffers),
+even though the tile painting is performed using the <span class="caps">CPU</span> only.
+Example: <code>1</code></p>
+</li>
+<li>
+<p><code>WEBKIT_SKIA_USE_LINEAR_TILE_TEXTURES</code>:
+Force using a linear texture format for the tile textures &#8212; this allows to bypass OpenGL for texture updates,
+directly modifying dma-buf contents. This might degrade performance, depending on the capabilities of the <span class="caps">GPU</span>
+and display controller &#8212; use with care. However, if supported by the <span class="caps">GPU</span>/<span class="caps">IPU</span> combination, it can reduce the
+kernel load, reduce staging copies in Mesa, etc. Currently some devices out of the i.<span class="caps">MX8</span> line might&nbsp;benefit.</p>
+</li>
+</ul>
 <h2 id="remote-web-inspector-variables">Remote Web Inspector Variables<a class="md-anchor" href="#remote-web-inspector-variables" title="Permanent link"></a></h2>
 <ul>
 <li><code>WEBKIT_INSPECTOR_SERVER</code>: The address and port in <code>ip:port</code> format (e.g.
@@ -125,6 +155,8 @@ Defines a comma-separated list of logging channels and their levels for WebKit&#
       
         
         <li class="toc-list-item"><a href="#debugging-variables"><span class="link-text">Debugging Variables</span></a></li>
+        
+        <li class="toc-list-item"><a href="#graphics-related-variables"><span class="link-text">Graphics-related variables</span></a></li>
         
         <li class="toc-list-item"><a href="#remote-web-inspector-variables"><span class="link-text">Remote Web Inspector Variables</span></a></li>
         

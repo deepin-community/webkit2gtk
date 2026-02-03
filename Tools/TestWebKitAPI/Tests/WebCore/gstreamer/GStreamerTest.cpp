@@ -31,6 +31,10 @@
 
 #include <WebCore/GStreamerCodecUtilities.h>
 #include <WebCore/GStreamerCommon.h>
+#include <WebCore/GUniquePtrGStreamer.h>
+#include <WebCore/IntSize.h>
+#include <WebCore/PlatformVideoColorSpace.h>
+#include <wtf/URL.h>
 #include <wtf/text/MakeString.h>
 
 using namespace WebCore;
@@ -83,6 +87,14 @@ TEST_F(GStreamerTest, gstStructureGetters)
     ASSERT_TRUE(gst_structure_is_equal(structArray.at(0), s1.get()));
     ASSERT_TRUE(gst_structure_is_equal(structArray.at(1), s2.get()));
     ASSERT_EQ(structArray.size(), 2);
+
+    GUniquePtr<GstStructure> lists(gst_structure_new_from_string("bar, empty-list=(GstStructure) {}, struct-list=(GstStructure) {[s1, a=2], [s2, b=3]}"_s));
+    ASSERT_TRUE(gstStructureGetList<const GstStructure*>(lists.get(), "empty-list"_s).isEmpty());
+
+    Vector<const GstStructure*> structList(gstStructureGetList<const GstStructure*>(lists.get(), "struct-list"_s));
+    ASSERT_TRUE(gst_structure_is_equal(structList.at(0), s1.get()));
+    ASSERT_TRUE(gst_structure_is_equal(structList.at(1), s2.get()));
+    ASSERT_EQ(structList.size(), 2);
 }
 
 TEST_F(GStreamerTest, gstStructureJSONSerializing)
@@ -151,7 +163,7 @@ TEST_F(GStreamerTest, capsFromCodecString)
     using namespace GStreamerCodecUtilities;
 
 #define TEST_CAPS_FROM_CODEC(codecString, expectedInputFormat, expectedOutputCaps) G_STMT_START { \
-        auto [input, output] = capsFromCodecString(codecString);        \
+        auto [input, output] = capsFromCodecString(codecString, { });   \
         auto inputStructure = gst_caps_get_structure(input.get(), 0);   \
         const char* inputFormat = gst_structure_get_string(inputStructure, "format"); \
         ASSERT_STREQ(inputFormat, expectedInputFormat);                 \
@@ -160,7 +172,7 @@ TEST_F(GStreamerTest, capsFromCodecString)
     } G_STMT_END
 
 #define TEST_CAPS_FROM_CODEC_FULL(codecString, expectedInputCaps, expectedOutputCaps) G_STMT_START { \
-        auto [input, output] = capsFromCodecString(codecString);        \
+        auto [input, output] = capsFromCodecString(codecString, { });   \
         GUniquePtr<char> inputCaps(gst_caps_to_string(input.get()));    \
         ASSERT_STREQ(inputCaps.get(), expectedInputCaps);               \
         GUniquePtr<char> outputCaps(gst_caps_to_string(output.get()));  \
@@ -189,28 +201,160 @@ TEST_F(GStreamerTest, capsFromCodecString)
     TEST_CAPS_FROM_CODEC("av01.0.00M.10.0.112"_s, "I420_10LE", "video/x-av1, profile=(string)main, bit-depth-luma=(uint)10, bit-depth-chroma=(uint)10, chroma-format=(string)4:2:0");
 
     // AV1 colorimetry.
-    TEST_CAPS_FROM_CODEC_FULL("av01.0.00M.10.0.110.01"_s, "video/x-raw, format=(string)I420_10LE, interlace-mode=(string)progressive, pixel-aspect-ratio=(fraction)1/1, chroma-site=(string)jpeg, colorimetry=(string)bt709", "video/x-av1, profile=(string)main, bit-depth-luma=(uint)10, bit-depth-chroma=(uint)10, chroma-format=(string)4:2:0");
-    TEST_CAPS_FROM_CODEC_FULL("av01.0.00M.10.0.110.09"_s, "video/x-raw, format=(string)I420_10LE, interlace-mode=(string)progressive, pixel-aspect-ratio=(fraction)1/1, chroma-site=(string)jpeg, colorimetry=(string)2:3:5:7", "video/x-av1, profile=(string)main, bit-depth-luma=(uint)10, bit-depth-chroma=(uint)10, chroma-format=(string)4:2:0");
+    TEST_CAPS_FROM_CODEC_FULL("av01.0.00M.10.0.110.01"_s, "video/x-raw, format=(string)I420_10LE, interlace-mode=(string)progressive, pixel-aspect-ratio=(fraction)1/1, colorimetry=(string)bt709", "video/x-av1, profile=(string)main, bit-depth-luma=(uint)10, bit-depth-chroma=(uint)10, chroma-format=(string)4:2:0");
+    TEST_CAPS_FROM_CODEC_FULL("av01.0.00M.10.0.110.09"_s, "video/x-raw, format=(string)I420_10LE, interlace-mode=(string)progressive, pixel-aspect-ratio=(fraction)1/1, colorimetry=(string)2:3:5:7", "video/x-av1, profile=(string)main, bit-depth-luma=(uint)10, bit-depth-chroma=(uint)10, chroma-format=(string)4:2:0");
 
     // AV1 bt709 transfer characteristics.
-    TEST_CAPS_FROM_CODEC_FULL("av01.0.00M.10.0.110.01.01"_s, "video/x-raw, format=(string)I420_10LE, interlace-mode=(string)progressive, pixel-aspect-ratio=(fraction)1/1, chroma-site=(string)jpeg, colorimetry=(string)bt709", "video/x-av1, profile=(string)main, bit-depth-luma=(uint)10, bit-depth-chroma=(uint)10, chroma-format=(string)4:2:0");
-    TEST_CAPS_FROM_CODEC_FULL("av01.0.00M.10.0.110.01.04"_s, "video/x-raw, format=(string)I420_10LE, interlace-mode=(string)progressive, pixel-aspect-ratio=(fraction)1/1, chroma-site=(string)jpeg, colorimetry=(string)bt709", "video/x-av1, profile=(string)main, bit-depth-luma=(uint)10, bit-depth-chroma=(uint)10, chroma-format=(string)4:2:0");
+    TEST_CAPS_FROM_CODEC_FULL("av01.0.00M.10.0.110.01.01"_s, "video/x-raw, format=(string)I420_10LE, interlace-mode=(string)progressive, pixel-aspect-ratio=(fraction)1/1, colorimetry=(string)bt709", "video/x-av1, profile=(string)main, bit-depth-luma=(uint)10, bit-depth-chroma=(uint)10, chroma-format=(string)4:2:0");
+    TEST_CAPS_FROM_CODEC_FULL("av01.0.00M.10.0.110.01.04"_s, "video/x-raw, format=(string)I420_10LE, interlace-mode=(string)progressive, pixel-aspect-ratio=(fraction)1/1, colorimetry=(string)bt709", "video/x-av1, profile=(string)main, bit-depth-luma=(uint)10, bit-depth-chroma=(uint)10, chroma-format=(string)4:2:0");
 
     // AV1 custom transfer characteristics.
-    TEST_CAPS_FROM_CODEC_FULL("av01.0.00M.10.0.110.01.06"_s, "video/x-raw, format=(string)I420_10LE, interlace-mode=(string)progressive, pixel-aspect-ratio=(fraction)1/1, chroma-site=(string)jpeg, colorimetry=(string)2:3:16:1", "video/x-av1, profile=(string)main, bit-depth-luma=(uint)10, bit-depth-chroma=(uint)10, chroma-format=(string)4:2:0");
-    TEST_CAPS_FROM_CODEC_FULL("av01.0.00M.10.0.110.01.13"_s, "video/x-raw, format=(string)I420_10LE, interlace-mode=(string)progressive, pixel-aspect-ratio=(fraction)1/1, chroma-site=(string)jpeg, colorimetry=(string)2:3:0:1", "video/x-av1, profile=(string)main, bit-depth-luma=(uint)10, bit-depth-chroma=(uint)10, chroma-format=(string)4:2:0");
-    TEST_CAPS_FROM_CODEC_FULL("av01.0.00M.10.0.110.01.14"_s, "video/x-raw, format=(string)I420_10LE, interlace-mode=(string)progressive, pixel-aspect-ratio=(fraction)1/1, chroma-site=(string)jpeg, colorimetry=(string)2:3:13:1", "video/x-av1, profile=(string)main, bit-depth-luma=(uint)10, bit-depth-chroma=(uint)10, chroma-format=(string)4:2:0");
-    TEST_CAPS_FROM_CODEC_FULL("av01.0.00M.10.0.110.01.15"_s, "video/x-raw, format=(string)I420_10LE, interlace-mode=(string)progressive, pixel-aspect-ratio=(fraction)1/1, chroma-site=(string)jpeg, colorimetry=(string)2:3:11:1", "video/x-av1, profile=(string)main, bit-depth-luma=(uint)10, bit-depth-chroma=(uint)10, chroma-format=(string)4:2:0");
-    TEST_CAPS_FROM_CODEC_FULL("av01.0.00M.10.0.110.01.16"_s, "video/x-raw, format=(string)I420_10LE, interlace-mode=(string)progressive, pixel-aspect-ratio=(fraction)1/1, chroma-site=(string)jpeg, colorimetry=(string)2:3:14:1", "video/x-av1, profile=(string)main, bit-depth-luma=(uint)10, bit-depth-chroma=(uint)10, chroma-format=(string)4:2:0");
+    TEST_CAPS_FROM_CODEC_FULL("av01.0.00M.10.0.110.01.06"_s, "video/x-raw, format=(string)I420_10LE, interlace-mode=(string)progressive, pixel-aspect-ratio=(fraction)1/1, colorimetry=(string)2:3:16:1", "video/x-av1, profile=(string)main, bit-depth-luma=(uint)10, bit-depth-chroma=(uint)10, chroma-format=(string)4:2:0");
+    TEST_CAPS_FROM_CODEC_FULL("av01.0.00M.10.0.110.01.13"_s, "video/x-raw, format=(string)I420_10LE, interlace-mode=(string)progressive, pixel-aspect-ratio=(fraction)1/1, colorimetry=(string)2:3:0:1", "video/x-av1, profile=(string)main, bit-depth-luma=(uint)10, bit-depth-chroma=(uint)10, chroma-format=(string)4:2:0");
+    TEST_CAPS_FROM_CODEC_FULL("av01.0.00M.10.0.110.01.14"_s, "video/x-raw, format=(string)I420_10LE, interlace-mode=(string)progressive, pixel-aspect-ratio=(fraction)1/1, colorimetry=(string)2:3:13:1", "video/x-av1, profile=(string)main, bit-depth-luma=(uint)10, bit-depth-chroma=(uint)10, chroma-format=(string)4:2:0");
+    TEST_CAPS_FROM_CODEC_FULL("av01.0.00M.10.0.110.01.15"_s, "video/x-raw, format=(string)I420_10LE, interlace-mode=(string)progressive, pixel-aspect-ratio=(fraction)1/1, colorimetry=(string)2:3:11:1", "video/x-av1, profile=(string)main, bit-depth-luma=(uint)10, bit-depth-chroma=(uint)10, chroma-format=(string)4:2:0");
+    TEST_CAPS_FROM_CODEC_FULL("av01.0.00M.10.0.110.01.16"_s, "video/x-raw, format=(string)I420_10LE, interlace-mode=(string)progressive, pixel-aspect-ratio=(fraction)1/1, colorimetry=(string)2:3:14:1", "video/x-av1, profile=(string)main, bit-depth-luma=(uint)10, bit-depth-chroma=(uint)10, chroma-format=(string)4:2:0");
 
     // AV1 video full range flag.
-    TEST_CAPS_FROM_CODEC_FULL("av01.0.00M.10.0.110.01.01.00.0"_s, "video/x-raw, format=(string)I420_10LE, interlace-mode=(string)progressive, pixel-aspect-ratio=(fraction)1/1, chroma-site=(string)jpeg, colorimetry=(string)2:1:5:1", "video/x-av1, profile=(string)main, bit-depth-luma=(uint)10, bit-depth-chroma=(uint)10, chroma-format=(string)4:2:0");
-    TEST_CAPS_FROM_CODEC_FULL("av01.0.00M.10.0.110.01.01.00.1"_s, "video/x-raw, format=(string)I420_10LE, interlace-mode=(string)progressive, pixel-aspect-ratio=(fraction)1/1, chroma-site=(string)jpeg, colorimetry=(string)1:1:5:1", "video/x-av1, profile=(string)main, bit-depth-luma=(uint)10, bit-depth-chroma=(uint)10, chroma-format=(string)4:2:0");
+    TEST_CAPS_FROM_CODEC_FULL("av01.0.00M.10.0.110.01.01.00.0"_s, "video/x-raw, format=(string)I420_10LE, interlace-mode=(string)progressive, pixel-aspect-ratio=(fraction)1/1, colorimetry=(string)2:1:5:1", "video/x-av1, profile=(string)main, bit-depth-luma=(uint)10, bit-depth-chroma=(uint)10, chroma-format=(string)4:2:0");
+    TEST_CAPS_FROM_CODEC_FULL("av01.0.00M.10.0.110.01.01.00.1"_s, "video/x-raw, format=(string)I420_10LE, interlace-mode=(string)progressive, pixel-aspect-ratio=(fraction)1/1, colorimetry=(string)1:1:5:1", "video/x-av1, profile=(string)main, bit-depth-luma=(uint)10, bit-depth-chroma=(uint)10, chroma-format=(string)4:2:0");
 
 #undef TEST_CAPS_FROM_CODEC
 #undef TEST_CAPS_FROM_CODEC_FULL
 }
 
+TEST_F(GStreamerTest, displayAspectRatioCalculation)
+{
+#define TEST_DAR_CALCULATION(videoWidth, videoHeight, parN, parD, displayWidth, displayHeight) G_STMT_START { \
+        auto caps = adoptGRef(gst_caps_new_simple("video/x-raw", "width", G_TYPE_INT, videoWidth, "height", G_TYPE_INT, videoHeight, "pixel-aspect-ratio", GST_TYPE_FRACTION, parN, parD, nullptr)); \
+        \
+        IntSize size; \
+        GstVideoFormat format = GST_VIDEO_FORMAT_UNKNOWN; \
+        int outParN = 0, outParD = 0, stride = 0; \
+        double frameRate = 0.0; \
+        PlatformVideoColorSpace colorSpace { }; \
+        \
+        bool ok = getVideoSizeAndFormatFromCaps(caps.get(), size, format, outParN, outParD, stride, frameRate, colorSpace); \
+        \
+        ASSERT_TRUE(ok); \
+        EXPECT_EQ(size.width(), videoWidth); \
+        EXPECT_EQ(size.height(), videoHeight); \
+        EXPECT_EQ(outParN, parN); \
+        EXPECT_EQ(outParD, parD); \
+        \
+        auto computedSize = getDisplaySize(size, outParN, outParD); \
+        \
+        ASSERT_TRUE(computedSize.has_value()); \
+        EXPECT_EQ(computedSize.value().width(), displayWidth); \
+        EXPECT_EQ(computedSize.value().height(), displayHeight); \
+    } G_STMT_END
+
+    TEST_DAR_CALCULATION(1280, 720, 1, 1, 1280, 720); // Square pixels 720p
+    TEST_DAR_CALCULATION(720, 576, 16, 15, 768, 576); // PAL 4:3
+    TEST_DAR_CALCULATION(352, 288, 12, 11, 384, 288); // CIF 352x288 (≈4:3)
+    TEST_DAR_CALCULATION(1920, 1080, 4, 3, 2560, 1080); // Anamorphic HD (64:27)
+    TEST_DAR_CALCULATION(720, 480, 10, 11, 720, 528); // NTSC 4:3 (PAR 10:11)
+    TEST_DAR_CALCULATION(1280, 720, 4, 3, 1280, 540); // 720p non-square pixels (64:27)
+    TEST_DAR_CALCULATION(720, 480, 32, 27, 720, 405); // NTSC widescreen 16:9
+    TEST_DAR_CALCULATION(720, 480, 8, 9, 640, 480); // NTSC 4:3
+    TEST_DAR_CALCULATION(1440, 1080, 4, 3, 1920, 1080); // HDV 1440x1080 anamorphic (16:9)
+    TEST_DAR_CALCULATION(1024, 576, 11, 10, 1126, 576); // 1024x576 custom PAR (≈88:45)
+    TEST_DAR_CALCULATION(330, 196, 7201628, 7170075, 331, 196); // 330x196 custom PAR (value too high)
+
+#undef TEST_DAR_CALCULATION
+}
+
+TEST_F(GStreamerTest, protocolValidation)
+{
+    // Test protocols allowed by default
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "https://example.com/video.mp4"_s }));
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "file:///path/to/video.mp4"_s }));
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "http://example.com/video.mp4"_s }));
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "blob:https://example.com/uuid"_s }));
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "data:video/mp4;base64,data"_s }));
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "mediasourceblob://source-id"_s }));
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "mediastream://stream-id"_s }));
+
+    // Test allowed protocols: mix of lower and upper-case
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "Https://example.com/video.mp4"_s }));
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "fILe:///path/to/video.mp4"_s }));
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "HTTP://example.com/video.mp4"_s }));
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "bloB:https://example.com/uuid"_s }));
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "DAta:video/mp4;base64,data"_s }));
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "mediasourceBLOB://source-id"_s }));
+
+    // Test forbidden protocols
+    ASSERT_FALSE(isProtocolAllowed(WTF::URL { "ftp://example.com/video.mp4"_s }));
+    ASSERT_FALSE(isProtocolAllowed(WTF::URL { "rtsp://example.com/stream"_s }));
+    ASSERT_FALSE(isProtocolAllowed(WTF::URL { "about:blank"_s }));
+    ASSERT_FALSE(isProtocolAllowed(WTF::URL { "mediasource://source-id"_s }));
+
+    // Allow ftp protocol
+    g_setenv("WEBKIT_GST_ALLOWED_URI_PROTOCOLS", "ftp", TRUE);
+
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "https://example.com/video.mp4"_s }));
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "file:///path/to/video.mp4"_s }));
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "http://example.com/video.mp4"_s }));
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "blob:https://example.com/uuid"_s }));
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "data:video/mp4;base64,data"_s }));
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "mediasourceblob://source-id"_s }));
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "mediastream://stream-id"_s }));
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "ftp://example.com/video.mp4"_s }));
+    ASSERT_FALSE(isProtocolAllowed(WTF::URL { "rtsp://example.com/stream"_s }));
+    ASSERT_FALSE(isProtocolAllowed(WTF::URL { "about:blank"_s }));
+
+    // Allow rtsp protocol
+    g_setenv("WEBKIT_GST_ALLOWED_URI_PROTOCOLS", "rtsp", TRUE);
+
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "https://example.com/video.mp4"_s }));
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "file:///path/to/video.mp4"_s }));
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "http://example.com/video.mp4"_s }));
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "blob:https://example.com/uuid"_s }));
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "data:video/mp4;base64,data"_s }));
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "mediasourceblob://source-id"_s }));
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "mediastream://stream-id"_s }));
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "rtsp://example.com/stream"_s }));
+    ASSERT_FALSE(isProtocolAllowed(WTF::URL { "ftp://example.com/video.mp4"_s }));
+    ASSERT_FALSE(isProtocolAllowed(WTF::URL { "about:blank"_s }));
+
+    // Allow ftp and rtsp protocols
+    g_setenv("WEBKIT_GST_ALLOWED_URI_PROTOCOLS", "rtsp,ftp", TRUE);
+
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "https://example.com/video.mp4"_s }));
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "file:///path/to/video.mp4"_s }));
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "http://example.com/video.mp4"_s }));
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "blob:https://example.com/uuid"_s }));
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "data:video/mp4;base64,data"_s }));
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "mediasourceblob://source-id"_s }));
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "mediastream://stream-id"_s }));
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "rtsp://example.com/stream"_s }));
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "ftp://example.com/video.mp4"_s }));
+    ASSERT_FALSE(isProtocolAllowed(WTF::URL { "about:blank"_s }));
+
+    g_unsetenv("WEBKIT_GST_ALLOWED_URI_PROTOCOLS");
+}
+
+TEST_F(GStreamerTest, protocolValidationEnvironmentVariable)
+{
+    // Introduce typos in the environment variable
+    g_setenv("WEBKIT_GST_ALLOWED_URI_PROTOCOLS", "rtsp;ftp", TRUE);
+    ASSERT_FALSE(isProtocolAllowed(WTF::URL { "rtsp://example.com/stream"_s }));
+    ASSERT_FALSE(isProtocolAllowed(WTF::URL { "ftp://example.com/video.mp4"_s }));
+
+    g_setenv("WEBKIT_GST_ALLOWED_URI_PROTOCOLS", "rtsp,   ftp   ", TRUE);
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "rtsp://example.com/stream"_s }));
+    ASSERT_TRUE(isProtocolAllowed(WTF::URL { "ftp://example.com/video.mp4"_s }));
+
+    g_setenv("WEBKIT_GST_ALLOWED_URI_PROTOCOLS", "rtsp:ftp", TRUE);
+    ASSERT_FALSE(isProtocolAllowed(WTF::URL { "rtsp://example.com/stream"_s }));
+    ASSERT_FALSE(isProtocolAllowed(WTF::URL { "ftp://example.com/video.mp4"_s }));
+
+    g_setenv("WEBKIT_GST_ALLOWED_URI_PROTOCOLS", "-rtsp-ftp", TRUE);
+    ASSERT_FALSE(isProtocolAllowed(WTF::URL { "rtsp://example.com/stream"_s }));
+    ASSERT_FALSE(isProtocolAllowed(WTF::URL { "ftp://example.com/video.mp4"_s }));
+
+    g_unsetenv("WEBKIT_GST_ALLOWED_URI_PROTOCOLS");
+}
 } // namespace TestWebKitAPI
 
 #endif // USE(GSTREAMER)

@@ -123,7 +123,12 @@ private:
 
     bool allowsFileAccess() const
     {
+#if PLATFORM(COCOA)
         return !forDrag() || forFileDrag();
+#else
+        // Check https://webkit.org/b/271957 before allowing file access for your port.
+        return false;
+#endif
     }
 
 #if ENABLE(DRAG_SUPPORT)
@@ -144,7 +149,7 @@ private:
     String m_originIdentifier;
     StoreMode m_storeMode;
     std::unique_ptr<Pasteboard> m_pasteboard;
-    std::unique_ptr<DataTransferItemList> m_itemList;
+    const std::unique_ptr<DataTransferItemList> m_itemList;
 
     mutable RefPtr<FileList> m_fileList;
 

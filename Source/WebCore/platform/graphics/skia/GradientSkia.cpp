@@ -42,7 +42,6 @@ namespace WebCore {
 
 void Gradient::stopsChanged()
 {
-    m_shader = { };
 }
 
 inline SkScalar webCoreDoubleToSkScalar(double d)
@@ -79,6 +78,18 @@ static SkGradientShader::Interpolation toSkiaInterpolation(const ColorInterpolat
         [&] (const ColorInterpolationMethod::SRGBLinear&) {
             interpolation.fColorSpace = SkGradientShader::Interpolation::ColorSpace::kSRGBLinear;
         },
+        [&] (const ColorInterpolationMethod::DisplayP3&) {
+            interpolation.fColorSpace = SkGradientShader::Interpolation::ColorSpace::kDisplayP3;
+        },
+        [&] (const ColorInterpolationMethod::A98RGB&) {
+            interpolation.fColorSpace = SkGradientShader::Interpolation::ColorSpace::kA98RGB;
+        },
+        [&] (const ColorInterpolationMethod::ProPhotoRGB&) {
+            interpolation.fColorSpace = SkGradientShader::Interpolation::ColorSpace::kProphotoRGB;
+        },
+        [&] (const ColorInterpolationMethod::Rec2020&) {
+            interpolation.fColorSpace = SkGradientShader::Interpolation::ColorSpace::kRec2020;
+        },
         [&] (const ColorInterpolationMethod::XYZD50&) {
             interpolation.fColorSpace = SkGradientShader::Interpolation::ColorSpace::kSRGBLinear;
         },
@@ -88,6 +99,27 @@ static SkGradientShader::Interpolation toSkiaInterpolation(const ColorInterpolat
         [&] (const auto&) {
             // FIXME: Support other color spaces once skia has support for them.
         });
+
+    WTF::switchOn(method.colorSpace,
+        [&]<typename ColorSpace> (const ColorSpace& colorSpace) {
+            if constexpr (hasHueInterpolationMethod<ColorSpace>) {
+                switch (colorSpace.hueInterpolationMethod) {
+                case HueInterpolationMethod::Shorter:
+                    interpolation.fHueMethod = SkGradientShader::Interpolation::HueMethod::kShorter;
+                    break;
+                case HueInterpolationMethod::Longer:
+                    interpolation.fHueMethod = SkGradientShader::Interpolation::HueMethod::kLonger;
+                    break;
+                case HueInterpolationMethod::Increasing:
+                    interpolation.fHueMethod = SkGradientShader::Interpolation::HueMethod::kIncreasing;
+                    break;
+                case HueInterpolationMethod::Decreasing:
+                    interpolation.fHueMethod = SkGradientShader::Interpolation::HueMethod::kDecreasing;
+                    break;
+                }
+            }
+        }
+    );
 
     switch (method.alphaPremultiplication) {
     case AlphaPremultiplication::Premultiplied:
@@ -103,8 +135,7 @@ static SkGradientShader::Interpolation toSkiaInterpolation(const ColorInterpolat
 
 sk_sp<SkShader> Gradient::shader(float globalAlpha, const AffineTransform& gradientSpaceTransform)
 {
-    if (m_shader)
-        return m_shader;
+    auto interpolation = toSkiaInterpolation(colorInterpolationMethod());
 
     Vector<SkColor4f, 8> colors;
     colors.reserveInitialCapacity(stops().size());
@@ -114,7 +145,7 @@ sk_sp<SkShader> Gradient::shader(float globalAlpha, const AffineTransform& gradi
         if (stops.isEmpty()) {
             positions.append(webCoreDoubleToSkScalar(0));
             colors.append(SkColors::kTransparent);
-        } else if (stops.begin()->offset > 0) {
+        } else if (stops.begin()->offset > 0 && interpolation.fHueMethod != SkGradientShader::Interpolation::HueMethod::kLonger) {
             positions.append(webCoreDoubleToSkScalar(0));
             colors.append(stops.begin()->color.colorWithAlphaMultipliedBy(globalAlpha));
         }
@@ -124,7 +155,7 @@ sk_sp<SkShader> Gradient::shader(float globalAlpha, const AffineTransform& gradi
             colors.append(stops[i].color.colorWithAlphaMultipliedBy(globalAlpha));
         }
 
-        if (positions.last() < 1) {
+        if (positions.last() < 1 && interpolation.fHueMethod != SkGradientShader::Interpolation::HueMethod::kLonger) {
             positions.append(webCoreDoubleToSkScalar(1));
             colors.append(colors.last());
         }
@@ -144,15 +175,14 @@ sk_sp<SkShader> Gradient::shader(float globalAlpha, const AffineTransform& gradi
         break;
     }
 
-    auto interpolation = toSkiaInterpolation(colorInterpolationMethod());
     SkMatrix matrix = gradientSpaceTransform;
 
-    m_shader = WTF::switchOn(
+    auto shader = WTF::switchOn(
         m_data,
         [&](const LinearData& data) {
             SkPoint points[] = { SkPoint::Make(data.point0.x(), data.point0.y()), SkPoint::Make(data.point1.x(), data.point1.y()) };
 
-            return SkGradientShader::MakeLinear(points, colors.data(), nullptr, positions.data(), colors.size(), tileMode, interpolation, &matrix);
+            return SkGradientShader::MakeLinear(points, colors.span().data(), nullptr, positions.span().data(), colors.size(), tileMode, interpolation, &matrix);
         },
         [&](const RadialData& data) {
             if (data.aspectRatio != 1)
@@ -163,16 +193,16 @@ sk_sp<SkShader> Gradient::shader(float globalAlpha, const AffineTransform& gradi
             SkScalar startRadius = std::max(webCoreDoubleToSkScalar(data.startRadius), 0.0f);
             SkScalar endRadius = std::max(webCoreDoubleToSkScalar(data.endRadius), 0.0f);
 
-            return SkGradientShader::MakeTwoPointConical(start, startRadius, end, endRadius, colors.data(), nullptr, positions.data(), colors.size(), tileMode, interpolation, &matrix);
+            return SkGradientShader::MakeTwoPointConical(start, startRadius, end, endRadius, colors.span().data(), nullptr, positions.span().data(), colors.size(), tileMode, interpolation, &matrix);
         },
         [&](const ConicData& data) {
             // Skia's renders it tilted by 90 degrees, so offset that rotation in the matrix
             matrix.preRotate(SkRadiansToDegrees(data.angleRadians) - 90.0f, data.point0.x(), data.point0.y());
 
-            return SkGradientShader::MakeSweep(data.point0.x(), data.point0.y(), colors.data(), nullptr, positions.data(), colors.size(), tileMode, 0, 360, interpolation, &matrix);
+            return SkGradientShader::MakeSweep(data.point0.x(), data.point0.y(), colors.span().data(), nullptr, positions.span().data(), colors.size(), tileMode, 0, 360, interpolation, &matrix);
         });
 
-    return m_shader;
+    return shader;
 }
 
 void Gradient::fill(GraphicsContext& context, const FloatRect& rect)

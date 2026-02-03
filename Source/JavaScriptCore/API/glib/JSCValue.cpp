@@ -878,12 +878,12 @@ static JSValueRef jsObjectCall(JSGlobalContextRef jsContext, JSObjectRef functio
 {
     switch (functionType) {
     case JSC::JSCCallbackFunction::Type::Constructor:
-        return JSObjectCallAsConstructor(jsContext, function, arguments.size(), arguments.data(), exception);
+        return JSObjectCallAsConstructor(jsContext, function, arguments.size(), arguments.span().data(), exception);
     case JSC::JSCCallbackFunction::Type::Method:
         ASSERT(thisObject);
-        FALLTHROUGH;
+        [[fallthrough]];
     case JSC::JSCCallbackFunction::Type::Function:
-        return JSObjectCallAsFunction(jsContext, function, thisObject, arguments.size(), arguments.data(), exception);
+        return JSObjectCallAsFunction(jsContext, function, thisObject, arguments.size(), arguments.span().data(), exception);
     }
     RELEASE_ASSERT_NOT_REACHED();
 }
@@ -1568,7 +1568,7 @@ gboolean jsc_value_is_array_buffer(JSCValue* value)
 /**
  * jsc_value_array_buffer_get_data:
  * @value: A #JSCValue
- * @size: (nullable): location where to store the size of the memory region.
+ * @size: (out) (optional): location where to store the size of the memory region.
  *
  * Gets a pointer to memory that contains the array buffer data.
  *
@@ -1586,7 +1586,8 @@ gboolean jsc_value_is_array_buffer(JSCValue* value)
  * the meantime. Consider taking a copy of the data and using the copy instead
  * in asynchronous code.
  *
- * Returns: (transfer none): pointer to memory.
+ * Returns: (transfer none) (array length=size) (element-type guint8):
+ *   pointer to memory.
  *
  * Since: 2.38
  */
@@ -2098,7 +2099,7 @@ JSCValue* jsc_value_new_from_json(JSCContext* context, const char* json)
         if (!jsValue)
             exception = toRef(JSC::createSyntaxError(globalObject, jsonParser.getErrorMessage()));
     } else {
-        JSC::LiteralParser<UChar, JSC::JSONReviverMode::Disabled> jsonParser(globalObject, jsonString.span16(), JSC::StrictJSON);
+        JSC::LiteralParser<char16_t, JSC::JSONReviverMode::Disabled> jsonParser(globalObject, jsonString.span16(), JSC::StrictJSON);
         jsValue = jsonParser.tryLiteralParse();
         if (!jsValue)
             exception = toRef(JSC::createSyntaxError(globalObject, jsonParser.getErrorMessage()));

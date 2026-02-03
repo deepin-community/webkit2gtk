@@ -45,7 +45,7 @@ NativeWebMouseEvent::NativeWebMouseEvent(GdkEvent* event, int eventClickCount, s
 }
 
 NativeWebMouseEvent::NativeWebMouseEvent(GdkEvent* event, const WebCore::IntPoint& position, int eventClickCount, std::optional<WebCore::FloatSize> delta)
-    : WebMouseEvent(WebEventFactory::createWebMouseEvent(event, position, position, eventClickCount, delta))
+    : WebMouseEvent(WebEventFactory::createWebMouseEvent(event, position, eventClickCount, delta))
     , m_nativeEvent(constructNativeEvent(event))
 {
 }
@@ -61,7 +61,7 @@ NativeWebMouseEvent::NativeWebMouseEvent(WebEventType type, WebMouseEventButton 
 }
 
 NativeWebMouseEvent::NativeWebMouseEvent(const NativeWebMouseEvent& event)
-    : WebMouseEvent(WebEvent(event.type(), event.modifiers(), event.timestamp()), event.button(), event.buttons(), event.position(), event.globalPosition(), event.deltaX(), event.deltaY(), event.deltaZ(), event.clickCount(), 0, WebMouseEventSyntheticClickType::NoTap, event.isTouchEvent(), event.pointerId(), event.pointerType())
+    : WebMouseEvent(event)
     , m_nativeEvent(event.nativeEvent() ? constructNativeEvent(const_cast<GdkEvent*>(event.nativeEvent())) : nullptr)
 {
 }
