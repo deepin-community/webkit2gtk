@@ -62,7 +62,7 @@ SPDX-License-Identifier: BSD, LGPL-2.1
         <h3><a href="index.html">WebKit</a></h3>
         <p>API Version: 6.0</p>
         
-        <p>Library Version: 2.48.5</p>
+        <p>Library Version: 2.50.4</p>
         
       </div>
       
@@ -102,13 +102,13 @@ time to start looking into&nbsp;webkitgtk-6.0.</p>
 <p>All APIs that were previously deprecated in webkit2gtk-4.0 and webkit2gtk-4.1
 have been removed. This includes the original JavaScriptCore <span class="caps">API</span> (e.g.
 <code>JSContextRef</code> and <code>JSObjectRef</code>), which has been replaced by the GObject-style
-JavaScriptCore <span class="caps">API</span> (e.g. <span class="caps">JSC</span>.Context and <span class="caps">JSC</span>.Object) that is
-available since 2.22. It also includes the entire GObject <span class="caps">DOM</span> <span class="caps">API</span> (e.g.
+JavaScriptCore <span class="caps">API</span> (e.g. <a href="javascript:void(0)" data-namespace="JavaScriptCore" data-link="class.Context.html" class="external"><code>JSCContext</code></a> and <a href="javascript:void(0)" data-namespace="JavaScriptCore" data-link="class.Value.html" class="external"><code>JSCValue</code></a>)
+that is available since 2.22. It also includes the entire GObject <span class="caps">DOM</span> <span class="caps">API</span> (e.g.
 <code>WebKitDOMDocument</code>), which has been removed without replacement. Use JavaScript
 to interact with and manipulate the <span class="caps">DOM</span> instead, perhaps via
 <a href="method.WebView.evaluate_javascript.html"><code>webkit_web_view_evaluate_javascript()</code></a> or
 <a href="method.WebView.call_async_javascript_function.html"><code>webkit_web_view_call_async_javascript_function()</code></a> in the <span class="caps">UI</span> process, or
-<span class="caps">JSC</span>.ValueObject.invoke_method in the web&nbsp;process.</p>
+<a href="javascript:void(0)" data-namespace="JavaScriptCore" data-link="method.Value.object_invoke_method.html" class="external"><code>jsc_value_object_invoke_method()</code></a> in the web&nbsp;process.</p>
 <p>Run your application with the environment variable <code>G_ENABLE_DIAGNOSTIC=1</code> to
 notice use of deprecated signals and&nbsp;properties.</p>
 <h2 id="upgrade-to-gtk-4">Upgrade to GTK 4<a class="md-anchor" href="#upgrade-to-gtk-4" title="Permanent link"></a></h2>
@@ -196,7 +196,7 @@ gained parameters to specify the script world to&nbsp;use.</p>
 now all use a filesystem path rather than a <span class="caps">URI</span>. All uses must be updated&nbsp;accordingly.</p>
 <h2 id="javascript-results">JavaScript Results<a class="md-anchor" href="#javascript-results" title="Permanent link"></a></h2>
 <p>WebKitJavascriptResult has been removed. <a href="signal.UserContentManager.script-message-received.html"><code>WebKitUserContentManager::script-message-received</code></a>
-now directly returns a <span class="caps">JSC</span>.Value&nbsp;instead.</p>
+now directly returns a <a href="javascript:void(0)" data-namespace="JavaScriptCore" data-link="class.Value.html" class="external"><code>JSCValue</code></a>&nbsp;instead.</p>
 <h2 id="web-process-extension">Web Process Extension<a class="md-anchor" href="#web-process-extension" title="Permanent link"></a></h2>
 <p>WebKitWebExtension has been renamed to WebKitWebProcessExtension to avoid
 confusion with WebExtensions, which are unrelated. This affects many methods and

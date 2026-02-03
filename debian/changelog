@@ -1,9 +1,146 @@
-webkit2gtk (2.48.5-1deepin1) unstable; urgency=high
+webkit2gtk (2.50.4-1~deb12u1) bookworm-security; urgency=medium
 
-  [ hudeng ]
-  * feat: add sw64 support.
+  * Rebuild for bookworm-security.
+  * Disable sysprof profiling integration to avoid new dependencies:
+    - debian/control.in: Don't depend on libsysprof-capture-4-dev.
+    - debian/rules: Build with -DUSE_SYSPROF_CAPTURE=OFF.
+  * Disable JPEG XL to avoid adding new dependencies.
+    - debian/control.in: Remove build dependency on libjxl-dev.
+    - debian/rules: Build with -DUSE_JPEGXL=OFF.
+  * debian/rules:
+    - Enable ENABLE_SOUP2 and USE_OLD_PKG_NAMES to keep using the old
+      package names.
+    - Re-enable libmanette in i386.
+  * debian/control-common.in:
+    - Make the -dev packages depend on the gir packages.
+  * debian/control.in:
+    - Build depend on ccache.
+  * Use clang-16 instead of clang.
+  * debian/patches/fix-minibrowser.patch:
+    - Fix the MiniBrowser with clang-16.
 
- -- lhdjply <lhdjply@126.com>  Sat, 30 Aug 2025 09:49:59 +0800
+ -- Alberto Garcia <berto@igalia.com>  Wed, 17 Dec 2025 23:13:15 +0100
+
+webkit2gtk (2.50.4-1) unstable; urgency=medium
+
+  [ Alberto Garcia ]
+  * New upstream release.
+  * debian/copyright:
+    - Update copyright information of all files.
+
+  [ Samuel Thibault ]
+  * control, rules: Restore building on hurd-any (Closes: #1122189).
+  * debian/libwebkit2gtk-4.0-37.symbols: Fix list for hurd-any.
+
+ -- Alberto Garcia <berto@igalia.com>  Tue, 16 Dec 2025 15:33:34 +0100
+
+webkit2gtk (2.50.3-1) unstable; urgency=medium
+
+  [ Alberto Garcia ]
+  * New upstream release.
+  * Use the default gcc (gcc-15) again in mips64el now that #1116217 has
+    been fixed.
+  * Drop fix-crash.patch and fix-link-error.patch.
+
+  [ Jeremy Bicha ]
+  * debian/control.in:
+    - Stop suggesting devhelp, it's going to be removed from Debian.
+
+ -- Alberto Garcia <berto@igalia.com>  Thu, 04 Dec 2025 12:18:39 +0100
+
+webkit2gtk (2.50.2-1) unstable; urgency=medium
+
+  * New upstream release.
+  * debian/patches/fix-link-error.patch:
+    - Cherry pick build fix for 2.50.2.
+  * debian/patches/fix-crash.patch:
+    - Cherry pick crash fix.
+  * As of 2.50.0, WebKitGTK no longer depends on GstTranscoder (WebKit bug
+    #295985).
+    - debian/control.in: Remove build dependency on
+      libgstreamer-plugins-bad1.0-dev.
+    - debian/rules: Don't use -DUSE_GSTREAMER_TRANSCODER=OFF in Ubuntu.
+  * debian/control.in:
+    - Drop build dependency on libgirepository1.0-dev (Closes: #1118932).
+    - Remove Rules-Requires-Root: no, as this is the default value since
+      dpkg 1.22.13 (fixes redundant-rules-requires-root-no-field).
+  * Use clang-19 on armhf since the build fails with versions 20 and 21
+    (WebKit bug #290167).
+
+ -- Alberto Garcia <berto@igalia.com>  Fri, 21 Nov 2025 11:01:12 +0100
+
+webkit2gtk (2.50.1-1) unstable; urgency=medium
+
+  * New upstream release.
+  * debian/control.in:
+    - Enable the bubblewrap sandbox in loong64.
+    - Remove Gustavo from the list of uploaders, he hasn't been active
+      in over a decade. Obrigado, amigo!
+  * debian/rules:
+    - Enable Skia in loong64, it builds fine with GCC 15.2.0 (but not with
+      clang 19: "neon.h: error: _Float16 is not supported on this target")
+    - Stop using -DDEBUG_FISSION=OFF, this is already disabled by
+      default if developer mode is not enabled (WebKit bug #252679).
+    - Use DEB_HOST_ARCH_BITS instead of DEB_BUILD_ARCH_BITS to detect if
+      we're making a 32-bit build. This won't make a difference in
+      practice but it's the correct way to do it.
+  * Drop fix-ftbfs-i386.patch and fix-ftbfs-s390x.patch.
+
+ -- Alberto Garcia <berto@igalia.com>  Fri, 10 Oct 2025 13:02:49 +0200
+
+webkit2gtk (2.50.0-2) unstable; urgency=medium
+
+  * debian/patches/fix-ftbfs-i386.patch:
+    - Update patch to also fix the armhf build.
+  * Force gcc-14 in mips64el because gcc 15 fails with an internal
+    compiler error (#1116217) and clang is not an option ("failed to
+    perform tail call elimination").
+  * debian/rules:
+    - Remove unused variable EXTRA_BUILD_ARGUMENTS.
+  * debian/patches/disable-nvidia-dmabuf.patch:
+    - Bring back this patch, now adapted to WebKitGTK 2.50.0.
+
+ -- Alberto Garcia <berto@igalia.com>  Fri, 26 Sep 2025 14:40:49 +0200
+
+webkit2gtk (2.50.0-1) unstable; urgency=medium
+
+  * New upstream release.
+  * Bring all changes from the 2.49 (experimental) branch.
+  * debian/copyright:
+    - Update copyright information of all files.
+  * debian/gbp.conf:
+    - Update upstream branch name.
+  * debian/libwebkit2gtk-4.0-37.symbols:
+    - Update symbols.
+  * Refresh all patches.
+    - Drop disable-nvidia-dmabuf.patch for now, it needs changes.
+  * debian/patches/fix-ftbfs-s390x.patch:
+    - Fix FTBFS in s390x (WebKit bug #298308).
+  * debian/patches/fix-ftbfs-i386.patch:
+    - Fix FTBFS in i386 (WebKit bug #299018).
+  * Stop building the transitional packages for forky.
+  * debian/source/lintian-overrides:
+    - Update source-is-missing overrides.
+
+ -- Alberto Garcia <berto@igalia.com>  Fri, 19 Sep 2025 11:20:29 +0200
+
+webkit2gtk (2.48.6-1) unstable; urgency=medium
+
+  [ Alberto Garcia ]
+  * New upstream release.
+  * Drop fix-ftbfs-armv7.patch.
+  * Stop supporting non-SSE2 i386 CPUs since SSE2 is required starting
+    from trixie.
+    - Drop dont-detect-sse2.patch.
+    - Enable the JIT again and disable CLoop.
+  * Use clang in i386. This is now possible since we require SSE2.
+
+  [ Jeremy Bicha ]
+  * Disable gamepad feature on Ubuntu since libmanette is in universe
+    there.
+  * Don't require libmanette on i386.
+
+ -- Alberto Garcia <berto@igalia.com>  Thu, 04 Sep 2025 10:33:59 +0200
 
 webkit2gtk (2.48.5-1) unstable; urgency=high
 

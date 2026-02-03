@@ -192,8 +192,8 @@ void DropTarget::accept(GdkDrop* drop, std::optional<WebCore::IntPoint> position
                 if (length) {
                     WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GTK port
                     // If data starts with UTF-16 BOM assume it's UTF-16, otherwise assume UTF-8.
-                    if (length >= 2 && reinterpret_cast<const UChar*>(markupData)[0] == 0xFEFF)
-                        m_selectionData->setMarkup(String({ reinterpret_cast<const UChar*>(markupData) + 1, (length / 2) - 1 }));
+                    if (length >= 2 && reinterpret_cast<const char16_t*>(markupData)[0] == 0xFEFF)
+                        m_selectionData->setMarkup(String({ reinterpret_cast<const char16_t*>(markupData) + 1, (length / 2) - 1 }));
                     else
                         m_selectionData->setMarkup(String::fromUTF8(std::span(static_cast<const char*>(markupData), length)));
                     WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
@@ -245,7 +245,7 @@ void DropTarget::accept(GdkDrop* drop, std::optional<WebCore::IntPoint> position
 
 template<typename T>
 struct DropReadAsyncData {
-    WTF_MAKE_STRUCT_FAST_ALLOCATED;
+    WTF_DEPRECATED_MAKE_STRUCT_FAST_ALLOCATED(DropReadAsyncData);
 
     DropReadAsyncData(GCancellable* cancellable, CompletionHandler<T>&& handler)
         : cancellable(cancellable)
@@ -399,6 +399,8 @@ void DropTarget::drop(IntPoint&& position, unsigned)
     DragData dragData(&m_selectionData.value(), *m_position, *m_position, gdkDragActionToDragOperation(gdk_drop_get_actions(m_drop.get())));
     page->performDragOperation(dragData, { }, { }, { });
     gdk_drop_finish(m_drop.get(), gdk_drop_get_actions(m_drop.get()));
+
+    m_drop = nullptr;
 }
 
 } // namespace WebKit

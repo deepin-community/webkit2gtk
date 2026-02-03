@@ -62,7 +62,7 @@ SPDX-License-Identifier: BSD, LGPL-2.1
         <h3><a href="index.html">WebKit</a></h3>
         <p>API Version: 6.0</p>
         
-        <p>Library Version: 2.48.5</p>
+        <p>Library Version: 2.50.4</p>
         
       </div>
       
@@ -165,6 +165,8 @@ SPDX-License-Identifier: BSD, LGPL-2.1
     <a class="method" href="method.WebView.get_snapshot.html">get_snapshot</a>
   
     <a class="method" href="method.WebView.get_snapshot_finish.html">get_snapshot_finish</a>
+  
+    <a class="method" href="method.WebView.get_theme_color.html">get_theme_color</a>
   
     <a class="method" href="method.WebView.get_title.html">get_title</a>
   
@@ -297,6 +299,8 @@ SPDX-License-Identifier: BSD, LGPL-2.1
     <a class="property" href="property.WebView.related-view.html">related-view</a>
   
     <a class="property" href="property.WebView.settings.html">settings</a>
+  
+    <a class="property" href="property.WebView.theme-color.html">theme-color</a>
   
     <a class="property" href="property.WebView.title.html">title</a>
   
@@ -476,7 +480,7 @@ SPDX-License-Identifier: BSD, LGPL-2.1
           Description
           <a href="#description" class="anchor"></a>
           
-          <a class="srclink" title="go to source location" href="https://github.com/WebKit/WebKit/tree/main/Source/WebKit/UIProcess/API/glib/WebKitWebView.cpp#L127">[src]</a>
+          <a class="srclink" title="go to source location" href="https://github.com/WebKit/WebKit/tree/main/Source/WebKit/UIProcess/API/glib/WebKitWebView.cpp#L131">[src]</a>
           
         </h4>
 
@@ -1101,6 +1105,18 @@ the <code>WebKitWebView</code>.</p>
         </div>
       
         <div class="">
+          <h6><a href="method.WebView.get_theme_color.html">webkit_web_view_get_theme_color</a></h6>
+          <div class="docblock">
+            <p>Gets the theme color that is specified by the content in the <code>web_view</code>.
+If the <code>web_view</code> doesn&#8217;t have a theme color it will fill the <code>rgba</code>
+with transparent black&nbsp;content.</p>
+          </div>
+          <div class="docblock">
+            <p><span class="emblem available">since: 2.50</span></p>
+          </div>
+        </div>
+      
+        <div class="">
           <h6><a href="method.WebView.get_title.html">webkit_web_view_get_title</a></h6>
           <div class="docblock">
             <p>Gets the value of the <code>WebKitWebView:title</code> property.</p>
@@ -1548,7 +1564,7 @@ using any cached&nbsp;data.</p>
         
       
         
-        <div class="toggle-wrapper default-hide ancestor-methods"><h5 style="display:block;">Methods inherited from <a class="external" href="javascript:void(0)" data-link="class.Widget.html" data-namespace="Gtk">GtkWidget</a> (162)</h5>
+        <div class="toggle-wrapper default-hide ancestor-methods"><h5 style="display:block;">Methods inherited from <a class="external" href="javascript:void(0)" data-link="class.Widget.html" data-namespace="Gtk">GtkWidget</a> (164)</h5>
           <div class="docblock">
           
             <div class="docblock">
@@ -1576,9 +1592,12 @@ using any cached&nbsp;data.</p>
 
       
         
-        <div class="toggle-wrapper default-hide ancestor-methods"><h5 style="display:block;">Methods inherited from <a class="external" href="javascript:void(0)" data-link="iface.Accessible.html" data-namespace="Gtk">GtkAccessible</a> (18)</h5>
+        <div class="toggle-wrapper default-hide ancestor-methods"><h5 style="display:block;">Methods inherited from <a class="external" href="javascript:void(0)" data-link="iface.Accessible.html" data-namespace="Gtk">GtkAccessible</a> (20)</h5>
           <div class="docblock">
-          <h6><a class="external" href="javascript:void(0)" data-namespace="Gtk" data-link="method.Accessible.get_accessible_parent.html">gtk_accessible_get_accessible_parent</a></h6>
+          <h6><a class="external" href="javascript:void(0)" data-namespace="Gtk" data-link="method.Accessible.announce.html">gtk_accessible_announce</a></h6>
+            <div class="docblock">
+              <p>Requests the user&#8217;s screen reader to announce the given&nbsp;message.</p>
+            </div><h6><a class="external" href="javascript:void(0)" data-namespace="Gtk" data-link="method.Accessible.get_accessible_parent.html">gtk_accessible_get_accessible_parent</a></h6>
             <div class="docblock">
               <p>Retrieves the accessible parent for an accessible&nbsp;object.</p>
             </div><h6><a class="external" href="javascript:void(0)" data-namespace="Gtk" data-link="method.Accessible.get_accessible_role.html">gtk_accessible_get_accessible_role</a></h6>
@@ -1586,7 +1605,7 @@ using any cached&nbsp;data.</p>
               <p>Retrieves the accessible role of an accessible&nbsp;object.</p>
             </div><h6><a class="external" href="javascript:void(0)" data-namespace="Gtk" data-link="method.Accessible.get_at_context.html">gtk_accessible_get_at_context</a></h6>
             <div class="docblock">
-              <p>Retrieves the accessible implementation for the given <code>GtkAccessible</code>.</p>
+              <p>Retrieves the implementation for the given accessible&nbsp;object.</p>
             </div><h6><a class="external" href="javascript:void(0)" data-namespace="Gtk" data-link="method.Accessible.get_bounds.html">gtk_accessible_get_bounds</a></h6>
             <div class="docblock">
               <p>Queries the coordinates and dimensions of this&nbsp;accessible.</p>
@@ -1598,22 +1617,25 @@ using any cached&nbsp;data.</p>
               <p>Retrieves the next accessible sibling of an accessible&nbsp;object.</p>
             </div><h6><a class="external" href="javascript:void(0)" data-namespace="Gtk" data-link="method.Accessible.get_platform_state.html">gtk_accessible_get_platform_state</a></h6>
             <div class="docblock">
-              <p>Query a platform state, such as&nbsp;focus.</p>
+              <p>Queries a platform state, such as&nbsp;focus.</p>
             </div><h6><a class="external" href="javascript:void(0)" data-namespace="Gtk" data-link="method.Accessible.reset_property.html">gtk_accessible_reset_property</a></h6>
             <div class="docblock">
-              <p>Resets the accessible <code>property</code> to its default&nbsp;value.</p>
+              <p>Resets the accessible property to its default&nbsp;value.</p>
             </div><h6><a class="external" href="javascript:void(0)" data-namespace="Gtk" data-link="method.Accessible.reset_relation.html">gtk_accessible_reset_relation</a></h6>
             <div class="docblock">
-              <p>Resets the accessible <code>relation</code> to its default&nbsp;value.</p>
+              <p>Resets the accessible relation to its default&nbsp;value.</p>
             </div><h6><a class="external" href="javascript:void(0)" data-namespace="Gtk" data-link="method.Accessible.reset_state.html">gtk_accessible_reset_state</a></h6>
             <div class="docblock">
-              <p>Resets the accessible <code>state</code> to its default&nbsp;value.</p>
+              <p>Resets the accessible state to its default&nbsp;value.</p>
             </div><h6><a class="external" href="javascript:void(0)" data-namespace="Gtk" data-link="method.Accessible.set_accessible_parent.html">gtk_accessible_set_accessible_parent</a></h6>
             <div class="docblock">
               <p>Sets the parent and sibling of an accessible&nbsp;object.</p>
             </div><h6><a class="external" href="javascript:void(0)" data-namespace="Gtk" data-link="method.Accessible.update_next_accessible_sibling.html">gtk_accessible_update_next_accessible_sibling</a></h6>
             <div class="docblock">
-              <p>Updates the next accessible sibling of <code>self</code>.</p>
+              <p>Updates the next accessible&nbsp;sibling.</p>
+            </div><h6><a class="external" href="javascript:void(0)" data-namespace="Gtk" data-link="method.Accessible.update_platform_state.html">gtk_accessible_update_platform_state</a></h6>
+            <div class="docblock">
+              <p>Informs ATs that the platform state has&nbsp;changed.</p>
             </div><h6><a class="external" href="javascript:void(0)" data-namespace="Gtk" data-link="method.Accessible.update_property.html">gtk_accessible_update_property</a></h6>
             <div class="docblock">
               <p>Updates a list of accessible&nbsp;properties.</p>
@@ -1628,8 +1650,7 @@ using any cached&nbsp;data.</p>
               <p>Updates an array of accessible&nbsp;relations.</p>
             </div><h6><a class="external" href="javascript:void(0)" data-namespace="Gtk" data-link="method.Accessible.update_state.html">gtk_accessible_update_state</a></h6>
             <div class="docblock">
-              <p>Updates a list of accessible states. See the <code>GtkAccessibleState</code>
-documentation for the value types of accessible&nbsp;states.</p>
+              <p>Updates a list of accessible&nbsp;states.</p>
             </div><h6><a class="external" href="javascript:void(0)" data-namespace="Gtk" data-link="method.Accessible.update_state_value.html">gtk_accessible_update_state_value</a></h6>
             <div class="docblock">
               <p>Updates an array of accessible&nbsp;states.</p>
@@ -1866,6 +1887,16 @@ because the related web view is only valid during the object&nbsp;construction.<
         </div>
       
         <div class="">
+          <h6><a href="property.WebView.theme-color.html">WebKit.WebView:theme-color</a></h6>
+          <div class="docblock">
+            <p>The theme color of the WebView&#8217;s current&nbsp;page.</p>
+          </div>
+          <div class="docblock">
+            <p><span class="emblem available">since: 2.50</span></p>
+          </div>
+        </div>
+      
+        <div class="">
           <h6><a href="property.WebView.title.html">WebKit.WebView:title</a></h6>
           <div class="docblock">
             <p>The main frame document title of this <code>WebKitWebView</code>. If
@@ -1945,7 +1976,7 @@ See <code>webkit_web_view_set_zoom_level()</code> for more&nbsp;details.</p>
         
       
         
-        <div class="toggle-wrapper default-hide ancestor-properties"><h5 style="display:block;">Properties inherited from <a class="external" href="javascript:void(0)" data-link="class.Widget.html" data-namespace="Gtk">GtkWidget</a> (34)</h5>
+        <div class="toggle-wrapper default-hide ancestor-properties"><h5 style="display:block;">Properties inherited from <a class="external" href="javascript:void(0)" data-link="class.Widget.html" data-namespace="Gtk">GtkWidget</a> (35)</h5>
           <div class="docblock">
           <h6><a class="external" href="javascript:void(0)" data-namespace="Gtk" data-link="property.Widget.can-focus.html">Gtk.Widget:can-focus</a></h6>
             <div class="docblock">
@@ -1980,10 +2011,11 @@ the input&nbsp;focus.</p>
               <p>Whether the widget has the input&nbsp;focus.</p>
             </div><h6><a class="external" href="javascript:void(0)" data-namespace="Gtk" data-link="property.Widget.has-tooltip.html">Gtk.Widget:has-tooltip</a></h6>
             <div class="docblock">
-              <p>Enables or disables the emission of the ::query-tooltip signal on <code>widget</code>.</p>
+              <p>Enables or disables the emission of the <code>GtkWidget::query-tooltip</code>
+signal on <code>widget</code>.</p>
             </div><h6><a class="external" href="javascript:void(0)" data-namespace="Gtk" data-link="property.Widget.height-request.html">Gtk.Widget:height-request</a></h6>
             <div class="docblock">
-              <p>Override for height request of the&nbsp;widget.</p>
+              <p>Overrides for height request of the&nbsp;widget.</p>
             </div><h6><a class="external" href="javascript:void(0)" data-namespace="Gtk" data-link="property.Widget.hexpand.html">Gtk.Widget:hexpand</a></h6>
             <div class="docblock">
               <p>Whether to expand&nbsp;horizontally.</p>
@@ -1992,8 +2024,12 @@ the input&nbsp;focus.</p>
               <p>Whether to use the <code>hexpand</code> property.</p>
             </div><h6><a class="external" href="javascript:void(0)" data-namespace="Gtk" data-link="property.Widget.layout-manager.html">Gtk.Widget:layout-manager</a></h6>
             <div class="docblock">
-              <p>The <code>GtkLayoutManager</code> instance to use to compute the preferred size
-of the widget, and allocate its&nbsp;children.</p>
+              <p>The <code>GtkLayoutManager</code> instance to use to compute
+the preferred size of the widget, and allocate its&nbsp;children.</p>
+            </div><h6><a class="external" href="javascript:void(0)" data-namespace="Gtk" data-link="property.Widget.limit-events.html">Gtk.Widget:limit-events</a></h6>
+            <div class="docblock">
+              <p>Makes this widget act like a modal dialog, with respect to
+event&nbsp;delivery.</p>
             </div><h6><a class="external" href="javascript:void(0)" data-namespace="Gtk" data-link="property.Widget.margin-bottom.html">Gtk.Widget:margin-bottom</a></h6>
             <div class="docblock">
               <p>Margin on bottom side of&nbsp;widget.</p>
@@ -2051,7 +2087,7 @@ with Pango&nbsp;markup.</p>
               <p>Whether the widget is&nbsp;visible.</p>
             </div><h6><a class="external" href="javascript:void(0)" data-namespace="Gtk" data-link="property.Widget.width-request.html">Gtk.Widget:width-request</a></h6>
             <div class="docblock">
-              <p>Override for width request of the&nbsp;widget.</p>
+              <p>Overrides for width request of the&nbsp;widget.</p>
             </div>
           </div>
         </div>

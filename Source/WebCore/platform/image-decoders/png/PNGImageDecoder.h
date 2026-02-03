@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006 Apple Inc.  All rights reserved.
+ * Copyright (C) 2006 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -112,6 +112,7 @@ namespace WebCore {
         bool m_hasInfo;
         int m_gamma;
         size_t m_frameCount;
+        size_t m_decodedPixelCount;
         unsigned m_playCount;
         unsigned m_totalFrames;
         unsigned m_sizePLTE;

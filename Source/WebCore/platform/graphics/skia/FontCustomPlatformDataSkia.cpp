@@ -86,7 +86,7 @@ FontPlatformData FontCustomPlatformData::fontPlatformData(const FontDescription&
 
         if (!variationsToBeApplied.isEmpty()) {
             SkFontArguments fontArgs;
-            fontArgs.setVariationDesignPosition({ variationsToBeApplied.data(), static_cast<int>(variationsToBeApplied.size()) });
+            fontArgs.setVariationDesignPosition({ variationsToBeApplied.span().data(), static_cast<int>(variationsToBeApplied.size()) });
             if (auto variationTypeface = typeface->makeClone(fontArgs))
                 typeface = WTFMove(variationTypeface);
         }
@@ -101,7 +101,24 @@ FontPlatformData FontCustomPlatformData::fontPlatformData(const FontDescription&
 
 RefPtr<FontCustomPlatformData> FontCustomPlatformData::create(SharedBuffer& buffer, const String& itemInCollection)
 {
-    sk_sp<SkTypeface> typeface = FontCache::forCurrentThread().fontManager().makeFromData(buffer.createSkData());
+    sk_sp<SkTypeface> typeface;
+    SkString familyName;
+
+    const auto bufferData = buffer.createSkData();
+    if (itemInCollection.isNull())
+        typeface = FontCache::forCurrentThread()->fontManager().makeFromData(bufferData);
+    else {
+        size_t index = 0;
+        while (true) {
+            typeface = FontCache::forCurrentThread()->fontManager().makeFromData(bufferData, index++);
+            if (!typeface)
+                break;
+            typeface->getFamilyName(&familyName);
+            if (equalIgnoringASCIICase(itemInCollection, String::fromLatin1(familyName.c_str())))
+                break;
+        }
+    }
+
     if (!typeface)
         return nullptr;
 

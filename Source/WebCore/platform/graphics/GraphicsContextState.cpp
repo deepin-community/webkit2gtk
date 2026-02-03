@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2022 Apple Inc.  All rights reserved.
+ * Copyright (C) 2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -44,8 +44,12 @@ void GraphicsContextState::repurpose(Purpose purpose)
 
 #if USE(CG)
     // CGContextBeginTransparencyLayer() sets the CG global alpha to 1. Keep the clone's alpha in sync.
-    if (purpose == Purpose::TransparencyLayer)
+    if (purpose == Purpose::TransparencyLayer) {
         m_alpha = 1;
+        m_style = std::nullopt;
+        m_dropShadow = std::nullopt;
+        m_compositeMode = { CompositeOperator::SourceOver, BlendMode::Normal };
+    }
 #endif
 
     m_purpose = purpose;
@@ -56,31 +60,6 @@ GraphicsContextState GraphicsContextState::clone(Purpose purpose) const
     auto clone = *this;
     clone.repurpose(purpose);
     return clone;
-}
-
-bool GraphicsContextState::containsOnlyInlineChanges() const
-{
-    if (m_changeFlags.isEmpty() || m_changeFlags != (m_changeFlags & basicChangeFlags))
-        return false;
-
-    if (m_changeFlags.contains(Change::StrokeBrush) && !m_strokeBrush.isInlineColor())
-        return false;
-
-    if (m_changeFlags.contains(Change::FillBrush) && !m_fillBrush.isInlineColor())
-        return false;
-
-    return true;
-}
-
-bool GraphicsContextState::containsOnlyInlineStrokeChanges() const
-{
-    if (m_changeFlags.isEmpty() || m_changeFlags != (m_changeFlags & strokeChangeFlags))
-        return false;
-
-    if (m_changeFlags.contains(Change::StrokeBrush) && !m_strokeBrush.isInlineColor())
-        return false;
-
-    return true;
 }
 
 void GraphicsContextState::mergeLastChanges(const GraphicsContextState& state, const std::optional<GraphicsContextState>& lastDrawingState)
@@ -151,9 +130,6 @@ void GraphicsContextState::mergeSingleChange(const GraphicsContextState& state, 
     case toIndex(Change::DrawLuminanceMask).value:
         mergeChange(&GraphicsContextState::m_drawLuminanceMask);
         break;
-    case toIndex(Change::UseDarkAppearance).value:
-        mergeChange(&GraphicsContextState::m_useDarkAppearance);
-        break;
     default:
         RELEASE_ASSERT_NOT_REACHED();
     }
@@ -188,7 +164,6 @@ void GraphicsContextState::mergeAllChanges(const GraphicsContextState& state)
     mergeChange(Change::ShouldSubpixelQuantizeFonts, &GraphicsContextState::m_shouldSubpixelQuantizeFonts);
     mergeChange(Change::ShadowsIgnoreTransforms,     &GraphicsContextState::m_shadowsIgnoreTransforms);
     mergeChange(Change::DrawLuminanceMask,           &GraphicsContextState::m_drawLuminanceMask);
-    mergeChange(Change::UseDarkAppearance,           &GraphicsContextState::m_useDarkAppearance);
 }
 
 static ASCIILiteral stateChangeName(GraphicsContextState::Change change)
@@ -241,9 +216,6 @@ static ASCIILiteral stateChangeName(GraphicsContextState::Change change)
 
     case GraphicsContextState::Change::DrawLuminanceMask:
         return "draw-luminance-mask"_s;
-
-    case GraphicsContextState::Change::UseDarkAppearance:
-        return "use-dark-appearance"_s;
     }
 
     RELEASE_ASSERT_NOT_REACHED();
@@ -256,7 +228,7 @@ TextStream& GraphicsContextState::dump(TextStream& ts) const
             ts.dumpProperty(stateChangeName(change), this->*property);
     };
 
-    ts.dumpProperty("change-flags", m_changeFlags);
+    ts.dumpProperty("change-flags"_s, m_changeFlags);
 
     dump(Change::FillBrush,                     &GraphicsContextState::m_fillBrush);
     dump(Change::FillRule,                      &GraphicsContextState::m_fillRule);
@@ -278,7 +250,6 @@ TextStream& GraphicsContextState::dump(TextStream& ts) const
     dump(Change::ShouldSubpixelQuantizeFonts,   &GraphicsContextState::m_shouldSubpixelQuantizeFonts);
     dump(Change::ShadowsIgnoreTransforms,       &GraphicsContextState::m_shadowsIgnoreTransforms);
     dump(Change::DrawLuminanceMask,             &GraphicsContextState::m_drawLuminanceMask);
-    dump(Change::UseDarkAppearance,             &GraphicsContextState::m_useDarkAppearance);
     return ts;
 }
 

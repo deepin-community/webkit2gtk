@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2010 Apple Inc. All rights reserved.
- * Portions Copyright (c) 2010 Motorola Mobility, Inc.  All rights reserved.
+ * Portions Copyright (c) 2010 Motorola Mobility, Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -45,7 +45,7 @@ namespace WebKit {
 class WebEventFactory {
 public:
     static WebMouseEvent createWebMouseEvent(const GdkEvent*, int, std::optional<WebCore::FloatSize>);
-    static WebMouseEvent createWebMouseEvent(const GdkEvent*, const WebCore::IntPoint&, const WebCore::IntPoint&, int, std::optional<WebCore::FloatSize>);
+    static WebMouseEvent createWebMouseEvent(const GdkEvent*, const WebCore::IntPoint&, int, std::optional<WebCore::FloatSize>);
     static WebMouseEvent createWebMouseEvent(const WebCore::IntPoint&);
     static WebKeyboardEvent createWebKeyboardEvent(const GdkEvent*, const String&, bool isAutoRepeat, bool handledByInputMethod, std::optional<Vector<WebCore::CompositionUnderline>>&&, std::optional<EditingRange>&&, Vector<String>&& commands);
 #if ENABLE(TOUCH_EVENTS)
