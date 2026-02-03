@@ -1,3 +1,10 @@
+webkit2gtk (2.50.4-1~deb12u1deepin1) unstable; urgency=medium
+
+  * [ hudeng ]
+  * feat: add sw64 support. 
+
+ -- zengwei <zengwei1@uniontech.com>  Tue, 03 Feb 2026 20:56:07 +0800
+
 webkit2gtk (2.50.4-1~deb12u1) bookworm-security; urgency=medium
 
   * Rebuild for bookworm-security.
