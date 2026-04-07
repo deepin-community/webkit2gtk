@@ -1,3 +1,16 @@
+webkit2gtk (2.50.4-1~deb12u1deepin2) unstable; urgency=medium
+
+  * Security update (CVE-2026-20652):
+    - Fix integer underflow in AudioResamplerKernel::getSourceSpan().
+      + Add debian/patches/CVE-2026-20652.patch.
+  * Security fixes already present in upstream 2.50.4:
+    - CVE-2023-43010: Use-after-free in RenderTree.
+    - CVE-2025-31223: Memory corruption via improved checks.
+    - CVE-2025-31277: Memory corruption in JSC RegExp match results.
+    - CVE-2025-43433: Memory corruption via improved memory handling.
+
+ -- lichenggang <lichenggang@uniontech.com>  Tue, 07 Apr 2026 16:45:00 +0800
+
 webkit2gtk (2.50.4-1~deb12u1deepin1) unstable; urgency=medium
 
   * [ hudeng ]
