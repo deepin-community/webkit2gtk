@@ -65,6 +65,9 @@
 #include "DefaultWebBrowserChecks.h"
 #include "NetworkSessionCocoa.h"
 #endif
+#if USE(CF)
+#include <wtf/cf/VectorCF.h>
+#endif
 #if USE(SOUP)
 #include "NetworkSessionSoup.h"
 #endif
@@ -111,9 +114,15 @@ CheckedPtr<NetworkStorageSession> NetworkSession::checkedNetworkStorageSession()
 
 static Ref<PCM::ManagerInterface> managerOrProxy(NetworkSession& networkSession, NetworkProcess& networkProcess, const NetworkSessionCreationParameters& parameters)
 {
+    ApplicationBundleIdentifierOrAuditToken applicationBundleIdentifier = parameters.sourceApplicationBundleIdentifier;
+#if PLATFORM(COCOA)
+    if (auto data = networkProcess.sourceApplicationAuditData(); data && parameters.sourceApplicationBundleIdentifier.isEmpty())
+        applicationBundleIdentifier = makeVector(data.get());
+#endif
+
     if (!parameters.pcmMachServiceName.isEmpty() && !networkSession.sessionID().isEphemeral())
         return PCM::ManagerProxy::create(parameters.pcmMachServiceName, networkSession);
-    return PrivateClickMeasurementManager::create(makeUniqueRef<PCM::ClientImpl>(networkSession, networkProcess), parameters.resourceLoadStatisticsParameters.directory);
+    return PrivateClickMeasurementManager::create(makeUniqueRef<PCM::ClientImpl>(networkSession, networkProcess), parameters.resourceLoadStatisticsParameters.directory, applicationBundleIdentifier);
 }
 
 static Ref<NetworkStorageManager> createNetworkStorageManager(NetworkProcess& networkProcess, const NetworkSessionCreationParameters& parameters)
@@ -630,7 +639,7 @@ void NetworkSession::removeLoaderWaitingWebProcessTransfer(NetworkResourceLoadId
         cachedResourceLoader->takeLoader()->abort();
 }
 
-std::unique_ptr<WebSocketTask> NetworkSession::createWebSocketTask(WebPageProxyIdentifier, std::optional<WebCore::FrameIdentifier>, std::optional<WebCore::PageIdentifier>, NetworkSocketChannel&, const WebCore::ResourceRequest&, const String& protocol, const WebCore::ClientOrigin&, bool, bool, OptionSet<WebCore::AdvancedPrivacyProtections>, WebCore::StoredCredentialsPolicy)
+RefPtr<WebSocketTask> NetworkSession::createWebSocketTask(WebPageProxyIdentifier, std::optional<WebCore::FrameIdentifier>, std::optional<WebCore::PageIdentifier>, NetworkSocketChannel&, const WebCore::ResourceRequest&, const String& protocol, const WebCore::ClientOrigin&, bool, bool, OptionSet<WebCore::AdvancedPrivacyProtections>, WebCore::StoredCredentialsPolicy)
 {
     return nullptr;
 }
@@ -808,7 +817,7 @@ void NetworkSession::recordHTTPSConnectionTiming(const NetworkLoadMetrics& metri
 
 void NetworkSession::softUpdate(ServiceWorkerJobData&& jobData, bool shouldRefreshCache, WebCore::ResourceRequest&& request, CompletionHandler<void(WebCore::WorkerFetchResult&&)>&& completionHandler)
 {
-    m_softUpdateLoaders.add(makeUnique<ServiceWorkerSoftUpdateLoader>(*this, WTFMove(jobData), shouldRefreshCache, WTFMove(request), WTFMove(completionHandler)));
+    m_softUpdateLoaders.add(ServiceWorkerSoftUpdateLoader::create(*this, WTFMove(jobData), shouldRefreshCache, WTFMove(request), WTFMove(completionHandler)));
 }
 
 void NetworkSession::createContextConnection(const WebCore::Site& site, std::optional<WebCore::ProcessIdentifier> requestingProcessIdentifier, std::optional<WebCore::ScriptExecutionContextIdentifier> serviceWorkerPageIdentifier, CompletionHandler<void()>&& completionHandler)

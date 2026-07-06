@@ -3881,7 +3881,7 @@ Copyright: 1997 Martin Jones <mjones@kde.org>
            2000-2003 Dirk Mueller <mueller@kde.org>
            2001 Tobias Anton <anton@stud.fbi.fh-darmstadt.de>
            2002-2003 The Karbon Developers
-           2002-2025 Apple Inc
+           2002-2026 Apple Inc
            2003-2017 Inc
            2004 Zack Rusin <zack@kde.org>
            2004, 2015, 2017, 2022 Red Hat Inc
@@ -4115,7 +4115,7 @@ License: MPL-2.0
 Files: debian/*
 Copyright: 2007-2009 Mike Hommey <glandium@debian.org>
            2009 Gustavo Noronha Silva <kov@debian.org>
-           2014-2025 Alberto Garcia <berto@igalia.com>
+           2014-2026 Alberto Garcia <berto@igalia.com>
 License: LGPL-2+
 
 License: AFL-2.0

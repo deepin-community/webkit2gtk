@@ -1667,9 +1667,6 @@ private:
         Ref imageBitmap = jsCast<JSImageBitmap*>(obj)->wrapped();
         auto index = m_transferredImageBitmaps.find(obj);
         if (index != m_transferredImageBitmaps.end()) {
-#if USE(SKIA)
-            imageBitmap->prepareForCrossThreadTransfer();
-#endif
             write(ImageBitmapTransferTag);
             write(index->value);
             return;
@@ -4562,9 +4559,6 @@ private:
             m_imageBitmaps[index] = ImageBitmap::create(*protectedExecutionContext(m_lexicalGlobalObject).get(), WTFMove(*m_detachedImageBitmaps.at(index)));
 
         RefPtr bitmap = m_imageBitmaps[index];
-#if USE(SKIA)
-        bitmap->finalizeCrossThreadTransfer();
-#endif
         return getJSValue(bitmap.get());
     }
 
