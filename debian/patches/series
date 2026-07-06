@@ -2,6 +2,6 @@ fix-ftbfs-riscv64.patch
 fix-ftbfs-sparc64.patch
 fix-ftbfs-x32.patch
 disable-nvidia-dmabuf.patch
+no-must-tail.patch
 fix-minibrowser.patch
-0001-deepin-sw_64-support.diff
-CVE-2026-20652.patch
+dont-detect-sse2.patch

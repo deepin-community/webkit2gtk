@@ -54,6 +54,18 @@ ifeq ($(DEB_BUILD_ARCH_BITS),32)
 	LDFLAGS += -Wl,--no-keep-memory
 endif
 
+# Additional flags to reduce memory usage on some 32-bit
+# architectures (#1125347).
+ifneq (,$(filter $(DEB_HOST_ARCH),armhf hppa m68k powerpc sh4))
+	CPPFLAGS += -no-integrated-cpp
+endif
+
+# Try to reduce memory usage even more. This significantly increases
+# the build time, so use only when strictly needed.
+ifneq (,$(filter $(DEB_HOST_ARCH),armhf powerpc hurd-i386 x32))
+	CPPFLAGS += --param ggc-min-expand=10
+endif
+
 # The debug packages produced by webkit are huge and cause problems in
 # most buildds. Use -g1 in all architectures to make them smaller.
 CFLAGS := $(CFLAGS:-g=-g1)
@@ -66,6 +78,12 @@ LDFLAGS += -Wl,--reduce-memory-overheads
 ifneq (,$(filter $(DEB_HOST_ARCH),arm64))
 	CFLAGS := $(patsubst -mbranch-protection=%,-mbranch-protection=pac-ret,$(CFLAGS))
 	CXXFLAGS := $(patsubst -mbranch-protection=%,-mbranch-protection=pac-ret,$(CXXFLAGS))
+endif
+
+# Use the CLoop Javascript interpreter and disable the JIT. This is
+# slow but it is the most compatible solution for old (non-SSE2) CPUs.
+ifneq (,$(filter $(DEB_HOST_ARCH),i386))
+	EXTRA_CMAKE_ARGUMENTS += -DENABLE_JIT=OFF -DENABLE_C_LOOP=ON
 endif
 
 # https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=1101547
@@ -136,6 +154,13 @@ endif
 # flite (speech) and libmanette (gamepad) are not in Ubuntu main LP: #2096940 LP: #1918446
 ifeq ($(shell dpkg-vendor --derives-from Ubuntu && echo yes),yes)
 	EXTRA_CMAKE_ARGUMENTS += -DENABLE_SPEECH_SYNTHESIS=OFF -DENABLE_GAMEPAD=OFF
+endif
+
+# Ubuntu's riscv64 uses RVA23S64
+ifeq ($(shell dpkg-vendor --derives-from Ubuntu && echo yes),yes)
+ifneq ($(filter riscv64,$(DEB_HOST_ARCH)),)
+	CXXFLAGS += -DSIMDE_RISCV_V_NO_NATIVE
+endif
 endif
 
 # This is loaded at runtime using libepoxy so add an explicit dependency (#1033230)
