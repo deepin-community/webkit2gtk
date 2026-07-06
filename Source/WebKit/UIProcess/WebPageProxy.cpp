@@ -2916,9 +2916,10 @@ void WebPageProxy::viewWillStartLiveResize()
         return;
 
     closeOverlayedViews();
-    
-    protectedDrawingArea()->viewWillStartLiveResize();
-    
+
+    if (RefPtr drawingArea = m_drawingArea)
+        drawingArea->viewWillStartLiveResize();
+
     send(Messages::WebPage::ViewWillStartLiveResize());
 }
 
@@ -2927,7 +2928,8 @@ void WebPageProxy::viewWillEndLiveResize()
     if (!hasRunningProcess())
         return;
 
-    protectedDrawingArea()->viewWillEndLiveResize();
+    if (RefPtr drawingArea = m_drawingArea)
+        drawingArea->viewWillEndLiveResize();
 
     send(Messages::WebPage::ViewWillEndLiveResize());
 }
@@ -3530,7 +3532,7 @@ void WebPageProxy::executeEditCommand(const String& commandName, const String& a
 
     auto completionHandler = [weakThis = WeakPtr { *this }, callbackFunction = WTFMove(callbackFunction), commandName, argument, targetFrameID] () mutable {
         RefPtr protectedThis = weakThis.get();
-        if (!protectedThis)
+        if (!protectedThis || !protectedThis->hasRunningProcess())
             return callbackFunction();
 
         protectedThis->sendWithAsyncReplyToProcessContainingFrame(targetFrameID, Messages::WebPage::ExecuteEditCommandWithCallback(commandName, argument), [callbackFunction = WTFMove(callbackFunction), backgroundActivity = weakThis->processContainingFrame(targetFrameID)->protectedThrottler()->backgroundActivity("WebPageProxy::executeEditCommand"_s)] () mutable {

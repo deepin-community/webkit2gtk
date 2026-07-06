@@ -1,24 +1,11 @@
-webkit2gtk (2.50.4-1~deb12u1deepin2) unstable; urgency=medium
+webkit2gtk (2.50.6-1~deb12u2) bookworm; urgency=medium
 
-  * Security update (CVE-2026-20652):
-    - Fix integer underflow in AudioResamplerKernel::getSourceSpan().
-      + Add debian/patches/CVE-2026-20652.patch.
-  * Security fixes already present in upstream 2.50.4:
-    - CVE-2023-43010: Use-after-free in RenderTree.
-    - CVE-2025-31223: Memory corruption via improved checks.
-    - CVE-2025-31277: Memory corruption in JSC RegExp match results.
-    - CVE-2025-43433: Memory corruption via improved memory handling.
+  * debian/control.in:
+    - Add "Priority: optional" field (Closes: #1140609).
 
- -- lichenggang <lichenggang@uniontech.com>  Tue, 07 Apr 2026 16:45:00 +0800
+ -- Alberto Garcia <berto@igalia.com>  Tue, 30 Jun 2026 10:56:21 +0200
 
-webkit2gtk (2.50.4-1~deb12u1deepin1) unstable; urgency=medium
-
-  * [ hudeng ]
-  * feat: add sw64 support. 
-
- -- zengwei <zengwei1@uniontech.com>  Tue, 03 Feb 2026 20:56:07 +0800
-
-webkit2gtk (2.50.4-1~deb12u1) bookworm-security; urgency=medium
+webkit2gtk (2.50.6-1~deb12u1) bookworm-security; urgency=medium
 
   * Rebuild for bookworm-security.
   * Disable sysprof profiling integration to avoid new dependencies:
@@ -31,6 +18,10 @@ webkit2gtk (2.50.4-1~deb12u1) bookworm-security; urgency=medium
     - Enable ENABLE_SOUP2 and USE_OLD_PKG_NAMES to keep using the old
       package names.
     - Re-enable libmanette in i386.
+    - Use CLoop and disable the JIT on i386, for compatibility with
+      non-SSE2 CPUs.
+  * debian/patches/dont-detect-sse2.patch:
+    - Disable SSE2 on i386 (Closes: #1126591).
   * debian/control-common.in:
     - Make the -dev packages depend on the gir packages.
   * debian/control.in:
@@ -39,7 +30,43 @@ webkit2gtk (2.50.4-1~deb12u1) bookworm-security; urgency=medium
   * debian/patches/fix-minibrowser.patch:
     - Fix the MiniBrowser with clang-16.
 
- -- Alberto Garcia <berto@igalia.com>  Wed, 17 Dec 2025 23:13:15 +0100
+ -- Alberto Garcia <berto@igalia.com>  Fri, 20 Mar 2026 22:37:45 +0100
+
+webkit2gtk (2.50.6-1) unstable; urgency=medium
+
+  * New upstream release.
+  * debian/rules:
+    - Use --param ggc-min-expand=10 on hurd-i386 and x32 to reduce memory
+      usage.
+  * debian/patches/no-must-tail.patch:
+    - Update patch to cover alpha and hppa (Closes: #1127874).
+  * Remove all references to mips64el as it has been removed from Debian
+    (see #1129516).
+
+ -- Alberto Garcia <berto@igalia.com>  Fri, 13 Mar 2026 10:12:36 +0100
+
+webkit2gtk (2.50.5-1) unstable; urgency=medium
+
+  * New upstream release.
+  * debian/control.in:
+    - Build depend on libxml2-utils. glib-compile-resources uses xmllint
+      (Jeremy Bícha).
+    - Remove "Priority: optional" field, this is now redundant (Debian
+      policy 4.7.3).
+    - Update Standards-Version to 4.7.3.
+  * debian/rules:
+    - Disable native SIMD on Ubuntu (LP: #2121516) (Jeremy Bícha).
+    - Build with -no-integrated-cpp to further reduce memory usage on some
+      32-bit architectures (Closes: #1125347).
+    - Use gcc on armhf instead of clang-19 (Closes: #1124051)
+      (LP: #2103459).
+    - Use --param ggc-min-expand=10 on armhf and powerpc to reduce memory
+      usage even more.
+  * debian/patches/no-must-tail.patch:
+    - Disable musttail on sh4 and m68k (Closes: #1125380).
+  * Update copyright years.
+
+ -- Alberto Garcia <berto@igalia.com>  Tue, 10 Feb 2026 14:44:43 +0100
 
 webkit2gtk (2.50.4-1) unstable; urgency=medium
 
