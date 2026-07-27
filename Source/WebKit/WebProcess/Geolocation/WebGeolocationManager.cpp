@@ -158,7 +158,7 @@ void WebGeolocationManager::didChangePosition(const WebCore::RegistrableDomain& 
     if (auto it = m_pageSets.find(registrableDomain); it != m_pageSets.end()) {
         for (auto& page : copyToVector(it->value.pageSet)) {
             if (RefPtr corePage = page->corePage())
-                GeolocationController::from(corePage.get())->positionChanged(position);
+                GeolocationController::checkedFrom(corePage.get())->positionChanged(position);
         }
     }
 #else
@@ -176,7 +176,7 @@ void WebGeolocationManager::didFailToDeterminePosition(const WebCore::Registrabl
 
         for (auto& page : copyToVector(it->value.pageSet)) {
             if (RefPtr corePage = page->corePage())
-                GeolocationController::from(corePage.get())->errorOccurred(error.get());
+                GeolocationController::checkedFrom(corePage.get())->errorOccurred(error.get());
         }
     }
 #else
@@ -199,7 +199,7 @@ bool WebGeolocationManager::isHighAccuracyEnabled(const PageSets& pageSets) cons
 void WebGeolocationManager::resetPermissions(const WebCore::RegistrableDomain& registrableDomain)
 {
     auto it = m_pageSets.find(registrableDomain);
-    if (it != m_pageSets.end())
+    if (it == m_pageSets.end())
         return;
 
     for (auto& page : copyToVector(it->value.pageSet)) {

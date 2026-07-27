@@ -35,6 +35,9 @@
 
 namespace WebKit {
 
+struct WebPageProxyIdentifierType;
+using WebPageProxyIdentifier = ObjectIdentifier<WebPageProxyIdentifierType>;
+
 enum class FrameType : bool { Local, Remote };
 
 struct FrameInfoData {
@@ -44,8 +47,10 @@ struct FrameInfoData {
     FrameType frameType { FrameType::Local };
     WebCore::ResourceRequest request;
     WebCore::SecurityOriginData securityOrigin;
+    WebCore::SecurityOriginData topOrigin;
     String frameName;
     WebCore::FrameIdentifier frameID;
+    Markable<WebPageProxyIdentifier> webPageProxyID;
     Markable<WebCore::FrameIdentifier> parentFrameID;
     Markable<WebCore::ScriptExecutionContextIdentifier> documentID;
     WebCore::CertificateInfo certificateInfo;

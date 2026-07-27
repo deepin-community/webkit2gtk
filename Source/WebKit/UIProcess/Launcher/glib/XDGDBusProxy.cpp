@@ -180,7 +180,7 @@ void XDGDBusProxy::launch(const ProcessLaunchOptions& webProcessLaunchOptions)
     if (m_args.isEmpty())
         return;
 
-    WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GTK/WPE port
+    WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GTK/WPE
 
     int syncFds[2];
     if (pipe(syncFds) == -1)
@@ -189,7 +189,7 @@ void XDGDBusProxy::launch(const ProcessLaunchOptions& webProcessLaunchOptions)
 
     GUniquePtr<char> syncFdStr(g_strdup_printf("--fd=%d", syncFds[1]));
     Vector<CString> proxyArgs = { syncFdStr.get() };
-    proxyArgs.appendVector(WTFMove(m_args));
+    proxyArgs.appendVector(WTF::move(m_args));
 
     // We have to run xdg-dbus-proxy under bubblewrap because we need /.flatpak-info to exist in
     // xdg-dbus-proxy's mount namespace. Portals may use this as a trusted way to get the
@@ -220,7 +220,9 @@ void XDGDBusProxy::launch(const ProcessLaunchOptions& webProcessLaunchOptions)
     // Please keep this comment in sync with the duplicate comment in ProcessLauncher::launchProcess.
     GRefPtr<GSubprocessLauncher> launcher = adoptGRef(g_subprocess_launcher_new(G_SUBPROCESS_FLAGS_INHERIT_FDS));
     g_subprocess_launcher_take_fd(launcher.get(), proxyFd, proxyFd);
+    WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GTK/WPE
     g_subprocess_launcher_take_fd(launcher.get(), syncFds[1], syncFds[1]);
+    WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
     m_syncFD = UnixFileDescriptor(syncFds[0], UnixFileDescriptor::Adopt);
 
     // We are purposefully leaving syncFds[0] open here.

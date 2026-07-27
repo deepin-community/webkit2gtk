@@ -43,7 +43,7 @@
 
 struct _WebKitSecurityOrigin {
     explicit _WebKitSecurityOrigin(WebCore::SecurityOriginData&& data)
-        : securityOriginData(WTFMove(data))
+        : securityOriginData(WTF::move(data))
     {
     }
 
@@ -58,7 +58,7 @@ G_DEFINE_BOXED_TYPE(WebKitSecurityOrigin, webkit_security_origin, webkit_securit
 WebKitSecurityOrigin* webkitSecurityOriginCreate(WebCore::SecurityOriginData&& data)
 {
     WebKitSecurityOrigin* origin = static_cast<WebKitSecurityOrigin*>(fastMalloc(sizeof(WebKitSecurityOrigin)));
-    new (origin) WebKitSecurityOrigin(WTFMove(data));
+    new (origin) WebKitSecurityOrigin(WTF::move(data));
     return origin;
 }
 
@@ -271,5 +271,5 @@ gchar* webkit_security_origin_to_string(WebKitSecurityOrigin* origin)
     g_return_val_if_fail(origin, nullptr);
 
     CString cstring = origin->securityOriginData.toString().utf8();
-    return cstring == "null" || cstring == "" ? nullptr : g_strdup (cstring.data());
+    return cstring == "null"_s || cstring == ""_s ? nullptr : g_strdup (cstring.data());
 }

@@ -28,9 +28,9 @@
 #if ENABLE(GPU_PROCESS)
 
 #include "ImageBufferBackendHandle.h"
-#include "RemoteDisplayListRecorderProxy.h"
+#include "RemoteGraphicsContextProxy.h"
+#include "RemoteRenderingBackendIdentifier.h"
 #include "RemoteSerializedImageBufferIdentifier.h"
-#include "RenderingBackendIdentifier.h"
 #include <WebCore/ImageBuffer.h>
 #include <WebCore/ImageBufferBackend.h>
 #include <wtf/Condition.h>
@@ -45,6 +45,7 @@ class Connection;
 namespace WebKit {
 
 class RemoteRenderingBackendProxy;
+class RemoteImageBufferProxyFlushFence;
 
 class RemoteImageBufferProxy final : public WebCore::ImageBuffer {
     WTF_MAKE_TZONE_ALLOCATED(RemoteImageBufferProxy);
@@ -80,7 +81,7 @@ public:
     // Messages
     void didCreateBackend(std::optional<ImageBufferBackendHandle>);
 
-    RemoteDisplayListRecorderIdentifier contextIdentifier() const { return m_context.identifier(); }
+    RemoteGraphicsContextIdentifier contextIdentifier() const { return m_context.identifier(); }
 private:
     RemoteImageBufferProxy(Parameters, const WebCore::ImageBufferBackend::Info&, RemoteRenderingBackendProxy&);
 
@@ -102,16 +103,18 @@ private:
 
     void flushDrawingContext() final;
     bool flushDrawingContextAsync() final;
+    std::unique_ptr<WebCore::ThreadSafeImageBufferFlusher> createFlusher() final;
 
     void prepareForBackingStoreChange();
 
     void assertDispatcherIsCurrent() const;
-    template<typename T> void send(T&& message);
-    template<typename T> auto sendSync(T&& message);
+    template<typename T> void send(T&& message) const;
+    template<typename T> auto sendSync(T&& message) const;
     RefPtr<IPC::StreamClientConnection> connection() const;
     void didBecomeUnresponsive() const;
 
-    mutable RemoteDisplayListRecorderProxy m_context;
+    RefPtr<RemoteImageBufferProxyFlushFence> m_pendingFlush;
+    mutable RemoteGraphicsContextProxy m_context;
     WeakPtr<RemoteRenderingBackendProxy> m_renderingBackend;
 };
 
@@ -132,7 +135,20 @@ public:
 
     const WebCore::ImageBuffer::Parameters& parameters() const { return m_parameters; }
     const WebCore::ImageBufferBackend::Info& info() const { return m_info; }
+
+    std::unique_ptr<WebCore::SerializedImageBuffer> clone() const final
+    {
+        return std::unique_ptr<WebCore::SerializedImageBuffer>(new RemoteSerializedImageBufferProxy(m_parameters, m_info, m_connection));
+    }
+
 private:
+    RemoteSerializedImageBufferProxy(const WebCore::ImageBuffer::Parameters& parameters, const WebCore::ImageBufferBackend::Info& info, const RefPtr<IPC::Connection>& connection)
+        : m_parameters(parameters)
+        , m_info(info)
+        , m_connection(connection)
+    {
+    }
+
     RefPtr<WebCore::ImageBuffer> sinkIntoImageBuffer() final
     {
         ASSERT_NOT_REACHED();

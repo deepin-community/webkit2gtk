@@ -30,6 +30,7 @@
 #include "Encoder.h"
 #include "GeneratedSerializers.h"
 #include <utility>
+#include <variant>
 #include <wtf/ArgumentCoder.h>
 #include <wtf/Box.h>
 #include <wtf/CheckedArithmetic.h>
@@ -40,6 +41,7 @@
 #include <wtf/SHA1.h>
 #include <wtf/StdLibExtras.h>
 #include <wtf/Unexpected.h>
+#include <wtf/Variant.h>
 #include <wtf/WallTime.h>
 
 #if OS(ANDROID)
@@ -186,7 +188,7 @@ template<typename T> struct ArgumentCoder<std::optional<T>> {
         }
 
         encoder << true;
-        encoder << std::forward<U>(optional).value();
+        SUPPRESS_UNCHECKED_ARG encoder << std::forward<U>(optional).value();
     }
 
     template<typename Decoder>
@@ -199,7 +201,7 @@ template<typename T> struct ArgumentCoder<std::optional<T>> {
             auto value = decoder.template decode<T>();
             if (!value)
                 return std::nullopt;
-            return std::optional<std::optional<T>>(WTFMove(*value));
+            SUPPRESS_UNCHECKED_ARG return std::optional<std::optional<T>>(WTF::move(*value));
         }
         return std::optional<std::optional<T>>(std::optional<T>(std::nullopt));
     }
@@ -228,7 +230,7 @@ template<typename T> struct ArgumentCoder<Box<T>> {
             auto value = decoder.template decode<T>();
             if (!value)
                 return std::nullopt;
-            return std::optional<Box<T>>(Box<T>::create(WTFMove(*value)));
+            return std::optional<Box<T>>(Box<T>::create(WTF::move(*value)));
         }
         return std::optional<Box<T>>(Box<T>(nullptr));
     }
@@ -239,7 +241,7 @@ template<typename T, typename U> struct ArgumentCoder<std::pair<T, U>> {
     static void encode(Encoder& encoder, V&& pair)
     {
         static_assert(std::is_same_v<std::remove_cvref_t<V>, std::pair<T, U>>);
-        encoder << std::get<0>(std::forward<V>(pair)) << std::get<1>(std::forward<V>(pair));
+        SUPPRESS_UNCHECKED_ARG encoder << std::get<0>(std::forward<V>(pair)) << std::get<1>(std::forward<V>(pair));
     }
 
     template<typename Decoder>
@@ -253,7 +255,7 @@ template<typename T, typename U> struct ArgumentCoder<std::pair<T, U>> {
         if (!second)
             return std::nullopt;
 
-        return std::make_optional<std::pair<T, U>>(WTFMove(*first), WTFMove(*second));
+        SUPPRESS_UNCHECKED_ARG return std::make_optional<std::pair<T, U>>(WTF::move(*first), WTF::move(*second));
     }
 };
 
@@ -262,7 +264,7 @@ template<typename T> struct ArgumentCoder<RefPtr<T>> {
     static void encode(Encoder& encoder, const RefPtr<U>& object)
     {
         if (object)
-            encoder << true << *object;
+            SUPPRESS_FORWARD_DECL_ARG encoder << true << *object;
         else
             encoder << false;
     }
@@ -278,7 +280,7 @@ template<typename T> struct ArgumentCoder<RefPtr<T>> {
         // Decoders of U held with RefPtr do not return std::optional<U> but
         // std::optional<RefPtr<U>>. We cannot use `decoder.template decode<U>()`
         // Currently expect "modern decoder" -like decode function.
-        return ArgumentCoder<U>::decode(decoder);
+        return ArgumentCoder<std::remove_const_t<U>>::decode(decoder);
     }
 };
 
@@ -286,7 +288,7 @@ template<typename T> struct ArgumentCoder<Ref<T>> {
     template<typename Encoder, typename U = T>
     static void encode(Encoder& encoder, const Ref<U>& object)
     {
-        encoder << object.get();
+        SUPPRESS_FORWARD_DECL_ARG encoder << object.get();
     }
 
     template<typename Decoder, typename U = T>
@@ -307,7 +309,7 @@ template<typename T> struct ArgumentCoder<std::unique_ptr<T>> {
         static_assert(std::is_same_v<std::remove_cvref_t<U>, std::unique_ptr<T>>);
 
         if (object)
-            encoder << true << WTF::forward_like<U>(*object);
+            SUPPRESS_UNCHECKED_ARG encoder << true << WTF::forward_like<U>(*object);
         else
             encoder << false;
     }
@@ -323,7 +325,7 @@ template<typename T> struct ArgumentCoder<std::unique_ptr<T>> {
             auto object = decoder.template decode<T>();
             if (!object)
                 return std::nullopt;
-            return std::make_optional<std::unique_ptr<T>>(makeUnique<T>(WTFMove(*object)));
+            SUPPRESS_UNCHECKED_ARG return std::make_optional<std::unique_ptr<T>>(makeUnique<T>(WTF::move(*object)));
         }
         return std::make_optional<std::unique_ptr<T>>();
     }
@@ -343,7 +345,7 @@ template<typename T> struct ArgumentCoder<UniqueRef<T>> {
         auto object = decoder.template decode<T>();
         if (!object)
             return std::nullopt;
-        return makeUniqueRef<T>(WTFMove(*object));
+        return makeUniqueRef<T>(WTF::move(*object));
     }
 };
 
@@ -373,10 +375,10 @@ template<typename... Elements> struct ArgumentCoder<std::tuple<Elements...>> {
             auto optional = decoder.template decode<std::tuple_element_t<index, std::tuple<Elements...>>>();
             if (!optional)
                 return std::nullopt;
-            return decode(decoder, WTFMove(decodedObjects)..., WTFMove(optional));
+            return decode(decoder, WTF::move(decodedObjects)..., WTF::move(optional));
         } else {
             static_assert((std::is_same_v<DecodedTypes, Elements> && ...));
-            return std::make_optional<std::tuple<Elements...>>(*WTFMove(decodedObjects)...);
+            SUPPRESS_UNCHECKED_ARG return std::make_optional<std::tuple<Elements...>>(*WTF::move(decodedObjects)...);
         }
     }
 };
@@ -400,7 +402,7 @@ template<typename KeyType, typename ValueType> struct ArgumentCoder<WTF::KeyValu
         if (!value)
             return std::nullopt;
 
-        return std::make_optional<WTF::KeyValuePair<KeyType, ValueType>>(WTFMove(*key), WTFMove(*value));
+        return std::make_optional<WTF::KeyValuePair<KeyType, ValueType>>(WTF::move(*key), WTF::move(*value));
     }
 };
 
@@ -425,10 +427,10 @@ template<typename T, size_t size> struct ArgumentCoder<std::array<T, size>> {
             auto optional = decoder.template decode<T>();
             if (!optional)
                 return std::nullopt;
-            return decode(decoder, WTFMove(decodedObjects)..., WTFMove(optional));
+            return decode(decoder, WTF::move(decodedObjects)..., WTF::move(optional));
         } else {
             static_assert((std::is_same_v<DecodedTypes, T> && ...));
-            return std::array<T, size> { *WTFMove(decodedObjects)... };
+            return std::array<T, size> { *WTF::move(decodedObjects)... };
         }
     }
 };
@@ -448,7 +450,7 @@ template<typename Key, typename T, Key lastValue> struct ArgumentCoder<Enumerate
         if (!array)
             return std::nullopt;
 
-        return std::make_optional<EnumeratedArray<Key, T, lastValue>>(WTFMove(*array));
+        return std::make_optional<EnumeratedArray<Key, T, lastValue>>(WTF::move(*array));
     }
 };
 
@@ -461,8 +463,8 @@ template<typename T, size_t inlineCapacity, typename OverflowHandler, size_t min
         static_assert(std::is_same_v<std::remove_cvref_t<U>, Vector<T, inlineCapacity, OverflowHandler, minCapacity>>);
 
         encoder << static_cast<uint64_t>(vector.size());
-        for (auto&& item : vector)
-            encoder << WTF::forward_like<U>(item);
+        SUPPRESS_UNCHECKED_LOCAL for (auto&& item : vector)
+            SUPPRESS_UNCHECKED_ARG encoder << WTF::forward_like<U>(item);
     }
 
     template<typename Decoder>
@@ -482,7 +484,7 @@ template<typename T, size_t inlineCapacity, typename OverflowHandler, size_t min
                 auto element = decoder.template decode<T>();
                 if (!element)
                     return std::nullopt;
-                vector.append(WTFMove(*element));
+                vector.append(WTF::move(*element));
             }
             return vector;
         }
@@ -491,7 +493,7 @@ template<typename T, size_t inlineCapacity, typename OverflowHandler, size_t min
             auto element = decoder.template decode<T>();
             if (!element)
                 return std::nullopt;
-            vector.append(WTFMove(*element));
+            SUPPRESS_UNCHECKED_ARG vector.append(WTF::move(*element));
         }
         vector.shrinkToFit();
         return vector;
@@ -553,9 +555,9 @@ template<typename T> struct FixedVectorArgumentCoder<false, T> {
             auto element = decoder.template decode<T>();
             if (!element)
                 return std::nullopt;
-            mutableVector.append(WTFMove(*element));
+            mutableVector.append(WTF::move(*element));
         }
-        return std::make_optional<FixedVector<T>>(WTFMove(mutableVector));
+        return std::make_optional<FixedVector<T>>(WTF::move(mutableVector));
     }
 };
 
@@ -611,7 +613,7 @@ template<typename KeyArg, typename MappedArg, typename HashArg, typename KeyTrai
             if (!HashMapType::isValidKey(*key)) [[unlikely]]
                 return std::nullopt;
 
-            if (!hashMap.add(WTFMove(*key), WTFMove(*value)).isNewEntry) [[unlikely]] {
+            if (!hashMap.add(WTF::move(*key), WTF::move(*value)).isNewEntry) [[unlikely]] {
                 // The hash map already has the specified key, bail.
                 return std::nullopt;
             }
@@ -648,7 +650,7 @@ template<typename KeyArg, typename HashArg, typename KeyTraitsArg, typename Hash
             if (!HashSetType::isValidValue(*key)) [[unlikely]]
                 return std::nullopt;
 
-            if (!hashSet.add(WTFMove(*key)).isNewEntry) [[unlikely]] {
+            if (!hashSet.add(WTF::move(*key)).isNewEntry) [[unlikely]] {
                 // The hash set already has the specified key, bail.
                 return std::nullopt;
             }
@@ -691,13 +693,13 @@ template<typename KeyArg, typename HashArg, typename KeyTraitsArg> struct Argume
             if (!HashCountedSetType::isValidValue(*key)) [[unlikely]]
                 return std::nullopt;
 
-            if (!tempHashCountedSet.add(*key, *count).isNewEntry) [[unlikely]] {
+            if (!tempHashCountedSet.add(WTF::move(*key), *count).isNewEntry) [[unlikely]] {
                 // The hash counted set already has the specified key, bail.
                 return std::nullopt;
             }
         }
 
-        return WTFMove(tempHashCountedSet);
+        return WTF::move(tempHashCountedSet);
     }
 };
 
@@ -719,11 +721,11 @@ template<typename ValueType, typename ErrorType> struct ArgumentCoder<Expected<V
     {
         if (!expected.has_value()) {
             encoder << false;
-            encoder << WTFMove(expected.error());
+            encoder << WTF::move(expected.error());
             return;
         }
         encoder << true;
-        encoder << WTFMove(expected.value());
+        encoder << WTF::move(expected.value());
     }
 
     template<typename Decoder>
@@ -738,13 +740,13 @@ template<typename ValueType, typename ErrorType> struct ArgumentCoder<Expected<V
             if (!value)
                 return std::nullopt;
 
-            return std::make_optional<Expected<ValueType, ErrorType>>(WTFMove(*value));
+            return std::make_optional<Expected<ValueType, ErrorType>>(WTF::move(*value));
         }
 
         auto error = decoder.template decode<ErrorType>();
         if (!error)
             return std::nullopt;
-        return std::make_optional<Expected<ValueType, ErrorType>>(makeUnexpected(WTFMove(*error)));
+        return std::make_optional<Expected<ValueType, ErrorType>>(makeUnexpected(WTF::move(*error)));
     }
 };
 
@@ -772,7 +774,7 @@ template<typename ErrorType> struct ArgumentCoder<Expected<void, ErrorType>> {
         auto error = decoder.template decode<ErrorType>();
         if (!error)
             return std::nullopt;
-        return std::make_optional<Expected<void, ErrorType>>(makeUnexpected(WTFMove(*error)));
+        return std::make_optional<Expected<void, ErrorType>>(makeUnexpected(WTF::move(*error)));
     }
 };
 
@@ -821,7 +823,7 @@ template<typename... Types> struct ArgumentCoder<Variant<Types...>> {
                 auto optional = decoder.template decode<typename WTF::VariantAlternativeT<index, Variant<Types...>>>();
                 if (!optional)
                     return std::nullopt;
-                return std::make_optional<Variant<Types...>>(WTF::InPlaceIndex<index>, WTFMove(*optional));
+                return std::make_optional<Variant<Types...>>(WTF::InPlaceIndex<index>, WTF::move(*optional));
             }
             return decode(decoder, std::make_index_sequence<index + 1> { }, i);
         } else
@@ -845,6 +847,12 @@ template<> struct ArgumentCoder<std::nullptr_t> {
     template<typename Encoder>
     static void encode(Encoder&, const std::nullptr_t&) { }
     static std::optional<std::nullptr_t> decode(Decoder&) { return nullptr; }
+};
+
+template<> struct ArgumentCoder<std::monostate> {
+    template<typename Encoder>
+    static void encode(Encoder&, const std::monostate&) { }
+    static std::optional<std::monostate> decode(Decoder&) { return std::monostate { }; }
 };
 
 template<typename T, typename Traits> struct ArgumentCoder<WTF::Markable<T, Traits>> {
@@ -871,7 +879,7 @@ template<typename T, typename Traits> struct ArgumentCoder<WTF::Markable<T, Trai
         if (!value) [[unlikely]]
             return std::nullopt;
 
-        return WTF::Markable<T, Traits>(WTFMove(*value));
+        return WTF::Markable<T, Traits>(WTF::move(*value));
     }
 };
 

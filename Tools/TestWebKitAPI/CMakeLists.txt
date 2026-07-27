@@ -32,6 +32,7 @@ set(TestWTF_SOURCES
     Tests/WTF/BoxPtr.cpp
     Tests/WTF/BumpPointerAllocator.cpp
     Tests/WTF/CString.cpp
+    Tests/WTF/CStringView.cpp
     Tests/WTF/CharacterProperties.cpp
     Tests/WTF/CheckedArithmeticOperations.cpp
     Tests/WTF/CompactPtr.cpp
@@ -62,6 +63,7 @@ set(TestWTF_SOURCES
     Tests/WTF/IndexSparseSet.cpp
     Tests/WTF/Int128.cpp
     Tests/WTF/IntegerToStringConversion.cpp
+    Tests/WTF/IntervalSet.cpp
     Tests/WTF/IteratorRange.cpp
     Tests/WTF/JSONValue.cpp
     Tests/WTF/LEBDecoder.cpp
@@ -75,11 +77,13 @@ set(TestWTF_SOURCES
     Tests/WTF/Markable.cpp
     Tests/WTF/MathExtras.cpp
     Tests/WTF/MediaTime.cpp
+    Tests/WTF/MemoryDump.cpp
     Tests/WTF/MetaAllocator.cpp
     Tests/WTF/MoveOnlyLifecycleLogger.cpp
     Tests/WTF/NakedPtr.cpp
     Tests/WTF/NativePromise.cpp
     Tests/WTF/NeverDestroyed.cpp
+    Tests/WTF/OptionCountedSet.cpp
     Tests/WTF/OptionSet.cpp
     Tests/WTF/Packed.cpp
     Tests/WTF/PackedRef.cpp
@@ -123,6 +127,7 @@ set(TestWTF_SOURCES
     Tests/WTF/ThreadMessages.cpp
     Tests/WTF/Threading.cpp
     Tests/WTF/Time.cpp
+    Tests/WTF/TruncateFloat.cpp
     Tests/WTF/URL.cpp
     Tests/WTF/URLParser.cpp
     Tests/WTF/UTF8Conversion.cpp
@@ -162,6 +167,7 @@ if (ENABLE_JAVASCRIPTCORE)
         Tests/JavaScriptCore/DisallowVMEntry.cpp
         Tests/JavaScriptCore/InspectorConsoleMessage.cpp
         Tests/JavaScriptCore/PropertySlot.cpp
+        Tests/JavaScriptCore/RegularExpression.cpp
     )
 
     set(TestJavaScriptCore_LIBRARIES
@@ -207,6 +213,8 @@ if (ENABLE_WEBCORE)
         Tests/WebCore/GridPosition.cpp
         Tests/WebCore/HTMLParserIdioms.cpp
         Tests/WebCore/HTTPParsers.cpp
+        Tests/WebCore/IDBSerializationTest.cpp
+        Tests/WebCore/IDBKeyData.cpp
         Tests/WebCore/ImageBufferTests.cpp
         Tests/WebCore/IntPointTests.cpp
         Tests/WebCore/IntRectTests.cpp
@@ -228,6 +236,7 @@ if (ENABLE_WEBCORE)
         Tests/WebCore/RegionTests.cpp
         Tests/WebCore/RenderStyleChange.cpp
         Tests/WebCore/SecurityOrigin.cpp
+        Tests/WebCore/ShareableBitmap.cpp
         Tests/WebCore/SharedBuffer.cpp
         Tests/WebCore/SharedBufferTest.cpp
         Tests/WebCore/StyleGradient.cpp

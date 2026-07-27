@@ -6,13 +6,16 @@ Uploaders: Alberto Garcia <berto@igalia.com>,
            Emilio Pozuelo Monfort <pochu@debian.org>
 X-Ubuntu-Use-Langpack: no
 Build-Depends: debhelper-compat (= 13),
-               ccache,
-               bubblewrap [amd64 arm64 armel armhf i386 mips64el ppc64el riscv64 s390x loong64 hppa ppc64 x32],
-               xdg-dbus-proxy [amd64 arm64 armel armhf i386 mips64el ppc64el riscv64 s390x loong64 hppa ppc64 x32],
-               libseccomp-dev [amd64 arm64 armel armhf i386 mips64el ppc64el riscv64 s390x loong64 hppa ppc64 x32],
-               clang-16 [amd64 arm64 armel armhf i386 ppc64el riscv64 s390x],
+               bubblewrap [amd64 arm64 armel armhf i386 ppc64el riscv64 s390x loong64 hppa ppc64 x32],
+               xdg-dbus-proxy [amd64 arm64 armel armhf i386 ppc64el riscv64 s390x loong64 hppa ppc64 x32],
+               libseccomp-dev [amd64 arm64 armel armhf i386 ppc64el riscv64 s390x loong64 hppa ppc64 x32],
+               clang [amd64 arm64 armel armhf i386 ppc64el riscv64 s390x],
                cmake (>= 3.20),
                flite1-dev,
+               gir1.2-gobject-2.0-dev,
+               gir1.2-gtk-3.0-dev,
+               gir1.2-gtk-4.0-dev,
+               gir1.2-soup-3.0-dev,
                libglib2.0-dev,
                libharfbuzz-dev,
                libcairo2-dev,
@@ -21,12 +24,16 @@ Build-Depends: debhelper-compat (= 13),
                libfreetype-dev,
                libicu-dev,
                libgcrypt20-dev,
+               libgtk-3-dev,
+               libgtk-4-dev,
                libhyphen-dev,
+               libjxl-dev,
                liblcms2-dev,
                libmanette-0.2-dev [!hurd-any],
+               libsoup-3.0-dev,
+               libsysprof-capture-4-dev (>= 3.38.0) [amd64 arm64 armel armhf i386 ppc64el riscv64 s390x hppa loong64 powerpc ppc64 sh4],
                libxslt1-dev,
                libxml2-dev,
-               @EXTRA_BUILD_DEPS@
                libsqlite3-dev,
                libsystemd-dev [!hurd-any],
                libgudev-1.0-dev [!hurd-any],
@@ -42,6 +49,7 @@ Build-Depends: debhelper-compat (= 13),
                libpng-dev,
                libtasn1-6-dev,
                libwebp-dev,
+               libxml2-utils,
                libxt-dev,
                libgstreamer1.0-dev,
                libgstreamer-plugins-base1.0-dev,
@@ -53,21 +61,20 @@ Build-Depends: debhelper-compat (= 13),
                libgl-dev,
                libgles-dev
 Build-Depends-Indep: gi-docgen, jdupes
-Standards-Version: 4.7.2
+Standards-Version: 4.7.4
 Vcs-Browser: https://salsa.debian.org/webkit-team/webkit
 Vcs-Git: https://salsa.debian.org/webkit-team/webkit.git
 Homepage: https://webkitgtk.org/
 
-Package: @LIBJSCBIN_PKG@
+Package: libjavascriptcoregtk-bin
 Section: interpreters
 Architecture: any
 Pre-Depends: ${misc:Pre-Depends}
-Depends: @LIBJSCBIN_DEP_PKG@ (= ${binary:Version}),
+Depends: libjavascriptcoregtk-4.1-0 (= ${binary:Version}),
          ${shlibs:Depends},
          ${misc:Depends}
-Conflicts: ${jscbin:Conflicts}
-Breaks: ${jscbin:Replaces}
-Replaces: ${jscbin:Replaces}
+Breaks: libjavascriptcoregtk-4.0-bin (<< 2.43.4-2~)
+Replaces: libjavascriptcoregtk-4.0-bin (<< 2.43.4-2~)
 Description: JavaScript engine library from WebKitGTK - command-line interpreter
  JavaScriptCore is the JavaScript engine used in WebKit. It consists
  of the following building blocks: lexer, parser, start-up interpreter
@@ -76,15 +83,14 @@ Description: JavaScript engine library from WebKitGTK - command-line interpreter
  .
  This package provides jsc, a command-line JavaScript interpreter.
 
-Package: @LIBWEBKITGTKDOC_PKG@
+Package: libwebkitgtk-doc
 Build-Profiles: <!nodoc>
 Section: doc
 Architecture: all
 Multi-Arch: foreign
 Depends: ${misc:Depends}
-Conflicts: ${wkdoc:Conflicts}
-Breaks: ${wkdoc:Replaces}
-Replaces: ${wkdoc:Replaces}
+Breaks: libwebkit2gtk-4.0-doc (<< 2.43.4-2~)
+Replaces: libwebkit2gtk-4.0-doc (<< 2.43.4-2~)
 Description: Web content engine library for GTK - documentation
  WebKit is a web content engine, derived from KHTML and KJS from KDE, and
  used primarily in Apple's Safari browser.  It is made to be embedded in
@@ -97,15 +103,14 @@ Description: Web content engine library for GTK - documentation
  .
  This package contains the documentation.
 
-Package: @WEBDRIVER_PKG@
+Package: webkitgtk-webdriver
 Architecture: any
 Pre-Depends: ${misc:Pre-Depends}
-Depends: @WEBDRIVER_DEP_PKG@ (= ${binary:Version}),
+Depends: libwebkit2gtk-4.1-0 (= ${binary:Version}),
          ${shlibs:Depends},
          ${misc:Depends}
-Conflicts: ${wkwebdriver:Conflicts}
-Breaks: ${wkwebdriver:Replaces}
-Replaces: ${wkwebdriver:Replaces}
+Breaks: webkit2gtk-driver (<< 2.45.5~)
+Replaces: webkit2gtk-driver (<< 2.45.5~)
 Description: WebKitGTK WebDriver support
  WebKit is a web content engine, derived from KHTML and KJS from KDE, and
  used primarily in Apple's Safari browser.  It is made to be embedded in

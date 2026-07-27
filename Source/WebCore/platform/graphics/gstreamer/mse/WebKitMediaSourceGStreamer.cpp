@@ -38,6 +38,7 @@
 #include <wtf/MainThreadData.h>
 #include <wtf/RefPtr.h>
 #include <wtf/Scope.h>
+#include <wtf/glib/GMallocString.h>
 #include <wtf/glib/WTFGType.h>
 #include <wtf/text/AtomString.h>
 #include <wtf/text/AtomStringHash.h>
@@ -69,7 +70,10 @@ struct WebKitMediaSrcPrivate {
     {
         ASSERT(isMainThread());
         Stream* stream = streams.get(id);
-        ASSERT(stream);
+        if (!stream) {
+            GST_INFO_OBJECT(player.get() ? player.get()->webKitMediaSrc() : nullptr, "Track %" PRIu64
+                " not present in this WebKitMediaSrc", id);
+        }
         return stream;
     }
 
@@ -85,7 +89,7 @@ struct WebKitMediaSrcPrivate {
     double rate { 1.0 };
 
     // Only used by URI Handler API implementation.
-    GUniquePtr<char> uri;
+    GMallocString uri;
 
     ThreadSafeWeakPtr<MediaPlayerPrivateGStreamerMSE> player;
 };
@@ -137,9 +141,9 @@ WEBKIT_DEFINE_TYPE_WITH_CODE(WebKitMediaSrc, webkit_media_src, GST_TYPE_ELEMENT,
 struct Stream : public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<Stream> {
     Stream(WebKitMediaSrc* source, GRefPtr<GstPad>&& pad, Ref<MediaSourceTrackGStreamer>&& track, GRefPtr<GstStream>&& streamInfo)
         : source(source)
-        , pad(WTFMove(pad))
-        , track(WTFMove(track))
-        , streamInfo(WTFMove(streamInfo))
+        , pad(WTF::move(pad))
+        , track(WTF::move(track))
+        , streamInfo(WTF::move(streamInfo))
         , streamingMembersDataMutex(GRefPtr(this->track->initialCaps()), source->priv->startTime, source->priv->rate)
     {
         ASSERT(this->track->initialCaps());
@@ -152,7 +156,7 @@ struct Stream : public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<Stream> {
 
     struct StreamingMembers {
         StreamingMembers(GRefPtr<GstCaps>&& initialCaps, GstClockTime startTime, double rate)
-            : pendingInitialCaps(WTFMove(initialCaps))
+            : pendingInitialCaps(WTF::move(initialCaps))
         {
             gst_segment_init(&segment, GST_FORMAT_TIME);
             segment.start = segment.time = startTime;
@@ -199,14 +203,14 @@ static void dumpPipeline([[maybe_unused]] ASCIILiteral description, [[maybe_unus
 #endif
 }
 
-static GstStreamType gstStreamType(TrackPrivateBaseGStreamer::TrackType type)
+static GstStreamType gstStreamType(GStreamerTrackType type)
 {
     switch (type) {
-    case TrackPrivateBaseGStreamer::TrackType::Video:
+    case GStreamerTrackType::Video:
         return GST_STREAM_TYPE_VIDEO;
-    case TrackPrivateBaseGStreamer::TrackType::Audio:
+    case GStreamerTrackType::Audio:
         return GST_STREAM_TYPE_AUDIO;
-    case TrackPrivateBaseGStreamer::TrackType::Text:
+    case GStreamerTrackType::Text:
         return GST_STREAM_TYPE_TEXT;
     default:
         GST_ERROR("Received unexpected stream type");
@@ -215,18 +219,18 @@ static GstStreamType gstStreamType(TrackPrivateBaseGStreamer::TrackType type)
 }
 
 #ifndef GST_DISABLE_GST_DEBUG
-static const char* streamTypeToString(TrackPrivateBaseGStreamer::TrackType type)
+static ASCIILiteral streamTypeToString(GStreamerTrackType type)
 {
     switch (type) {
-    case TrackPrivateBaseGStreamer::TrackType::Audio:
-        return "Audio";
-    case TrackPrivateBaseGStreamer::TrackType::Video:
-        return "Video";
-    case TrackPrivateBaseGStreamer::TrackType::Text:
-        return "Text";
+    case GStreamerTrackType::Audio:
+        return "Audio"_s;
+    case GStreamerTrackType::Video:
+        return "Video"_s;
+    case GStreamerTrackType::Text:
+        return "Text"_s;
     default:
-    case TrackPrivateBaseGStreamer::TrackType::Unknown:
-        return "Unknown";
+    case GStreamerTrackType::Unknown:
+        return "Unknown"_s;
     }
 }
 #endif // GST_DISABLE_GST_DEBUG
@@ -270,7 +274,7 @@ static void webkit_media_src_class_init(WebKitMediaSrcClass* klass)
 
     // In GStreamer 1.20 and older urisourcebin mishandles source elements with dynamic pads. This
     // is not an issue in 1.22.
-    if (webkitGstCheckVersion(1, 22, 0))
+    if (gst_check_version(1, 22, 0))
         eklass->query = GST_DEBUG_FUNCPTR(webKitMediaSrcQuery);
 
     g_object_class_install_property(oklass,
@@ -306,7 +310,8 @@ void webKitMediaSrcEmitStreams(WebKitMediaSrc* source, const Vector<RefPtr<Media
     source->priv->collection = adoptGRef(gst_stream_collection_new("WebKitMediaSrc"));
     for (const auto& track : tracks) {
 #ifndef GST_DISABLE_GST_DEBUG
-        GST_DEBUG_OBJECT(source, "Adding stream with trackId '%" PRIu64 "' of type %s with caps %" GST_PTR_FORMAT, track->id(), streamTypeToString(track->type()), track->initialCaps().get());
+        GST_DEBUG_OBJECT(source, "Adding stream with trackId '%" PRIu64 "' of type %s with caps %" GST_PTR_FORMAT,
+            track->id(), streamTypeToString(track->type()).characters(), track->initialCaps().get());
 #endif // GST_DISABLE_GST_DEBUG
         if (source->priv->streams.contains(track->id())) {
             GST_ERROR_OBJECT(source, "stream with trackId '%" PRIu64 "' already exists", track->id());
@@ -323,7 +328,7 @@ void webKitMediaSrcEmitStreams(WebKitMediaSrc* source, const Vector<RefPtr<Media
         pad->priv->stream = ThreadSafeWeakPtr { *stream.get() };
 
         gst_stream_collection_add_stream(source->priv->collection.get(), GRefPtr<GstStream>(stream->streamInfo.get()).leakRef());
-        source->priv->streams.set(track->id(), WTFMove(stream));
+        source->priv->streams.set(track->id(), WTF::move(stream));
     }
 
     gst_element_post_message(GST_ELEMENT(source), gst_message_new_stream_collection(GST_OBJECT(source), source->priv->collection.get()));
@@ -336,7 +341,7 @@ void webKitMediaSrcEmitStreams(WebKitMediaSrc* source, const Vector<RefPtr<Media
                 return GST_PAD_PROBE_OK;
             }, nullptr, nullptr);
 
-        if (!webkitGstCheckVersion(1, 20, 6)) {
+        if (!gst_check_version(1, 20, 6)) {
             // Workaround: gst_element_add_pad() should already call gst_pad_set_active() if the element is PAUSED or
             // PLAYING. Unfortunately, as of GStreamer 1.18.2 it does so with the element lock taken, causing a deadlock
             // in gst_pad_start_task(), who tries to post a `stream-status` message in the element, which also requires
@@ -361,7 +366,7 @@ static RefPtr<MediaPlayerPrivateGStreamerMSE> webKitMediaSrcPlayer(WebKitMediaSr
 
 void webKitMediaSrcSetPlayer(WebKitMediaSrc* source, ThreadSafeWeakPtr<MediaPlayerPrivateGStreamerMSE>&& player)
 {
-    source->priv->player = WTFMove(player);
+    source->priv->player = WTF::move(player);
 }
 
 static void webKitMediaSrcTearDownStream(WebKitMediaSrc* source, TrackID id)
@@ -369,6 +374,11 @@ static void webKitMediaSrcTearDownStream(WebKitMediaSrc* source, TrackID id)
     ASSERT(isMainThread());
     Stream* stream = source->priv->streamById(id);
     GST_DEBUG_OBJECT(source, "Tearing down stream '%" PRIu64 "'", id);
+
+    if (!stream) {
+        GST_INFO_OBJECT(source, "Ignoring teardown on track not present in this WebKitMediaSrc");
+        return;
+    }
 
     // Flush the source element **and** downstream. We want to stop the streaming thread and for that we need all elements downstream to be idle.
     webKitMediaSrcStreamFlush(stream, false);
@@ -486,8 +496,8 @@ static void webKitMediaSrcLoop(void* userData)
     }
 
     if (!streamingMembers->wasStreamStartSent) {
-        GUniquePtr<char> streamId { g_strdup_printf("mse/%" PRIu64 "", stream->track->id()) };
-        GRefPtr<GstEvent> event = adoptGRef(gst_event_new_stream_start(streamId.get()));
+        auto streamId = GMallocString::unsafeAdoptFromUTF8(g_strdup_printf("mse/%" PRIu64 "", stream->track->id()));
+        GRefPtr<GstEvent> event = adoptGRef(gst_event_new_stream_start(streamId.utf8()));
         gst_event_set_group_id(event.get(), stream->source->priv->groupId);
         gst_event_set_stream(event.get(), stream->streamInfo.get());
 
@@ -505,7 +515,7 @@ static void webKitMediaSrcLoop(void* userData)
         [[maybe_unused]] bool wasCapsEventSent = gst_pad_push_event(pad, event.leakRef());
         GST_DEBUG_OBJECT(pad, "Pushed initial CAPS event, %s was returned.", boolForPrinting(wasCapsEventSent));
 
-        streamingMembers->previousCaps = WTFMove(streamingMembers->pendingInitialCaps);
+        streamingMembers->previousCaps = WTF::move(streamingMembers->pendingInitialCaps);
         ASSERT(!streamingMembers->pendingInitialCaps);
     }
 
@@ -522,7 +532,7 @@ static void webKitMediaSrcLoop(void* userData)
                 DataMutexLocker streamingMembers { stream->streamingMembersDataMutex };
                 ASSERT(!streamingMembers->isFlushing);
 
-                object = WTFMove(receivedObject);
+                object = WTF::move(receivedObject);
                 streamingMembers->hasPoppedFirstObject = true;
                 streamingMembers->queueChangedOrFlushedCondition.notifyAll();
             });
@@ -578,6 +588,7 @@ static void webKitMediaSrcLoop(void* userData)
         }
 
         GRefPtr<GstBuffer> buffer = gst_sample_get_buffer(sample.get());
+        auto isBufferEncrypted = areEncryptedCaps(gst_sample_get_caps(sample.get()));
         sample.clear();
 
         bool pushingFirstBuffer = !streamingMembers->hasPushedFirstBuffer;
@@ -593,19 +604,31 @@ static void webKitMediaSrcLoop(void* userData)
         ASSERT(GST_BUFFER_PTS_IS_VALID(buffer.get()));
         GST_TRACE_OBJECT(pad, "Pushing buffer downstream: %" GST_PTR_FORMAT, buffer.get());
         GstFlowReturn result = gst_pad_push(pad, buffer.leakRef());
-        if (result != GST_FLOW_OK && result != GST_FLOW_FLUSHING) {
+        if (result == GST_FLOW_NOT_LINKED && stream->track->type() == GStreamerTrackType::Video) {
+            // We allow multiple video tracks and all of them except one may be unlinked. Just drop the buffer.
+            GST_TRACE_OBJECT(pad, "Buffer not pushed because pad is not-linked, ignoring");
+        } else if (result != GST_FLOW_OK && result != GST_FLOW_FLUSHING) {
             gst_pad_pause_task(pad);
-            GST_ELEMENT_ERROR(stream->source, CORE, PAD, ("Failed to push buffer"), ("gst_pad_push() returned %s", gst_flow_get_name(result)));
+            // Do not propagate NoKey decryption errors downstream, the decryptor should already have emitted an appropriate error message.
+            if (!isBufferEncrypted && result != GST_FLOW_CUSTOM_ERROR)
+                GST_ELEMENT_ERROR(stream->source, CORE, PAD, ("Failed to push buffer"), ("gst_pad_push() returned %s", gst_flow_get_name(result)));
         } else if (pushingFirstBuffer) {
             GST_DEBUG_OBJECT(pad, "First buffer on this pad was pushed (ret = %s).", gst_flow_get_name(result));
             dumpPipeline("first-frame-after"_s, stream);
         }
-IGNORE_WARNINGS_BEGIN("cast-align")
+        IGNORE_WARNINGS_BEGIN("cast-align");
     } else if (GST_IS_EVENT(object.get())) {
         // EOS events and other enqueued events are also sent unlocked so they can react to flushes if necessary.
         GRefPtr<GstEvent> event = GRefPtr<GstEvent>(GST_EVENT(object.leakRef()));
-IGNORE_WARNINGS_END
+        IGNORE_WARNINGS_END;
 
+        if (GST_EVENT_TYPE(event.get()) == GST_EVENT_EOS && !streamingMembers->hasPushedFirstBuffer) {
+            // parsebin emits errors if it receives EOS without prior buffer and those errors bubble
+            // up to our media player, leading to false-positive errors. Even if this parsebin
+            // behavior is acceptable in the general case, it is problematic for MSE.
+            GST_DEBUG_OBJECT(pad, "Ignoring EOS on non-prerolled pad");
+            return;
+        }
         streamingMembers.unlockEarly();
         GST_DEBUG_OBJECT(pad, "Pushing event downstream: %" GST_PTR_FORMAT, event.get());
         bool eventHandled = gst_pad_push_event(pad, GRefPtr<GstEvent>(event).leakRef());
@@ -702,7 +725,7 @@ static void webKitMediaSrcStreamFlush(Stream* stream, bool isSeekingFlush)
             streamingMembers->isFlushing = false;
             streamingMembers->doesNeedSegmentEvent = true;
 
-            if (!webkitGstCheckVersion(1, 22, 0)) {
+            if (!gst_check_version(1, 22, 0)) {
                 // In older GST versions STREAM_COLLECTION event is delivered to decodebin3
                 // from parsebin src pad probe. On the way, this event is cached inside
                 // parser element (GstBaseParse) and pushed downstream with first frame.
@@ -741,6 +764,11 @@ void webKitMediaSrcFlush(WebKitMediaSrc* source, TrackID streamId)
     GST_DEBUG_OBJECT(source, "Received non-seek flush request for stream '%" PRIu64 "'.", streamId);
     Stream* stream = source->priv->streamById(streamId);
 
+    if (!stream) {
+        GST_INFO_OBJECT(source, "Ignoring flush on track not present in this WebKitMediaSrc");
+        return;
+    }
+
     webKitMediaSrcStreamFlush(stream, false);
 }
 
@@ -755,7 +783,7 @@ static void webKitMediaSrcSeek(WebKitMediaSrc* source, uint64_t startTime, doubl
         webKitMediaSrcStreamFlush(stream.get(), true);
 }
 
-static int countStreamsOfType(WebKitMediaSrc* source, WebCore::TrackPrivateBaseGStreamer::TrackType type)
+static int countStreamsOfType(WebKitMediaSrc* source, WebCore::GStreamerTrackType type)
 {
     // Barring pipeline dumps someone may add during debugging, WebKit will only read these properties (n-video etc.) from the main thread.
     return std::count_if(source->priv->streams.begin(), source->priv->streams.end(), [type](auto item) {
@@ -769,13 +797,13 @@ static void webKitMediaSrcGetProperty(GObject* object, unsigned propId, GValue* 
 
     switch (propId) {
     case WEBKIT_MEDIA_SRC_PROP_N_AUDIO:
-        g_value_set_int(value, countStreamsOfType(source, WebCore::TrackPrivateBaseGStreamer::TrackType::Audio));
+        g_value_set_int(value, countStreamsOfType(source, WebCore::GStreamerTrackType::Audio));
         break;
     case WEBKIT_MEDIA_SRC_PROP_N_VIDEO:
-        g_value_set_int(value, countStreamsOfType(source, WebCore::TrackPrivateBaseGStreamer::TrackType::Video));
+        g_value_set_int(value, countStreamsOfType(source, WebCore::GStreamerTrackType::Video));
         break;
     case WEBKIT_MEDIA_SRC_PROP_N_TEXT:
-        g_value_set_int(value, countStreamsOfType(source, WebCore::TrackPrivateBaseGStreamer::TrackType::Text));
+        g_value_set_int(value, countStreamsOfType(source, WebCore::GStreamerTrackType::Text));
         break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID(object, propId, pspec);
@@ -862,7 +890,7 @@ static gchar* webKitMediaSrcGetUri(GstURIHandler* handler)
     WebKitMediaSrc* source = WEBKIT_MEDIA_SRC(handler);
 
     auto locker = GstObjectLocker(source);
-    return g_strdup(source->priv->uri.get());
+    return g_strdup(source->priv->uri.utf8());
 }
 
 static gboolean webKitMediaSrcSetUri(GstURIHandler* handler, const gchar* uri, GError**)
@@ -875,7 +903,7 @@ static gboolean webKitMediaSrcSetUri(GstURIHandler* handler, const gchar* uri, G
     }
 
     auto locker = GstObjectLocker(source);
-    source->priv->uri = GUniquePtr<char>(g_strdup(uri));
+    source->priv->uri = GMallocString::unsafeAdoptFromUTF8(g_strdup(uri));
     return TRUE;
 }
 

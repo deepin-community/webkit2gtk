@@ -41,56 +41,44 @@ class VideoTrackPrivateGStreamer final : public VideoTrackPrivate, public TrackP
 public:
     static Ref<VideoTrackPrivateGStreamer> create(ThreadSafeWeakPtr<MediaPlayerPrivateGStreamer>&& player, unsigned index, GRefPtr<GstPad>&& pad, bool shouldHandleStreamStartEvent = true)
     {
-        return adoptRef(*new VideoTrackPrivateGStreamer(WTFMove(player), index, WTFMove(pad), shouldHandleStreamStartEvent));
+        return adoptRef(*new VideoTrackPrivateGStreamer(WTF::move(player), index, WTF::move(pad), shouldHandleStreamStartEvent));
     }
 
     static Ref<VideoTrackPrivateGStreamer> create(ThreadSafeWeakPtr<MediaPlayerPrivateGStreamer>&& player, unsigned index, GRefPtr<GstPad>&& pad, TrackID trackId)
     {
-        return adoptRef(*new VideoTrackPrivateGStreamer(WTFMove(player), index, WTFMove(pad), trackId));
+        return adoptRef(*new VideoTrackPrivateGStreamer(WTF::move(player), index, WTF::move(pad), trackId));
     }
 
     static Ref<VideoTrackPrivateGStreamer> create(ThreadSafeWeakPtr<MediaPlayerPrivateGStreamer>&& player, unsigned index, GstStream* stream)
     {
-        return adoptRef(*new VideoTrackPrivateGStreamer(WTFMove(player), index, stream));
+        return adoptRef(*new VideoTrackPrivateGStreamer(WTF::move(player), index, stream));
     }
 
     Kind kind() const final;
 
-    void disconnect() final;
-
     void setSelected(bool) final;
     void setActive(bool enabled) final { setSelected(enabled); }
 
-    int trackIndex() const final { return m_index; }
+    int trackIndex() const final;
 
-    TrackID id() const final { return m_trackID.value_or(m_id); }
-    std::optional<AtomString> trackUID() const final
-    {
-        auto player = m_player.get();
+    TrackID id() const final;
+    std::optional<String> trackUID() const final;
 
-        if (player && player->isMediaStreamPlayer())
-            return m_gstStreamId;
-
-        return std::nullopt;
-    }
-
-    AtomString label() const final { return m_label; }
-    AtomString language() const final { return m_language; }
+    String label() const final;
+    String language() const final;
 
     void updateConfigurationFromCaps(GRefPtr<GstCaps>&&) final;
 
 protected:
     void updateConfigurationFromTags(GRefPtr<GstTagList>&&) final;
 
-    void tagsChanged(GRefPtr<GstTagList>&& tags) final { updateConfigurationFromTags(WTFMove(tags)); }
+    void tagsChanged(GRefPtr<GstTagList>&& tags) final { updateConfigurationFromTags(WTF::move(tags)); }
     void capsChanged(TrackID, GRefPtr<GstCaps>&&) final;
 
 private:
     VideoTrackPrivateGStreamer(ThreadSafeWeakPtr<MediaPlayerPrivateGStreamer>&&, unsigned index, GRefPtr<GstPad>&&, bool shouldHandleStreamStartEvent);
     VideoTrackPrivateGStreamer(ThreadSafeWeakPtr<MediaPlayerPrivateGStreamer>&&, unsigned index, GRefPtr<GstPad>&&, TrackID);
     VideoTrackPrivateGStreamer(ThreadSafeWeakPtr<MediaPlayerPrivateGStreamer>&&, unsigned index, GstStream*);
-
-    ThreadSafeWeakPtr<MediaPlayerPrivateGStreamer> m_player;
 };
 
 } // namespace WebCore

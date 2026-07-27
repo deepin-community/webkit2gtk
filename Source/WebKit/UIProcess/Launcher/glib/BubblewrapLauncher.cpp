@@ -78,6 +78,18 @@ static int memfd_create(const char* name, unsigned flags)
 namespace WebKit {
 using namespace WebCore;
 
+static bool remoteInspectorEnabled()
+{
+    static int enabled = -1;
+
+    if (enabled == -1) {
+        const char* env = g_getenv("WEBKIT_INSPECTOR_SERVER");
+        enabled = env && *env;
+    }
+
+    return enabled;
+}
+
 static int createSealedMemFdWithData(const char* name, gconstpointer data, size_t size)
 {
     int fd = memfd_create(name, MFD_ALLOW_SEALING);
@@ -165,6 +177,10 @@ static int createFlatpakInfo(const char* instanceID)
         GUniquePtr<GKeyFile> keyFile(g_key_file_new());
         g_key_file_set_string(keyFile.get(), "Application", "name", WTF::applicationID().data());
         g_key_file_set_string(keyFile.get(), "Instance", "instance-id", instanceID);
+
+        if (remoteInspectorEnabled())
+            g_key_file_set_string(keyFile.get(), "Context", "shared", "network;");
+
         data->reset(g_key_file_to_data(keyFile.get(), &size, nullptr));
     }
 
@@ -436,6 +452,11 @@ static void bindGStreamerData(Vector<CString>& args)
     bindIfExists(args, scannerPath);
     bindIfExists(args, installPluginsHelperPath);
     bindIfExists(args, ptpHelperPath);
+
+    // Since GStreamer 1.28.0 software video decoders are likely to use a udmabuf allocator, so
+    // allow access to the corresponding device in the sandbox. Note: We are in the UIProcess so a
+    // runtime GStreamer version check is not wanted here.
+    args.appendList({ "--dev-bind-try", "/dev/udmabuf", "/dev/udmabuf" });
 }
 
 static void bindOpenGL(Vector<CString>& args)
@@ -460,19 +481,31 @@ static void bindOpenGL(Vector<CString>& args)
     }));
 }
 
-#if PLATFORM(WPE)
 static void bindV4l(Vector<CString>& args)
 {
     args.appendVector(Vector<CString>({
         "--dev-bind-try", "/dev/v4l", "/dev/v4l",
-        // Not pretty but a stop-gap for pipewire anyway.
-        "--dev-bind-try", "/dev/video0", "/dev/video0",
-        "--dev-bind-try", "/dev/video1", "/dev/video1",
-        "--dev-bind-try", "/dev/video2", "/dev/video2",
-        "--dev-bind-try", "/dev/media0", "/dev/media0",
     }));
+
+    for (StringView fileName : FileSystem::listDirectory("/dev"_s)) {
+        bool isV4LNode = [&] () {
+            static constexpr std::array<ASCIILiteral, 3> nodeNames = { "video"_s, "media"_s, "v4l-subdev"_s };
+            for (const auto& nodeName : nodeNames) {
+                if (fileName.startsWith(nodeName) && fileName.substring(nodeName.length()).containsOnly<isASCIIDigit>())
+                    return true;
+            }
+            return false;
+        }();
+
+        if (!isV4LNode)
+            continue;
+
+        CString path = FileSystem::pathByAppendingComponent("/dev"_s, fileName).utf8();
+        args.appendVector(Vector<CString>({
+            "--dev-bind-try", path, path,
+        }));
+    }
 }
-#endif
 
 static bool enableDebugPermissions()
 {
@@ -684,6 +717,9 @@ static bool shouldUnshareNetwork(ProcessLauncher::ProcessType processType, char*
     if (enableDebugPermissions() && g_str_has_suffix(argv[0], "gdbserver"))
         return false;
 
+    if (remoteInspectorEnabled())
+        return false;
+
     // xdg-dbus-proxy needs access to host abstract sockets to connect to the a11y bus. Secure
     // host services must not use abstract sockets.
     if (processType == ProcessLauncher::ProcessType::DBusProxy)
@@ -717,7 +753,7 @@ static std::optional<CString> directoryContainingDBusSocket(const char* dbusAddr
         while (*pathEnd && *pathEnd != ',')
             pathEnd++;
 
-        CString path({ pathStart, pathEnd });
+        CString path(std::span { pathStart, pathEnd });
         GRefPtr<GFile> file = adoptGRef(g_file_new_for_path(path.data()));
         GRefPtr<GFile> parent = adoptGRef(g_file_get_parent(file.get()));
         if (!parent)
@@ -905,18 +941,8 @@ GRefPtr<GSubprocess> bubblewrapSpawn(GSubprocessLauncher* launcher, const Proces
         bindGStreamerData(sandboxArgs);
         bindOpenGL(sandboxArgs);
 
-        // NOTE: We don't bind v4l2 devices in the sandbox for WebKitGTK builds. We expect the
-        // WebKitGTK Application/UIProcess to be packaged as a Flatpak so that Camera access can be
-        // managed via the DesktopPortal. Our fake WebProcess .flatpak-info file is not sufficient
-        // for this, at least on GNOME hosts, where GNOME-Shell expects the Window/UIProcess to also
-        // have a .flatpak-info file mapped in /proc/<pid>/root/.flatpak-info in order to show the
-        // camera access permission popup.
-        //
-        // For WPEWebKit applications, we expect to find no DesktopPortal at runtime, so we bind the
-        // v4l2 devices in the sandbox.
-#if PLATFORM(WPE)
+        // Although cameras can be managed via the DesktopPortal, we still need v4l2 for video decoding.
         bindV4l(sandboxArgs);
-#endif
 
 #if USE(ATSPI)
         auto accessibilityBusAddress = launchOptions.extraInitializationData.get("accessibilityBusAddress"_s);

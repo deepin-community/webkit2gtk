@@ -35,17 +35,23 @@ MessageSender::~MessageSender() = default;
 bool MessageSender::sendMessage(UniqueRef<Encoder>&& encoder, OptionSet<SendOption> sendOptions)
 {
     RefPtr connection = messageSenderConnection();
-    ASSERT(connection);
+    if (!connection) [[unlikely]]
+        return false;
     // FIXME: Propagate errors out.
-    return connection->sendMessage(WTFMove(encoder), sendOptions) == Error::NoError;
+    return connection->sendMessage(WTF::move(encoder), sendOptions) == Error::NoError;
 }
 
 bool MessageSender::sendMessageWithAsyncReply(UniqueRef<Encoder>&& encoder, AsyncReplyHandler replyHandler, OptionSet<SendOption> sendOptions)
 {
     RefPtr connection = messageSenderConnection();
-    ASSERT(connection);
+    if (!connection) [[unlikely]] {
+        RunLoop::mainSingleton().dispatch([completionHandler = WTF::move(replyHandler.completionHandler)]() mutable {
+            completionHandler(nullptr, nullptr);
+        });
+        return false;
+    }
     // FIXME: Propagate errors out.
-    return connection->sendMessageWithAsyncReply(WTFMove(encoder), WTFMove(replyHandler), sendOptions) == Error::NoError;
+    return connection->sendMessageWithAsyncReply(WTF::move(encoder), WTF::move(replyHandler), sendOptions) == Error::NoError;
 }
 
 bool MessageSender::performSendWithoutUsingIPCConnection(UniqueRef<Encoder>&&) const

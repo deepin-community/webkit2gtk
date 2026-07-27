@@ -20,14 +20,11 @@
 #include "config.h"
 #include "WebKitDOMDocumentFragment.h"
 
-#include <WebCore/CSSImportRule.h>
-#include <WebCore/CustomElementRegistry.h>
+#include "ConvertToUTF8String.h"
 #include "DOMObjectCache.h"
-#include <WebCore/DOMException.h>
-#include <WebCore/Document.h>
 #include "GObjectEventListener.h"
-#include <WebCore/JSExecState.h>
 #include "WebKitDOMDocumentFragmentPrivate.h"
+#include "WebKitDOMDocumentFragmentUnstable.h"
 #include "WebKitDOMElementPrivate.h"
 #include "WebKitDOMEventPrivate.h"
 #include "WebKitDOMEventTarget.h"
@@ -35,8 +32,12 @@
 #include "WebKitDOMNodeListPrivate.h"
 #include "WebKitDOMNodePrivate.h"
 #include "WebKitDOMPrivate.h"
-#include "ConvertToUTF8String.h"
-#include "WebKitDOMDocumentFragmentUnstable.h"
+#include <WebCore/AddEventListenerOptionsInlines.h>
+#include <WebCore/CSSImportRule.h>
+#include <WebCore/CustomElementRegistry.h>
+#include <WebCore/DOMException.h>
+#include <WebCore/Document.h>
+#include <WebCore/JSExecState.h>
 #include <wtf/GetPtr.h>
 #include <wtf/RefPtr.h>
 
@@ -97,7 +98,9 @@ static void webkit_dom_document_fragment_dom_event_target_init(WebKitDOMEventTar
     iface->remove_event_listener = webkit_dom_document_fragment_remove_event_listener;
 }
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GTK
 G_DEFINE_TYPE_WITH_CODE(WebKitDOMDocumentFragment, webkit_dom_document_fragment, WEBKIT_DOM_TYPE_NODE, G_IMPLEMENT_INTERFACE(WEBKIT_DOM_TYPE_EVENT_TARGET, webkit_dom_document_fragment_dom_event_target_init))
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 enum {
     DOM_DOCUMENT_FRAGMENT_PROP_0,

@@ -39,17 +39,17 @@ class InbandTextTrackPrivateGStreamer : public InbandTextTrackPrivate, public Tr
 public:
     static Ref<InbandTextTrackPrivateGStreamer> create(unsigned index, GRefPtr<GstPad>&& pad, bool shouldHandleStreamStartEvent = true)
     {
-        return adoptRef(*new InbandTextTrackPrivateGStreamer(index, WTFMove(pad), shouldHandleStreamStartEvent));
+        return adoptRef(*new InbandTextTrackPrivateGStreamer(index, WTF::move(pad), shouldHandleStreamStartEvent));
     }
 
     static Ref<InbandTextTrackPrivateGStreamer> create(unsigned index, GRefPtr<GstPad>&& pad, TrackID trackId)
     {
-        return adoptRef(*new InbandTextTrackPrivateGStreamer(index, WTFMove(pad), trackId));
+        return adoptRef(*new InbandTextTrackPrivateGStreamer(index, WTF::move(pad), trackId));
     }
 
-    static Ref<InbandTextTrackPrivateGStreamer> create(ThreadSafeWeakPtr<MediaPlayerPrivateGStreamer>&&, unsigned index, GRefPtr<GstPad> pad)
+    static Ref<InbandTextTrackPrivateGStreamer> create(ThreadSafeWeakPtr<MediaPlayerPrivateGStreamer>&&, unsigned index, GRefPtr<GstPad> pad, TrackID id)
     {
-        return create(index, WTFMove(pad));
+        return create(index, WTF::move(pad), id);
     }
 
     static Ref<InbandTextTrackPrivateGStreamer> create(ThreadSafeWeakPtr<MediaPlayerPrivateGStreamer>&&, unsigned index, GstStream* stream)
@@ -58,15 +58,14 @@ public:
     }
 
     Kind kind() const final { return m_kind; }
-    TrackID id() const final { return m_trackID.value_or(m_id); }
-    std::optional<AtomString> trackUID() const final { return std::nullopt; }
-    AtomString label() const final { return m_label; }
-    AtomString language() const final { return m_language; }
-    int trackIndex() const final { return m_index; }
+    TrackID id() const final;
+    std::optional<String> trackUID() const final { return std::nullopt; }
+    String label() const final;
+    String language() const final;
+    int trackIndex() const final;
 
     void handleSample(GRefPtr<GstSample>&&);
 
-protected:
     void tagsChanged(GRefPtr<GstTagList>&&) final;
 
 private:

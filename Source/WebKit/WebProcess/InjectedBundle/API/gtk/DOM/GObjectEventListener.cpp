@@ -22,6 +22,8 @@
 #include "WebKitDOMEvent.h"
 #include "WebKitDOMEventPrivate.h"
 #include "WebKitDOMEventTarget.h"
+#include <WebCore/AddEventListenerOptionsInlines.h>
+#include <WebCore/JSExecState.h>
 #include <WebCore/Event.h>
 #include <wtf/HashMap.h>
 
@@ -32,7 +34,7 @@ GObjectEventListener::GObjectEventListener(GObject* target, EventTarget* coreTar
     : EventListener(GObjectEventListenerType)
     , m_target(target)
     , m_coreTarget(coreTarget)
-    , m_domEventName(domEventName)
+    , m_eventType(byteCast<Latin1Character>(unsafeSpan(domEventName)))
     , m_handler(handler)
     , m_capture(capture)
 {
@@ -58,7 +60,7 @@ void GObjectEventListener::gobjectDestroyed()
     // and later use-after-free with the m_handler = 0; assignment.
     RefPtr<GObjectEventListener> protectedThis(this);
 
-    m_coreTarget->removeEventListener(AtomString(m_domEventName.span()), *this, m_capture);
+    m_coreTarget->removeEventListener(m_eventType, *this, m_capture);
     m_coreTarget = nullptr;
     m_handler = nullptr;
 }
@@ -66,6 +68,7 @@ void GObjectEventListener::gobjectDestroyed()
 void GObjectEventListener::handleEvent(ScriptExecutionContext&, Event& event)
 {
     G_GNUC_BEGIN_IGNORE_DEPRECATIONS;
+    WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GTK
     GValue parameters[2] = { G_VALUE_INIT, G_VALUE_INIT };
     g_value_init(&parameters[0], WEBKIT_DOM_TYPE_EVENT_TARGET);
     g_value_set_object(&parameters[0], m_target);
@@ -77,6 +80,7 @@ void GObjectEventListener::handleEvent(ScriptExecutionContext&, Event& event)
     g_closure_invoke(m_handler.get(), 0, 2, parameters, NULL);
     g_value_unset(parameters + 0);
     g_value_unset(parameters + 1);
+    WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
     G_GNUC_END_IGNORE_DEPRECATIONS;
 }
 

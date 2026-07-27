@@ -1,0 +1,5 @@
+usr/lib/*/libwebkit2gtk-4.1.so.*
+usr/lib/*/webkit2gtk-4.1/*Process
+usr/lib/*/webkit2gtk-4.1/MiniBrowser
+usr/lib/*/webkit2gtk-4.1/injected-bundle
+usr/share/locale/*/LC_MESSAGES/WebKitGTK-4.1.mo

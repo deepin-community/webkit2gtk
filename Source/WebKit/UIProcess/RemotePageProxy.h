@@ -49,6 +49,7 @@ enum class FrameLoadType : uint8_t;
 enum class HasInsecureContent : bool;
 enum class MediaProducerMediaState : uint32_t;
 enum class MouseEventPolicy : uint8_t;
+enum class ScreenOrientationType : uint8_t;
 
 class CertificateInfo;
 class ResourceResponse;
@@ -64,6 +65,7 @@ class NativeWebMouseEvent;
 class RemotePageDrawingAreaProxy;
 class RemotePageFullscreenManagerProxy;
 class RemotePagePlaybackSessionManagerProxy;
+class RemotePageScreenOrientationManagerProxy;
 class RemotePageVideoPresentationManagerProxy;
 class RemotePageVisitedLinkStoreRegistration;
 class UserData;
@@ -71,6 +73,11 @@ class WebFrameProxy;
 class WebPageProxy;
 class WebProcessActivityState;
 class WebProcessProxy;
+class WebScreenOrientationManagerProxy;
+
+#if PLATFORM(IOS_FAMILY) && ENABLE(DEVICE_ORIENTATION)
+class RemotePageWebDeviceOrientationUpdateProviderProxy;
+#endif
 
 struct FrameInfoData;
 struct FrameTreeCreationParameters;
@@ -106,11 +113,19 @@ public:
     WebCore::MediaProducerMediaStateFlags mediaState() const { return m_mediaState; }
     void setDrawingArea(DrawingAreaProxy*);
 
+    void setCurrentOrientation(WebCore::ScreenOrientationType);
+
+    bool hasNetworkRequestsInProgress() const { return m_hasNetworkRequestsInProgress; }
+
+    void disconnect();
+
 private:
     RemotePageProxy(WebPageProxy&, WebProcessProxy&, const WebCore::Site&, WebPageProxyMessageReceiverRegistration*, std::optional<WebCore::PageIdentifier>);
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) final;
-    bool didReceiveSyncMessage(IPC::Connection&, IPC::Decoder&, UniqueRef<IPC::Encoder>&) final;
+    void didReceiveSyncMessage(IPC::Connection&, IPC::Decoder&, UniqueRef<IPC::Encoder>&) final;
     void isPlayingMediaDidChange(WebCore::MediaProducerMediaStateFlags);
+
+    void setNetworkRequestsInProgress(bool);
 
     const WebCore::PageIdentifier m_webPageID;
     const Ref<WebProcessProxy> m_process;
@@ -124,12 +139,20 @@ private:
 #if ENABLE(VIDEO_PRESENTATION_MODE)
     RefPtr<RemotePageVideoPresentationManagerProxy> m_videoPresentationManager;
 #endif
+#if PLATFORM(IOS_FAMILY) && ENABLE(DEVICE_ORIENTATION)
+    RefPtr<RemotePageWebDeviceOrientationUpdateProviderProxy> m_webDeviceOrientationUpdateProvider;
+#endif
 #if PLATFORM(IOS_FAMILY) || (PLATFORM(MAC) && ENABLE(VIDEO_PRESENTATION_MODE))
     RefPtr<RemotePagePlaybackSessionManagerProxy> m_playbackSessionManager;
 #endif
     std::unique_ptr<RemotePageVisitedLinkStoreRegistration> m_visitedLinkStoreRegistration;
     WebPageProxyMessageReceiverRegistration m_messageReceiverRegistration;
     WebCore::MediaProducerMediaStateFlags m_mediaState;
+    RefPtr<RemotePageScreenOrientationManagerProxy> m_screenOrientationManager;
+    bool m_hasNetworkRequestsInProgress { false };
+#if ASSERT_ENABLED
+    bool m_disconnected { false };
+#endif
 };
 
 }

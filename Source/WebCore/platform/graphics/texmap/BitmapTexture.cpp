@@ -28,7 +28,6 @@
 #include "GraphicsContext.h"
 #include "GraphicsLayer.h"
 #include "ImageBuffer.h"
-#include "LengthFunctions.h"
 #include "NativeImage.h"
 #include "PlatformDisplay.h"
 #include "TextureMapper.h"
@@ -86,26 +85,35 @@ BitmapTexture::BitmapTexture(const IntSize& size, OptionSet<Flags> flags)
     , m_size(size)
     , m_pixelFormat(PixelFormat::RGBA8)
 {
+    GLint boundTexture = 0;
+    glGetIntegerv(GL_TEXTURE_BINDING_2D, &boundTexture);
+
 #if USE(GBM)
     if (m_flags.contains(Flags::BackedByDMABuf)) {
         OptionSet<MemoryMappedGPUBuffer::BufferFlag> bufferFlags;
-        if (flags.contains(Flags::ForceLinearBuffer))
+        if (flags.contains(Flags::ForceLinearBuffer)) {
+            ASSERT(!flags.contains(Flags::ForceVivanteSuperTiledBuffer));
             bufferFlags.add(MemoryMappedGPUBuffer::BufferFlag::ForceLinear);
+        }
+
+        if (flags.contains(Flags::ForceVivanteSuperTiledBuffer)) {
+            ASSERT(!flags.contains(Flags::ForceLinearBuffer));
+            bufferFlags.add(MemoryMappedGPUBuffer::BufferFlag::ForceVivanteSuperTiled);
+        }
 
         m_memoryMappedGPUBuffer = MemoryMappedGPUBuffer::create(m_size, bufferFlags);
 
         // Proceed as usual with GL texture creation if the dma-buf creation failed.
         // as we only want to allocate the dma-buf, but neither map it, nor create a texture now - but when we
         // need it (from the thread that needs it!).
-        if (allocateTextureFromMemoryMappedGPUBuffer())
+        if (allocateTextureFromMemoryMappedGPUBuffer()) {
+            glBindTexture(GL_TEXTURE_2D, boundTexture);
             return;
+        }
 
         m_flags.remove(Flags::BackedByDMABuf);
     }
 #endif
-
-    GLint boundTexture = 0;
-    glGetIntegerv(GL_TEXTURE_BINDING_2D, &boundTexture);
 
     allocateTexture();
 
@@ -129,7 +137,22 @@ void BitmapTexture::allocateTexture()
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, m_size.width(), m_size.height(), 0, textureFormat, s_pixelDataType, nullptr);
 }
 
+size_t BitmapTexture::sizeInBytes() const
+{
+    auto size = allocatedSize();
+    if (size.isEmpty())
+        return 0;
+
+    const auto bytesPerRow = CheckedUint32(size.width()) * 4;
+    return CheckedUint32(size.height()) * bytesPerRow;
+}
+
 #if USE(GBM)
+IntSize BitmapTexture::allocatedSize() const
+{
+    return m_memoryMappedGPUBuffer ? m_memoryMappedGPUBuffer->allocatedSize() : m_size;
+}
+
 bool BitmapTexture::allocateTextureFromMemoryMappedGPUBuffer()
 {
     if (!m_memoryMappedGPUBuffer)
@@ -173,9 +196,8 @@ void BitmapTexture::swapTexture(BitmapTexture& other)
     std::swap(m_flags, other.m_flags);
     std::swap(m_id, other.m_id);
 
-    // This texture needs to be in the same pixel format as the 'other'
-    // texture, before the reset above. The 'other' texture should be
-    // reset to RGBA default pixel format.
+    // Take the pixel format from the source texture. The source texture
+    // (going back to the pool) is reset to the default pixel format.
     m_pixelFormat = other.m_pixelFormat;
     other.m_pixelFormat = PixelFormat::RGBA8;
 }
@@ -253,18 +275,17 @@ void BitmapTexture::updateContents(const void* srcData, const IntRect& targetRec
 
 #if USE(GBM)
     // Use OpenGL to update multi-plane textures via glTexSubImage2D -- mmap() mode is only intended for single-plane images.
-    if (m_memoryMappedGPUBuffer && m_memoryMappedGPUBuffer->isLinear()) {
+    if (m_memoryMappedGPUBuffer && (m_memoryMappedGPUBuffer->isLinear() || m_memoryMappedGPUBuffer->isVivanteSuperTiled())) {
         RELEASE_ASSERT(sourceOffset.isZero());
         if (auto writeScope = makeGPUBufferWriteScope(*m_memoryMappedGPUBuffer)) {
             m_memoryMappedGPUBuffer->updateContents(*writeScope, srcData, targetRect, bytesPerLine);
             return;
         }
 
-        LOG_ERROR("BitmapTexture::updateContents(), failed to obtain MemoryMappedGPUBuffer write scope, fallback to OpenGL.");
+        WTFLogAlways("ERROR: Update Bitmap Texture Contents failed to obtain MemoryMappedGPUBuffer write scope. Aborting fallback to OpenGL..."); // NOLINT
+        CRASH();
     }
 #endif
-
-    glBindTexture(GL_TEXTURE_2D, m_id);
 
     const unsigned bytesPerPixel = 4;
     auto data = static_cast<const uint8_t*>(srcData);
@@ -341,7 +362,7 @@ void BitmapTexture::updateContents(GraphicsLayer* sourceLayer, const IntRect& ta
 {
     // Making an unconditionally unaccelerated buffer here is OK because this code
     // isn't used by any platforms that respect the accelerated bit.
-    auto imageBuffer = ImageBuffer::create(targetRect.size(), RenderingMode::Unaccelerated, RenderingPurpose::Unspecified, 1, DestinationColorSpace::SRGB(), ImageBufferPixelFormat::BGRA8);
+    auto imageBuffer = ImageBuffer::create(targetRect.size(), RenderingMode::Unaccelerated, RenderingPurpose::Unspecified, 1, DestinationColorSpace::SRGB(), PixelFormat::BGRA8);
     if (!imageBuffer)
         return;
 
@@ -356,7 +377,7 @@ void BitmapTexture::updateContents(GraphicsLayer* sourceLayer, const IntRect& ta
 
     sourceLayer->paintGraphicsLayerContents(context, sourceRect);
 
-    auto image = ImageBuffer::sinkIntoNativeImage(WTFMove(imageBuffer));
+    auto image = ImageBuffer::sinkIntoNativeImage(WTF::move(imageBuffer));
     if (!image)
         return;
 
@@ -468,13 +489,13 @@ void BitmapTexture::copyFromExternalTexture(GLuint sourceTextureID, const IntRec
         m_pixelFormat = PixelFormat::RGBA8;
     }
 
-    GLint boundTexture = 0;
     GLint boundFramebuffer = 0;
     GLint boundActiveTexture = 0;
+    GLint boundTextureOnOriginalUnit = 0;
 
-    glGetIntegerv(GL_TEXTURE_BINDING_2D, &boundTexture);
     glGetIntegerv(GL_FRAMEBUFFER_BINDING, &boundFramebuffer);
     glGetIntegerv(GL_ACTIVE_TEXTURE, &boundActiveTexture);
+    glGetIntegerv(GL_TEXTURE_BINDING_2D, &boundTextureOnOriginalUnit);
 
     glBindTexture(GL_TEXTURE_2D, sourceTextureID);
 
@@ -484,13 +505,21 @@ void BitmapTexture::copyFromExternalTexture(GLuint sourceTextureID, const IntRec
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, sourceTextureID, 0);
 
     glActiveTexture(GL_TEXTURE0);
+
+    // Save GL_TEXTURE0's binding separately when switching away from a different unit.
+    GLint boundTextureOnUnit0 = 0;
+    if (static_cast<GLenum>(boundActiveTexture) != GL_TEXTURE0)
+        glGetIntegerv(GL_TEXTURE_BINDING_2D, &boundTextureOnUnit0);
+
     glBindTexture(GL_TEXTURE_2D, id());
     glCopyTexSubImage2D(GL_TEXTURE_2D, 0, targetRect.x(), targetRect.y(), sourceOffset.width(), sourceOffset.height(), targetRect.width(), targetRect.height());
 
-    glBindTexture(GL_TEXTURE_2D, boundTexture);
+    if (static_cast<GLenum>(boundActiveTexture) != GL_TEXTURE0)
+        glBindTexture(GL_TEXTURE_2D, boundTextureOnUnit0);
+
     glBindFramebuffer(GL_FRAMEBUFFER, boundFramebuffer);
-    glBindTexture(GL_TEXTURE_2D, boundTexture);
     glActiveTexture(boundActiveTexture);
+    glBindTexture(GL_TEXTURE_2D, boundTextureOnOriginalUnit);
     glDeleteFramebuffers(1, &copyFbo);
 }
 

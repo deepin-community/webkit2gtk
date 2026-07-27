@@ -62,7 +62,7 @@ SPDX-License-Identifier: BSD, LGPL-2.1
         <h3><a href="index.html">JavaScriptCore</a></h3>
         <p>API Version: 6.0</p>
         
-        <p>Library Version: 2.50.4</p>
+        <p>Library Version: 2.52.5</p>
         
       </div>
       
@@ -173,7 +173,7 @@ If you don&#8217;t want to catch the exception, but only get notified about it, 
 <code>jsc_context_throw_exception()</code> in <code>handler</code> like the default one does.
 The last exception handler pushed is the only one used by the <code>JSCContext</code>, use
 <code>jsc_context_pop_exception_handler()</code> to remove it and set the previous one. When <code>handler</code>
-is removed from the context, <code>destroy_notify</code> i called with <code>user_data</code> as&nbsp;parameter.</p>
+is removed from the context, <code>destroy_notify</code> is called with <code>user_data</code> as&nbsp;parameter.</p>
       </div>
 
       <div class="docblock">
