@@ -113,11 +113,13 @@ void ArgumentCoder<GRefPtr<GTlsCertificate>>::encode(Encoder& encoder, const GRe
             certificatesData.clear();
             break;
         }
-        certificatesData.insert(0, WTFMove(certificateData));
+        certificatesData.insert(0, WTF::move(certificateData));
     }
 
-    if (certificatesData.isEmpty())
+    if (certificatesData.isEmpty()) {
+        encoder << Vector<std::span<const uint8_t>> { };
         return;
+    }
 
     encoder << certificatesData;
 
@@ -194,7 +196,7 @@ void ArgumentCoder<GRefPtr<GUnixFDList>>::encode(Encoder& encoder, const GRefPtr
             return UnixFileDescriptor { g_unix_fd_list_get(fdList.get(), i, nullptr), UnixFileDescriptor::Adopt };
         });
     }
-    encoder << true << WTFMove(attachments);
+    encoder << true << WTF::move(attachments);
 }
 
 std::optional<GRefPtr<GUnixFDList>> ArgumentCoder<GRefPtr<GUnixFDList>>::decode(Decoder& decoder)

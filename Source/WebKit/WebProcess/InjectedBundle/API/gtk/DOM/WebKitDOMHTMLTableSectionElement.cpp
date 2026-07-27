@@ -20,14 +20,8 @@
 #include "config.h"
 #include "WebKitDOMHTMLTableSectionElement.h"
 
-#include <WebCore/CSSImportRule.h>
+#include "ConvertToUTF8String.h"
 #include "DOMObjectCache.h"
-#include <WebCore/DOMException.h>
-#include <WebCore/Document.h>
-#include <WebCore/ElementInlines.h>
-#include <WebCore/HTMLNames.h>
-#include <WebCore/HTMLTableRowElement.h>
-#include <WebCore/JSExecState.h>
 #include "GObjectEventListener.h"
 #include "WebKitDOMEventPrivate.h"
 #include "WebKitDOMEventTarget.h"
@@ -36,7 +30,14 @@
 #include "WebKitDOMHTMLTableSectionElementPrivate.h"
 #include "WebKitDOMNodePrivate.h"
 #include "WebKitDOMPrivate.h"
-#include "ConvertToUTF8String.h"
+#include <WebCore/AddEventListenerOptionsInlines.h>
+#include <WebCore/CSSImportRule.h>
+#include <WebCore/DOMException.h>
+#include <WebCore/Document.h>
+#include <WebCore/ElementInlines.h>
+#include <WebCore/HTMLNames.h>
+#include <WebCore/HTMLTableRowElement.h>
+#include <WebCore/JSExecState.h>
 #include <wtf/GetPtr.h>
 #include <wtf/RefPtr.h>
 
@@ -97,7 +98,9 @@ static void webkit_dom_html_table_section_element_dom_event_target_init(WebKitDO
     iface->remove_event_listener = webkit_dom_html_table_section_element_remove_event_listener;
 }
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GTK
 G_DEFINE_TYPE_WITH_CODE(WebKitDOMHTMLTableSectionElement, webkit_dom_html_table_section_element, WEBKIT_DOM_TYPE_HTML_ELEMENT, G_IMPLEMENT_INTERFACE(WEBKIT_DOM_TYPE_EVENT_TARGET, webkit_dom_html_table_section_element_dom_event_target_init))
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 enum {
     DOM_HTML_TABLE_SECTION_ELEMENT_PROP_0,
@@ -231,7 +234,7 @@ WebKitDOMHTMLElement* webkit_dom_html_table_section_element_insert_row(WebKitDOM
         auto description = WebCore::DOMException::description(result.releaseException().code());
         g_set_error_literal(error, g_quark_from_string("WEBKIT_DOM"), description.legacyCode, description.name);
     }
-    WebCore::HTMLElement* resultElement = result.releaseReturnValue().ptr();
+    WebCore::HTMLElement* resultElement = result.releaseReturnValue().unsafePtr();
     return WebKit::kit(resultElement);
 }
 

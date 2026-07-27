@@ -223,6 +223,7 @@ struct WebProcessCreationParameters {
     WebCore::Color focusRingColor;
     String localizedDeviceModel;
     String contentSizeCategory;
+    String containerTemporaryDirectory;
 #endif
 
 #if USE(GBM)
@@ -277,6 +278,8 @@ struct WebProcessCreationParameters {
     Seconds memoryFootprintPollIntervalForTesting;
     Vector<uint64_t> memoryFootprintNotificationThresholds;
 
+    std::optional<Seconds> overridePersistentNotificationMinimumLifetime;
+
 #if ENABLE(NOTIFY_BLOCKING)
     Vector<std::pair<String, uint64_t>> notifyState;
 #endif
@@ -287,6 +290,10 @@ struct WebProcessCreationParameters {
 
 #if HAVE(LIQUID_GLASS)
     bool isLiquidGlassEnabled { false };
+#endif
+
+#if ENABLE(LOGD_BLOCKING_IN_WEBCONTENT)
+    bool isDebugLoggingEnabled { false };
 #endif
 };
 

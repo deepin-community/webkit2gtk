@@ -20,18 +20,19 @@
 #include "config.h"
 #include "WebKitDOMCDATASection.h"
 
-#include <WebCore/CSSImportRule.h>
+#include "ConvertToUTF8String.h"
 #include "DOMObjectCache.h"
-#include <WebCore/DOMException.h>
-#include <WebCore/Document.h>
 #include "GObjectEventListener.h"
-#include <WebCore/JSExecState.h>
 #include "WebKitDOMCDATASectionPrivate.h"
 #include "WebKitDOMEventPrivate.h"
 #include "WebKitDOMEventTarget.h"
 #include "WebKitDOMNodePrivate.h"
 #include "WebKitDOMPrivate.h"
-#include "ConvertToUTF8String.h"
+#include <WebCore/AddEventListenerOptionsInlines.h>
+#include <WebCore/CSSImportRule.h>
+#include <WebCore/DOMException.h>
+#include <WebCore/Document.h>
+#include <WebCore/JSExecState.h>
 #include <wtf/GetPtr.h>
 #include <wtf/RefPtr.h>
 
@@ -92,7 +93,9 @@ static void webkit_dom_cdata_section_dom_event_target_init(WebKitDOMEventTargetI
     iface->remove_event_listener = webkit_dom_cdata_section_remove_event_listener;
 }
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GTK
 G_DEFINE_TYPE_WITH_CODE(WebKitDOMCDATASection, webkit_dom_cdata_section, WEBKIT_DOM_TYPE_TEXT, G_IMPLEMENT_INTERFACE(WEBKIT_DOM_TYPE_EVENT_TARGET, webkit_dom_cdata_section_dom_event_target_init))
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 static void webkit_dom_cdata_section_class_init(WebKitDOMCDATASectionClass* requestClass)
 {

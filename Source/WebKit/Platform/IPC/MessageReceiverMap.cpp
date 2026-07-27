@@ -27,7 +27,9 @@
 #include "MessageReceiverMap.h"
 
 #include "Decoder.h"
+#include "Logging.h"
 #include "MessageReceiver.h"
+#include <wtf/EnumTraits.h>
 
 namespace IPC {
 
@@ -106,26 +108,37 @@ void MessageReceiverMap::removeMessageReceiver(MessageReceiver& messageReceiver)
 
 void MessageReceiverMap::invalidate()
 {
-    for (auto& messageReceiver : m_globalMessageReceivers.values())
-        messageReceiver->willBeRemovedFromMessageReceiverMap();
+    for (auto& [name, messageReceiver] : m_globalMessageReceivers) {
+        if (messageReceiver)
+            messageReceiver->willBeRemovedFromMessageReceiverMap();
+        else {
+            RELEASE_LOG_FAULT(IPC, "MessageReceiverMap::invalidate(): %s failed to remove itself from the map before its destruction", WTF::String(WTF::enumName(name)).utf8().data());
+            ASSERT_NOT_REACHED();
+        }
+    }
     m_globalMessageReceivers.clear();
 
-
-    for (auto& messageReceiver : m_messageReceivers.values())
-        messageReceiver->willBeRemovedFromMessageReceiverMap();
+    for (auto& [nameAndDestinationID, messageReceiver] : m_messageReceivers) {
+        if (messageReceiver)
+            messageReceiver->willBeRemovedFromMessageReceiverMap();
+        else {
+            RELEASE_LOG_FAULT(IPC, "MessageReceiverMap::invalidate(): %s (destinationID=%" PRIu64 ") failed to remove itself from the map before its destruction", WTF::String(WTF::enumName(nameAndDestinationID.first)).utf8().data(), nameAndDestinationID.second);
+            ASSERT_NOT_REACHED();
+        }
+    }
     m_messageReceivers.clear();
 }
 
 bool MessageReceiverMap::dispatchMessage(Connection& connection, Decoder& decoder)
 {
-    if (auto messageReceiver = m_globalMessageReceivers.get(decoder.messageReceiverName())) {
+    if (RefPtr messageReceiver = m_globalMessageReceivers.get(decoder.messageReceiverName())) {
         ASSERT(!decoder.destinationID());
 
         messageReceiver->didReceiveMessage(connection, decoder);
         return true;
     }
 
-    if (auto messageReceiver = m_messageReceivers.get(std::make_pair(decoder.messageReceiverName(), decoder.destinationID()))) {
+    if (RefPtr messageReceiver = m_messageReceivers.get(std::make_pair(decoder.messageReceiverName(), decoder.destinationID()))) {
         messageReceiver->didReceiveMessage(connection, decoder);
         return true;
     }
@@ -135,13 +148,16 @@ bool MessageReceiverMap::dispatchMessage(Connection& connection, Decoder& decode
 
 bool MessageReceiverMap::dispatchSyncMessage(Connection& connection, Decoder& decoder, UniqueRef<Encoder>& replyEncoder)
 {
-    if (auto messageReceiver = m_globalMessageReceivers.get(decoder.messageReceiverName())) {
+    if (RefPtr messageReceiver = m_globalMessageReceivers.get(decoder.messageReceiverName())) {
         ASSERT(!decoder.destinationID());
-        return messageReceiver->didReceiveSyncMessage(connection, decoder, replyEncoder);
+        messageReceiver->didReceiveSyncMessage(connection, decoder, replyEncoder);
+        return true;
     }
 
-    if (auto messageReceiver = m_messageReceivers.get(std::make_pair(decoder.messageReceiverName(), decoder.destinationID())))
-        return messageReceiver->didReceiveSyncMessage(connection, decoder, replyEncoder);
+    if (RefPtr messageReceiver = m_messageReceivers.get(std::make_pair(decoder.messageReceiverName(), decoder.destinationID()))) {
+        messageReceiver->didReceiveSyncMessage(connection, decoder, replyEncoder);
+        return true;
+    }
 
     return false;
 }

@@ -6,6 +6,10 @@
 
 // WebGLCompatibilityTest.cpp : Tests of the GL_ANGLE_webgl_compatibility extension.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+#    pragma allow_unsafe_buffers
+#endif
+
 #include "test_utils/ANGLETest.h"
 
 #include "common/mathutil.h"
@@ -66,6 +70,12 @@ class WebGLCompatibilityTest : public ANGLETest<>
         setConfigAlphaBits(8);
         setWebGLCompatibilityEnabled(true);
         setExtensionsEnabled(false);
+
+        mFloatTextureSamplingProgram                       = 0;
+        mFloatTextureSamplingProgram_texLocation           = -1;
+        mFloatTextureSamplingProgram_subtractorLocation    = -1;
+        mUniformColorRenderingProgram                      = 0;
+        mUniformColorRenderingProgram_colorUniformLocation = -1;
     }
 
     template <typename T>
@@ -110,8 +120,21 @@ void main()
     }
 })";
 
-        ANGLE_GL_PROGRAM(samplingProgram, kVS, kFS);
-        glUseProgram(samplingProgram);
+        if (mFloatTextureSamplingProgram == 0)
+        {
+            mFloatTextureSamplingProgram = CompileProgram(kVS, kFS);
+            ASSERT(mFloatTextureSamplingProgram != 0);
+            ASSERT_GL_NO_ERROR();
+
+            mFloatTextureSamplingProgram_texLocation =
+                glGetUniformLocation(mFloatTextureSamplingProgram, "tex");
+            ASSERT(mFloatTextureSamplingProgram_texLocation != -1);
+            mFloatTextureSamplingProgram_subtractorLocation =
+                glGetUniformLocation(mFloatTextureSamplingProgram, "subtractor");
+            ASSERT(mFloatTextureSamplingProgram_subtractorLocation != -1);
+            ASSERT_GL_NO_ERROR();
+        }
+        glUseProgram(mFloatTextureSamplingProgram);
 
         // Need RGBA8 renderbuffers for enough precision on the readback
         if (IsGLExtensionRequestable("GL_OES_rgb8_rgba8"))
@@ -164,16 +187,16 @@ void main()
         }
         ASSERT_GL_NO_ERROR();
 
-        glUniform1i(glGetUniformLocation(samplingProgram, "tex"), 0);
-        glUniform4fv(glGetUniformLocation(samplingProgram, "subtractor"), 1, floatData);
+        glUniform1i(mFloatTextureSamplingProgram_texLocation, 0);
+        glUniform4fv(mFloatTextureSamplingProgram_subtractorLocation, 1, floatData);
 
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-        drawQuad(samplingProgram, "position", 0.5f, 1.0f, true);
+        drawQuad(mFloatTextureSamplingProgram, "position", 0.5f, 1.0f, true);
         EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::green);
 
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-        drawQuad(samplingProgram, "position", 0.5f, 1.0f, true);
+        drawQuad(mFloatTextureSamplingProgram, "position", 0.5f, 1.0f, true);
 
         if (linearSamplingEnabled)
         {
@@ -202,14 +225,23 @@ void main()
         }
         ASSERT_GLENUM_EQ(GL_FRAMEBUFFER_COMPLETE, framebufferStatus);
 
-        ANGLE_GL_PROGRAM(renderingProgram, essl1_shaders::vs::Simple(),
-                         essl1_shaders::fs::UniformColor());
-        glUseProgram(renderingProgram);
+        if (mUniformColorRenderingProgram == 0)
+        {
+            mUniformColorRenderingProgram =
+                CompileProgram(essl1_shaders::vs::Simple(), essl1_shaders::fs::UniformColor());
+            ASSERT(mUniformColorRenderingProgram != 0);
+            ASSERT_GL_NO_ERROR();
 
-        glUniform4fv(glGetUniformLocation(renderingProgram, essl1_shaders::ColorUniform()), 1,
-                     floatData);
+            mUniformColorRenderingProgram_colorUniformLocation =
+                glGetUniformLocation(mUniformColorRenderingProgram, essl1_shaders::ColorUniform());
+            ASSERT(mUniformColorRenderingProgram_colorUniformLocation != -1);
+            ASSERT_GL_NO_ERROR();
+        }
+        glUseProgram(mUniformColorRenderingProgram);
 
-        drawQuad(renderingProgram, essl1_shaders::PositionAttrib(), 0.5f, 1.0f, true);
+        glUniform4fv(mUniformColorRenderingProgram_colorUniformLocation, 1, floatData);
+
+        drawQuad(mUniformColorRenderingProgram, essl1_shaders::PositionAttrib(), 0.5f, 1.0f, true);
 
         EXPECT_PIXEL_COLOR32F_NEAR(
             0, 0, GLColor32F(floatData[0], floatData[1], floatData[2], floatData[3]), 1.0f);
@@ -312,6 +344,14 @@ void main()
                                          GLenum expectedError,
                                          const char *explanation);
     void testCompressedTexImage(GLenum format);
+
+  private:
+    GLuint mFloatTextureSamplingProgram;
+    GLint mFloatTextureSamplingProgram_texLocation;
+    GLint mFloatTextureSamplingProgram_subtractorLocation;
+
+    GLuint mUniformColorRenderingProgram;
+    GLint mUniformColorRenderingProgram_colorUniformLocation;
 };
 
 class WebGL2CompatibilityTest : public WebGLCompatibilityTest
@@ -1600,15 +1640,16 @@ void main()
     ANGLE_GL_PROGRAM(program, kVS, essl1_shaders::fs::Red());
     glUseProgram(program);
 
-    glEnableVertexAttribArray(glGetAttribLocation(program, "a_Position"));
-
+    GLint posLocation = glGetAttribLocation(program, "a_Position");
+    ASSERT_NE(-1, posLocation);
+    glEnableVertexAttribArray(posLocation);
     constexpr float kVertexData[] = {
         1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f,
     };
-
     GLBuffer vertexBuffer;
     glBindBuffer(GL_ARRAY_BUFFER, vertexBuffer);
     glBufferData(GL_ARRAY_BUFFER, sizeof(kVertexData), kVertexData, GL_STREAM_DRAW);
+    glVertexAttribPointer(posLocation, 4, GL_FLOAT, GL_FALSE, 0, nullptr);
 
     constexpr GLuint kMaxIntAsGLuint = static_cast<GLuint>(std::numeric_limits<GLint>::max());
     constexpr GLuint kIndexData[]    = {
@@ -1619,7 +1660,7 @@ void main()
     };
 
     GLBuffer indexBuffer;
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, vertexBuffer);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indexBuffer);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(kIndexData), kIndexData, GL_DYNAMIC_DRAW);
 
     EXPECT_GL_NO_ERROR();
@@ -1631,6 +1672,36 @@ void main()
     // Neither index is representable as 32-bit int
     glDrawElements(GL_LINES, 2, GL_UNSIGNED_INT, reinterpret_cast<void *>(sizeof(GLuint) * 2));
     EXPECT_GL_ERROR(GL_INVALID_OPERATION);
+
+    constexpr GLuint kIndexData2[] = {
+        0,
+        std::numeric_limits<GLuint>::max(),
+    };
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(kIndexData2), kIndexData2, GL_DYNAMIC_DRAW);
+
+    glDrawElements(GL_LINES, 2, GL_UNSIGNED_INT, 0);
+    EXPECT_GL_ERROR(GL_INVALID_OPERATION);
+
+    glDrawElements(GL_LINES, 2, GL_UNSIGNED_SHORT, reinterpret_cast<void*>(2));
+    EXPECT_GL_ERROR(GL_INVALID_OPERATION);
+
+    glDrawElements(GL_LINES, 2, GL_UNSIGNED_BYTE, reinterpret_cast<void*>(3));
+    EXPECT_GL_ERROR(GL_INVALID_OPERATION);
+
+    constexpr GLuint kIndexData3[] = {
+        0,
+        1
+    };
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(kIndexData3), kIndexData3, GL_DYNAMIC_DRAW);
+
+    glDrawElements(GL_LINES, 2, GL_UNSIGNED_INT, 0);
+    EXPECT_GL_NO_ERROR();
+
+    glDrawElements(GL_LINES, 2, GL_UNSIGNED_SHORT, reinterpret_cast<void*>(2));
+    EXPECT_GL_NO_ERROR();
+
+    glDrawElements(GL_LINES, 2, GL_UNSIGNED_BYTE, reinterpret_cast<void*>(3));
+    EXPECT_GL_NO_ERROR();
 }
 
 // Test for drawing with a null index buffer
@@ -6920,6 +6991,82 @@ TEST_P(WebGL2CompatibilityTest, PrimitiveRestartIndexAfterToggleIsError)
     glDisable(GL_PRIMITIVE_RESTART_FIXED_INDEX);
     glDrawElements(GL_POINTS, indices.size(), GL_UNSIGNED_INT, 0);
     EXPECT_GL_ERROR(GL_INVALID_OPERATION);
+}
+
+// Test that drawing a large GLuint index works.
+TEST_P(WebGL2CompatibilityTest, DrawLargeIndex)
+{
+    constexpr std::array<GLfloat, 4> kGreen = {0.0f, 1.0f, 0.0f, 1.0f};
+    constexpr GLuint offset = 0x80000000;
+    GLuint indexData[] = {0, 1, 2, 1, 3, 2};
+    for (auto& index : indexData)
+    {
+        index += offset;
+    }
+    float vertexData[] = {-1.0f, -1.0f, 1.0f, -1.0f, -1.0f, 1.0f, 1.0f, 1.0f};
+
+    GLBuffer indexBuffer;
+    ANGLE_GL_PROGRAM(program, essl1_shaders::vs::Simple(), essl1_shaders::fs::UniformColor());
+    GLint vPos = glGetAttribLocation(program, essl1_shaders::PositionAttrib());
+    ASSERT_NE(vPos, -1);
+    glUseProgram(program);
+    GLint colorUniformLocation =
+        glGetUniformLocation(program, angle::essl1_shaders::ColorUniform());
+    ASSERT_NE(colorUniformLocation, -1);
+
+    GLBuffer vertexBuffer;
+    glBindBuffer(GL_ARRAY_BUFFER, vertexBuffer);
+    glBufferData(GL_ARRAY_BUFFER, offset * sizeof(float) * 2 + sizeof(vertexData), nullptr, GL_STATIC_DRAW);
+    glBufferSubData(GL_ARRAY_BUFFER, offset * sizeof(float) * 2, sizeof(vertexData), vertexData);
+    glVertexAttribPointer(vPos, 2, GL_FLOAT, GL_FALSE, 0, nullptr);
+    glEnableVertexAttribArray(vPos);
+
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indexBuffer);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indexData), indexData, GL_DYNAMIC_DRAW);
+
+    glUniform4fv(colorUniformLocation, 1, kGreen.data());
+    ASSERT_GL_NO_ERROR();
+
+    glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, nullptr);
+    ASSERT_GL_NO_ERROR();
+    EXPECT_PIXEL_COLOR_EQ(getWindowWidth() - 1, 0, GLColor::green);
+    EXPECT_PIXEL_COLOR_EQ(0, getWindowHeight() - 1, GLColor::green);
+}
+
+// Test that drawing a large GLuint index is detected as out-of-bounds access.
+TEST_P(WebGL2CompatibilityTest, DrawLargeIndexOOB)
+{
+    constexpr GLuint offset = 0x80000000;
+    GLuint indexData[] = {0, 1, 2};
+    for (auto& index : indexData)
+    {
+        index += offset;
+    }
+    GLBuffer indexBuffer;
+    ANGLE_GL_PROGRAM(program, essl1_shaders::vs::Simple(), essl1_shaders::fs::UniformColor());
+    GLint vPos = glGetAttribLocation(program, essl1_shaders::PositionAttrib());
+    ASSERT_NE(vPos, -1);
+    glUseProgram(program);
+
+    GLBuffer vertexBuffer;
+    glBindBuffer(GL_ARRAY_BUFFER, vertexBuffer);
+    glBufferData(GL_ARRAY_BUFFER, 10, nullptr, GL_STATIC_DRAW);
+    glVertexAttribPointer(vPos, 2, GL_FLOAT, GL_FALSE, 0, nullptr);
+    glEnableVertexAttribArray(vPos);
+
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indexBuffer);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indexData), indexData, GL_DYNAMIC_DRAW);
+
+    EXPECT_GL_NO_ERROR();
+    glDrawElements(GL_TRIANGLES, 3, GL_UNSIGNED_INT, nullptr);
+    if (!IsGLExtensionEnabled("GL_KHR_robust_buffer_access_behavior"))
+    {
+        EXPECT_GL_ERROR(GL_INVALID_OPERATION);
+    }
+    else
+    {
+        EXPECT_GL_NO_ERROR();
+    }
 }
 
 ANGLE_INSTANTIATE_TEST_ES2_AND_ES3(WebGLCompatibilityTest);

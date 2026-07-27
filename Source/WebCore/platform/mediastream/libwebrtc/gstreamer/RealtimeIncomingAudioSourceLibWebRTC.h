@@ -38,6 +38,7 @@ namespace WebCore {
 class RealtimeIncomingAudioSourceLibWebRTC final : public RealtimeIncomingAudioSource {
 public:
     static Ref<RealtimeIncomingAudioSourceLibWebRTC> create(Ref<webrtc::AudioTrackInterface>&&, String&&);
+    ~RealtimeIncomingAudioSourceLibWebRTC();
 
 private:
     RealtimeIncomingAudioSourceLibWebRTC(Ref<webrtc::AudioTrackInterface>&&, String&&);
@@ -51,5 +52,4 @@ private:
 
 } // namespace WebCore
 
-#endif // USE(LIBWEBRTC)
-
+#endif // USE(LIBWEBRTC) && USE(GSTREAMER)

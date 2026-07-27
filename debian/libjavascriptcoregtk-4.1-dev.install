@@ -1,0 +1,5 @@
+usr/include/webkitgtk-4.1/JavaScriptCore/
+usr/include/webkitgtk-4.1/jsc/
+usr/lib/*/libjavascriptcoregtk-4.1.so
+usr/lib/*/pkgconfig/javascriptcoregtk-4.1.pc
+usr/share/gir-1.0/JavaScriptCore-4.1.gir usr/share/gir-1.0/

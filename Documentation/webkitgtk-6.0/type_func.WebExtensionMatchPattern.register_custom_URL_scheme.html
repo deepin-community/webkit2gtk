@@ -62,7 +62,7 @@ SPDX-License-Identifier: BSD, LGPL-2.1
         <h3><a href="index.html">WebKit</a></h3>
         <p>API Version: 6.0</p>
         
-        <p>Library Version: 2.50.4</p>
+        <p>Library Version: 2.52.5</p>
         
       </div>
       
@@ -77,6 +77,8 @@ SPDX-License-Identifier: BSD, LGPL-2.1
   <div class="links">
   
     <a class="method current" href="type_func.WebExtensionMatchPattern.register_custom_URL_scheme.html">register_custom_URL_scheme</a>
+  
+    <a class="method" href="type_func.WebExtensionMatchPattern.register_custom_url_scheme.html">register_custom_url_scheme</a>
   
   </div>
 </div>
@@ -97,14 +99,14 @@ SPDX-License-Identifier: BSD, LGPL-2.1
 
   <section>
     <div class="docblock">
-      <p><span class="emblem available">since: 2.48</span></p>
+      <p><span class="emblem deprecated">deprecated: 2.52</span>&nbsp;<span class="emblem available">since: 2.48</span></p>
     </div>
     <div class="declaration toggle-wrapper">
       <h4 id="declaration" style="display:flex;">
         Declaration
         <a href="#declaration" class="anchor"></a>
         
-        <a class="srclink" title="go to source location" href="https://github.com/WebKit/WebKit/tree/main/WebKitBuild/GTK/Release/WebKitGTK/DerivedSources/webkit/WebKitWebExtensionMatchPattern.h#L81">[src]</a>
+        <a class="srclink" title="go to source location" href="https://github.com/WebKit/WebKit/tree/main/WebKitBuild/GTK/Release/WebKitGTK/DerivedSources/webkit/WebKitWebExtensionMatchPattern.h#L84">[src]</a>
         
       </h4>
 
@@ -123,7 +125,7 @@ SPDX-License-Identifier: BSD, LGPL-2.1
         Description
         <a href="#description" class="anchor"></a>
         
-        <a class="srclink" title="go to source location" href="https://github.com/WebKit/WebKit/tree/main/Source/WebKit/UIProcess/API/glib/WebKitWebExtensionMatchPattern.cpp#L69">[src]</a>
+        <a class="srclink" title="go to source location" href="https://github.com/WebKit/WebKit/tree/main/Source/WebKit/UIProcess/API/glib/WebKitWebExtensionMatchPattern.cpp#L87">[src]</a>
         
       </h4>
 
@@ -136,7 +138,8 @@ other than <code>webkit-extension</code>, or if extensions should have access to
       <div class="docblock">
         
         <p>Available since: 2.48</p>
-        
+        <div><p>Deprecated since: 2.52</p>
+          <p>Use <code>webkit_web_extension_match_pattern_register_custom_url_scheme()</code> instead.</p></div>
         
         
         

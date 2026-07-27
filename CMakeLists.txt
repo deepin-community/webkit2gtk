@@ -7,13 +7,28 @@
 # and loading the cross-compilation settings from CMAKE_TOOLCHAIN_FILE.
 
 cmake_minimum_required(VERSION 3.20)
-project(WebKit)
+project(WebKit LANGUAGES C CXX)
 
 # -----------------------------------------------------------------------------
 # Common configuration
 #------------------------------------------------------------------------------
 set(CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/Source/cmake")
 include(WebKitCommon)
+
+# -----------------------------------------------------------------------------
+# Enable Swift - we can't do this until we've checked our configuration,
+# which in turn depends on clang-related variables set by the initial
+# "project()" line
+#------------------------------------------------------------------------------
+if (SWIFT_REQUIRED)
+    enable_language(Swift)
+
+    # Override Swift compiler to a wrapper script to work around the
+    # fact pkg-config feeds CFLAGS even to swiftc
+    set(ORIGINAL_Swift_COMPILER "${CMAKE_Swift_COMPILER}" CACHE FILEPATH "Original Swift compiler" FORCE)
+    set(CMAKE_Swift_COMPILER "${CMAKE_SOURCE_DIR}/Tools/Scripts/swift/swiftc-wrapper.sh" CACHE FILEPATH "Swift compiler wrapper" FORCE)
+    add_compile_options($<$<COMPILE_LANGUAGE:Swift>:--original-swift-compiler=${ORIGINAL_Swift_COMPILER}>)
+endif ()
 
 # -----------------------------------------------------------------------------
 # Enable API unit tests and create a target for the test runner
@@ -35,7 +50,9 @@ if (ENABLE_TOOLS)
 endif ()
 
 if (DEVELOPER_MODE)
-    add_subdirectory(PerformanceTests)
+    if (EXISTS "${CMAKE_SOURCE_DIR}/PerformanceTests")
+        add_subdirectory(PerformanceTests)
+    endif ()
 endif ()
 
 # -----------------------------------------------------------------------------

@@ -20,7 +20,6 @@ Section: libdevel
 Architecture: any
 Multi-Arch: same
 Depends: @LIBJSC_PKG@ (= ${binary:Version}),
-         gir1.2-javascriptcoregtk-@WK_API_VERSION@ (= ${binary:Version}),
          libglib2.0-dev,
          ${gir:Depends},
          ${misc:Depends}
@@ -82,8 +81,8 @@ Description: Web content engine library for GTK
  supports DOM, XMLHttpRequest, XSLT, CSS, JavaScript/ECMAScript and more.
  .
  WebKitGTK is a WebKit port designed to be used in GTK applications.
- This build provides version @WK_API_VERSION@ of the API and uses libsoup v@SOUP_VERSION@ for
- the networking stack and the GTK @GTK_VERSION@ widget toolkit.
+ This build provides version @WK_API_VERSION@ of the API and uses the GTK @GTK_VERSION@ widget
+ toolkit.
  .
  This package contains the shared libraries.
 
@@ -91,9 +90,8 @@ Package: lib@WEBKIT@gtk-@WK_API_VERSION@-dev
 Section: libdevel
 Architecture: any
 Depends: @LIBWEBKITGTK_PKG@ (= ${binary:Version}),
-         gir1.2-@WEBKIT@-@WK_API_VERSION@ (= ${binary:Version}),
          libgtk-@GTK_VERSION@-dev,
-         @SOUPDEV_PKG@,
+         libsoup-3.0-dev,
          libjavascriptcoregtk-@WK_API_VERSION@-dev (= ${binary:Version}),
          ${gir:Depends},
          ${misc:Depends}
@@ -107,8 +105,8 @@ Description: Web content engine library for GTK - development files
  supports DOM, XMLHttpRequest, XSLT, CSS, JavaScript/ECMAScript and more.
  .
  WebKitGTK is a WebKit port designed to be used in GTK applications.
- This build provides version @WK_API_VERSION@ of the API and uses libsoup v@SOUP_VERSION@ for
- the networking stack and the GTK @GTK_VERSION@ widget toolkit.
+ This build provides version @WK_API_VERSION@ of the API and uses the GTK @GTK_VERSION@ widget
+ toolkit.
  .
  This package contains the development files.
 
@@ -129,8 +127,8 @@ Description: Web content engine library for GTK - GObject introspection data
  supports DOM, XMLHttpRequest, XSLT, CSS, JavaScript/ECMAScript and more.
  .
  WebKitGTK is a WebKit port designed to be used in GTK applications.
- This build provides version @WK_API_VERSION@ of the API and uses libsoup v@SOUP_VERSION@ for
- the networking stack and the GTK @GTK_VERSION@ widget toolkit.
+ This build provides version @WK_API_VERSION@ of the API and uses the GTK @GTK_VERSION@ widget
+ toolkit.
  .
  This package contains introspection data, which can be used by
  packages using the GIRepository format to generate dynamic bindings.

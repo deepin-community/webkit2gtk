@@ -20,14 +20,9 @@
 #include "config.h"
 #include "WebKitDOMHTMLTextAreaElement.h"
 
-#include <WebCore/CSSImportRule.h>
+#include "ConvertToUTF8String.h"
 #include "DOMObjectCache.h"
-#include <WebCore/DOMException.h>
-#include <WebCore/Document.h>
-#include <WebCore/ElementInlines.h>
 #include "GObjectEventListener.h"
-#include <WebCore/HTMLNames.h>
-#include <WebCore/JSExecState.h>
 #include "WebKitDOMEventPrivate.h"
 #include "WebKitDOMEventTarget.h"
 #include "WebKitDOMHTMLFormElementPrivate.h"
@@ -35,7 +30,13 @@
 #include "WebKitDOMNodeListPrivate.h"
 #include "WebKitDOMNodePrivate.h"
 #include "WebKitDOMPrivate.h"
-#include "ConvertToUTF8String.h"
+#include <WebCore/AddEventListenerOptionsInlines.h>
+#include <WebCore/CSSImportRule.h>
+#include <WebCore/DOMException.h>
+#include <WebCore/Document.h>
+#include <WebCore/ElementInlines.h>
+#include <WebCore/HTMLNames.h>
+#include <WebCore/JSExecState.h>
 #include <wtf/GetPtr.h>
 #include <wtf/RefPtr.h>
 
@@ -96,7 +97,9 @@ static void webkit_dom_html_text_area_element_dom_event_target_init(WebKitDOMEve
     iface->remove_event_listener = webkit_dom_html_text_area_element_remove_event_listener;
 }
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GTK
 G_DEFINE_TYPE_WITH_CODE(WebKitDOMHTMLTextAreaElement, webkit_dom_html_text_area_element, WEBKIT_DOM_TYPE_HTML_ELEMENT, G_IMPLEMENT_INTERFACE(WEBKIT_DOM_TYPE_EVENT_TARGET, webkit_dom_html_text_area_element_dom_event_target_init))
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 enum {
     DOM_HTML_TEXT_AREA_ELEMENT_PROP_0,

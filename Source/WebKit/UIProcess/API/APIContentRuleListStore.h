@@ -29,6 +29,7 @@
 #include <WebCore/ContentExtensionParser.h>
 #include <system_error>
 #include <wtf/Forward.h>
+#include <wtf/WorkQueue.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
@@ -51,7 +52,7 @@ public:
 #if ENABLE(CONTENT_EXTENSIONS)
     // This should be incremented every time a functional change is made to the bytecode, file format, etc.
     // to prevent crashing while loading old data.
-    static constexpr uint32_t CurrentContentRuleListFileVersion = 20;
+    static constexpr uint32_t CurrentContentRuleListFileVersion = 21;
 
     static ContentRuleListStore& defaultStoreSingleton();
     static Ref<ContentRuleListStore> storeWithPath(const WTF::String& storePath);
@@ -82,6 +83,7 @@ private:
     WTF::String defaultStorePath();
 
     const WTF::String m_storePath;
+    const Ref<WorkQueue> m_workQueue;
 #endif // ENABLE(CONTENT_EXTENSIONS)
 };
 

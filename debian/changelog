@@ -1,45 +1,169 @@
-webkit2gtk (2.50.4-1~deb12u1deepin2) unstable; urgency=medium
+webkit2gtk (2.52.5-1~deb13u1) trixie-security; urgency=medium
 
-  * Security update (CVE-2026-20652):
-    - Fix integer underflow in AudioResamplerKernel::getSourceSpan().
-      + Add debian/patches/CVE-2026-20652.patch.
-  * Security fixes already present in upstream 2.50.4:
-    - CVE-2023-43010: Use-after-free in RenderTree.
-    - CVE-2025-31223: Memory corruption via improved checks.
-    - CVE-2025-31277: Memory corruption in JSC RegExp match results.
-    - CVE-2025-43433: Memory corruption via improved memory handling.
+  * Rebuild for trixie-security.
+  * Re-enable libmanette in i386.
+  * Enable the transitional packages.
+  * Use the default clang on armhf since trixie uses clang-19 and is not
+    affected by WebKit bug #290167.
+  * Add the 'Priority: optional' field.
 
- -- lichenggang <lichenggang@uniontech.com>  Tue, 07 Apr 2026 16:45:00 +0800
+ -- Alberto Garcia <berto@igalia.com>  Thu, 23 Jul 2026 11:05:08 +0200
 
-webkit2gtk (2.50.4-1~deb12u1deepin1) unstable; urgency=medium
+webkit2gtk (2.52.5-1) unstable; urgency=high
 
-  * [ hudeng ]
-  * feat: add sw64 support. 
+  * New upstream release.
+  * The WebKitGTK security advisory WSA-2026-0004 lists the following
+    security fixes in the latest versions of WebKitGTK:
+    - CVE-2024-4367, CVE-2026-39872, CVE-2026-43663, CVE-2026-43676,
+      CVE-2026-43699, CVE-2026-43701, CVE-2026-43705, CVE-2026-43707,
+      CVE-2026-43712, CVE-2026-43713, CVE-2026-43715, CVE-2026-43716,
+      CVE-2026-43720, CVE-2026-43721, CVE-2026-43725, CVE-2026-43726,
+      CVE-2026-43727, CVE-2026-43731, CVE-2026-43732, CVE-2026-43734,
+      CVE-2026-43740, CVE-2026-43742, CVE-2026-43745 (fixed in 2.52.5).
+  * Drop fix-ftbfs-system-malloc.patch.
 
- -- zengwei <zengwei1@uniontech.com>  Tue, 03 Feb 2026 20:56:07 +0800
+ -- Alberto Garcia <berto@igalia.com>  Fri, 17 Jul 2026 10:32:31 +0200
 
-webkit2gtk (2.50.4-1~deb12u1) bookworm-security; urgency=medium
+webkit2gtk (2.52.4-1) unstable; urgency=medium
 
-  * Rebuild for bookworm-security.
-  * Disable sysprof profiling integration to avoid new dependencies:
-    - debian/control.in: Don't depend on libsysprof-capture-4-dev.
-    - debian/rules: Build with -DUSE_SYSPROF_CAPTURE=OFF.
-  * Disable JPEG XL to avoid adding new dependencies.
-    - debian/control.in: Remove build dependency on libjxl-dev.
-    - debian/rules: Build with -DUSE_JPEGXL=OFF.
+  * New upstream release.
+  * Drop fix-atomics-detection.patch and fix-big-endian-string.patch.
+  * fix-ftbfs-system-malloc.patch:
+    - Fix FTBFS when USE_SYSTEM_MALLOC is enabled (for example i386).
+  * Use clang-22 on armhf instead of gcc:
+    - debian/control.in: add build dependency.
+    - debian/rules: don't use -no-integrated-cpp as it causes build
+      failures with clang due to missing includes.
+
+ -- Alberto Garcia <berto@igalia.com>  Tue, 02 Jun 2026 22:50:22 +0200
+
+webkit2gtk (2.52.3-2) unstable; urgency=medium
+
   * debian/rules:
-    - Enable ENABLE_SOUP2 and USE_OLD_PKG_NAMES to keep using the old
-      package names.
-    - Re-enable libmanette in i386.
-  * debian/control-common.in:
-    - Make the -dev packages depend on the gir packages.
+    - Use --param ggc-min-expand=10 on hppa, m68k and sh4 in order to
+      reduce the memory usage during compilation (Closes: #1134391)
+      (thanks, John Paul Adrian Glaubitz).
+  * Refresh upstream signing keys with the expiration dates.
   * debian/control.in:
-    - Build depend on ccache.
-  * Use clang-16 instead of clang.
-  * debian/patches/fix-minibrowser.patch:
-    - Fix the MiniBrowser with clang-16.
+    - Update Standards-Version to 4.7.4.
+  * fix-atomics-detection.patch:
+    - Improve detection of whether libatomic is required. This was failing
+      in some architectures (armhf, armel) with some versions of clang.
+  * fix-big-endian-string.patch:
+    - Use the native byte order when converting from utf8 to utf16.
+      This fixes strings in big-endian machines (Closes: #1132818).
 
- -- Alberto Garcia <berto@igalia.com>  Wed, 17 Dec 2025 23:13:15 +0100
+ -- Alberto Garcia <berto@igalia.com>  Thu, 23 Apr 2026 12:46:57 +0200
+
+webkit2gtk (2.52.3-1) unstable; urgency=high
+
+  * New upstream release (Closes: #1134002)
+  * Update no-must-tail.patch (Closes: #1134097)
+    (thanks, John Paul Adrian Glaubitz).
+  * Drop fix-ftbfs-no-skia.patch.
+
+ -- Alberto Garcia <berto@igalia.com>  Fri, 17 Apr 2026 09:43:31 +0200
+
+webkit2gtk (2.52.2-2) unstable; urgency=high
+
+  * fix-ftbfs-no-skia.patch:
+    - Fix FTBFS on platforms that don't use Skia (like s390x).
+
+ -- Alberto Garcia <berto@igalia.com>  Mon, 13 Apr 2026 23:03:28 +0200
+
+webkit2gtk (2.52.2-1) unstable; urgency=high
+
+  * New upstream release (Closes: #1132198) (LP: #2148077).
+  * Drop fix-dom-build.patch.
+
+ -- Alberto Garcia <berto@igalia.com>  Mon, 13 Apr 2026 15:10:15 +0200
+
+webkit2gtk (2.52.1-1) unstable; urgency=high
+
+  * New upstream release.
+  * The WebKitGTK security advisory WSA-2026-0002 lists the following
+    security fixes in the latest versions of WebKitGTK:
+    - CVE-2026-20643, CVE-2026-20664, CVE-2026-20665,
+      CVE-2026-20691, CVE-2026-28857, CVE-2026-28859,
+      CVE-2026-28861, CVE-2026-28871 (fixed in 2.52.1).
+  * Drop fix-string-cast.patch and fix-swift-build.patch.
+  * fix-dom-build.patch:
+    - Cherry pick patch to fix the GTK3 build (WebKit bug #310915).
+
+ -- Alberto Garcia <berto@igalia.com>  Sat, 28 Mar 2026 10:05:01 +0100
+
+webkit2gtk (2.52.0-1) unstable; urgency=medium
+
+  * New upstream release.
+  * Bring all changes from the 2.51 (experimental) branch.
+  * Upstream has removed support for soup2 in WebKitGTK 2.51.1, so there
+    will be no more backports for bookworm, which will stay with 2.50.x.
+    - Remove all references to ccache, we were only using it for bookworm
+      backports.
+    - Remove all the logic to build 4.0 API (soup2) packages.
+    - Replace the 4.0 API debhelper files with the 4.1 versions.
+    - Disable libjavascriptcoregtk-bin when not building the 4.0 API
+      packages.
+  * debian/control.in:
+    - Add build dependencies on gir1.2-gobject-2.0-dev,
+      gir1.2-soup-3.0-dev and gir1.2-gtk-*-dev.
+  * debian/source/lintian-overrides:
+    - Update source-is-missing overrides.
+  * debian/copyright:
+    - Update copyright information of all files.
+  * debian/libwebkit2gtk-4.1-0.symbols:
+    - Update symbols.
+  * debian/rules:
+    - No need to use -DENABLE_MINIBROWSER=ON any more, this is on by
+      default (see WebKit bug #240515)
+    - Build always the 4.0 API / GTK3 version of the WebDriver. This is
+      what were already doing in practice, so it just simplifies the rules
+      file.
+    - Remove the GTK*_BUILD_DEP variables and make those build
+      dependencies unconditional.
+    - Fix usage of the ENABLE_DOCUMENTATION setting.
+    - Add setting (and patch) to enable building the Swift demo (for
+      testing purposes only, disabled by default).
+  * debian/patches/fix-string-cast.patch:
+    - Fix build failure.
+
+ -- Alberto Garcia <berto@igalia.com>  Sun, 22 Mar 2026 00:36:27 +0100
+
+webkit2gtk (2.50.6-1) unstable; urgency=medium
+
+  * New upstream release.
+  * debian/rules:
+    - Use --param ggc-min-expand=10 on hurd-i386 and x32 to reduce memory
+      usage.
+  * debian/patches/no-must-tail.patch:
+    - Update patch to cover alpha and hppa (Closes: #1127874).
+  * Remove all references to mips64el as it has been removed from Debian
+    (see #1129516).
+
+ -- Alberto Garcia <berto@igalia.com>  Fri, 13 Mar 2026 10:12:36 +0100
+
+webkit2gtk (2.50.5-1) unstable; urgency=medium
+
+  * New upstream release.
+  * debian/control.in:
+    - Build depend on libxml2-utils. glib-compile-resources uses xmllint
+      (Jeremy Bícha).
+    - Remove "Priority: optional" field, this is now redundant (Debian
+      policy 4.7.3).
+    - Update Standards-Version to 4.7.3.
+  * debian/rules:
+    - Disable native SIMD on Ubuntu (LP: #2121516) (Jeremy Bícha).
+    - Build with -no-integrated-cpp to further reduce memory usage on some
+      32-bit architectures (Closes: #1125347).
+    - Use gcc on armhf instead of clang-19 (Closes: #1124051)
+      (LP: #2103459).
+    - Use --param ggc-min-expand=10 on armhf and powerpc to reduce memory
+      usage even more.
+  * debian/patches/no-must-tail.patch:
+    - Disable musttail on sh4 and m68k (Closes: #1125380).
+  * Update copyright years.
+
+ -- Alberto Garcia <berto@igalia.com>  Tue, 10 Feb 2026 14:44:43 +0100
 
 webkit2gtk (2.50.4-1) unstable; urgency=medium
 

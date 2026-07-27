@@ -27,17 +27,12 @@
 
 #ifdef __cplusplus
 
-#include <wtf/Seconds.h>
 #include <wtf/text/ASCIILiteral.h>
 
 namespace WebKit::WebPushD {
 
 // If an origin processes more than this many silent pushes, then it will be unsubscribed from push.
 constexpr unsigned maxSilentPushCount = 3;
-
-// getPendingPushMessage starts a timer with this time interval after returning a push message to the client. If the timer expires, then we increment the subscription's silent push count.
-static constexpr Seconds silentPushTimeoutForProduction { 30_s };
-static constexpr Seconds silentPushTimeoutForTesting { 1_s };
 
 constexpr auto protocolVersionKey = "protocol version"_s;
 constexpr uint64_t protocolVersionValue = 5;
@@ -52,22 +47,22 @@ enum class MessageType : uint8_t {
 static constexpr unsigned long pushActionSetting = 0x8054000;
 
 #ifdef __OBJC__
-inline NSString *pushActionVersionKey()
+inline NSString *pushActionVersionKeySingleton()
 {
     return @"WebPushActionVersion";
 }
 
-inline NSNumber *currentPushActionVersion()
+inline NSNumber *currentPushActionVersionSingleton()
 {
     return @1;
 }
 
-inline NSString *pushActionPartitionKey()
+inline NSString *pushActionPartitionKeySingleton()
 {
     return @"WebPushActionPartition";
 }
 
-inline NSString *pushActionTypeKey()
+inline NSString *pushActionTypeKeySingleton()
 {
     return @"WebPushActionType";
 }

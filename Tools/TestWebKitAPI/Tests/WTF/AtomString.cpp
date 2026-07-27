@@ -36,6 +36,13 @@ TEST(WTF, AtomStringCreationFromLiteral)
     ASSERT_EQ(strlen("Template Literal"), stringWithTemplate.length());
     ASSERT_TRUE(stringWithTemplate == "Template Literal"_s);
     ASSERT_TRUE(stringWithTemplate.string().is8Bit());
+
+    ASCIILiteral literal("Source literal");
+    AtomString stringFromLiteral(literal);
+    ASSERT_EQ(strlen("Source literal"), stringFromLiteral.length());
+    ASSERT_TRUE(stringFromLiteral == "Source literal"_s);
+    ASSERT_TRUE(stringFromLiteral.string().is8Bit());
+    ASSERT_TRUE(std::bit_cast<uintptr_t>(stringFromLiteral.impl()->span8().data()) == std::bit_cast<uintptr_t>(literal.span().data()));
 }
 
 TEST(WTF, AtomStringCreationFromLiteralUniqueness)
@@ -61,6 +68,17 @@ static inline const char* testAtomStringNumber(double number)
     static char testBuffer[100] = { };
     std::strncpy(testBuffer, AtomString::number(number).string().utf8().data(), 99);
     return testBuffer;
+}
+
+TEST(WTF, AtomStringCreationFromNullASCIILiteral)
+{
+    AtomString stringFromNull { ASCIILiteral() };
+    ASSERT_TRUE(stringFromNull.isNull());
+    ASSERT_TRUE(stringFromNull.isEmpty());
+
+    AtomString stringFromEmpty(""_s);
+    ASSERT_FALSE(stringFromEmpty.isNull());
+    ASSERT_TRUE(stringFromEmpty.isEmpty());
 }
 
 TEST(WTF, AtomStringNumberDouble)

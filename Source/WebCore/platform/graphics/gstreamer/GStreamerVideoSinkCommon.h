@@ -21,11 +21,22 @@
 #if ENABLE(VIDEO)
 
 #include <gst/gst.h>
+#include <wtf/ThreadSafeWeakPtr.h>
 
 namespace WebCore {
 class MediaPlayerPrivateGStreamer;
-}
 
-void webKitVideoSinkSetMediaPlayerPrivate(GstElement*, WebCore::MediaPlayerPrivateGStreamer*);
+struct WebKitVideoSinkSignalIdentifiers {
+    unsigned long newSample { 0 };
+    unsigned long newPreroll { 0 };
+    unsigned long notifyCaps { 0 };
+    unsigned long padProbeId { 0 };
+};
+
+} // namespace WebCore
+
+WebCore::WebKitVideoSinkSignalIdentifiers webKitVideoSinkSetMediaPlayerPrivate(GstElement*, const ThreadSafeWeakPtr<WebCore::MediaPlayerPrivateGStreamer>&);
+
+void webKitVideoSinkDisconnectSignalHandlers(GstElement*, const WebCore::WebKitVideoSinkSignalIdentifiers&);
 
 #endif // ENABLE(VIDEO)

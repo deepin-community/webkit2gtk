@@ -32,8 +32,20 @@
 #include "APISerializedScriptValue.h"
 #include <jsc/JSCContextPrivate.h>
 #include <jsc/JSCValuePrivate.h>
+#include <wtf/glib/GRefPtr.h>
+#include <wtf/glib/GUniquePtr.h>
 
 namespace WebKit {
+
+class JavaScriptEvaluationResult::GLibExtractor {
+public:
+    Map takeMap() { return WTF::move(m_map); }
+    JSObjectID addObjectToMap(GVariant*);
+private:
+    Value toValue(GVariant*);
+
+    Map m_map;
+};
 
 GRefPtr<JSCValue> JavaScriptEvaluationResult::toJSC()
 {
@@ -42,31 +54,30 @@ GRefPtr<JSCValue> JavaScriptEvaluationResult::toJSC()
     return jscContextGetOrCreateValue(jscContextGetOrCreate(context.get()).get(), js.get());
 }
 
-JSObjectID JavaScriptEvaluationResult::addObjectToMap(GVariant* variant)
+JSObjectID JavaScriptEvaluationResult::GLibExtractor::addObjectToMap(GVariant* variant)
 {
     auto identifier = JSObjectID::generate();
     m_map.add(identifier, toValue(variant));
     return identifier;
 }
 
-auto JavaScriptEvaluationResult::toValue(GVariant* variant) -> Value
+auto JavaScriptEvaluationResult::GLibExtractor::toValue(GVariant* variant) -> Value
 {
     if (g_variant_is_of_type(variant, G_VARIANT_TYPE("a{sv}"))) {
-        HashMap<JSObjectID, JSObjectID> map;
-        GVariantIter iter;
-        g_variant_iter_init(&iter, variant);
+        ObjectMap objectMap;
+        GUniquePtr<GVariantIter> iter(g_variant_iter_new(variant));
         const char* key;
-        GVariant* value;
-        while (g_variant_iter_loop(&iter, "{&sv}", &key, &value)) {
+        GRefPtr<GVariant> value;
+        while (g_variant_iter_next(iter.get(), "{&sv}", &key, &value.outPtr())) {
             if (!key || !value)
                 continue;
             auto keyID = JSObjectID::generate();
             m_map.add(keyID, String::fromUTF8(key));
             auto valueID = JSObjectID::generate();
-            m_map.add(valueID, toValue(value));
-            map.add(keyID, valueID);
+            m_map.add(valueID, toValue(value.get()));
+            objectMap.add(keyID, valueID);
         }
-        return { WTFMove(map) };
+        return { WTF::move(objectMap) };
     }
 
     if (g_variant_is_of_type(variant, G_VARIANT_TYPE_UINT32))
@@ -90,11 +101,6 @@ auto JavaScriptEvaluationResult::toValue(GVariant* variant) -> Value
     return EmptyType::Null;
 }
 
-JavaScriptEvaluationResult::JavaScriptEvaluationResult(GVariant* variant)
-    : m_root(addObjectToMap(variant))
-{
-}
-
 static bool isSerializable(GVariant* variant)
 {
     if (!variant)
@@ -111,12 +117,11 @@ static bool isSerializable(GVariant* variant)
         return true;
 
     if (g_variant_is_of_type(variant, G_VARIANT_TYPE("a{sv}"))) {
-        GVariantIter iter;
-        g_variant_iter_init(&iter, variant);
+        GUniquePtr<GVariantIter> iter(g_variant_iter_new(variant));
         const char* key;
-        GVariant* value;
-        while (g_variant_iter_loop(&iter, "{&sv}", &key, &value)) {
-            if (!key || !isSerializable(value))
+        GRefPtr<GVariant> value;
+        while (g_variant_iter_next(iter.get(), "{&sv}", &key, &value.outPtr())) {
+            if (!key || !isSerializable(value.get()))
                 return false;
         }
         return true;
@@ -129,7 +134,10 @@ std::optional<JavaScriptEvaluationResult> JavaScriptEvaluationResult::extract(GV
 {
     if (!isSerializable(variant))
         return std::nullopt;
-    return JavaScriptEvaluationResult(variant);
+
+    GLibExtractor extractor;
+    auto root = extractor.addObjectToMap(variant);
+    return JavaScriptEvaluationResult { root, extractor.takeMap() };
 }
 
 } // namespace WebKit
