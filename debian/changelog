@@ -1,3 +1,9 @@
+webkit2gtk (2.52.5-1~deb13u1deepin1) unstable; urgency=medium
+
+  * feat: add sw64 support.
+
+ -- lichenggang <lichenggang@uniontech.com>  Mon, 27 Jul 2026 13:30:22 +0800
+
 webkit2gtk (2.52.5-1~deb13u1) trixie-security; urgency=medium
 
   * Rebuild for trixie-security.
