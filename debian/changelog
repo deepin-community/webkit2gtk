@@ -1,3 +1,9 @@
+webkit2gtk (2.54.0-1~deb13u2deepin3) unstable; urgency=medium
+
+  * fix: build with GCC 12 on all architectures.
+
+ -- lichenggang <lichenggang@uniontech.com>  Fri, 09 Oct 2026 13:37:19 +0800
+
 webkit2gtk (2.54.0-1~deb13u2deepin2) unstable; urgency=medium
 
   * fix: fix build failure with GCC 12 (ANGLE ResourceMap).

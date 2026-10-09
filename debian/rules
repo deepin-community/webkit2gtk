@@ -30,14 +30,6 @@ else
 	EXTRA_CMAKE_ARGUMENTS += -DUSE_SYSPROF_CAPTURE=OFF
 endif
 
-# Skia strongly recommends using clang
-# https://skia.org/docs/user/build/#supported-and-preferred-compilers
-ifneq (,$(filter $(DEB_HOST_ARCH),amd64 arm64 armel armhf i386 ppc64el riscv64 s390x))
-	EXTRA_CMAKE_ARGUMENTS += \
-	   -DCMAKE_C_COMPILER=clang \
-	   -DCMAKE_CXX_COMPILER=clang++
-endif
-
 # The WebKit build scripts look at the CPU to detect the architecture.
 # This is a problem if we e.g. build for i386 on an amd64 machine.
 # Forcing a 32-bit build solves this.
