@@ -1,0 +1,27 @@
+From: lichenggang <lichenggang@uniontech.com>
+Description: Relax ANGLE ResourceMap static_assert to fix FTBFS with GCC 12
+ GCC 12 evaluates the static_assert inside the discarded branch of
+ "if constexpr (kAdditionalFlatResourcesSize > 0)" when instantiating
+ ResourceMap<>::assignAboveCurrentFlatSize, failing the build with
+ "static assertion failed" at ResourceMap.h:463.  Newer compilers
+ (clang, GCC >= 13) skip discarded branches as required, so this only
+ affects architectures building WebKit with GCC 12 such as loong64.
+ .
+ Rewrite the assertion as an equivalent expression that also holds when
+ the additional flat resources are disabled; when the branch is
+ genuinely taken the invariant (kAdditionalFlatResourcesSize > 0
+ requires kNeedsLock) is still enforced.
+Forwarded: no
+---
+
+--- a/Source/ThirdParty/ANGLE/src/libANGLE/ResourceMap.h
++++ b/Source/ThirdParty/ANGLE/src/libANGLE/ResourceMap.h
+@@ -460,7 +460,7 @@ void ResourceMap<ResourceType, IDType>::assignAboveCurrentFlatSize(GLuint handle
+     {
+         // This should only possible when lock is needed. Otherwise we could just grow
+         // mFlatResources.
+-        static_assert(kNeedsLock);
++        static_assert(kAdditionalFlatResourcesSize == 0 || kNeedsLock);
+         if (handle < kLocklessFlatResourcesLimit)
+         {
+             ResourceType **additionalResources =
