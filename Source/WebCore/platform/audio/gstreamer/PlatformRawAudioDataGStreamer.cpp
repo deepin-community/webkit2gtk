@@ -73,6 +73,9 @@ Ref<PlatformRawAudioData> PlatformRawAudioData::create(Ref<MediaSample>&& sample
 
 RefPtr<PlatformRawAudioData> PlatformRawAudioData::create(std::span<const uint8_t> sourceData, AudioSampleFormat format, float sampleRate, int64_t timestamp, size_t numberOfFrames, size_t numberOfChannels)
 {
+    if (!ensureGStreamerInitialized()) [[unlikely]]
+        return nullptr;
+
     ensureAudioDataDebugCategoryInitialized();
     auto [gstFormat, layout] = convertAudioSampleFormatToGStreamerFormat(format);
 
@@ -85,14 +88,14 @@ RefPtr<PlatformRawAudioData> PlatformRawAudioData::create(std::span<const uint8_
         return nullptr;
     }
 
-    auto caps = adoptGRef(gst_audio_info_to_caps(&info));
+    GRefPtr caps = adoptGRef(gst_audio_info_to_caps(&info));
     GST_TRACE("Creating raw audio wrapper with caps %" GST_PTR_FORMAT, caps.get());
     GST_MEMDUMP("Source", sourceData.data(), sourceData.size());
 
     Ref data = SharedBuffer::create(Vector<uint8_t>(sourceData));
     gpointer bufferData = const_cast<void*>(static_cast<const void*>(data->span().data()));
     auto bufferLength = data->size();
-    auto buffer = adoptGRef(gst_buffer_new_wrapped_full(GST_MEMORY_FLAG_READONLY, bufferData, bufferLength, 0, bufferLength, reinterpret_cast<gpointer>(&data.leakRef()), [](gpointer data) {
+    GRefPtr buffer = adoptGRef(gst_buffer_new_wrapped_full(GST_MEMORY_FLAG_READONLY, bufferData, bufferLength, 0, bufferLength, reinterpret_cast<gpointer>(&data.leakRef()), [](gpointer data) {
         static_cast<SharedBuffer*>(data)->deref();
     }));
     GST_BUFFER_DURATION(buffer.get()) = (numberOfFrames / sampleRate) * 1000000000;
@@ -106,7 +109,7 @@ RefPtr<PlatformRawAudioData> PlatformRawAudioData::create(std::span<const uint8_
 
     gst_buffer_add_audio_meta(buffer.get(), &info, numberOfFrames, nullptr);
 
-    auto sample = adoptGRef(gst_sample_new(buffer.get(), caps.get(), &segment, nullptr));
+    GRefPtr sample = adoptGRef(gst_sample_new(buffer.get(), caps.get(), &segment, nullptr));
     return PlatformRawAudioDataGStreamer::create(WTF::move(sample));
 }
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024-2025 Samuel Weinig <sam@webkit.org>
+ * Copyright (C) 2024-2026 Samuel Weinig <sam@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -34,13 +34,18 @@ namespace Style {
 namespace Calculation {
 class Value;
 struct Child;
+Ref<Value> CLANG_POINTER_CONVERSION protect(Value&);
 }
 
+struct ZoomFactor;
+struct ZoomNeeded;
+
 // Non-generic base type to allow code sharing and out-of-line definitions.
-struct UnevaluatedCalculationBase {
+class UnevaluatedCalculationBase {
+public:
     explicit UnevaluatedCalculationBase(Calculation::Value&);
     explicit UnevaluatedCalculationBase(Ref<Calculation::Value>&&);
-    explicit UnevaluatedCalculationBase(Calculation::Child&&, CSS::Category, CSS::Range);
+    explicit UnevaluatedCalculationBase(Calculation::Child&&);
 
     WEBCORE_EXPORT UnevaluatedCalculationBase(const UnevaluatedCalculationBase&);
     WEBCORE_EXPORT UnevaluatedCalculationBase(UnevaluatedCalculationBase&&);
@@ -49,12 +54,17 @@ struct UnevaluatedCalculationBase {
 
     WEBCORE_EXPORT ~UnevaluatedCalculationBase();
 
-    Ref<Calculation::Value> protectedCalculation() const;
+    Calculation::Value& calculation() const { return m_calc; }
+    [[nodiscard]] Calculation::Value& NODELETE leakRef();
 
     bool equal(const UnevaluatedCalculationBase&) const;
 
+protected:
+    double evaluateBase(CSS::Range, double percentageBasis, const ZoomFactor&) const;
+    double evaluateBase(CSS::Range, double percentageBasis, const ZoomNeeded&) const;
+
 private:
-    Ref<Calculation::Value> calc;
+    Ref<Calculation::Value> m_calc;
 };
 
 // Wrapper for `Ref<Calculation::Value>` that includes range and category as part of the type.
@@ -72,7 +82,17 @@ template<CSS::Numeric CSSType> struct UnevaluatedCalculation : UnevaluatedCalcul
     }
 
     explicit UnevaluatedCalculation(Calculation::Child&& child)
-        : UnevaluatedCalculationBase(WTF::move(child), category, range)
+        : UnevaluatedCalculationBase(WTF::move(child))
+    {
+    }
+
+    explicit UnevaluatedCalculation(UnevaluatedCalculationBase&& base)
+        : UnevaluatedCalculationBase(WTF::move(base))
+    {
+    }
+
+    explicit UnevaluatedCalculation(const UnevaluatedCalculationBase& base)
+        : UnevaluatedCalculationBase(base)
     {
     }
 
@@ -80,7 +100,19 @@ template<CSS::Numeric CSSType> struct UnevaluatedCalculation : UnevaluatedCalcul
     {
         return UnevaluatedCalculationBase::equal(static_cast<const UnevaluatedCalculationBase&>(other));
     }
+
+    double evaluate(double percentageBasis, const ZoomFactor& zoom) const
+    {
+        return UnevaluatedCalculationBase::evaluateBase(range, percentageBasis, zoom);
+    }
+
+    double evaluate(double percentageBasis, const ZoomNeeded& zoomNeeded) const
+    {
+        return UnevaluatedCalculationBase::evaluateBase(range, percentageBasis, zoomNeeded);
+    }
 };
+
+WTF::TextStream& operator<<(WTF::TextStream&, const UnevaluatedCalculationBase&);
 
 } // namespace Style
 } // namespace WebCore

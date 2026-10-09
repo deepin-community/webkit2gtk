@@ -54,7 +54,7 @@ public:
     virtual void dump(PrintStream&) const { }
 };
 
-class StringFireDetail final : public FireDetail {
+class JS_EXPORT_PRIVATE StringFireDetail final : public FireDetail {
 public:
     StringFireDetail(const char* string)
         : m_string(string)
@@ -64,6 +64,8 @@ public:
     void dump(PrintStream& out) const final;
 
 private:
+    explicit StringFireDetail(ClangVTableWorkaroundTag);
+
     const char* m_string;
 };
 
@@ -96,8 +98,8 @@ class WatchpointSet;
 #if ENABLE(JIT)
 #define JSC_WATCHPOINT_TYPES_WITHOUT_DFG(macro) \
     JSC_WATCHPOINT_TYPES_WITHOUT_JIT(macro) \
-    macro(StructureTransitionStructureStubClearing, StructureTransitionStructureStubClearingWatchpoint) \
-    macro(StructureStubInfoClearing, StructureStubInfoClearingWatchpoint)
+    macro(StructureTransitionPropertyInlineCacheClearing, StructureTransitionPropertyInlineCacheClearingWatchpoint) \
+    macro(PropertyInlineCacheClearing, PropertyInlineCacheClearingWatchpoint)
 
 #if ENABLE(DFG_JIT)
 #define JSC_WATCHPOINT_TYPES(macro) \
@@ -203,7 +205,7 @@ public:
     // As a convenience, this will ignore 0. That's because code paths in the DFG
     // that create speculation watchpoints may choose to bail out if speculation
     // had already been terminated.
-    void add(Watchpoint*);
+    void NODELETE add(Watchpoint*);
     
     // Force the watchpoint set to behave as if it was being watched even if no
     // watchpoints have been installed. This will result in invalidation if the
@@ -269,7 +271,7 @@ protected:
 
 private:
     void fireAllWatchpoints(VM&, const FireDetail&);
-    void take(WatchpointSet* other);
+    void NODELETE take(WatchpointSet* other);
     
     friend class InlineWatchpointSet;
 
@@ -341,7 +343,7 @@ public:
     void startWatching()
     {
         if (isFat()) {
-            protectedFat()->startWatching();
+            protect(fat())->startWatching();
             return;
         }
         ASSERT(decodeState(m_data) != IsInvalidated);
@@ -352,7 +354,7 @@ public:
     void fireAll(VM& vm, T fireDetails)
     {
         if (isFat()) {
-            protectedFat()->fireAll(vm, fireDetails);
+            protect(fat())->fireAll(vm, fireDetails);
             return;
         }
         if (decodeState(m_data) == ClearWatchpoint)
@@ -364,7 +366,7 @@ public:
     void invalidate(VM& vm, const FireDetail& detail)
     {
         if (isFat())
-            protectedFat()->invalidate(vm, detail);
+            protect(fat())->invalidate(vm, detail);
         else
             m_data = encodeState(IsInvalidated);
     }
@@ -374,7 +376,7 @@ public:
     void touch(VM& vm, const FireDetail& detail)
     {
         if (isFat()) {
-            protectedFat()->touch(vm, detail);
+            protect(fat())->touch(vm, detail);
             return;
         }
         uintptr_t data = m_data;
@@ -482,11 +484,8 @@ private:
         return fat(m_data);
     }
 
-    RefPtr<WatchpointSet> protectedFat() { return fat(); }
-    RefPtr<const WatchpointSet> protectedFat() const { return fat(); }
-    
     JS_EXPORT_PRIVATE WatchpointSet* inflateSlow();
-    JS_EXPORT_PRIVATE void freeFat();
+    JS_EXPORT_PRIVATE void NODELETE freeFat();
     
     uintptr_t m_data;
 };
@@ -499,7 +498,7 @@ public:
     {
     }
 
-    JS_EXPORT_PRIVATE void takeWatchpointsToFire(WatchpointSet*);
+    JS_EXPORT_PRIVATE void NODELETE takeWatchpointsToFire(WatchpointSet*);
 
 protected:
     WatchpointSet& watchpointsToFire() { return m_watchpointsToFire; }

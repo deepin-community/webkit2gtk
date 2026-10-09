@@ -20,23 +20,6 @@
 #include "config.h"
 #include "WebKitDOMElement.h"
 
-#include "ConvertToUTF8String.h"
-#include "GObjectEventListener.h"
-#include "WebKitDOMAttrPrivate.h"
-#include "WebKitDOMCSSStyleDeclarationPrivate.h"
-#include "WebKitDOMClientRectListPrivate.h"
-#include "WebKitDOMClientRectPrivate.h"
-#include "WebKitDOMDOMTokenListPrivate.h"
-#include "WebKitDOMElementPrivate.h"
-#include "WebKitDOMElementUnstable.h"
-#include "WebKitDOMEventPrivate.h"
-#include "WebKitDOMEventTarget.h"
-#include "WebKitDOMHTMLCollectionPrivate.h"
-#include "WebKitDOMNamedNodeMapPrivate.h"
-#include "WebKitDOMNodeListPrivate.h"
-#include "WebKitDOMNodePrivate.h"
-#include "WebKitDOMPrivate.h"
-#include <WebCore/AddEventListenerOptionsInlines.h>
 #include <WebCore/CSSImportRule.h>
 #include <WebCore/CSSStyleProperties.h>
 #include <WebCore/DOMException.h>
@@ -47,6 +30,22 @@
 #include <WebCore/JSExecState.h>
 #include <WebCore/ScrollIntoViewOptions.h>
 #include <WebCore/StyledElement.h>
+#include "GObjectEventListener.h"
+#include "WebKitDOMAttrPrivate.h"
+#include "WebKitDOMCSSStyleDeclarationPrivate.h"
+#include "WebKitDOMClientRectListPrivate.h"
+#include "WebKitDOMClientRectPrivate.h"
+#include "WebKitDOMDOMTokenListPrivate.h"
+#include "WebKitDOMElementPrivate.h"
+#include "WebKitDOMEventPrivate.h"
+#include "WebKitDOMEventTarget.h"
+#include "WebKitDOMHTMLCollectionPrivate.h"
+#include "WebKitDOMNamedNodeMapPrivate.h"
+#include "WebKitDOMNodeListPrivate.h"
+#include "WebKitDOMNodePrivate.h"
+#include "WebKitDOMPrivate.h"
+#include "ConvertToUTF8String.h"
+#include "WebKitDOMElementUnstable.h"
 #include <wtf/GetPtr.h>
 #include <wtf/RefPtr.h>
 
@@ -941,15 +940,8 @@ void webkit_dom_element_insert_adjacent_text(WebKitDOMElement* self, const gchar
 
 void webkit_dom_element_request_pointer_lock(WebKitDOMElement* self)
 {
-#if ENABLE(POINTER_LOCK)
-    WebCore::JSMainThreadNullState state;
-    g_return_if_fail(WEBKIT_DOM_IS_ELEMENT(self));
-    WebCore::Element* item = WebKit::core(self);
-    item->requestPointerLock();
-#else
     UNUSED_PARAM(self);
     WEBKIT_WARN_FEATURE_NOT_PRESENT("Pointer Lock")
-#endif /* ENABLE(POINTER_LOCK) */
 }
 
 void webkit_dom_element_remove(WebKitDOMElement* self, GError** error)

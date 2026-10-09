@@ -62,7 +62,7 @@ SPDX-License-Identifier: BSD, LGPL-2.1
         <h3><a href="index.html">JavaScriptCore</a></h3>
         <p>API Version: 6.0</p>
         
-        <p>Library Version: 2.52.5</p>
+        <p>Library Version: 2.54.0</p>
         
       </div>
       
@@ -193,7 +193,7 @@ SPDX-License-Identifier: BSD, LGPL-2.1
           Description
           <a href="#description" class="anchor"></a>
           
-          <a class="srclink" title="go to source location" href="https://github.com/WebKit/WebKit/tree/Source/JavaScriptCore/API/glib/JSCContext.cpp#L42">[src]</a>
+          <a class="srclink" title="go to source location" href="https://github.com/WebKit/WebKit/tree/Source/JavaScriptCore/API/glib/JSCContext.cpp#L43">[src]</a>
           
         </h4>
 
@@ -315,7 +315,7 @@ existing <code>JSCVirtualMachine</code>.</p>
         <div class="">
           <h6><a href="ctor.Context.new_with_virtual_machine.html">jsc_context_new_with_virtual_machine</a></h6>
           <div class="docblock">
-            <p>Create a new <code>JSCContext</code> in <code>virtual_machine</code>.</p>
+            <p>Create a new <code>JSCContext</code> in <code>vm</code>.</p>
           </div>
           <div class="docblock">
             <p></p>
@@ -395,7 +395,7 @@ In case of errors <code>exception</code> will be set to a new <code>JSCException
         <div class="">
           <h6><a href="method.Context.evaluate_in_object.html">jsc_context_evaluate_in_object</a></h6>
           <div class="docblock">
-            <p>Evaluate <code>code</code> and create an new object where symbols defined in <code>code</code> will be added as properties,
+            <p>Evaluate <code>code</code> and create a new object where symbols defined in <code>code</code> will be added as properties,
 instead of being added to <code>context</code> global object. The new object is returned as <code>object</code> parameter.
 Similar to how <code>jsc_value_new_object()</code> works, if <code>object_instance</code> is not <code>NULL</code> <code>object_class</code> must be provided too.
 The <code>line_number</code> is the starting line number in <code>uri</code>; the value is one-based so the first line is 1.
@@ -421,7 +421,7 @@ they don&#8217;t affect the behavior of the&nbsp;script.</p>
         <div class="">
           <h6><a href="method.Context.get_exception.html">jsc_context_get_exception</a></h6>
           <div class="docblock">
-            <p>Get the last unhandled exception thrown in <code>context</code> by <span class="caps">API</span> functions&nbsp;calls.</p>
+            <p>Get the last unhandled exception thrown in <code>context</code> by <span class="caps">API</span> function&nbsp;calls.</p>
           </div>
           <div class="docblock">
             <p></p>
@@ -490,7 +490,7 @@ is removed from the context, <code>destroy_notify</code> is called with <code>us
           <div class="docblock">
             <p>Register a custom class in <code>context</code> using the given <code>name</code>. If the new class inherits from
 another <code>JSCClass</code>, the parent should be passed as <code>parent_class</code>, otherwise <code>NULL</code> should be
-used. The optional <code>vtable</code> parameter allows to provide a custom implementation for handling
+used. The optional <code>vtable</code> parameter allows providing a custom implementation for handling
 the class, for example, to handle external properties not added to the prototype.
 When an instance of the <code>JSCClass</code> is cleared in the context, <code>destroy_notify</code> is called with
 the instance as&nbsp;parameter.</p>

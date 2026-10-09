@@ -37,10 +37,13 @@ class RenderBoxModelObject;
 class RenderElement;
 class RenderGeometryMap;
 class RenderLayerModelObject;
-class RenderStyle;
 class LegacyRenderSVGRoot;
 class SVGElement;
 class TransformState;
+
+namespace Style {
+class ComputedStyle;
+}
 
 // SVGRendererSupport is a helper class sharing code between all SVG renderers.
 class SVGRenderSupport {
@@ -51,7 +54,7 @@ public:
     static void layoutChildren(RenderElement&, bool selfNeedsLayout);
 
     // Helper function determining wheter overflow is hidden
-    static bool isOverflowHidden(const RenderElement&);
+    static bool NODELETE isOverflowHidden(const RenderElement&);
 
     // Applies filter/clipper/masker resource effects to a geometric bounding rect.
     // This is the preferred API for resource code (masks, gradients, clippers) that needs
@@ -92,21 +95,28 @@ public:
 
     static FloatRect calculateApproximateStrokeBoundingBox(const RenderElement&);
 
+    static void NODELETE updateAncestorNonScalingStrokeCounts(RenderElement&, int delta);
+
+    static bool computeHasScalingAncestor(const RenderElement&);
+
+    static void NODELETE elementInsertedIntoTree(RenderElement&);
+    static void NODELETE elementWillBeRemovedFromTree(RenderElement&);
+
     // Shared between SVG renderers and resources.
-    static void applyStrokeStyleToContext(GraphicsContext&, const RenderStyle&, const RenderElement&);
+    static void applyStrokeStyleToContext(GraphicsContext&, const Style::ComputedStyle&, const RenderElement&);
 
     // Determines if any ancestor's transform has changed.
     static bool transformToRootChanged(RenderElement*);
 
     static void clipContextToCSSClippingArea(GraphicsContext&, const RenderElement& renderer);
 
-    static void styleChanged(RenderElement&, const RenderStyle*);
+    static void styleChanged(RenderElement&, const Style::ComputedStyle*);
 
-    static bool isolatesBlending(const RenderStyle&);
+    static bool isolatesBlending(const Style::ComputedStyle&);
     static void updateMaskedAncestorShouldIsolateBlending(const RenderElement&);
 
-    static LegacyRenderSVGRoot* findTreeRootObject(RenderElement&);
-    static const LegacyRenderSVGRoot* findTreeRootObject(const RenderElement&);
+    static LegacyRenderSVGRoot* NODELETE findTreeRootObject(RenderElement&);
+    static const LegacyRenderSVGRoot* NODELETE findTreeRootObject(const RenderElement&);
 
 private:
     // This class is not constructable.

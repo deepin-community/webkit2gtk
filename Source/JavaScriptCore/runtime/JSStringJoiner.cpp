@@ -58,7 +58,7 @@ template<typename CharacterType>
 static inline void appendStringToData(std::span<CharacterType>& data, int32_t value)
 {
     if constexpr (std::is_same_v<CharacterType, Latin1Character>) {
-        auto result = std::to_chars(std::bit_cast<char*>(data.data()), std::bit_cast<char*>(data.data() + data.size()), value);
+        auto result = std::to_chars(std::bit_cast<char*>(data.data()), std::bit_cast<char*>(std::to_address(data.end())), value);
         ASSERT(result.ec != std::errc::value_too_large);
         skip(data, result.ptr - std::bit_cast<char*>(data.data()));
     } else {
@@ -196,15 +196,19 @@ static inline String joinStrings(JSGlobalObject* globalObject, const WriteBarrie
         return { };
     }
 
+    auto appendString = [&](JSString* string) {
+        unsigned length = string->length();
+        string->resolveToBuffer(data.first(length));
+        data = data.subspan(length);
+    };
+
     switch (separator.size()) {
     case 0: {
         for (unsigned i = 0; i < size; ++i) {
             JSValue value = strings[i].get();
-            if (value.isString()) {
-                auto view = asString(value)->view(globalObject);
-                RETURN_IF_EXCEPTION(scope, String());
-                appendStringToData(data, view);
-            } else {
+            if (value.isString())
+                appendString(asString(value));
+            else {
                 ASSERT(value.isInt32());
                 appendStringToData(data, value.asInt32());
             }
@@ -213,25 +217,20 @@ static inline String joinStrings(JSGlobalObject* globalObject, const WriteBarrie
     }
     default: {
         JSValue value = strings[0].get();
-        if (value.isString()) {
-            auto view = asString(value)->view(globalObject);
-            RETURN_IF_EXCEPTION(scope, String());
-            appendStringToData(data, view);
-        } else {
+        if (value.isString())
+            appendString(asString(value));
+        else {
             ASSERT(value.isInt32());
             appendStringToData(data, value.asInt32());
         }
 
         for (unsigned i = 1; i < size; ++i) {
             JSValue value = strings[i].get();
-            if (value.isString()) {
-                auto view = asString(value)->view(globalObject);
-                RETURN_IF_EXCEPTION(scope, String());
-                appendStringToData(data, separator);
-                appendStringToData(data, view);
-            } else {
+            appendStringToData(data, separator);
+            if (value.isString())
+                appendString(asString(value));
+            else {
                 ASSERT(value.isInt32());
-                appendStringToData(data, separator);
                 appendStringToData(data, value.asInt32());
             }
         }

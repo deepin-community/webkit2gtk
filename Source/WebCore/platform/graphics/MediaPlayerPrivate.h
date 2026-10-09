@@ -97,8 +97,8 @@ public:
     virtual void videoFullscreenStandbyChanged() { }
 #endif
 
-    using LayerHostingContextCallback = CompletionHandler<void(HostingContext)>;
-    virtual void requestHostingContext(LayerHostingContextCallback&& completionHandler) { completionHandler({ }); }
+    using HostingContextPromise = MediaPlayer::HostingContextPromise;
+    virtual Ref<HostingContextPromise> requestHostingContext();
     virtual HostingContext hostingContext() const { return { }; }
     virtual FloatSize videoLayerSize() const { return { }; }
     virtual void setVideoLayerSizeFenced(const FloatSize&, WTF::MachSendRightAnnotated&&) { }
@@ -129,7 +129,9 @@ public:
 
     virtual void setPageIsVisible(bool) = 0;
     virtual void setVisibleForCanvas(bool visible) { setPageIsVisible(visible); }
-    virtual void setVisibleInViewport(bool) { }
+
+    using ViewportVisibility = MediaPlayer::ViewportVisibility;
+    virtual void setViewportVisibility(ViewportVisibility) { }
 
     virtual MediaTime duration() const { return MediaTime::zeroTime(); }
 
@@ -144,8 +146,7 @@ public:
 
     virtual void willSeekToTarget(const MediaTime& time) { m_pendingSeekTime = time; }
     virtual MediaTime pendingSeekTime() const { return m_pendingSeekTime; }
-    virtual void seekToTarget(const SeekTarget&) = 0;
-    virtual bool seeking() const = 0;
+    virtual Ref<MediaTimePromise> seekToTarget(const SeekTarget&) = 0;
 
     virtual MediaTime startTime() const { return MediaTime::zeroTime(); }
     virtual MediaTime initialTime() const { return MediaTime::zeroTime(); }
@@ -208,6 +209,9 @@ public:
 
     virtual RefPtr<VideoFrame> videoFrameForCurrentTime();
     virtual RefPtr<NativeImage> nativeImageForCurrentTime() { return nullptr; }
+    WEBCORE_EXPORT virtual RefPtr<ShareableBitmap> bitmapImageForCurrentTimeSync();
+    using BitmapImagePromise = MediaPlayer::BitmapImagePromise;
+    WEBCORE_EXPORT virtual Ref<BitmapImagePromise> bitmapImageForCurrentTime();
     virtual DestinationColorSpace colorSpace() = 0;
     virtual bool shouldGetNativeImageForCanvasDrawing() const { return true; }
 
@@ -220,6 +224,7 @@ public:
 #if ENABLE(WIRELESS_PLAYBACK_TARGET)
 
     virtual String wirelessPlaybackTargetName() const { return emptyString(); }
+    virtual String wirelessPlaybackRouteName() const { return emptyString(); }
     virtual MediaPlayer::WirelessPlaybackTargetType wirelessPlaybackTargetType() const { return MediaPlayer::WirelessPlaybackTargetType::TargetTypeNone; }
 
     virtual bool wirelessVideoPlaybackDisabled() const { return true; }
@@ -389,6 +394,12 @@ public:
     virtual void setMessageClientForTesting(WeakPtr<MessageClientForTesting>) { }
 
     virtual void elementIdChanged(const String&) const { }
+
+    static WEBCORE_EXPORT RefPtr<ShareableBitmap> bitmapFromImage(NativeImage&);
+
+#if PLATFORM(MAC)
+    virtual void screenReservedChanged(bool) { }
+#endif
 
 protected:
     mutable PlatformTimeRanges m_seekable;

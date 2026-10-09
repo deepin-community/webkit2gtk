@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024-2025 Samuel Weinig <sam@webkit.org>
+ * Copyright (C) 2024-2026 Samuel Weinig <sam@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,20 +26,13 @@
 #include "StyleAppleColorFilter.h"
 
 #include "CSSAppleColorFilterValue.h"
+#include "CSSKeywordValue.h"
 #include "ColorConversion.h"
-#include "FilterOperations.h"
-#include "StyleAppleInvertLightnessFunction.h"
-#include "StyleBrightnessFunction.h"
 #include "StyleBuilderChecking.h"
-#include "StyleContrastFunction.h"
 #include "StyleFilterInterpolation.h"
-#include "StyleGrayscaleFunction.h"
-#include "StyleHueRotateFunction.h"
-#include "StyleInvertFunction.h"
-#include "StyleOpacityFunction.h"
+#include "StylePrimitiveNumericTypes+Blending.h"
+#include "StylePrimitiveNumericTypes+Evaluation.h"
 #include "StylePrimitiveNumericTypes+Serialization.h"
-#include "StyleSaturateFunction.h"
-#include "StyleSepiaFunction.h"
 #include <wtf/NeverDestroyed.h>
 
 namespace WebCore {
@@ -62,8 +55,10 @@ bool AppleColorFilter::transformColor(WebCore::Color& color) const
     auto sRGBAColor = color.toColorTypeLossy<SRGBA<float>>();
 
     for (auto& value : *this) {
-        Ref operation = value.value;
-        if (!operation->transformColor(sRGBAColor))
+        auto didTransform = WTF::switchOn(value,
+            [&](const auto& function) { return function->transformColor(sRGBAColor); }
+        );
+        if (!didTransform)
             return false;
     }
 
@@ -82,8 +77,10 @@ bool AppleColorFilter::inverseTransformColor(WebCore::Color& color) const
     auto sRGBAColor = color.toColorTypeLossy<SRGBA<float>>();
 
     for (auto& value : *this) {
-        Ref operation = value.value;
-        if (!operation->inverseTransformColor(sRGBAColor))
+        auto didInverseTransform = WTF::switchOn(value,
+            [&](const auto& function) { return function->inverseTransformColor(sRGBAColor); }
+        );
+        if (!didInverseTransform)
             return false;
     }
 
@@ -93,79 +90,31 @@ bool AppleColorFilter::inverseTransformColor(WebCore::Color& color) const
 
 // MARK: - Conversions
 
-// MARK: (AppleColorFilterValue)
+// MARK: (AppleColorFilterValueList)
 
-auto ToCSS<AppleColorFilterValue>::operator()(const AppleColorFilterValue& value, const RenderStyle& style) -> CSS::AppleColorFilterValue
+auto ToCSS<AppleColorFilterValueList>::operator()(const AppleColorFilterValueList& value, const Style::ComputedStyle& style) -> CSS::AppleColorFilterValueList
 {
-    Ref op = value.value;
-    switch (op->type()) {
-    case FilterOperation::Type::AppleInvertLightness:
-        return CSS::AppleColorFilterValue { CSS::AppleInvertLightnessFunction { toCSSAppleInvertLightness(downcast<InvertLightnessFilterOperation>(op), style) } };
-    case FilterOperation::Type::Grayscale:
-        return CSS::AppleColorFilterValue { CSS::GrayscaleFunction { toCSSGrayscale(downcast<BasicColorMatrixFilterOperation>(op), style) } };
-    case FilterOperation::Type::Sepia:
-        return CSS::AppleColorFilterValue { CSS::SepiaFunction { toCSSSepia(downcast<BasicColorMatrixFilterOperation>(op), style) } };
-    case FilterOperation::Type::Saturate:
-        return CSS::AppleColorFilterValue { CSS::SaturateFunction { toCSSSaturate(downcast<BasicColorMatrixFilterOperation>(op), style) } };
-    case FilterOperation::Type::HueRotate:
-        return CSS::AppleColorFilterValue { CSS::HueRotateFunction { toCSSHueRotate(downcast<BasicColorMatrixFilterOperation>(op), style) } };
-    case FilterOperation::Type::Invert:
-        return CSS::AppleColorFilterValue { CSS::InvertFunction { toCSSInvert(downcast<BasicComponentTransferFilterOperation>(op), style) } };
-    case FilterOperation::Type::Opacity:
-        return CSS::AppleColorFilterValue { CSS::OpacityFunction { toCSSOpacity(downcast<BasicComponentTransferFilterOperation>(op), style) } };
-    case FilterOperation::Type::Brightness:
-        return CSS::AppleColorFilterValue { CSS::BrightnessFunction { toCSSBrightness(downcast<BasicComponentTransferFilterOperation>(op), style) } };
-    case FilterOperation::Type::Contrast:
-        return CSS::AppleColorFilterValue { CSS::ContrastFunction { toCSSContrast(downcast<BasicComponentTransferFilterOperation>(op), style) } };
-    default:
-        break;
-    }
-    RELEASE_ASSERT_NOT_REACHED();
+    return CSS::AppleColorFilterValueList::map(value, [&](const auto& x) -> CSS::AppleColorFilterValue { return toCSS(x, style); });
 }
 
-auto ToStyle<CSS::AppleColorFilterValue>::operator()(const CSS::AppleColorFilterValue& value, const BuilderState& state) -> AppleColorFilterValue
+auto ToStyle<CSS::AppleColorFilterValueList>::operator()(const CSS::AppleColorFilterValueList& value, const BuilderState& state) -> AppleColorFilterValueList
 {
-    return WTF::switchOn(value,
-        [&](const auto& function) -> AppleColorFilterValue {
-            return AppleColorFilterValue { createFilterOperation(function, state) };
-        }
-    );
+    return AppleColorFilterValueList::map(value, [&](const auto& x) -> AppleColorFilterValue { return toStyle(x, state); });
 }
 
 // MARK: (AppleColorFilter)
 
-auto ToCSS<AppleColorFilter>::operator()(const AppleColorFilter& value, const RenderStyle& style) -> CSS::AppleColorFilter
-{
-    return WTF::switchOn(value,
-        [&](CSS::Keyword::None keyword) -> CSS::AppleColorFilter {
-            return keyword;
-        },
-        [&](const AppleColorFilterValueList& list) -> CSS::AppleColorFilter {
-            return CSS::AppleColorFilterValueList::map(list, [&](const AppleColorFilterValue& value) {
-                return toCSS(value, style);
-            });
-        }
-    );
-}
-
-auto ToStyle<CSS::AppleColorFilter>::operator()(const CSS::AppleColorFilter& value, const BuilderState& state) -> AppleColorFilter
-{
-    return WTF::switchOn(value,
-        [&](CSS::Keyword::None keyword) -> AppleColorFilter {
-            return keyword;
-        },
-        [&](const CSS::AppleColorFilterValueList& list) -> AppleColorFilter {
-            return AppleColorFilterValueList::map(list, [&](const CSS::AppleColorFilterValue& value) {
-                return toStyle(value, state);
-            });
-        }
-    );
-}
-
 auto CSSValueConversion<AppleColorFilter>::operator()(BuilderState& state, const CSSValue& value) -> AppleColorFilter
 {
-    if (value.valueID() == CSSValueNone)
-        return CSS::Keyword::None { };
+    if (auto* keywordValue = dynamicDowncast<CSSKeywordValue>(value)) {
+        switch (keywordValue->valueID()) {
+        case CSSValueNone:
+            return CSS::Keyword::None { };
+        default:
+            state.setCurrentPropertyInvalidAtComputedValueTime();
+            return CSS::Keyword::None { };
+        }
+    }
 
     RefPtr filter = requiredDowncast<CSSAppleColorFilterValue>(state, value);
     if (!filter)
@@ -174,16 +123,9 @@ auto CSSValueConversion<AppleColorFilter>::operator()(BuilderState& state, const
     return toStyle(filter->filter(), state);
 }
 
-Ref<CSSValue> CSSValueCreation<AppleColorFilter>::operator()(CSSValuePool&, const RenderStyle& style, const AppleColorFilter& value)
+Ref<CSSValue> CSSValueCreation<AppleColorFilter>::operator()(CSSValuePool&, const Style::ComputedStyle& style, const AppleColorFilter& value)
 {
     return CSSAppleColorFilterValue::create(toCSS(value, style));
-}
-
-// MARK: - Serialization
-
-void Serialize<AppleColorFilter>::operator()(StringBuilder& builder, const CSS::SerializationContext& context, const RenderStyle& style, const AppleColorFilter& value)
-{
-    CSS::serializationForCSS(builder, context, toCSS(value, style));
 }
 
 // MARK: - Blending
@@ -193,36 +135,14 @@ auto Blending<AppleColorFilter>::canBlend(const AppleColorFilter& from, const Ap
     return canBlendFilterLists(from.m_value, to.m_value, compositeOperation);
 }
 
-auto Blending<AppleColorFilter>::blend(const AppleColorFilter& from, const AppleColorFilter& to, const BlendingContext& context) -> AppleColorFilter
+auto Blending<AppleColorFilter>::blend(const AppleColorFilter& from, const AppleColorFilter& to, const Style::ComputedStyle& fromStyle, const Style::ComputedStyle& toStyle, const BlendingContext& context) -> AppleColorFilter
 {
-    auto blendedFilterList = blendFilterLists(from.m_value, to.m_value, context);
+    auto blendedFilterList = blendFilterLists(from.m_value, to.m_value, fromStyle, toStyle, context);
 
     if (blendedFilterList.isEmpty())
         return CSS::Keyword::None { };
 
     return AppleColorFilter { WTF::move(blendedFilterList) };
-}
-
-// MARK: - Platform
-
-auto ToPlatform<AppleColorFilterValue>::operator()(const AppleColorFilterValue& value) -> Ref<FilterOperation>
-{
-    return value.value;
-}
-
-auto ToPlatform<AppleColorFilter>::operator()(const AppleColorFilter& value) -> FilterOperations
-{
-    return FilterOperations { WTF::map(value, [](auto& filterValue) {
-        return toPlatform(filterValue);
-    }) };
-}
-
-// MARK: - Logging
-
-TextStream& operator<<(TextStream& ts, const AppleColorFilterValue& value)
-{
-    Ref platform = value.value;
-    return ts << platform;
 }
 
 } // namespace Style

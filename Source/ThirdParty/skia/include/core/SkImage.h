@@ -13,7 +13,7 @@
 #include "include/core/SkRect.h"
 #include "include/core/SkRefCnt.h"
 #include "include/core/SkSize.h"
-#include "include/private/base/SkAPI.h"
+#include "include/private/SkAPI.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -739,11 +739,7 @@ public:
 
         example: https://fiddle.skia.org/c/@Image_refEncodedData
     */
-#if defined(SK_DISABLE_LEGACY_NONCONST_ENCODED_IMAGE_DATA)
     sk_sp<const SkData> refEncodedData() const;
-#else
-    sk_sp<SkData> refEncodedData() const;
-#endif
 
     struct RequiredProperties {
         bool fMipmapped = false;

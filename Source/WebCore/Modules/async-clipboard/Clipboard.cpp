@@ -30,12 +30,17 @@
 #include "ClipboardItem.h"
 #include "CommonAtomStrings.h"
 #include "ContextDestructionObserverInlines.h"
+#include "Document.h"
 #include "DocumentPage.h"
 #include "Editor.h"
+#include "EventLoop.h"
 #include "EventTargetInterfaces.h"
 #include "FrameInlines.h"
 #include "JSBlob.h"
 #include "JSClipboardItem.h"
+#include "JSDOMConvertInterface.h"
+#include "JSDOMConvertSequences.h"
+#include "JSDOMConvertStrings.h"
 #include "JSDOMPromiseDeferred.h"
 #include "LocalDOMWindow.h"
 #include "LocalFrameInlines.h"
@@ -44,6 +49,7 @@
 #include "Pasteboard.h"
 #include "Settings.h"
 #include "SharedBuffer.h"
+#include "TaskSource.h"
 #include "WebContentReader.h"
 #include <wtf/CompletionHandler.h>
 #include <wtf/TZoneMallocInlines.h>
@@ -59,6 +65,12 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(Clipboard);
 static bool frameHasTransientActivation(const LocalFrame& frame)
 {
     RefPtr window = frame.window();
+    return window && window->hasTransientActivation();
+}
+
+static bool documentHasTransientActivation(const Document& document)
+{
+    RefPtr window = document.window();
     return window && window->hasTransientActivation();
 }
 
@@ -115,21 +127,29 @@ ScriptExecutionContext* Clipboard::scriptExecutionContext() const
 void Clipboard::readText(Ref<DeferredPromise>&& promise)
 {
     RefPtr frame = this->frame();
-    if (!frame || !frameHasTransientActivation(*frame)) {
+    RefPtr document = frame ? frame->document() : nullptr;
+    if (!document || !documentHasTransientActivation(*document)) {
         promise->reject(ExceptionCode::NotAllowedError);
         return;
     }
 
+    auto reject = [&] {
+        protect(document->eventLoop())->queueTask(TaskSource::Clipboard,
+            [promise = WTF::move(promise)] mutable {
+                promise->reject(ExceptionCode::NotAllowedError);
+            });
+    };
+
     auto pasteboard = Pasteboard::createForCopyAndPaste(PagePasteboardContext::create(frame->pageID()));
     auto changeCountAtStart = pasteboard->changeCount();
     if (!frame->requestDOMPasteAccess()) {
-        promise->reject(ExceptionCode::NotAllowedError);
+        reject();
         return;
     }
 
     auto allInfo = pasteboard->allPasteboardItemInfo();
     if (!allInfo) {
-        promise->reject(ExceptionCode::NotAllowedError);
+        reject();
         return;
     }
 
@@ -143,10 +163,15 @@ void Clipboard::readText(Ref<DeferredPromise>&& promise)
         }
     }
 
-    if (changeCountAtStart == pasteboard->changeCount())
-        promise->resolve<IDLDOMString>(WTF::move(text));
-    else
-        promise->reject(ExceptionCode::NotAllowedError);
+    if (changeCountAtStart != pasteboard->changeCount()) {
+        reject();
+        return;
+    }
+
+    protect(document->eventLoop())->queueTask(TaskSource::Clipboard,
+        [promise = WTF::move(promise), text = WTF::move(text)] mutable {
+            promise->resolve<IDLDOMString>(WTF::move(text));
+        });
 }
 
 void Clipboard::writeText(const String& data, Ref<DeferredPromise>&& promise)
@@ -167,29 +192,34 @@ void Clipboard::writeText(const String& data, Ref<DeferredPromise>&& promise)
 
 void Clipboard::read(Ref<DeferredPromise>&& promise)
 {
-    auto rejectPromiseAndClearActiveSession = [&] {
+    RefPtr frame = this->frame();
+    RefPtr document = frame ? frame->document() : nullptr;
+    if (!document || !documentHasTransientActivation(*document)) {
         m_activeSession = std::nullopt;
         promise->reject(ExceptionCode::NotAllowedError);
-    };
-
-    RefPtr frame = this->frame();
-    if (!frame || !frameHasTransientActivation(*frame)) {
-        rejectPromiseAndClearActiveSession();
         return;
     }
+
+    auto reject = [&] {
+        m_activeSession = std::nullopt;
+        protect(document->eventLoop())->queueTask(TaskSource::Clipboard,
+            [promise = WTF::move(promise)] mutable {
+                promise->reject(ExceptionCode::NotAllowedError);
+            });
+    };
 
     auto pasteboard = Pasteboard::createForCopyAndPaste(PagePasteboardContext::create(frame->pageID()));
     auto changeCountAtStart = pasteboard->changeCount();
 
     if (!frame->requestDOMPasteAccess()) {
-        rejectPromiseAndClearActiveSession();
+        reject();
         return;
     }
 
     if (!m_activeSession || m_activeSession->changeCount != changeCountAtStart) {
         auto allInfo = pasteboard->allPasteboardItemInfo();
         if (!allInfo) {
-            rejectPromiseAndClearActiveSession();
+            reject();
             return;
         }
 
@@ -199,7 +229,10 @@ void Clipboard::read(Ref<DeferredPromise>&& promise)
         m_activeSession = {{ WTF::move(pasteboard), WTF::move(clipboardItems), changeCountAtStart }};
     }
 
-    promise->resolve<IDLSequence<IDLInterface<ClipboardItem>>>(m_activeSession->items);
+    protect(document->eventLoop())->queueTask(TaskSource::Clipboard,
+        [promise = WTF::move(promise), items = m_activeSession->items] mutable {
+            promise->resolve<IDLSequence<IDLInterface<ClipboardItem>>>(items);
+        });
 }
 
 void Clipboard::getType(ClipboardItem& item, const String& type, Ref<DeferredPromise>&& promise)
@@ -260,6 +293,17 @@ void Clipboard::getType(ClipboardItem& item, const String& type, Ref<DeferredPro
         resultAsString = markupReader.takeMarkup();
     }
 
+    if (type == imageSVGContentTypeAtom()) {
+        ClipboardImageReader imageReader { frame->document(), type };
+        activePasteboard().read(imageReader, itemIndex);
+        auto imageBlob = imageReader.takeResult();
+        if (updateSessionValidity() == SessionIsValid::Yes && imageBlob)
+            promise->resolve<IDLInterface<Blob>>(imageBlob.releaseNonNull());
+        else
+            promise->reject(ExceptionCode::NotAllowedError);
+        return;
+    }
+
     // FIXME: Support reading custom data.
     if (updateSessionValidity() == SessionIsValid::No || resultAsString.isNull()) {
         promise->reject(ExceptionCode::NotAllowedError);
@@ -269,7 +313,7 @@ void Clipboard::getType(ClipboardItem& item, const String& type, Ref<DeferredPro
     if (RefPtr page = frame->page())
         resultAsString = page->applyLinkDecorationFiltering(resultAsString, LinkDecorationFilteringTrigger::Paste);
 
-    promise->resolve<IDLInterface<Blob>>(ClipboardItem::blobFromString(frame->protectedDocument().get(), resultAsString, type));
+    promise->resolve<IDLInterface<Blob>>(ClipboardItem::blobFromString(protect(frame->document()).get(), resultAsString, type));
 }
 
 Clipboard::SessionIsValid Clipboard::updateSessionValidity()

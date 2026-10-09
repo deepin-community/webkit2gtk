@@ -80,7 +80,7 @@ public:
     void sendDatagram(std::optional<WebCore::WebTransportSendGroupIdentifier>, std::span<const uint8_t>, CompletionHandler<void(std::optional<WebCore::Exception>&&)>&&);
     void createOutgoingUnidirectionalStream(CompletionHandler<void(std::optional<WebCore::WebTransportStreamIdentifier>)>&&);
     void createBidirectionalStream(CompletionHandler<void(std::optional<WebCore::WebTransportStreamIdentifier>)>&&);
-    void getStats(CompletionHandler<void(WebCore::WebTransportConnectionStats&&)>&&);
+    void getStats(CompletionHandler<void(std::optional<WebCore::WebTransportConnectionStats>&&)>&&);
     void getSendStreamStats(WebCore::WebTransportStreamIdentifier, CompletionHandler<void(std::optional<WebCore::WebTransportSendStreamStats>&&)>&&);
     void getReceiveStreamStats(WebCore::WebTransportStreamIdentifier, CompletionHandler<void(std::optional<WebCore::WebTransportReceiveStreamStats>&&)>&&);
     void getSendGroupStats(WebCore::WebTransportSendGroupIdentifier, CompletionHandler<void(std::optional<WebCore::WebTransportSendStreamStats>&&)>&&);
@@ -88,10 +88,10 @@ public:
     void destroyBidirectionalStream(WebCore::WebTransportStreamIdentifier);
     void streamSendBytes(WebCore::WebTransportStreamIdentifier, std::span<const uint8_t>, bool withFin, CompletionHandler<void(std::optional<WebCore::Exception>&&)>&&);
     void terminate(WebCore::WebTransportSessionErrorCode, CString&&);
-    void datagramIncomingMaxAgeUpdated(std::optional<double>);
-    void datagramOutgoingMaxAgeUpdated(std::optional<double>);
-    void datagramIncomingHighWaterMarkUpdated(double);
-    void datagramOutgoingHighWaterMarkUpdated(double);
+    void NODELETE datagramIncomingMaxAgeUpdated(std::optional<double>);
+    void NODELETE datagramOutgoingMaxAgeUpdated(std::optional<double>);
+    void NODELETE incomingMaxBufferedDatagramsUpdated(uint32_t);
+    void NODELETE outgoingMaxBufferedDatagramsUpdated(uint32_t);
 
     void receiveDatagram(std::span<const uint8_t>, bool, std::optional<WebCore::Exception>&&);
     void streamReceiveBytes(WebCore::WebTransportStreamIdentifier, std::span<const uint8_t>, bool, std::optional<WebCore::Exception>&&);
@@ -105,7 +105,7 @@ public:
     void destroyStream(WebCore::WebTransportStreamIdentifier, std::optional<WebCore::WebTransportStreamErrorCode>);
 
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) final;
-    std::optional<SharedPreferencesForWebProcess> sharedPreferencesForWebProcess() const;
+    std::optional<SharedPreferencesForWebProcess> NODELETE sharedPreferencesForWebProcess() const;
     bool isSessionClosed() const;
 private:
 #if PLATFORM(COCOA)
@@ -121,12 +121,24 @@ private:
     void setupDatagramConnection(CompletionHandler<void(std::optional<WebCore::WebTransportConnectionInfo>&&)>&&);
     void receiveDatagramLoop();
     void createStream(NetworkTransportStreamType, CompletionHandler<void(std::optional<WebCore::WebTransportStreamIdentifier>)>&&);
+    void completeStatsRequestsAfterInitialization(std::optional<Seconds>);
 
     HashMap<WebCore::WebTransportStreamIdentifier, Ref<NetworkTransportStream>> m_streams;
     WeakPtr<NetworkConnectionToWebProcess> m_connectionToWebProcess;
     const WebTransportSessionIdentifier m_identifier;
     const WebCore::WebTransportOptions m_options;
-    HashMap<WebCore::WebTransportSendGroupIdentifier, uint64_t> m_datagramStats;
+    HashMap<WebCore::WebTransportSendGroupIdentifier, uint64_t> m_datagramBytesSent;
+    uint64_t m_datagramBytesReceived { 0 };
+
+    uint64_t m_bytesSentOnClosedStreams { 0 };
+    uint64_t m_bytesReceivedOnClosedStreams { 0 };
+    Seconds m_initializationTime;
+    enum class InitializationState : uint8_t {
+        Waiting,
+        Succeeded,
+        Failed
+    } m_initializationState { InitializationState::Waiting };
+    Vector<CompletionHandler<void(std::optional<WebCore::WebTransportConnectionStats>&&)>> m_statsRequestsBeforeInitialization;
 
 #if PLATFORM(COCOA)
     const RetainPtr<nw_connection_group_t> m_connectionGroup;

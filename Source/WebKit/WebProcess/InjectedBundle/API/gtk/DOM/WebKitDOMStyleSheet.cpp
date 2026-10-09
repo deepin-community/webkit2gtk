@@ -67,7 +67,7 @@ WebKitDOMStyleSheet* wrapStyleSheet(WebCore::StyleSheet* coreObject)
 
 } // namespace WebKit
 
-WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GTK
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GTK port
 G_DEFINE_TYPE(WebKitDOMStyleSheet, webkit_dom_style_sheet, WEBKIT_DOM_TYPE_OBJECT)
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 

@@ -22,7 +22,9 @@
 #include <WebCore/DocumentPage.h>
 #include <WebCore/FloatQuad.h>
 #include <WebCore/FrameDestructionObserverInlines.h>
+#include <WebCore/InspectorInstrumentationPublic.h>
 #include <WebCore/LocalFrameInlines.h>
+#include <WebCore/LocalFrameView.h>
 #include <WebCore/RenderElement.h>
 #include <WebCore/RenderIFrame.h>
 #include <WebCore/RenderObject.h>
@@ -30,38 +32,44 @@
 #include <WebCore/RenderObjectNode.h>
 #include <WebCore/RenderObjectStyle.h>
 #include <WebCore/RenderReplaced.h>
-#include <WebCore/RenderStyle+GettersInlines.h>
 #include <WebCore/RenderView.h>
+#include <WebCore/StyleComputedStyle+GettersInlines.h>
 #include <WebCore/VisibleRectContext.h>
 
 namespace WebCore {
 
-inline bool RenderObject::hasTransformOrPerspective() const { return hasTransformRelatedProperty() && (isTransformed() || style().hasPerspective()); }
-inline bool RenderObject::isAtomicInlineLevelBox() const { return style().isDisplayInlineType() && !(style().display() == DisplayType::Inline && !isBlockLevelReplacedOrAtomicInline()); }
-inline bool RenderObject::isTransformed() const { return hasTransformRelatedProperty() && (style().affectsTransform() || hasSVGTransform()); }
-inline LocalFrameViewLayoutContext& RenderObject::layoutContext() const { return view().frameView().layoutContext(); }
-inline TreeScope& RenderObject::treeScopeForSVGReferences() const { return Ref { m_node.get() }->treeScopeForSVGReferences(); }
+inline bool RenderObject::hasTransformOrPerspective() const
+{
+    return hasTransformRelatedProperty() && (isTransformed() || !style().perspective().isNone());
+}
 
-inline const RenderStyle& RenderObject::firstLineStyle() const
+inline bool RenderObject::isAtomicInlineLevelBox() const
+{
+    auto display = style().display();
+    return display.isInlineType()
+        && !(display == Style::DisplayType::InlineFlow && !isBlockLevelReplacedOrAtomicInline());
+}
+
+inline bool RenderObject::isTransformed() const
+{
+    return hasTransformRelatedProperty() && (style().affectsTransform() || hasSVGTransform());
+}
+
+inline LocalFrameViewLayoutContext& RenderObject::layoutContext() const
+{
+    return view().frameView().layoutContext();
+}
+
+inline TreeScope& RenderObject::treeScopeForSVGReferences() const
+{
+    return m_node->treeScopeForSVGReferences();
+}
+
+inline CheckedRef<const Style::ComputedStyle> RenderObject::firstLineStyle() const
 {
     if (isRenderText())
-        return checkedParent()->firstLineStyle();
+        return protect(parent())->firstLineStyle();
     return downcast<RenderElement>(*this).firstLineStyle();
-}
-
-inline Ref<TreeScope> RenderObject::protectedTreeScopeForSVGReferences() const
-{
-    return treeScopeForSVGReferences();
-}
-
-inline LocalFrame& RenderObject::frame() const
-{
-    return *document().frame();
-}
-
-inline Ref<LocalFrame> RenderObject::protectedFrame() const
-{
-    return frame();
 }
 
 inline Page& RenderObject::page() const
@@ -70,11 +78,6 @@ inline Page& RenderObject::page() const
     // so it's safe to assume Frame::page() is non-null as long as there are live RenderObjects.
     ASSERT(frame().page());
     return *frame().page();
-}
-
-inline Ref<Page> RenderObject::protectedPage() const
-{
-    return page();
 }
 
 inline FloatQuad RenderObject::localToAbsoluteQuad(const FloatQuad& quad, OptionSet<MapCoordinatesMode> mode, bool* wasFixed) const
@@ -87,17 +90,19 @@ inline void RenderObject::setNeedsLayout(MarkingBehavior markParents)
     ASSERT(!isSetNeedsLayoutForbidden());
     if (selfNeedsLayout())
         return;
+    if (InspectorInstrumentationPublic::hasFrontends()) [[unlikely]]
+        notifyInspectorOfLayoutInvalidate();
     m_stateBitfields.setFlag(StateFlag::NeedsLayout);
-    if (markParents == MarkContainingBlockChain)
+    if (markParents == MarkingBehavior::MarkContainingBlockChain)
         scheduleLayout(CheckedPtr { markContainingBlocksForLayout() });
     if (hasLayer())
         setLayerNeedsFullRepaint();
 }
 
-inline void RenderObject::setNeedsLayoutAndPreferredWidthsUpdate()
+inline void RenderObject::setNeedsLayoutAndInvalidateContentLogicalWidths()
 {
     setNeedsLayout();
-    setNeedsPreferredWidthsUpdate();
+    invalidateContentLogicalWidths();
 }
 
 inline bool RenderObject::isNonReplacedAtomicInlineLevelBox() const

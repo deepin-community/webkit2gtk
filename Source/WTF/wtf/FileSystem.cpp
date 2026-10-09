@@ -29,6 +29,7 @@
 
 #include <wtf/CryptographicallyRandomNumber.h>
 #include <wtf/FileHandle.h>
+#include <wtf/Function.h>
 #include <wtf/HexNumber.h>
 #include <wtf/Logging.h>
 #include <wtf/MappedFileData.h>
@@ -120,7 +121,7 @@ constexpr std::array<bool, 128> needsEscaping = {
     false, false, false, false, true,  false, false, true,  /* 78-7F */
 };
 
-static inline bool shouldEscapeChar16(char16_t character, char16_t previousCharacter, char16_t nextCharacter)
+static inline bool NODELETE shouldEscapeChar16(char16_t character, char16_t previousCharacter, char16_t nextCharacter)
 {
     if (character <= 127)
         return needsEscaping[character];
@@ -249,6 +250,12 @@ String lastComponentOfPathIgnoringTrailingSlash(const String& path)
     }
 
     return path.substring(position + 1, endOfSubstring - position);
+}
+
+void removeTrailingSlash(String& path)
+{
+    if (path.length() > 1 && path.endsWith(FileSystem::pathSeparator))
+        path = path.left(path.length() - 1);
 }
 
 bool filesHaveSameVolume(const String& fileA, const String& fileB)
@@ -452,14 +459,9 @@ void deleteAllFilesModifiedSince(const String& directory, WallTime time)
         return;
     }
 
-    auto children = listDirectory(directory);
-    for (auto& child : children) {
+    traverseDirectory(directory, [&](const String& child, FileType childType) {
         auto childPath = FileSystem::pathByAppendingComponent(directory, child);
-        auto childType = fileType(childPath);
-        if (!childType)
-            continue;
-
-        switch (*childType) {
+        switch (childType) {
         case FileType::Regular: {
             if (auto modificationTime = FileSystem::fileModificationTime(childPath); modificationTime && *modificationTime >= time)
                 deleteFile(childPath);
@@ -472,7 +474,7 @@ void deleteAllFilesModifiedSince(const String& directory, WallTime time)
         case FileType::SymbolicLink:
             break;
         }
-    }
+    });
 
     FileSystem::deleteEmptyDirectory(directory);
 }
@@ -553,7 +555,6 @@ std::optional<uint64_t> directorySize(const String& path)
     for (auto& entry : std::filesystem::recursive_directory_iterator(stdPath, ec)) {
         if (ec)
             return std::nullopt;
-        auto filePath = fromStdFileSystemPath(entry.path());
         if (entry.is_regular_file(ec) && !ec)
             size += entry.file_size(ec);
         if (ec)
@@ -714,10 +715,8 @@ bool isAncestor(const String& possibleAncestor, const String& possibleChild)
 {
     auto possibleChildLexicallyNormal = lexicallyNormal(possibleChild);
     auto possibleAncestorLexicallyNormal = lexicallyNormal(possibleAncestor);
-    if (possibleChildLexicallyNormal.endsWith(static_cast<char16_t>(std::filesystem::path::preferred_separator)))
-        possibleChildLexicallyNormal = possibleChildLexicallyNormal.left(possibleChildLexicallyNormal.length() - 1);
-    if (possibleAncestorLexicallyNormal.endsWith(static_cast<char16_t>(std::filesystem::path::preferred_separator)))
-        possibleAncestorLexicallyNormal = possibleAncestorLexicallyNormal.left(possibleAncestorLexicallyNormal.length() - 1);
+    removeTrailingSlash(possibleChildLexicallyNormal);
+    removeTrailingSlash(possibleAncestorLexicallyNormal);
     return possibleChildLexicallyNormal.startsWith(possibleAncestorLexicallyNormal)
         && possibleChildLexicallyNormal.length() > possibleAncestorLexicallyNormal.length()
         && possibleChildLexicallyNormal[possibleAncestorLexicallyNormal.length()] == static_cast<char16_t>(std::filesystem::path::preferred_separator);
@@ -760,6 +759,32 @@ Vector<String> listDirectory(const String& path)
             fileNames.append(WTF::move(fileName));
     }
     return fileNames;
+}
+
+void traverseDirectory(const String& path, NOESCAPE const Function<void(const String&, FileType)>& function)
+{
+    std::error_code ec;
+    auto entries = std::filesystem::directory_iterator(toStdFileSystemPath(path), ec);
+    for (auto it = std::filesystem::begin(entries), end = std::filesystem::end(entries); !ec && it != end; it.increment(ec)) {
+        auto fileName = fromStdFileSystemPath(it->path().filename());
+        if (fileName.isNull())
+            continue;
+        std::error_code statusEC;
+        auto status = it->symlink_status(statusEC);
+        if (statusEC)
+            continue;
+        switch (status.type()) {
+        case std::filesystem::file_type::directory:
+            function(fileName, FileType::Directory);
+            break;
+        case std::filesystem::file_type::symlink:
+            function(fileName, FileType::SymbolicLink);
+            break;
+        default:
+            function(fileName, FileType::Regular);
+            break;
+        }
+    }
 }
 #endif
 

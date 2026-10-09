@@ -30,6 +30,7 @@
 #include "LayoutIntegrationFormattingContextLayout.h"
 #include "LayoutState.h"
 #include "RenderObject.h"
+#include "RenderObjectInlines.h"
 
 namespace WebCore {
 namespace Layout {
@@ -46,13 +47,13 @@ void IntegrationUtils::layoutWithFormattingContextForBox(const ElementBox& box, 
 
 LayoutUnit IntegrationUtils::maxContentWidth(const ElementBox& box) const
 {
-    ASSERT(box.isFlexItem());
+    ASSERT(box.isFlexItem() || box.isGridItem());
     return m_globalLayoutState->logicalWidthWithFormattingContextForBox(box, LayoutIntegration::LogicalWidthType::MaxContent);
 }
 
 LayoutUnit IntegrationUtils::minContentWidth(const ElementBox& box) const
 {
-    ASSERT(box.isFlexItem());
+    ASSERT(box.isFlexItem() || box.isGridItem());
     return m_globalLayoutState->logicalWidthWithFormattingContextForBox(box, LayoutIntegration::LogicalWidthType::MinContent);
 }
 
@@ -62,17 +63,66 @@ LayoutUnit IntegrationUtils::minContentHeight(const ElementBox& box) const
     return m_globalLayoutState->logicalHeightWithFormattingContextForBox(box, LayoutIntegration::LogicalHeightType::MinContent);
 }
 
-LayoutUnit IntegrationUtils::preferredMinWidth(const ElementBox& box) const
+static LayoutUnit blockSizeForGridItem(const LayoutState& layoutState, const ElementBox& box, LayoutUnit inlineAxisConstraint, LayoutIntegration::LogicalHeightType logicalHeightType)
 {
     ASSERT(box.isGridItem());
-    return m_globalLayoutState->logicalWidthWithFormattingContextForBox(box, LayoutIntegration::LogicalWidthType::PreferredMinimum);
+    CheckedRef renderer = downcast<RenderBox>(*box.rendererForIntegration());
+
+    switch (logicalHeightType) {
+    case LayoutIntegration::LogicalHeightType::MinContent:
+    case LayoutIntegration::LogicalHeightType::MaxContent:
+    case LayoutIntegration::LogicalHeightType::MinContentContribution:
+    case LayoutIntegration::LogicalHeightType::MaxContentContribution: {
+        renderer->setGridAreaContentLogicalWidth(inlineAxisConstraint);
+        renderer->setNeedsLayout(MarkingBehavior::MarkOnlyThis);
+
+        layoutState.layoutWithFormattingContextForBox(box, { }, { });
+
+        renderer->clearGridAreaContentSize();
+
+        return layoutState.geometryForBox(box).borderBoxHeight();
+    }
+    }
+
+    ASSERT_NOT_REACHED();
+    return { };
+}
+
+LayoutUnit IntegrationUtils::minContentHeightForGridItem(const ElementBox& box, LayoutUnit inlineAxisConstraint) const
+{
+    ASSERT(box.isGridItem());
+    return blockSizeForGridItem(m_globalLayoutState, box, inlineAxisConstraint, LayoutIntegration::LogicalHeightType::MinContent);
+}
+
+LayoutUnit IntegrationUtils::maxContentHeightForGridItem(const ElementBox& box, LayoutUnit inlineAxisConstraint) const
+{
+    ASSERT(box.isGridItem());
+    return blockSizeForGridItem(m_globalLayoutState, box, inlineAxisConstraint, LayoutIntegration::LogicalHeightType::MaxContent);
+}
+
+LayoutUnit IntegrationUtils::minContentContributionHeightForGridItem(const ElementBox& box, LayoutUnit inlineAxisConstraint) const
+{
+    ASSERT(box.isGridItem());
+    return blockSizeForGridItem(m_globalLayoutState, box, inlineAxisConstraint, LayoutIntegration::LogicalHeightType::MinContentContribution);
+}
+
+LayoutUnit IntegrationUtils::maxContentContributionHeightForGridItem(const ElementBox& box, LayoutUnit inlineAxisConstraint) const
+{
+    ASSERT(box.isGridItem());
+    return blockSizeForGridItem(m_globalLayoutState, box, inlineAxisConstraint, LayoutIntegration::LogicalHeightType::MaxContentContribution);
+}
+
+LayoutUnit IntegrationUtils::minContentLogicalWidthContribution(const ElementBox& box) const
+{
+    ASSERT(box.isGridItem());
+    return m_globalLayoutState->logicalWidthWithFormattingContextForBox(box, LayoutIntegration::LogicalWidthType::MinContentContribution);
 }
 
 
-LayoutUnit IntegrationUtils::preferredMaxWidth(const ElementBox& box) const
+LayoutUnit IntegrationUtils::maxContentLogicalWidthContribution(const ElementBox& box) const
 {
     ASSERT(box.isGridItem());
-    return m_globalLayoutState->logicalWidthWithFormattingContextForBox(box, LayoutIntegration::LogicalWidthType::PreferredMaximum);
+    return m_globalLayoutState->logicalWidthWithFormattingContextForBox(box, LayoutIntegration::LogicalWidthType::MaxContentContribution);
 }
 
 void IntegrationUtils::layoutWithFormattingContextForBlockInInline(const ElementBox& block, LayoutPoint blockLineLogicalTopLeft, const InlineLayoutState& inlineLayoutState) const
@@ -81,9 +131,9 @@ void IntegrationUtils::layoutWithFormattingContextForBlockInInline(const Element
     m_globalLayoutState->layoutWithFormattingContextForBlockInInline(block, blockLineLogicalTopLeft, inlineLayoutState);
 }
 
-Layout::BlockLayoutState::MarginState IntegrationUtils::toMarginState(const RenderBlockFlow::MarginInfo& marginInfo, LayoutUnit contentOffsetAfterSelfCollapsingBlock)
+Layout::BlockLayoutState::MarginState IntegrationUtils::toMarginState(const RenderBlockFlow::MarginInfo& marginInfo)
 {
-    return { marginInfo.canCollapseWithChildren(), marginInfo.canCollapseMarginBeforeWithChildren(), marginInfo.canCollapseMarginAfterWithChildren(), marginInfo.quirkContainer(), marginInfo.atBeforeSideOfBlock(), marginInfo.atAfterSideOfBlock(), marginInfo.hasMarginBeforeQuirk(), marginInfo.hasMarginAfterQuirk(), marginInfo.determinedMarginBeforeQuirk(), marginInfo.positiveMargin(), marginInfo.negativeMargin(), contentOffsetAfterSelfCollapsingBlock };
+    return { marginInfo.canCollapseWithChildren(), marginInfo.canCollapseMarginBeforeWithChildren(), marginInfo.canCollapseMarginAfterWithChildren(), marginInfo.quirkContainer(), marginInfo.atBeforeSideOfBlock(), marginInfo.atAfterSideOfBlock(), marginInfo.hasMarginBeforeQuirk(), marginInfo.hasMarginAfterQuirk(), marginInfo.determinedMarginBeforeQuirk(), marginInfo.positiveMargin(), marginInfo.negativeMargin() };
 }
 
 RenderBlockFlow::MarginInfo IntegrationUtils::toMarginInfo(const Layout::BlockLayoutState::MarginState& marginState)

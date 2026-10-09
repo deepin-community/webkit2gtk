@@ -24,11 +24,12 @@
 #include "ContainerNodeInlines.h"
 #include "NodeName.h"
 #include "RenderElement.h"
-#include "RenderStyle+GettersInlines.h"
 #include "SVGFilterRenderer.h"
 #include "SVGNames.h"
 #include "SVGParserUtilities.h"
 #include "SVGPropertyOwnerRegistry.h"
+#include "StyleComputedStyle+GettersInlines.h"
+#include "StylePrimitiveNumericTypes+Evaluation.h"
 #include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
@@ -57,8 +58,8 @@ Ref<SVGFEDropShadowElement> SVGFEDropShadowElement::create(const QualifiedName& 
 
 void SVGFEDropShadowElement::setStdDeviation(float x, float y)
 {
-    Ref { m_stdDeviationX }->setBaseValInternal(x);
-    Ref { m_stdDeviationY }->setBaseValInternal(y);
+    m_stdDeviationX->setBaseValInternal(x);
+    m_stdDeviationY->setBaseValInternal(y);
     updateSVGRendererForElementChange();
 }
 
@@ -67,18 +68,18 @@ void SVGFEDropShadowElement::attributeChanged(const QualifiedName& name, const A
     switch (name.nodeName()) {
     case AttributeNames::stdDeviationAttr:
         if (auto result = parseNumberOptionalNumber(newValue)) {
-            Ref { m_stdDeviationX }->setBaseValInternal(result->first);
-            Ref { m_stdDeviationY }->setBaseValInternal(result->second);
+            m_stdDeviationX->setBaseValInternal(result->first);
+            m_stdDeviationY->setBaseValInternal(result->second);
         }
         break;
     case AttributeNames::inAttr:
         Ref { m_in1 }->setBaseValInternal(newValue);
         break;
     case AttributeNames::dxAttr:
-        Ref { m_dx }->setBaseValInternal(newValue.toFloat());
+        m_dx->setBaseValInternal(newValue.toFloat());
         break;
     case AttributeNames::dyAttr:
-        Ref { m_dy }->setBaseValInternal(newValue.toFloat());
+        m_dy->setBaseValInternal(newValue.toFloat());
         break;
     default:
         break;
@@ -126,9 +127,9 @@ bool SVGFEDropShadowElement::setFilterEffectAttribute(FilterEffect& filterEffect
     case AttributeNames::dyAttr:
         return effect.setDy(dy());
     case AttributeNames::flood_colorAttr:
-        return effect.setShadowColor(renderer()->checkedStyle()->floodColorResolvingCurrentColor());
+        return effect.setShadowColor(protect(renderer()->style())->floodColorResolvingCurrentColor());
     case AttributeNames::flood_opacityAttr:
-        return effect.setShadowOpacity(renderer()->checkedStyle()->floodOpacity().value.value);
+        return effect.setShadowOpacity(Style::evaluate<float>(renderer()->style().floodOpacity()));
     default:
         break;
     }
@@ -139,6 +140,15 @@ bool SVGFEDropShadowElement::setFilterEffectAttribute(FilterEffect& filterEffect
 bool SVGFEDropShadowElement::isIdentity() const
 {
     return !stdDeviationX() && !stdDeviationY() && !dx() && !dy();
+}
+
+bool SVGFEDropShadowElement::taintsOrigin() const
+{
+    // §16.3: tainted when flood-color depends on currentColor.
+    CheckedPtr renderer = this->renderer();
+    if (!renderer)
+        return false;
+    return renderer->style().floodColor().containsCurrentColor();
 }
 
 IntOutsets SVGFEDropShadowElement::outsets(const FloatRect& targetBoundingBox, SVGUnitTypes::SVGUnitType primitiveUnits) const
@@ -158,7 +168,7 @@ RefPtr<FilterEffect> SVGFEDropShadowElement::createFilterEffect(const FilterEffe
         return nullptr;
 
     CheckedRef style = renderer->style();
-    return FEDropShadow::create(stdDeviationX(), stdDeviationY(), dx(), dy(), style->floodColorResolvingCurrentColorApplyingColorFilter(), style->floodOpacity().value.value);
+    return FEDropShadow::create(stdDeviationX(), stdDeviationY(), dx(), dy(), style->floodColorResolvingCurrentColorApplyingColorFilter(), Style::evaluate<float>(style->floodOpacity()));
 }
 
 } // namespace WebCore

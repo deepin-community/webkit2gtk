@@ -38,10 +38,10 @@
 #include "GraphicsContextSwitcher.h"
 #include "LegacyRenderSVGResourceFilter.h"
 #include "Logging.h"
-#include "ReferenceFilterOperation.h"
 #include "RenderObjectInlines.h"
 #include "RenderSVGShape.h"
-#include "RenderStyle+GettersInlines.h"
+#include "SVGTransformComputation.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include <wtf/NeverDestroyed.h>
 #include <wtf/TZoneMallocInlines.h>
 
@@ -88,7 +88,7 @@ void RenderLayerFilters::notifyFinished(CachedResource&, const NetworkLoadMetric
 
     // FIXME: This really shouldn't have to invalidate layer composition,
     // but tests like css3/filters/effect-reference-delete.html fail if that doesn't happen.
-    if (auto* enclosingElement = layer->enclosingElement())
+    if (RefPtr enclosingElement = layer->enclosingElement())
         enclosingElement->invalidateStyleAndLayerComposition();
     layer->renderer().repaint();
 }
@@ -98,30 +98,30 @@ void RenderLayerFilters::updateReferenceFilterClients(const Style::Filter& filte
     removeReferenceFilterClients();
 
     for (auto& value : filter) {
-        Ref operation = value.value;
-        RefPtr referenceOperation = dynamicDowncast<Style::ReferenceFilterOperation>(operation);
-        if (!referenceOperation)
-            continue;
-
-        auto* documentReference = referenceOperation->cachedSVGDocumentReference();
-        if (auto* cachedSVGDocument = documentReference ? documentReference->document() : nullptr) {
-            // Reference is external; wait for notifyFinished().
-            cachedSVGDocument->addClient(*this);
-            m_externalSVGReferences.append(cachedSVGDocument);
-        } else {
-            // Reference is internal; add layer as a client so we can trigger filter repaint on SVG attribute change.
-            CheckedPtr layer = m_layer.get();
-            if (!layer)
-                continue;
-            RefPtr filterElement = layer->renderer().document().getElementById(referenceOperation->fragment());
-            if (!filterElement)
-                continue;
-            CheckedPtr renderer = dynamicDowncast<LegacyRenderSVGResourceFilter>(filterElement->renderer());
-            if (!renderer)
-                continue;
-            renderer->addClientRenderLayer(*layer);
-            m_internalSVGReferences.append(filterElement.releaseNonNull());
-        }
+        WTF::switchOn(value,
+            [&](const Style::FilterReference& filterReference) {
+                RefPtr documentReference = filterReference.cachedSVGDocumentReference;
+                if (RefPtr cachedSVGDocument = documentReference ? documentReference->document() : nullptr) {
+                    // Reference is external; wait for notifyFinished().
+                    cachedSVGDocument->addClient(*this);
+                    m_externalSVGReferences.append(cachedSVGDocument.releaseNonNull());
+                } else {
+                    // Reference is internal; add layer as a client so we can trigger filter repaint on SVG attribute change.
+                    CheckedPtr layer = m_layer.get();
+                    if (!layer)
+                        return;
+                    RefPtr filterElement = layer->renderer().document().getElementById(filterReference.cachedFragment);
+                    if (!filterElement)
+                        return;
+                    CheckedPtr renderer = dynamicDowncast<LegacyRenderSVGResourceFilter>(filterElement->renderer());
+                    if (!renderer)
+                        return;
+                    renderer->addClientRenderLayer(*layer);
+                    m_internalSVGReferences.append(filterElement.releaseNonNull());
+                }
+            },
+            []<CSSValueID C, typename T>(const FunctionNotation<C, T>&) { }
+        );
     }
 }
 
@@ -141,12 +141,6 @@ void RenderLayerFilters::removeReferenceFilterClients()
     m_internalSVGReferences.clear();
 }
 
-bool RenderLayerFilters::isIdentity(RenderElement& renderer)
-{
-    const auto& filter = renderer.style().filter();
-    return CSSFilterRenderer::isIdentity(renderer, filter);
-}
-
 IntOutsets RenderLayerFilters::calculateOutsets(RenderElement& renderer, const FloatRect& targetBoundingBox)
 {
     const auto& filter = renderer.style().filter();
@@ -157,7 +151,7 @@ IntOutsets RenderLayerFilters::calculateOutsets(RenderElement& renderer, const F
     return CSSFilterRenderer::calculateOutsets(renderer, filter, targetBoundingBox);
 }
 
-GraphicsContext* RenderLayerFilters::beginFilterEffect(RenderElement& renderer, GraphicsContext& context, const LayoutRect& filterBoxRect, const LayoutRect& dirtyRect, const LayoutRect& layerRepaintRect, const LayoutRect& clipRect, NOESCAPE const Function<void(GraphicsContext&)>& applyAdditionalDestinationClip)
+GraphicsContext* RenderLayerFilters::beginFilterEffect(RenderElement& renderer, GraphicsContext& context, OptionSet<PaintBehavior> paintBehavior, const LayoutRect& filterBoxRect, const LayoutRect& dirtyRect, const LayoutRect& layerRepaintRect, const LayoutRect& clipRect, NOESCAPE const Function<void(GraphicsContext&)>& applyAdditionalDestinationClip)
 {
     auto preferredFilterRenderingModes = renderer.page().preferredFilterRenderingModes(context);
     auto outsets = calculateOutsets(renderer, filterBoxRect);
@@ -177,6 +171,9 @@ GraphicsContext* RenderLayerFilters::beginFilterEffect(RenderElement& renderer, 
         }
 
         dirtyFilterRegion = intersection(filterBoxRect, dirtyFilterRegion);
+        // Nothing to filter when the target doesn't overlap the dirty rect.
+        if (dirtyFilterRegion.isEmpty())
+            return nullptr;
         filterRegion = dirtyFilterRegion;
 
         if (!outsets.isZero())
@@ -190,16 +187,26 @@ GraphicsContext* RenderLayerFilters::beginFilterEffect(RenderElement& renderer, 
         return existingGeometry.referenceBox != newGeometry.referenceBox || existingGeometry.scale != newGeometry.scale;
     };
 
+    auto filterScale = m_filterScale;
+    if (renderer.isSVGLayerAwareRenderer())
+        filterScale = m_filterScale * SVGTransformComputation(downcast<RenderLayerModelObject>(renderer)).calculateAccumulatedSVGAncestorTransformScale();
+
     auto geometry = FilterGeometry {
         .referenceBox = filterBoxRect,
         .filterRegion = filterRegion,
-        .scale = m_filterScale,
+        .scale = filterScale,
     };
 
     bool hasUpdatedBackingStore = false;
     if (!m_filter || geometryReferenceGeometryChanged(m_filter->geometry(), geometry) || m_preferredFilterRenderingModes != preferredFilterRenderingModes) {
+        OptionSet<FilterRenderingOption> renderingOptions;
+        if (renderer.settings().showDebugBorders())
+            renderingOptions.add(FilterRenderingOption::ShowDebugOverlay);
+        if (paintBehavior.contains(PaintBehavior::FastAndLowQualityFilters))
+            renderingOptions.add(FilterRenderingOption::FastAndLowQuality);
+
         // FIXME: This rebuilds the entire effects chain even if the filter style didn't change.
-        m_filter = CSSFilterRenderer::create(renderer, renderer.style().filter(), geometry, preferredFilterRenderingModes, renderer.settings().showDebugBorders(), context);
+        m_filter = CSSFilterRenderer::create(renderer, renderer.style().filter(), geometry, preferredFilterRenderingModes, renderingOptions, context);
         hasUpdatedBackingStore = true;
     } else if (filterRegion != m_filter->filterRegion()) {
         m_filter->setFilterRegion(filterRegion);
@@ -230,7 +237,16 @@ GraphicsContext* RenderLayerFilters::beginFilterEffect(RenderElement& renderer, 
             sourceImageRect = renderer.objectBoundingBox();
         else
             sourceImageRect = dirtyFilterRegion;
-        m_targetSwitcher = GraphicsContextSwitcher::create(context, sourceImageRect, DestinationColorSpace::SRGB(), { WTF::move(filter) });
+
+        // SVG spec: color-interpolation-filters defaults to linearRGB, so SVG filter
+        // operations should happen in linear color space. Match legacy SVG filter behavior.
+        auto colorSpace = DestinationColorSpace::SRGB();
+#if !USE(CAIRO)
+        if (renderer.isSVGLayerAwareRenderer())
+            colorSpace = DestinationColorSpace::LinearSRGB();
+#endif
+
+        m_targetSwitcher = GraphicsContextSwitcher::create(context, sourceImageRect, colorSpace, { WTF::move(filter) });
     }
 
     if (!m_targetSwitcher)
@@ -246,7 +262,16 @@ void RenderLayerFilters::applyFilterEffect(GraphicsContext& destinationContext)
     LOG_WITH_STREAM(Filters, stream << "\nRenderLayerFilters " << this << " applyFilterEffect");
 
     ASSERT(m_targetSwitcher);
-    m_targetSwitcher->endClipAndDrawSourceImage(destinationContext, DestinationColorSpace::SRGB());
+
+    auto colorSpace = DestinationColorSpace::SRGB();
+#if !USE(CAIRO)
+    if (CheckedPtr layer = m_layer.get()) {
+        if (layer->renderer().isSVGLayerAwareRenderer())
+            colorSpace = DestinationColorSpace::LinearSRGB();
+    }
+#endif
+
+    m_targetSwitcher->endClipAndDrawSourceImage(destinationContext, colorSpace);
 
     LOG_WITH_STREAM(Filters, stream << "RenderLayerFilters " << this << " applyFilterEffect done\n");
 }

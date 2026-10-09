@@ -27,7 +27,6 @@
 #include "PageOverlay.h"
 
 #include "GraphicsContext.h"
-#include "GraphicsLayer.h"
 #include "LocalFrame.h"
 #include "LocalFrameView.h"
 #include "Logging.h"
@@ -44,7 +43,7 @@ static const double fadeAnimationFrameRate = 30;
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(PageOverlay);
 
-static PageOverlay::PageOverlayID generatePageOverlayID()
+static PageOverlay::PageOverlayID NODELETE generatePageOverlayID()
 {
     static PageOverlay::PageOverlayID pageOverlayID;
     return ++pageOverlayID;
@@ -85,7 +84,7 @@ IntRect PageOverlay::bounds() const
     if (!m_overrideFrame.isEmpty())
         return { { }, m_overrideFrame.size() };
 
-    RefPtr frameView = m_page->protectedMainFrame()->virtualView();
+    RefPtr frameView = protect(m_page->mainFrame())->virtualView();
     if (!frameView)
         return IntRect();
 
@@ -136,7 +135,7 @@ IntSize PageOverlay::viewToOverlayOffset() const
         return IntSize();
 
     case OverlayType::Document: {
-        RefPtr frameView = m_page->protectedMainFrame()->virtualView();
+        RefPtr frameView = protect(m_page->mainFrame())->virtualView();
         return frameView ? toIntSize(frameView->viewToContents(IntPoint())) : IntSize();
     }
     }
@@ -187,7 +186,7 @@ void PageOverlay::drawRect(GraphicsContext& graphicsContext, const IntRect& dirt
     GraphicsContextStateSaver stateSaver(graphicsContext);
 
     if (m_overlayType == PageOverlay::OverlayType::Document) {
-        if (RefPtr frameView = m_page->protectedMainFrame()->virtualView()) {
+        if (RefPtr frameView = protect(m_page->mainFrame())->virtualView()) {
             auto offset = frameView->scrollOrigin();
             graphicsContext.translate(toFloatSize(offset));
             paintRect.moveBy(-offset);
@@ -202,7 +201,7 @@ bool PageOverlay::mouseEvent(const PlatformMouseEvent& mouseEvent)
     IntPoint mousePositionInOverlayCoordinates(flooredIntPoint(mouseEvent.position()));
 
     if (m_overlayType == PageOverlay::OverlayType::Document)
-        mousePositionInOverlayCoordinates = m_page->protectedMainFrame()->protectedVirtualView()->windowToContents(mousePositionInOverlayCoordinates);
+        mousePositionInOverlayCoordinates = protect(protect(m_page->mainFrame())->virtualView())->windowToContents(mousePositionInOverlayCoordinates);
     mousePositionInOverlayCoordinates.moveBy(-frame().location());
 
     // Ignore events outside the bounds.
@@ -308,11 +307,6 @@ void PageOverlay::clear()
 GraphicsLayer& PageOverlay::layer() const
 {
     return controller()->layerForOverlay(*this);
-}
-
-Ref<GraphicsLayer> PageOverlay::protectedLayer() const
-{
-    return layer();
 }
 
 } // namespace WebKit

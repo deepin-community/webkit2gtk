@@ -26,22 +26,18 @@
 #pragma once
 
 #include <JavaScriptCore/MemoryMode.h>
-#include <JavaScriptCore/Options.h>
 #include <JavaScriptCore/PageCount.h>
 
 #include <atomic>
-#include <set>
 
 #include <wtf/CagedPtr.h>
-#include <wtf/Expected.h>
-#include <wtf/Function.h>
+#include <wtf/Lock.h>
 #include <wtf/RAMSize.h>
-#include <wtf/RefCounted.h>
-#include <wtf/RefPtr.h>
 #include <wtf/StdSet.h>
 #include <wtf/TZoneMalloc.h>
+#include <wtf/ThreadSafeRefCounted.h>
+#include <wtf/ThreadSafeWeakHashSet.h>
 #include <wtf/Vector.h>
-#include <wtf/WeakPtr.h>
 
 namespace WTF {
 class PrintStream;
@@ -120,10 +116,10 @@ public:
     static BufferMemoryManager& singleton();
 
 private:
-    BufferMemoryManager() = default;
+    BufferMemoryManager();
 
     Lock m_lock;
-    unsigned m_maxFastMemoryCount { Options::maxNumWasmFastMemories() };
+    unsigned m_maxFastMemoryCount;
     Vector<void*> m_fastMemories;
     StdSet<std::pair<uintptr_t, size_t>> m_growableBoundsCheckingMemories;
     size_t m_physicalBytes { 0 };
@@ -137,7 +133,7 @@ public:
     BufferMemoryHandle(void*, size_t size, size_t mappedCapacity, PageCount initial, PageCount maximum, MemorySharingMode, MemoryMode);
     JS_EXPORT_PRIVATE ~BufferMemoryHandle();
 
-    void* memory() const;
+    JS_EXPORT_PRIVATE void* memory() const;
     size_t size(std::memory_order order = std::memory_order_seq_cst) const
     {
         if (m_sharingMode == MemorySharingMode::Default)
@@ -153,20 +149,20 @@ public:
     MemorySharingMode sharingMode() const { return m_sharingMode; }
     MemoryMode mode() const { return m_mode; }
     static constexpr ptrdiff_t offsetOfSize() { return OBJECT_OFFSETOF(BufferMemoryHandle, m_size); }
-    Lock& lock() { return m_lock; }
+    Lock& lock() LIFETIME_BOUND { return m_lock; }
 
     void updateSize(size_t size, std::memory_order order = std::memory_order_seq_cst)
     {
         m_size.store(size, order);
     }
 
-    static size_t fastMappedRedzoneBytes();
-    static size_t fastMappedBytes();
+    static size_t NODELETE fastMappedRedzoneBytes();
+    static size_t NODELETE fastMappedBytes();
 
     static void* nullBasePointer();
 
 #if ENABLE(WEBASSEMBLY)
-    const ThreadSafeWeakHashSet<Wasm::InstanceAnchor>& anchors(const AbstractLocker&) const { return m_anchors; }
+    const ThreadSafeWeakHashSet<Wasm::InstanceAnchor>& anchors(const AbstractLocker&) const LIFETIME_BOUND { return m_anchors; }
     void transferAnchors(BufferMemoryHandle& newHandle);
     void registerInstance(JSWebAssemblyInstance&);
 #endif

@@ -32,8 +32,15 @@
 #include "WebExtensionAPIRuntime.h"
 #include "WebFrame.h"
 #include "WebPage.h"
+#include <JavaScriptCore/APICast.h>
+#include <JavaScriptCore/JSCJSValuePropertyInlines.h>
+#include <JavaScriptCore/JSCellInlines.h>
+#include <JavaScriptCore/JSClassRef.h>
+#include <JavaScriptCore/JSLock.h>
 #include <JavaScriptCore/JSObjectRef.h>
 #include <JavaScriptCore/JSWeakObjectMapRefPrivate.h>
+#include <WebCore/JSDOMExceptionHandling.h>
+#include <WebCore/JSDOMGlobalObject.h>
 
 namespace WebKit {
 
@@ -104,9 +111,25 @@ template<size_t ArgumentCount>
 JSValueRef callWithArguments(JSObjectRef callbackFunction, JSRetainPtr<JSGlobalContextRef>& globalContext, std::array<JSValueRef, ArgumentCount>&& arguments)
 {
     if (!globalContext || !callbackFunction)
-        return nil;
-    return JSObjectCallAsFunction(globalContext.get(), callbackFunction, nullptr, ArgumentCount, arguments.data(), nullptr);
+        return nullptr;
+
+    auto* globalObject = toJS(globalContext.get());
+    RefPtr context = globalObject ? downcast<WebCore::JSDOMGlobalObject>(globalObject)->scriptExecutionContext() : nullptr;
+    if (!context || context->activeDOMObjectsAreStopped())
+        return nullptr;
+
+    JSValueRef exception = nullptr;
+    JSValueRef result = JSObjectCallAsFunction(globalContext.get(), callbackFunction, nullptr, ArgumentCount, arguments.data(), &exception);
+    if (exception) {
+        JSC::JSLockHolder lock(globalObject->vm());
+        auto exceptionValue = toJS(globalObject, exception);
+        RELEASE_LOG_ERROR(Extensions, "Uncaught exception in extension callback: %" PUBLIC_LOG_STRING, exceptionValue.toWTFString(globalObject).utf8().data());
+        WebCore::reportException(globalObject, exceptionValue);
+    }
+
+    return result;
 }
+
 
 void WebExtensionCallbackHandler::reportError(const String& message)
 {
@@ -297,11 +320,16 @@ static JSValueRef fromJSONArray(JSContextRef context, const JSON::Array& array)
     if (!array)
         return JSValueMakeUndefined(context);
 
-    Vector<JSValueRef> retArray;
+    auto globalContext = JSContextGetGlobalContext(context);
+    Vector<Protected<JSValueRef>> retArray;
     for (Ref value : array)
-        retArray.append(fromJSON(context, value.get()));
+        retArray.append(Protected(globalContext, fromJSON(context, value.get())));
 
-    return JSObjectMakeArray(context, retArray.size(), retArray.span().data(), nullptr);
+    auto rawValues = retArray.map([](const Protected<JSValueRef>& ptr) {
+        return ptr.get();
+    });
+
+    return JSObjectMakeArray(context, rawValues.size(), rawValues.span().data(), nullptr);
 }
 
 static JSValueRef fromJSONObject(JSContextRef context, const JSON::Object& object)
@@ -353,12 +381,16 @@ JSValueRef fromJSON(JSContextRef context, RefPtr<JSON::Value> value)
     return JSValueMakeUndefined(context);
 }
 
-JSValueRef fromArray(JSContextRef context, Vector<JSValueRef>&& array)
+JSValueRef fromArray(JSContextRef context, Vector<Protected<JSValueRef>>&& array)
 {
     if (!context)
         return nullptr;
 
-    return JSObjectMakeArray(context, array.size(), array.span().data(), nullptr);
+    auto rawValues = array.map([](const Protected<JSValueRef>& ptr) {
+        return ptr.get();
+    });
+
+    return JSObjectMakeArray(context, rawValues.size(), rawValues.span().data(), nullptr);
 }
 
 JSValueRef fromArray(JSContextRef context, Vector<size_t>&& array)
@@ -367,7 +399,8 @@ JSValueRef fromArray(JSContextRef context, Vector<size_t>&& array)
         return nullptr;
 
     return fromArray(context, array.map([&context](auto num) {
-        return JSValueMakeNumber(context, num);
+        auto globalContext = JSContextGetGlobalContext(context);
+        return Protected(globalContext, JSValueMakeNumber(context, num));
     }));
 }
 
@@ -377,11 +410,12 @@ JSValueRef fromArray(JSContextRef context, Vector<String>&& array)
         return nullptr;
 
     return fromArray(context, array.map([&context](auto str) {
-        return JSValueMakeString(context, toJSString(str).get());
+        auto globalContext = JSContextGetGlobalContext(context);
+        return Protected(globalContext, JSValueMakeString(context, toJSString(str).get()));
     }));
 }
 
-JSValueRef fromObject(JSContextRef context, HashMap<String, JSValueRef>&& object)
+JSValueRef fromObject(JSContextRef context, HashMap<String, Protected<JSValueRef>>&& object)
 {
     if (!context)
         return nullptr;
@@ -391,13 +425,13 @@ JSValueRef fromObject(JSContextRef context, HashMap<String, JSValueRef>&& object
     for (auto& key : object.keys()) {
         JSRetainPtr jsKey = toJSString(key);
         // This is a safer cpp false positive (rdar://163760990).
-        SUPPRESS_UNCOUNTED_ARG JSObjectSetProperty(context, result, jsKey.get(), object.get(key), 0, nullptr);
+        SUPPRESS_UNCOUNTED_ARG JSObjectSetProperty(context, result, jsKey.get(), object.get(key).get(), 0, nullptr);
     }
 
     return result;
 }
 
-static HashMap<JSGlobalContextRef, JSWeakObjectMapRef>& wrapperCache()
+static HashMap<JSGlobalContextRef, JSWeakObjectMapRef>& NODELETE wrapperCache()
 {
     static NeverDestroyed<HashMap<JSGlobalContextRef, JSWeakObjectMapRef>> wrappers;
     return wrappers;
@@ -569,6 +603,32 @@ bool isThenable(JSContextRef context, JSValueRef value)
     SUPPRESS_UNCOUNTED_ARG JSValueRef thenableObject = JSObjectGetProperty(context, valueObject, thenableString.get(), nullptr);
 
     return isFunction(context, thenableObject);
+}
+
+template<>
+Vector<Protected<JSValueRef>> toVector<Protected<JSValueRef>>(JSContextRef context, JSValueRef value)
+{
+    ASSERT(context);
+
+    if (!value)
+        return { };
+
+    if (!JSValueIsArray(context, value))
+        return { };
+
+    JSObjectRef object = JSValueToObject(context, value, nullptr);
+    // This is a safer cpp false positive (rdar://163760990).
+    SUPPRESS_UNCOUNTED_ARG int32_t length = JSValueToInt32(context, JSObjectGetProperty(context, object, toJSString("length"_s).get(), nullptr), nullptr);
+    Vector<Protected<JSValueRef>> result;
+
+    if (length >= 0) {
+        for (size_t i = 0; i < static_cast<size_t>(length); ++i) {
+            JSValueRef itemValue = JSObjectGetPropertyAtIndex(context, object, i, nullptr);
+            result.append(Protected(JSContextGetGlobalContext(context), itemValue));
+        }
+    }
+
+    return result;
 }
 
 } // namespace WebKit

@@ -62,7 +62,7 @@ SPDX-License-Identifier: BSD, LGPL-2.1
         <h3><a href="index.html">WebKit</a></h3>
         <p>API Version: 6.0</p>
         
-        <p>Library Version: 2.52.5</p>
+        <p>Library Version: 2.54.0</p>
         
       </div>
       
@@ -170,9 +170,9 @@ using webkit_web_context_register_uri_scheme(), you have to provide
 a <code>WebKitURISchemeRequestCallback</code>. After that, when a <span class="caps">URI</span> response
 is made with that particular scheme, your callback will be
 called. There you will be able to provide more response parameters
-when the methods and properties of a <code>WebKitURISchemeRequest</code> is not&nbsp;enough.</p>
+when the methods and properties of a <code>WebKitURISchemeRequest</code> are not&nbsp;enough.</p>
 <p>When you finished setting up your <code>WebKitURISchemeResponse</code>, call
-<code>webkit_uri_request_finish_with_response()</code> with it to return the&nbsp;response.</p>
+<code>webkit_uri_scheme_request_finish_with_response()</code> with it to return the&nbsp;response.</p>
         </div>
 
         <div class="docblock">

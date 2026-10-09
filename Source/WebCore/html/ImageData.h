@@ -29,12 +29,11 @@
 #pragma once
 
 #include <JavaScriptCore/Forward.h>
-#include <WebCore/ByteArrayPixelBuffer.h>
-#include <WebCore/Float16ArrayPixelBuffer.h>
 #include <WebCore/ImageDataArray.h>
 #include <WebCore/ImageDataSettings.h>
 #include <WebCore/IntSize.h>
 #include <WebCore/PredefinedColorSpace.h>
+#include <WebCore/TypedArrayPixelBuffer.h>
 #include <wtf/Forward.h>
 
 namespace WebCore {
@@ -58,17 +57,17 @@ public:
 
     WEBCORE_EXPORT ~ImageData();
 
-    static PredefinedColorSpace computeColorSpace(std::optional<ImageDataSettings>, PredefinedColorSpace defaultColorSpace = PredefinedColorSpace::SRGB);
+    static PredefinedColorSpace NODELETE computeColorSpace(std::optional<ImageDataSettings>, PredefinedColorSpace defaultColorSpace = PredefinedColorSpace::SRGB);
 
-    const IntSize& size() const { return m_size; }
+    const IntSize& size() const LIFETIME_BOUND { return m_size; }
 
     int width() const { return m_size.width(); }
     int height() const { return m_size.height(); }
-    const ImageDataArray& data() const { return m_data; }
+    const ImageDataArray& data() const LIFETIME_BOUND { return m_data; }
     PredefinedColorSpace colorSpace() const { return m_colorSpace; }
     ImageDataPixelFormat pixelFormat() const { return m_data.pixelFormat(); }
 
-    Ref<ByteArrayPixelBuffer> byteArrayPixelBuffer() const;
+    WEBCORE_EXPORT Ref<ByteArrayPixelBuffer> byteArrayPixelBuffer() const;
 #if ENABLE(PIXEL_FORMAT_RGBA16F)
     Ref<Float16ArrayPixelBuffer> float16ArrayPixelBuffer() const;
 #endif

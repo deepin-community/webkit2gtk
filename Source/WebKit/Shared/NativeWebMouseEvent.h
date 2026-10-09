@@ -67,7 +67,7 @@ namespace WebKit {
 class NativeWebMouseEvent : public WebMouseEvent {
 public:
 #if USE(APPKIT)
-    NativeWebMouseEvent(NSEvent *, NSEvent *lastPressureEvent, NSView *);
+    NativeWebMouseEvent(NSEvent *, NSEvent *lastPressureEvent, NSView *, WebEventInputSource, WebCore::PlatformMouseEvent::CanInitiateDrag = WebCore::PlatformMouseEvent::CanInitiateDrag::Yes);
 #elif PLATFORM(GTK)
     NativeWebMouseEvent(const NativeWebMouseEvent&);
     NativeWebMouseEvent(GdkEvent*, int, std::optional<WebCore::FloatSize>);
@@ -98,7 +98,7 @@ public:
 #elif PLATFORM(IOS_FAMILY)
     ::WebEvent* nativeEvent() const { return m_nativeEvent.get(); }
 #elif PLATFORM(WIN)
-    const MSG* nativeEvent() const { return &m_nativeEvent; }
+    const MSG* nativeEvent() const LIFETIME_BOUND { return &m_nativeEvent; }
 #else
     const void* nativeEvent() const { return nullptr; }
 #endif

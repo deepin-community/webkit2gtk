@@ -32,7 +32,7 @@
 #include "ICStatusMap.h"
 #include "Instruction.h"
 #include "InstructionStream.h"
-#include "StructureStubInfo.h"
+#include "PropertyInlineCache.h"
 #include "WasmOps.h"
 
 namespace JSC {
@@ -125,7 +125,7 @@ public:
 private:
     using BytecodeDumper<Block>::BytecodeDumper;
 
-    ALWAYS_INLINE VM& vm() const;
+    ALWAYS_INLINE VM& NODELETE vm() const;
 
     const Identifier& identifier(int index) const;
 };

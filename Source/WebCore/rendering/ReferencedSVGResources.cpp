@@ -27,15 +27,18 @@
 #include "config.h"
 #include "ReferencedSVGResources.h"
 
+#include "ContainerNodeInlines.h"
 #include "DocumentView.h"
-#include "FilterOperations.h"
 #include "LegacyRenderSVGResourceClipper.h"
+#include "LegacyRenderSVGResourceContainerInlines.h"
 #include "PathOperation.h"
-#include "ReferenceFilterOperation.h"
 #include "RenderLayer.h"
+#include "RenderLayerModelObject.h"
 #include "RenderObjectInlines.h"
 #include "RenderSVGPath.h"
-#include "RenderStyle.h"
+#include "RenderSVGResourceGradient.h"
+#include "RenderSVGResourcePaintServer.h"
+#include "RenderSVGResourcePattern.h"
 #include "SVGClipPathElement.h"
 #include "SVGElementTypeHelpers.h"
 #include "SVGFilterElement.h"
@@ -43,7 +46,9 @@
 #include "SVGMaskElement.h"
 #include "SVGResourceElementClient.h"
 #include "Settings.h"
-#include <wtf/CheckedPtr.h>
+#include "StyleComputedStyle.h"
+#include "StyleFilterReference.h"
+#include "StyleImage.h"
 #include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
@@ -59,7 +64,7 @@ public:
 
     void resourceChanged(SVGElement&) final;
 
-    const RenderElement& renderer() const final { return m_clientRenderer.get(); }
+    const RenderElement& NODELETE renderer() const final { return m_clientRenderer.get(); }
 
 private:
     const CheckedRef<RenderElement> m_clientRenderer;
@@ -72,13 +77,50 @@ void CSSSVGResourceElementClient::resourceChanged(SVGElement& element)
     if (m_clientRenderer->renderTreeBeingDestroyed())
         return;
 
+    if (is<SVGFilterElement>(element)) {
+        if (auto* layerModelObject = dynamicDowncast<RenderLayerModelObject>(m_clientRenderer.get())) {
+            if (CheckedPtr layer = layerModelObject->layer())
+                layer->clearFilters();
+        }
+    }
+
     if (!m_clientRenderer->document().settings().layerBasedSVGEngineEnabled()) {
         m_clientRenderer->repaint();
         return;
     }
 
+    bool resourceIsPaintServer = is<RenderSVGResourceGradient>(element.renderer()) || is<RenderSVGResourcePattern>(element.renderer());
+
+    // A gradient or pattern change can leave the cached fill or stroke paint server stale, so drop
+    // it before the needsLayout() return below, because layout never touches the cache. Other
+    // resource types are not paint servers, so they leave it alone.
+    if (resourceIsPaintServer) {
+        if (CheckedPtr layerModelObject = dynamicDowncast<RenderLayerModelObject>(m_clientRenderer.get()))
+            layerModelObject->invalidateSVGPaintServerCache();
+    }
+
     if (m_clientRenderer->needsLayout())
         return;
+
+    RefPtr frameView = m_clientRenderer->document().view();
+
+    // Invalidate cached visual overflow rect since resource bounds may have changed.
+    if (CheckedPtr layerModelObject = dynamicDowncast<RenderLayerModelObject>(m_clientRenderer.get())) {
+        // A marker or clip-path change can resize the client, but a layer-less client gets no post-layout
+        // position update, so repaint the old bounds now while the cached visual overflow still holds
+        // them, letting a shrunk client erase the area it used to cover. Paint servers (gradient,
+        // pattern) leave bounds unchanged, so they skip this.
+        if (!resourceIsPaintServer && !layerModelObject->hasLayer() && !(frameView && frameView->layoutContext().isInLayout()))
+            m_clientRenderer->repaint();
+
+        layerModelObject->invalidateCachedVisualOverflowRect();
+        // Ensure the post-layout recursiveUpdateLayerPositions() processes this client layer
+        // and generates repaint rects, even if the client's own geometry didn't change.
+        if (layerModelObject->hasLayer()) {
+            CheckedPtr layer = layerModelObject->layer();
+            layer->setSelfAndDescendantsNeedPositionUpdate();
+        }
+    }
 
     // Special case for markers. Markers can be attached to RenderSVGPath object. Marker positions are computed
     // once during layout, or if the shape itself changes. Here we manually update the marker positions without
@@ -86,6 +128,13 @@ void CSSSVGResourceElementClient::resourceChanged(SVGElement& element)
     // repainting the old repaint boundaries and the new ones (after the marker change).
     if (auto* pathClientRenderer = dynamicDowncast<RenderSVGPath>(m_clientRenderer.get()); pathClientRenderer && is<SVGMarkerElement>(element))
         pathClientRenderer->updateMarkerPositions();
+
+    // During layout, clients with layers are handled by the post-layout
+    // recursiveUpdateLayerPositions() phase. Clients without layers need a direct repaint.
+    if (frameView && frameView->layoutContext().isInLayout()) {
+        if (auto* layerModelObject = dynamicDowncast<RenderLayerModelObject>(m_clientRenderer.get()); layerModelObject && layerModelObject->hasLayer())
+            return;
+    }
 
     m_clientRenderer->repaintOldAndNewPositionsForSVGRenderer();
 }
@@ -115,13 +164,30 @@ void ReferencedSVGResources::addClientForTarget(SVGElement& targetElement, const
 void ReferencedSVGResources::removeClientForTarget(const AtomString& targetID)
 {
     auto entry = m_elementClients.take(targetID);
-    if (RefPtr targetElement = entry.targetElement.get()) {
-        CheckedPtr checkedClient = entry.client.get();
-        targetElement->removeReferencingCSSClient(*checkedClient);
-    }
+    if (RefPtr targetElement = entry.targetElement)
+        targetElement->removeReferencingCSSClient(protect(*entry.client));
 }
 
-ReferencedSVGResources::SVGElementIdentifierAndTagPairs ReferencedSVGResources::referencedSVGResourceIDs(const RenderStyle& style, const Document& document)
+RenderSVGResourcePaintServer* ReferencedSVGResources::cachedFillPaintServer() const
+{
+    return m_cachedFillPaintServer.get();
+}
+
+RenderSVGResourcePaintServer* ReferencedSVGResources::cachedStrokePaintServer() const
+{
+    return m_cachedStrokePaintServer.get();
+}
+
+void ReferencedSVGResources::setCachedPaintServer(SVGPaintType paintType, RenderSVGResourcePaintServer& paintServer)
+{
+    ASSERT(paintType == SVGPaintType::Fill || paintType == SVGPaintType::Stroke);
+    if (paintType == SVGPaintType::Fill)
+        m_cachedFillPaintServer = paintServer;
+    else
+        m_cachedStrokePaintServer = paintServer;
+}
+
+ReferencedSVGResources::SVGElementIdentifierAndTagPairs ReferencedSVGResources::referencedSVGResourceIDs(const Style::ComputedStyle& style, const Document& document)
 {
     SVGElementIdentifierAndTagPairs referencedResources;
     WTF::switchOn(style.clipPath(),
@@ -132,14 +198,14 @@ ReferencedSVGResources::SVGElementIdentifierAndTagPairs ReferencedSVGResources::
         [](const auto&) { }
     );
 
-    if (style.hasFilter()) {
-        const auto& filter = style.filter();
-        for (auto& value : filter) {
-            if (RefPtr referenceFilterOperation = dynamicDowncast<Style::ReferenceFilterOperation>(value.get())) {
-                if (!referenceFilterOperation->fragment().isEmpty())
-                    referencedResources.append({ referenceFilterOperation->fragment(), { SVGNames::filterTag } });
-            }
-        }
+    for (auto& value : style.filter()) {
+        WTF::switchOn(value,
+            [&](const Style::FilterReference& filterReference) {
+                if (!filterReference.cachedFragment.isEmpty())
+                    referencedResources.append({ filterReference.cachedFragment, { SVGNames::filterTag } });
+            },
+            []<CSSValueID C, typename T>(const FunctionNotation<C, T>&) { }
+        );
     }
 
     if (!document.settings().layerBasedSVGEngineEnabled())
@@ -208,6 +274,14 @@ void ReferencedSVGResources::updateReferencedResources(TreeScope& treeScope, con
         removeClientForTarget(targetID);
 }
 
+bool ReferencedSVGResources::addReferencedSVGResourceIfNeeded(SVGElement& targetElement, const AtomString& targetID)
+{
+    if (m_elementClients.contains(targetID))
+        return false;
+    addClientForTarget(targetElement, targetID);
+    return true;
+}
+
 // SVG code uses getRenderSVGResourceById<>, but that works in terms of renderers. We need to find resources
 // before the render tree is fully constructed, so this works on Elements.
 RefPtr<SVGElement> ReferencedSVGResources::elementForResourceID(TreeScope& treeScope, const AtomString& resourceID, const SVGQualifiedName& tagName)
@@ -243,16 +317,16 @@ RefPtr<SVGClipPathElement> ReferencedSVGResources::referencedClipPathElement(Tre
 
 RefPtr<SVGMarkerElement> ReferencedSVGResources::referencedMarkerElement(TreeScope& treeScope, const Style::URL& markerResource)
 {
-    auto resourceID = SVGURIReference::fragmentIdentifierFromIRIString(markerResource, treeScope.protectedDocumentScope());
+    auto resourceID = SVGURIReference::fragmentIdentifierFromIRIString(markerResource, protect(treeScope.documentScope()));
     if (resourceID.isEmpty())
         return nullptr;
 
     return downcast<SVGMarkerElement>(elementForResourceID(treeScope, resourceID, SVGNames::markerTag));
 }
 
-RefPtr<SVGMaskElement> ReferencedSVGResources::referencedMaskElement(TreeScope& treeScope, const StyleImage& maskImage)
+RefPtr<SVGMaskElement> ReferencedSVGResources::referencedMaskElement(TreeScope& treeScope, const Style::Image& maskImage)
 {
-    auto resourceID = SVGURIReference::fragmentIdentifierFromIRIString(maskImage.url(), treeScope.protectedDocumentScope());
+    auto resourceID = SVGURIReference::fragmentIdentifierFromIRIString(maskImage.url(), protect(treeScope.documentScope()));
     if (resourceID.isEmpty())
         return nullptr;
 
@@ -266,19 +340,19 @@ RefPtr<SVGMaskElement> ReferencedSVGResources::referencedMaskElement(TreeScope& 
 
 RefPtr<SVGElement> ReferencedSVGResources::referencedPaintServerElement(TreeScope& treeScope, const Style::URL& uri)
 {
-    auto resourceID = SVGURIReference::fragmentIdentifierFromIRIString(uri, treeScope.protectedDocumentScope());
+    auto resourceID = SVGURIReference::fragmentIdentifierFromIRIString(uri, protect(treeScope.documentScope()));
     if (resourceID.isEmpty())
         return nullptr;
 
     return elementForResourceIDs(treeScope, resourceID, { SVGNames::linearGradientTag, SVGNames::radialGradientTag, SVGNames::patternTag });
 }
 
-RefPtr<SVGFilterElement> ReferencedSVGResources::referencedFilterElement(TreeScope& treeScope, const Style::ReferenceFilterOperation& referenceFilter)
+RefPtr<SVGFilterElement> ReferencedSVGResources::referencedFilterElement(TreeScope& treeScope, const Style::FilterReference& filterReference)
 {
-    if (referenceFilter.fragment().isEmpty())
+    if (filterReference.cachedFragment.isEmpty())
         return nullptr;
 
-    return downcast<SVGFilterElement>(elementForResourceID(treeScope, referenceFilter.fragment(), SVGNames::filterTag));
+    return downcast<SVGFilterElement>(elementForResourceID(treeScope, filterReference.cachedFragment, SVGNames::filterTag));
 }
 
 LegacyRenderSVGResourceClipper* ReferencedSVGResources::referencedClipperRenderer(TreeScope& treeScope, const Style::ReferencePath& clipPath)

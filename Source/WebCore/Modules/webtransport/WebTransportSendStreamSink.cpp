@@ -28,7 +28,10 @@
 
 #include "Exception.h"
 #include "IDLTypes.h"
+#include "JSDOMConvertBufferSource.h"
+#include "JSDOMConvertUnion.h"
 #include "JSDOMGlobalObject.h"
+#include "JSDOMPromiseDeferred.h"
 #include "JSWebTransportError.h"
 #include "ScriptExecutionContextInlines.h"
 #include "WebTransport.h"
@@ -37,6 +40,7 @@
 #include "WritableStream.h"
 #include <wtf/CompletionHandler.h>
 #include <wtf/RunLoop.h>
+#include <wtf/Scope.h>
 
 namespace WebCore {
 
@@ -46,9 +50,7 @@ WebTransportSendStreamSink::WebTransportSendStreamSink(WebTransport& transport, 
 {
 }
 
-WebTransportSendStreamSink::~WebTransportSendStreamSink()
-{
-}
+WebTransportSendStreamSink::~WebTransportSendStreamSink() = default;
 
 RefPtr<WritableStream> WebTransportSendStreamSink::stream() const
 {
@@ -86,7 +88,7 @@ void WebTransportSendStreamSink::write(ScriptExecutionContext& context, JSC::JSV
     if (m_isClosed)
         return promise.reject(Exception { ExceptionCode::InvalidStateError });
 
-    auto& globalObject = *JSC::jsCast<JSDOMGlobalObject*>(context.globalObject());
+    auto& globalObject = *downcast<JSDOMGlobalObject>(context.globalObject());
     auto scope = DECLARE_THROW_SCOPE(globalObject.vm());
 
     auto bufferSource = convert<IDLUnion<IDLArrayBuffer, IDLArrayBufferView>>(globalObject, value);
@@ -106,7 +108,7 @@ void WebTransportSendStreamSink::write(ScriptExecutionContext& context, JSC::JSV
     });
 }
 
-void WebTransportSendStreamSink::close()
+void WebTransportSendStreamSink::close(JSDOMGlobalObject&)
 {
     if (m_isClosed)
         return;
@@ -119,8 +121,12 @@ void WebTransportSendStreamSink::close()
     }
 }
 
-void WebTransportSendStreamSink::abort(JSC::JSValue value)
+void WebTransportSendStreamSink::abort(JSDOMGlobalObject&, JSC::JSValue value, DOMPromiseDeferred<void>&& promise)
 {
+    auto scope = makeScopeExit([&promise] {
+        promise.resolve();
+    });
+
     if (m_isCancelled)
         return;
     m_isCancelled = true;
@@ -135,9 +141,9 @@ void WebTransportSendStreamSink::abort(JSC::JSValue value)
         return;
 
     std::optional<uint64_t> errorCode;
-    if (auto* jsWebTransportError = JSC::jsDynamicCast<JSWebTransportError*>(value)) {
-        Ref webTransportError = jsWebTransportError->wrapped();
-        if (auto webTransportErrorCode = webTransportError->streamErrorCode())
+    if (auto* jsWebTransportError = dynamicDowncast<JSWebTransportError>(value)) {
+        auto& webTransportError = jsWebTransportError->wrapped();
+        if (auto webTransportErrorCode = webTransportError.streamErrorCode())
             errorCode = static_cast<uint64_t>(*webTransportErrorCode);
     }
     session->cancelSendStream(m_identifier, errorCode);

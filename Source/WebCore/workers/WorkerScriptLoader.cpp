@@ -44,6 +44,7 @@
 #include "WorkerSWClientConnection.h"
 #include "WorkerScriptLoaderClient.h"
 #include "WorkerThreadableLoader.h"
+#include <WebCore/HTTPStatusCodes.h>
 #include <wtf/Ref.h>
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/MakeString.h>
@@ -60,9 +61,8 @@ static void accessWorkerScriptLoaderMap(CompletionHandler<void(HashMap<ScriptExe
     callback(map.get());
 }
 
-WorkerScriptLoader::WorkerScriptLoader(AlwaysUseUTF8 alwaysUseUTF8)
+WorkerScriptLoader::WorkerScriptLoader()
     : m_script(ScriptBuffer::empty())
-    , m_alwaysUseUTF8(alwaysUseUTF8 == AlwaysUseUTF8::Yes)
 {
 }
 
@@ -146,7 +146,7 @@ void WorkerScriptLoader::loadAsynchronously(ScriptExecutionContext& scriptExecut
     ThreadableLoaderOptions options { WTF::move(fetchOptions) };
     options.sendLoadCallbacks = SendCallbackPolicy::SendCallbacks;
     options.contentSecurityPolicyEnforcement = contentSecurityPolicyEnforcement;
-    if (fetchOptions.destination == FetchOptions::Destination::Serviceworker)
+    if (options.destination == FetchOptions::Destination::Serviceworker)
         options.certificateInfoPolicy = CertificateInfoPolicy::IncludeCertificateInfo;
 
     // FIXME: We should drop the sameOriginDataURLFlag flag and implement the latest Fetch specification.
@@ -205,7 +205,7 @@ static ResourceError constructJavaScriptMIMETypeError(const ResourceResponse& re
 
 ResourceError WorkerScriptLoader::validateWorkerResponse(const ResourceResponse& response, Source source, FetchOptions::Destination destination)
 {
-    if (response.httpStatusCode() / 100 != 2 && response.httpStatusCode())
+    if (!response.isSuccessful() && response.httpStatusCode())
         return { errorDomainWebKitInternal, 0, response.url(), "Response is not 2xx"_s, ResourceError::Type::General };
 
     if (!isScriptAllowedByNosniff(response)) {
@@ -290,8 +290,7 @@ void WorkerScriptLoader::didReceiveData(const SharedBuffer& buffer)
     if (!m_decoder) {
         // FIXME: Share more code with CachedScript / CachedScriptSourceProvider.
         Ref decoder = TextResourceDecoder::create("text/javascript"_s, "UTF-8"_s);
-        if (m_alwaysUseUTF8)
-            decoder->setAlwaysUseUTF8();
+        decoder->setAlwaysUseUTF8();
         lazyInitialize(m_decoder, WTF::move(decoder));
     }
 

@@ -50,14 +50,15 @@ class IDBStorageRegistry : public CanMakeThreadSafeCheckedPtr<IDBStorageRegistry
 public:
     explicit IDBStorageRegistry(NetworkStorageManager&);
     ~IDBStorageRegistry();
-    WebCore::IDBServer::IDBConnectionToClient* ensureConnectionToClient(IPC::Connection&, const WebCore::IDBResourceIdentifier&);
+    WebCore::IDBServer::IDBConnectionToClient* ensureConnectionToClient(IPC::Connection&, const WebCore::IDBResourceIdentifier&, NetworkStorageManager&);
+    WebCore::IDBServer::IDBConnectionToClient* existingConnectionToClient(WebCore::IDBConnectionIdentifier);
     void removeConnectionToClient(IPC::Connection::UniqueID);
     void registerConnection(WebCore::IDBServer::UniqueIDBDatabaseConnection&);
     void unregisterConnection(WebCore::IDBServer::UniqueIDBDatabaseConnection&);
-    RefPtr<WebCore::IDBServer::UniqueIDBDatabaseConnection> connection(WebCore::IDBDatabaseConnectionIdentifier, IPC::Connection&);
+    RefPtr<WebCore::IDBServer::UniqueIDBDatabaseConnection> NODELETE connection(WebCore::IDBDatabaseConnectionIdentifier, IPC::Connection&);
     void registerTransaction(WebCore::IDBServer::UniqueIDBDatabaseTransaction&);
     void unregisterTransaction(WebCore::IDBServer::UniqueIDBDatabaseTransaction&);
-    RefPtr<WebCore::IDBServer::UniqueIDBDatabaseTransaction> transaction(WebCore::IDBResourceIdentifier, IPC::Connection&);
+    RefPtr<WebCore::IDBServer::UniqueIDBDatabaseTransaction> NODELETE transaction(WebCore::IDBResourceIdentifier, IPC::Connection&);
 
 private:
     bool isValidConnectionForIPC(WebCore::IDBServer::UniqueIDBDatabaseConnection&, IPC::Connection&);

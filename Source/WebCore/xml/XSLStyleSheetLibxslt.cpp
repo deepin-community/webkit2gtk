@@ -30,7 +30,6 @@
 #include "LocalFrame.h"
 #include "NodeDocument.h"
 #include "Page.h"
-#include "Text.h"
 #include "TransformSource.h"
 #include "XMLDocumentParser.h"
 #include "XMLDocumentParserScope.h"

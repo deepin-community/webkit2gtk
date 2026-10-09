@@ -278,6 +278,14 @@ sub combineOrStripResourcesForWebKitAdditions() {
         debugLog("Stripping resources provided by WebKitAdditions.");
         stripResourcesForWebKitAdditions();
     }
+
+    # Copy the contents of the Protocol/Legacy directory from WebKitAdditions/WebInspectorUI/ if it exists
+    if (defined $webInspectorUIAdditionsDir) {
+        my $protocolLegacyAdditionsDir = File::Spec->catdir($webInspectorUIAdditionsDir, 'Protocol', 'Legacy');
+        if (-d $protocolLegacyAdditionsDir) {
+            ditto($protocolLegacyAdditionsDir, File::Spec->catdir($protocolDir, 'Legacy'));
+        }
+    }
 }
 
 sub stripResourcesForWebKitAdditions() {

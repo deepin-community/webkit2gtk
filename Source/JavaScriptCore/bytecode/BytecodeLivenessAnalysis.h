@@ -87,7 +87,7 @@ public:
     
     std::unique_ptr<FullBytecodeLiveness> computeFullLiveness(CodeBlock*);
 
-    BytecodeGraph& graph() { return m_graph; }
+    BytecodeGraph& graph() LIFETIME_BOUND { return m_graph; }
 
 private:
     void dumpResults(CodeBlock*);
@@ -95,7 +95,7 @@ private:
     BytecodeGraph m_graph;
 };
 
-WTF::BitSet<maxNumCheckpointTmps> tmpLivenessForCheckpoint(const CodeBlock&, BytecodeIndex);
+WTF::BitSet<maxNumCheckpointTmps> NODELETE tmpLivenessForCheckpoint(const CodeBlock&, BytecodeIndex);
 
 inline bool operandIsAlwaysLive(int operand);
 inline bool operandThatIsNotAlwaysLiveIsLive(const FastBitVector& out, int operand);

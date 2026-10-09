@@ -32,6 +32,7 @@
 #include "EventNames.h"
 #include "Logging.h"
 #include "PlatformWheelEvent.h"
+#include "RubberbandingState.h"
 #include "ScrollingEffectsController.h"
 #include "ScrollingStateFrameScrollingNode.h"
 #include "ScrollingStateTree.h"
@@ -50,7 +51,7 @@ namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(ScrollingTree);
 
-using OrphanScrollingNodeMap = HashMap<ScrollingNodeID, RefPtr<ScrollingTreeNode>>;
+using OrphanScrollingNodeMap = HashMap<ScrollingNodeID, Ref<ScrollingTreeNode>>;
 
 struct CommitTreeState {
     // unvisitedNodes starts with all nodes in the map; we remove nodes as we visit them. At the end, it's the unvisited nodes.
@@ -284,7 +285,7 @@ void ScrollingTree::traverseScrollingTreeRecursive(ScrollingTreeNode& node, NOES
 {
     bool scrolledSinceLastCommit = false;
     std::optional<FloatPoint> scrollPosition;
-    if (RefPtr scrollingNode = dynamicDowncast<ScrollingTreeScrollingNode>(node)) {
+    if (auto* scrollingNode = dynamicDowncast<ScrollingTreeScrollingNode>(node)) {
         scrollPosition = scrollingNode->currentScrollPosition();
         scrolledSinceLastCommit = scrollingNode->scrolledSinceLastCommit();
     }
@@ -301,13 +302,14 @@ void ScrollingTree::traverseScrollingTreeRecursive(ScrollingTreeNode& node, NOES
 
 void ScrollingTree::scrollingTreeNodeDidScroll(ScrollingTreeScrollingNode& node, ScrollingLayerPositionAction)
 {
+    setNeedsApplyLayerPositions();
     if (node.isRootNode())
         setMainFrameScrollPosition(node.currentScrollPosition());
 }
 
 void ScrollingTree::mainFrameViewportChangedViaDelegatedScrolling(const FloatPoint& scrollPosition, const FloatRect& layoutViewport, double)
 {
-    LOG_WITH_STREAM(Scrolling, stream << "ScrollingTree::viewportChangedViaDelegatedScrolling - layoutViewport " << layoutViewport);
+    LOG_WITH_STREAM(Scrolling, stream << "ScrollingTree::mainFrameViewportChangedViaDelegatedScrolling - layoutViewport " << layoutViewport);
     
     if (RefPtr rootNode = m_rootNode)
         rootNode->wasScrolledByDelegatedScrolling(scrollPosition, layoutViewport);
@@ -331,7 +333,7 @@ void ScrollingTree::removeNode(ScrollingNodeID nodeID, ScrollingTreeFrameHosting
                 nodeList->value.remove(nodeID);
         }
         if (hostingNode)
-            hostingNode->removeHostedChild(node);
+            hostingNode->removeHostedChild(*node);
         node->willBeDestroyed();
     }
 }
@@ -344,6 +346,16 @@ void ScrollingTree::removeFrameHostingNode(LayerHostingContextIdentifier hosting
 bool ScrollingTree::commitTreeStateInternal(std::unique_ptr<ScrollingStateTree>&& scrollingStateTree, std::optional<LayerHostingContextIdentifier> hostingContextIdentifier)
 {
     bool rootStateNodeChanged = scrollingStateTree->hasNewRootStateNode();
+
+#if HAVE(RUBBER_BANDING)
+    if (RefPtr rootNode = m_rootNode; rootNode && rootStateNodeChanged) {
+        if (auto state = rootNode->captureRubberbandingState()) {
+            LOG_WITH_STREAM(ScrollAnimations, stream << "ScrollingTree::commitTreeStateInternal - captured rubberbanding state: initialOverscroll");
+            setPendingMainFrameRubberbandingState(WTF::move(state));
+        } else
+            setPendingMainFrameRubberbandingState(std::nullopt);
+    }
+#endif
 
     LOG(ScrollingTree, "\nScrollingTree %p commitTreeState", this);
 
@@ -447,6 +459,7 @@ bool ScrollingTree::commitTreeStateInternal(std::unique_ptr<ScrollingStateTree>&
     }
 
     didCommitTree();
+    setNeedsApplyLayerPositions();
 
     return succeeded;
 }
@@ -524,7 +537,7 @@ bool ScrollingTree::updateTreeFromStateNodeRecursive(const ScrollingStateNode* s
         // Move all children into the orphanNodes map. Live ones will get added back as we recurse over children.
         for (auto& childScrollingNode : node->children()) {
             childScrollingNode->setParent(nullptr);
-            state.orphanNodes.add(childScrollingNode->scrollingNodeID(), childScrollingNode.ptr());
+            state.orphanNodes.add(childScrollingNode->scrollingNodeID(), childScrollingNode.copyRef());
         }
         node->removeAllChildren();
 
@@ -554,7 +567,7 @@ bool ScrollingTree::updateTreeFromStateNodeRecursive(const ScrollingStateNode* s
     }
 
     if (RefPtr hostingNodeForCommit = state.frameHostingNode)
-        hostingNodeForCommit->addHostedChild(node);
+        hostingNodeForCommit->addHostedChild(node.releaseNonNull());
 
     return true;
 }
@@ -572,19 +585,12 @@ void ScrollingTree::removeAllNodes()
     }
 }
 
-void ScrollingTree::applyLayerPositionsAfterCommit()
-{
-    // Scrolling tree needs to make adjustments only if the UI side positions have changed.
-    if (!m_needsApplyLayerPositionsAfterCommit)
-        return;
-    m_needsApplyLayerPositionsAfterCommit = false;
-
-    applyLayerPositions();
-}
-
 void ScrollingTree::applyLayerPositions()
 {
     Locker locker { m_treeLock };
+
+    if (!m_needsApplyLayerPositions.exchange(false))
+        return;
 
     applyLayerPositionsInternal();
 }
@@ -653,7 +659,7 @@ void ScrollingTree::clearLatchedNode()
 FloatBoxExtent ScrollingTree::mainFrameObscuredContentInsets() const
 {
     Locker locker { m_treeStateLock };
-    if (RefPtr rootNode = m_rootNode)
+    if (auto* rootNode = m_rootNode.get())
         return rootNode->obscuredContentInsets();
     return { };
 }
@@ -770,6 +776,40 @@ TrackingType ScrollingTree::eventTrackingTypeForPoint(EventTrackingRegions::Even
     return m_treeState.eventTrackingRegions.trackingTypeForPoint(eventType, p);
 }
 
+WebCore::RectEdges<bool> ScrollingTree::pinnedStateIncludingAncestorsAtPoint(FloatPoint viewPoint)
+{
+    RefPtr rootNode = m_rootNode;
+    if (!rootNode)
+        return false;
+
+    FloatPoint position = viewPoint;
+    {
+        Locker locker { m_treeStateLock };
+        position.move(rootNode->viewToContentsOffset(m_treeState.mainFrameScrollPosition));
+    }
+
+    HitTestLocker hitTestLocker { *this };
+
+    WebCore::RectEdges<bool> pinnedState = { true, true, true, true };
+
+    RefPtr node = scrollingNodeForPoint(position);
+    while (node) {
+        if (RefPtr scrollingNode = dynamicDowncast<ScrollingTreeScrollingNode>(*node))
+            pinnedState &= scrollingNode->edgePinnedState();
+
+        if (RefPtr scrollProxyNode = dynamicDowncast<ScrollingTreeOverflowScrollProxyNode>(*node)) {
+            if (RefPtr relatedNode = nodeForID(scrollProxyNode->overflowScrollingNodeID())) {
+                node = WTF::move(relatedNode);
+                continue;
+            }
+        }
+
+        node = node->parent();
+    }
+
+    return pinnedState;
+}
+
 // Can be called from the main thread.
 bool ScrollingTree::isRubberBandInProgressForNode(std::optional<ScrollingNodeID> nodeID)
 {
@@ -788,6 +828,18 @@ void ScrollingTree::setRubberBandingInProgressForNode(ScrollingNodeID nodeID, bo
     else
         m_treeState.nodesWithActiveRubberBanding.remove(nodeID);
 }
+
+#if HAVE(RUBBER_BANDING)
+void ScrollingTree::setPendingMainFrameRubberbandingState(std::optional<RubberbandingState>&& state)
+{
+    m_pendingMainFrameRubberbandingState = WTF::move(state);
+}
+
+std::optional<RubberbandingState> ScrollingTree::takePendingMainFrameRubberbandingState()
+{
+    return std::exchange(m_pendingMainFrameRubberbandingState, std::nullopt);
+}
+#endif
 
 // Can be called from the main thread.
 bool ScrollingTree::isUserScrollInProgressForNode(std::optional<ScrollingNodeID> nodeID)
@@ -910,7 +962,7 @@ RubberBandingBehavior ScrollingTree::clientAllowsMainFrameRubberBandingOnSide(Bo
     return m_swipeState.clientAllowedRubberBandableEdges.at(side);
 }
 
-void ScrollingTree::addPendingScrollUpdate(ScrollUpdate&& update)
+void ScrollingTree::addPendingScrollUpdateInternal(ScrollUpdate&& update)
 {
     Locker locker { m_pendingScrollUpdatesLock };
     for (auto& existingUpdate : m_pendingScrollUpdates) {
@@ -921,6 +973,12 @@ void ScrollingTree::addPendingScrollUpdate(ScrollUpdate&& update)
     }
 
     m_pendingScrollUpdates.append(WTF::move(update));
+}
+
+void ScrollingTree::addPendingScrollUpdate(ScrollUpdate&& update)
+{
+    addPendingScrollUpdateInternal(WTF::move(update));
+    didAddPendingScrollUpdate();
 }
 
 Vector<ScrollUpdate> ScrollingTree::takePendingScrollUpdates()
@@ -1105,6 +1163,12 @@ String ScrollingTree::scrollingTreeAsText(OptionSet<ScrollingStateTreeAsTextBeha
         }
     }
     return ts.release();
+}
+
+float ScrollingTree::rubberbandHyperbolicCoefficientForTesting()
+{
+    RefPtr rootNode = m_rootNode;
+    return rootNode ? rootNode->rubberbandHyperbolicCoefficientForTesting() : 0;
 }
 
 bool ScrollingTree::hasFixedOrSticky() const

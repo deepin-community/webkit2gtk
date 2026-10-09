@@ -20,7 +20,7 @@
 #include "include/core/SkStream.h"
 #include "include/core/SkSurface.h"
 #include "include/core/SkTileMode.h"
-#include "include/private/base/SkTPin.h"
+#include "include/private/SkTPin.h"
 #include "src/core/SkDevice.h"
 #include "src/core/SkTHash.h"
 #include "src/pdf/SkKeyedImage.h"
@@ -261,7 +261,8 @@ static SkPDFIndirectReference make_image_shader(SkPDFDocument* doc,
     auto imageShader = patternDevice->content();
     std::unique_ptr<SkPDFDict> resourceDict = patternDevice->makeResourceDict();
     std::unique_ptr<SkPDFDict> dict = SkPDFMakeDict();
-    SkPDFUtils::PopulateTilingPatternDict(dict.get(), patternBBox,
+    SkPDFUtils::PopulateTilingPatternDict(dict.get(),
+                                          patternBBox, is_tiled(tileModesX), is_tiled(tileModesY),
                                           std::move(resourceDict), finalMatrix);
     return SkPDFStreamOut(std::move(dict), std::move(imageShader), doc);
 }
@@ -339,7 +340,10 @@ SkPDFIndirectReference SkPDFMakeShader(SkPDFDocument* doc,
     SkASSERT(shader);
     SkASSERT(doc);
     if (as_SB(shader)->asGradient() != SkShaderBase::GradientType::kNone) {
-        return SkPDFGradientShader::Make(doc, shader, canvasTransform, surfaceBBox);
+        if (SkPDFIndirectReference gradientShader =
+                    SkPDFGradientShader::Make(doc, shader, canvasTransform, surfaceBBox)) {
+            return gradientShader;
+        }
     }
     if (surfaceBBox.isEmpty()) {
         return SkPDFIndirectReference();

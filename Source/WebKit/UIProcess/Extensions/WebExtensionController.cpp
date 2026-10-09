@@ -47,7 +47,7 @@ namespace WebKit {
 constexpr auto freshlyCreatedTimeout = 5_s;
 #endif
 
-static HashMap<WebExtensionControllerIdentifier, WeakPtr<WebExtensionController>>& webExtensionControllers()
+static HashMap<WebExtensionControllerIdentifier, WeakPtr<WebExtensionController>>& NODELETE webExtensionControllers()
 {
     static MainRunLoopNeverDestroyed<HashMap<WebExtensionControllerIdentifier, WeakPtr<WebExtensionController>>> controllers;
     return controllers;
@@ -114,6 +114,15 @@ WebExtensionController::WebProcessProxySet WebExtensionController::allProcesses(
     }
 
     return result;
+}
+
+bool WebExtensionController::markDidRemoveStaleExtensionWebsiteData()
+{
+    if (m_didRemoveStaleExtensionWebsiteData)
+        return false;
+
+    m_didRemoveStaleExtensionWebsiteData = true;
+    return true;
 }
 
 } // namespace WebKit

@@ -208,12 +208,14 @@ void MediaRecorderPrivateBackend::stopRecording(CompletionHandler<void()>&& comp
     gst_element_get_state(m_pipeline.get(), &state, nullptr, GST_CLOCK_TIME_NONE);
     if (state != GST_STATE_VOID_PENDING && state < GST_STATE_PLAYING) {
         GST_DEBUG_OBJECT(m_pipeline.get(), "Pipeline is not in playing state, not sending EOS event");
+        Locker lock(m_eosLock);
         m_eos = true;
         return;
     }
 
     if (!webkitMediaStreamSrcHasPrerolled(WEBKIT_MEDIA_STREAM_SRC(m_src.get()))) {
         GST_DEBUG_OBJECT(m_pipeline.get(), "Source element hasn't prerolled yet, no need to send EOS event");
+        Locker lock(m_eosLock);
         m_eos = true;
         return;
     }
@@ -225,12 +227,14 @@ void MediaRecorderPrivateBackend::stopRecording(CompletionHandler<void()>&& comp
     GST_DEBUG_OBJECT(m_pipeline.get(), "Emitting EOS event(s)");
     if (!gst_element_send_event(m_pipeline.get(), gst_event_new_eos())) {
         GST_WARNING_OBJECT(m_pipeline.get(), "EOS event wasn't handled");
+        Locker lock(m_eosLock);
         m_eos = true;
         return;
     }
 
     if (gst_app_sink_is_eos(GST_APP_SINK(m_sink.get()))) {
         GST_DEBUG_OBJECT(m_pipeline.get(), "Sink received EOS already");
+        Locker lock(m_eosLock);
         m_eos = true;
         return;
     }
@@ -241,8 +245,10 @@ void MediaRecorderPrivateBackend::stopRecording(CompletionHandler<void()>&& comp
     while (!isEOS) {
         Locker lock(m_eosLock);
         m_eosCondition.waitFor(m_eosLock, 200_ms, [weakThis = ThreadSafeWeakPtr { *this }]() -> bool {
-            if (auto protectedThis = weakThis.get())
+            if (auto protectedThis = weakThis.get()) {
+                assertIsHeld(protectedThis->m_eosLock);
                 return protectedThis->m_eos;
+            }
             return true;
         });
         isEOS = m_eos;
@@ -343,9 +349,9 @@ GRefPtr<GstEncodingContainerProfile> MediaRecorderPrivateBackend::containerProfi
         containerCapsDescriptionBuilder.append(containerType);
 
     auto containerCapsDescription = containerCapsDescriptionBuilder.toString();
-    auto containerCaps = adoptGRef(gst_caps_from_string(containerCapsDescription.ascii().data()));
+    GRefPtr containerCaps = adoptGRef(gst_caps_from_string(containerCapsDescription.ascii().data()));
     GST_DEBUG("Creating container profile for caps %" GST_PTR_FORMAT, containerCaps.get());
-    auto profile = adoptGRef(gst_encoding_container_profile_new(nullptr, nullptr, containerCaps.get(), nullptr));
+    GRefPtr profile = adoptGRef(gst_encoding_container_profile_new(nullptr, nullptr, containerCaps.get(), nullptr));
 
     if (containerType.endsWith("mp4"_s)) {
         StringBuilder propertiesBuilder;
@@ -397,7 +403,7 @@ GRefPtr<GstEncodingContainerProfile> MediaRecorderPrivateBackend::containerProfi
         }
 
         RELEASE_ASSERT(!audioCapsName.isEmpty());
-        auto audioCaps = adoptGRef(gst_caps_from_string(audioCapsName.utf8().data()));
+        GRefPtr audioCaps = adoptGRef(gst_caps_from_string(audioCapsName.utf8().data()));
         GST_DEBUG("Creating audio encoding profile for caps %" GST_PTR_FORMAT, audioCaps.get());
         m_audioEncodingProfile = adoptGRef(GST_ENCODING_PROFILE(gst_encoding_audio_profile_new(audioCaps.get(), nullptr, nullptr, 1)));
 
@@ -408,7 +414,7 @@ GRefPtr<GstEncodingContainerProfile> MediaRecorderPrivateBackend::containerProfi
             // https://gitlab.freedesktop.org/gstreamer/gstreamer/-/issues/4054
             auto sampleRate = audioCapsName == "audio/x-opus"_s ? 48000 : settings.sampleRate();
 
-            auto restrictionCaps = adoptGRef(gst_caps_new_simple("audio/x-raw", "rate", G_TYPE_INT, sampleRate, nullptr));
+            GRefPtr restrictionCaps = adoptGRef(gst_caps_new_simple("audio/x-raw", "rate", G_TYPE_INT, sampleRate, nullptr));
             GST_DEBUG("Setting audio restriction caps to %" GST_PTR_FORMAT, restrictionCaps.get());
             gst_encoding_profile_set_restriction(m_audioEncodingProfile.get(), restrictionCaps.leakRef());
         }
@@ -456,11 +462,11 @@ void MediaRecorderPrivateBackend::setSink(GstElement* element)
             static_cast<MediaRecorderPrivateBackend*>(userData)->notifyEOS();
         },
         [](GstAppSink* sink, gpointer userData) -> GstFlowReturn {
-            auto sample = adoptGRef(gst_app_sink_pull_preroll(sink));
+            GRefPtr sample = adoptGRef(gst_app_sink_pull_preroll(sink));
             return static_cast<MediaRecorderPrivateBackend*>(userData)->handleSample(sink, WTF::move(sample));
         },
         [](GstAppSink* sink, gpointer userData) -> GstFlowReturn {
-            auto sample = adoptGRef(gst_app_sink_pull_sample(sink));
+            GRefPtr sample = adoptGRef(gst_app_sink_pull_sample(sink));
             return static_cast<MediaRecorderPrivateBackend*>(userData)->handleSample(sink, WTF::move(sample));
         },
         // new_event
@@ -522,7 +528,7 @@ bool MediaRecorderPrivateBackend::preparePipeline()
     if (!m_pipeline)
         return false;
 
-    auto clock = adoptGRef(gst_system_clock_obtain());
+    GRefPtr clock = adoptGRef(gst_system_clock_obtain());
     gst_pipeline_use_clock(GST_PIPELINE(m_pipeline.get()), clock.get());
     gst_element_set_base_time(m_pipeline.get(), 0);
     gst_element_set_start_time(m_pipeline.get(), GST_CLOCK_TIME_NONE);

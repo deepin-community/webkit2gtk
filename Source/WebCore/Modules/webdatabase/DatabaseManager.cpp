@@ -31,6 +31,7 @@
 #include "DatabaseContext.h"
 #include "DatabaseTask.h"
 #include "DatabaseTracker.h"
+#include "Document.h"
 #include "DocumentEventLoop.h"
 #include "DocumentPage.h"
 #include "ExceptionOr.h"
@@ -51,8 +52,8 @@ public:
     ProposedDatabase(DatabaseManager&, SecurityOrigin&, const String& name, const String& displayName, unsigned long estimatedSize);
     ~ProposedDatabase();
 
-    SecurityOrigin& origin() { return m_origin; }
-    DatabaseDetails& details() { return m_details; }
+    SecurityOrigin& NODELETE origin() { return m_origin; }
+    DatabaseDetails& NODELETE details() { return m_details; }
 
 private:
     DatabaseManager& m_manager;
@@ -112,7 +113,7 @@ Ref<DatabaseContext> DatabaseManager::databaseContext(Document& document)
 
 #if LOG_DISABLED
 
-static inline void logOpenDatabaseError(Document&, const String&)
+static inline void NODELETE logOpenDatabaseError(Document&, const String&)
 {
 }
 
@@ -218,7 +219,7 @@ ExceptionOr<Ref<Database>> DatabaseManager::openDatabase(Document& document, con
     if (database->isNew() && creationCallback.get()) {
         LOG(StorageAPI, "Scheduling DatabaseCreationCallbackTask for database %p\n", database.get());
         database->setHasPendingCreationEvent(true);
-        database->m_document->checkedEventLoop()->queueTask(TaskSource::Networking, [creationCallback, database] {
+        protect(database->m_document->eventLoop())->queueTask(TaskSource::Networking, [creationCallback, database] {
             creationCallback->invoke(*database);
             database->setHasPendingCreationEvent(false);
         });
@@ -260,7 +261,7 @@ DatabaseDetails DatabaseManager::detailsForNameAndOrigin(const String& name, Sec
         Locker locker { m_proposedDatabasesLock };
         for (auto* proposedDatabase : m_proposedDatabases) {
             if (proposedDatabase->details().name() == name && proposedDatabase->origin().equal(origin)) {
-                ASSERT(&proposedDatabase->details().thread() == &Thread::currentSingleton() || isMainThread());
+                ASSERT(proposedDatabase->details().threadID() == currentThreadID() || isMainThread());
                 return proposedDatabase->details();
             }
         }

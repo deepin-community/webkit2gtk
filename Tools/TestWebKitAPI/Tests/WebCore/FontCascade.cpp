@@ -25,7 +25,13 @@
  */
 
 #include "config.h"
+#include <WebCore/Font.h>
+#include <WebCore/FontCache.h>
 #include <WebCore/FontCascade.h>
+#include <WebCore/FontCascadeFonts.h>
+#include <WebCore/TextRun.h>
+#include <WebCore/TextShapingResultAndDisplayList.h>
+#include <wtf/WeakHashSet.h>
 
 namespace TestWebKitAPI {
 
@@ -72,6 +78,19 @@ static void testCodePathRange(CodePathRange range)
     EXPECT_EQ(range.path, FontCascade::characterRangeCodePath(std::span<char16_t>(middle))) << "middle: " << std::hex << static_cast<int>(middle[0]);
     EXPECT_EQ(range.path, FontCascade::characterRangeCodePath(std::span<char16_t>(end))) << "end: " << std::hex << static_cast<int>(end[0]);
     EXPECT_EQ(range.abovePath, FontCascade::characterRangeCodePath(std::span<char16_t>(above))) << "above: " << std::hex << static_cast<int>(above[0]);
+}
+
+TEST(FontCascadeTest, EqualityWithNullFonts)
+{
+    FontCascadeDescription description;
+    description.setOneFamily("Times"_s);
+    description.setComputedSize(16);
+
+    FontCascade a(FontCascadeDescription { description });
+    FontCascade b(FontCascadeDescription { description });
+
+    // Both have null m_fonts (update() not called). They should be equal.
+    EXPECT_TRUE(a == b);
 }
 
 // Testing characterRangeCodePath for non-surrogate codepoints
@@ -138,5 +157,57 @@ TEST(FontCascadeTest, characterRangeCodePath_Surrogates)
     testSupplementaryCodePath(0x16B16, CodePath::Complex);
     testSupplementaryCodePath(0x16B30, CodePath::Complex);
     testSupplementaryCodePath(0x16B8F, CodePath::Complex);
+}
+
+// Purging inactive font data must flush the per-FontCascadeFonts shaped text caches.
+// A GlyphBuffer cached there holds only weak Font references, so a Font referenced only by a
+// cached shaped run can be destroyed by FontCache::purgeInactiveFontData (it has one ref); if the
+// cache is not flushed on purge, a later paint may dereference an expired weak pointer in
+// FontCascade::drawGlyphBuffer and crash. rdar://173222307
+TEST(FontCascadeTest, PurgeInactiveFontDataClearsShapedTextCache)
+{
+    FontCascadeDescription description;
+    description.setOneFamily("Times"_s);
+    description.setComputedSize(16);
+    FontCascade font(WTF::move(description));
+    font.update();
+
+    RefPtr fonts = font.fonts();
+    ASSERT_TRUE(fonts);
+
+    fonts->shapedTextCache().add("hello world"_str, makeUnique<TextShapingResultAndDisplayList>());
+    EXPECT_FALSE(fonts->shapedTextCache().isEmpty());
+
+    FontCache::forCurrentThread().purgeInactiveFontData();
+
+    EXPECT_TRUE(fonts->shapedTextCache().isEmpty());
+}
+
+// The complex text path must retain the system fallback fonts it uses (like the simple path), otherwise a
+// cached shaped run's weak Font reference dangles once FontCache::purgeInactiveFontData reclaims the font.
+TEST(FontCascadeTest, ComplexTextRetainsSystemFallbackFonts)
+{
+    FontCascadeDescription description;
+    description.setOneFamily("Times"_s);
+    description.setComputedSize(16);
+    FontCascade fontCascade(WTF::move(description));
+    fontCascade.update();
+
+    // Complex-script characters Times cannot render, forcing Core Text system fallbacks.
+    static constexpr std::array<char16_t, 8> characters { 0x06D8, 0x092D, 0x0B40, 0x0F96, 0x0DBD, 0x0EAF, 0xA86C, 0x0ACF };
+    String text { std::span<const char16_t> { characters } };
+    TextRun run { text };
+
+    // Shaping the run collects the system fallback fonts Core Text used.
+    SingleThreadWeakHashSet<const Font> fallbackFonts;
+    fontCascade.width(run, &fallbackFonts);
+
+    // Each fallback font must be retained beyond FontCache's own reference, so a purge cannot reclaim it.
+    bool hasUsedFallbackFont = false;
+    for (auto& font : fallbackFonts) {
+        hasUsedFallbackFont = true;
+        EXPECT_FALSE(font.hasOneRef());
+    }
+    ASSERT_TRUE(hasUsedFallbackFont);
 }
 }

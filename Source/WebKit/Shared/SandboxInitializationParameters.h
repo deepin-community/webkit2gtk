@@ -49,9 +49,9 @@ public:
 
     Vector<const char*> namedParameterVector() const;
 
-    size_t count() const;
-    ASCIILiteral name(size_t index) const;
-    const char* value(size_t index) const;
+    size_t NODELETE count() const;
+    ASCIILiteral NODELETE name(size_t index) const;
+    const char* NODELETE value(size_t index) const;
 
     enum class ProfileSelectionMode : uint8_t {
         UseDefaultSandboxProfilePath,
@@ -67,7 +67,7 @@ public:
         m_overrideSandboxProfilePathOrSandboxProfile = path;
     }
 
-    const String& overrideSandboxProfilePath() const
+    const String& overrideSandboxProfilePath() const LIFETIME_BOUND
     {
         ASSERT(m_profileSelectionMode == ProfileSelectionMode::UseOverrideSandboxProfilePath);
         return m_overrideSandboxProfilePathOrSandboxProfile;
@@ -79,14 +79,14 @@ public:
         m_overrideSandboxProfilePathOrSandboxProfile = profile;
     }
 
-    const String& sandboxProfile() const
+    const String& sandboxProfile() const LIFETIME_BOUND
     {
         ASSERT(m_profileSelectionMode == ProfileSelectionMode::UseSandboxProfile);
         return m_overrideSandboxProfilePathOrSandboxProfile;
     }
 
     void setUserDirectorySuffix(const String& suffix) { m_userDirectorySuffix = suffix; }
-    const String& userDirectorySuffix() const { return m_userDirectorySuffix; }
+    const String& userDirectorySuffix() const LIFETIME_BOUND { return m_userDirectorySuffix; }
 #endif
 
 private:
@@ -107,9 +107,7 @@ SandboxInitializationParameters::SandboxInitializationParameters()
 {
 }
 
-SandboxInitializationParameters::~SandboxInitializationParameters()
-{
-}
+SandboxInitializationParameters::~SandboxInitializationParameters() = default;
 #endif
 
 } // namespace WebKit

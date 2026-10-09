@@ -44,7 +44,7 @@ public:
 
     const RenderView& view() const { return m_view; }
 
-    static bool isRebuildRootForChildren(const RenderElement&);
+    static bool NODELETE isRebuildRootForChildren(const RenderElement&);
 
     void attach(RenderElement& parent, RenderPtr<RenderObject>, RenderObject* beforeChild = nullptr);
 
@@ -66,9 +66,7 @@ public:
 
     void updateAfterDescendants(RenderElement&);
     void destroyAndCleanUpAnonymousWrappers(RenderObject& child, const RenderElement* destroyRoot);
-    void normalizeTreeAfterStyleChange(RenderElement&, RenderStyle& oldStyle);
-
-    bool hasBrokenContinuation() const { return m_hasBrokenContinuation; }
+    void normalizeTreeAfterStyleChange(RenderElement&, Style::ComputedStyle& oldStyle);
 
 private:
     static void markBoxForRelayoutAfterSplit(RenderBoxModelObject&);
@@ -77,7 +75,6 @@ private:
 
     void childFlowStateChangesAndAffectsParentBlock(RenderElement& child);
     void childFlowStateChangesAndNoLongerAffectsParentBlock(RenderElement& child);
-    void attachIgnoringContinuation(RenderElement& parent, RenderPtr<RenderObject>, RenderObject* beforeChild = nullptr);
     void attachToRenderGrid(RenderGrid& parent, RenderPtr<RenderObject> child, RenderObject* beforeChild = nullptr);
     void attachToRenderElement(RenderElement& parent, RenderPtr<RenderObject> child, RenderObject* beforeChild = nullptr);
     void attachToRenderElementInternal(RenderElement& parent, RenderPtr<RenderObject> child, RenderObject* beforeChild = nullptr);
@@ -102,9 +99,7 @@ private:
 
     void reportVisuallyNonEmptyContent(const RenderElement& parent, const RenderObject& child);
 
-    void setHasBrokenContinuation() { m_hasBrokenContinuation = true; }
-
-    static RenderPtr<RenderBox> createAnonymousBoxWithSameTypeAndWithStyle(const RenderBox&, const RenderStyle&);
+    static RenderPtr<RenderBox> createAnonymousBoxWithSameTypeAndWithStyle(const RenderBox&, const Style::ComputedStyle&);
 
     class FirstLetter;
     class List;
@@ -119,22 +114,20 @@ private:
 #if ENABLE(MATHML)
     class MathML;
 #endif
-    class Continuation;
 
-    FirstLetter& firstLetterBuilder() { return m_firstLetterBuilder; }
-    List& listBuilder() { return m_listBuilder; }
-    MultiColumn& multiColumnBuilder() { return m_multiColumnBuilder; }
-    Table& tableBuilder() { return m_tableBuilder; }
-    Ruby& rubyBuilder() { return m_rubyBuilder; }
-    FormControls& formControlsBuilder() { return m_formControlsBuilder; }
-    Block& blockBuilder() { return m_blockBuilder; }
-    BlockFlow& blockFlowBuilder() { return m_blockFlowBuilder; }
-    Inline& inlineBuilder() { return m_inlineBuilder; }
-    SVG& svgBuilder() { return m_svgBuilder; }
+    FirstLetter& firstLetterBuilder() LIFETIME_BOUND { return m_firstLetterBuilder; }
+    List& listBuilder() LIFETIME_BOUND { return m_listBuilder; }
+    MultiColumn& multiColumnBuilder() LIFETIME_BOUND { return m_multiColumnBuilder; }
+    Table& tableBuilder() LIFETIME_BOUND { return m_tableBuilder; }
+    Ruby& rubyBuilder() LIFETIME_BOUND { return m_rubyBuilder; }
+    FormControls& formControlsBuilder() LIFETIME_BOUND { return m_formControlsBuilder; }
+    Block& blockBuilder() LIFETIME_BOUND { return m_blockBuilder; }
+    BlockFlow& blockFlowBuilder() LIFETIME_BOUND { return m_blockFlowBuilder; }
+    Inline& inlineBuilder() LIFETIME_BOUND { return m_inlineBuilder; }
+    SVG& svgBuilder() LIFETIME_BOUND { return m_svgBuilder; }
 #if ENABLE(MATHML)
-    MathML& mathMLBuilder() { return m_mathMLBuilder; }
+    MathML& mathMLBuilder() LIFETIME_BOUND { return m_mathMLBuilder; }
 #endif
-    Continuation& continuationBuilder() { return m_continuationBuilder; }
 
     WidgetHierarchyUpdatesSuspensionScope m_widgetHierarchyUpdatesSuspensionScope;
     RenderView& m_view;
@@ -154,8 +147,6 @@ private:
 #if ENABLE(MATHML)
     const UniqueRef<MathML> m_mathMLBuilder;
 #endif
-    const UniqueRef<Continuation> m_continuationBuilder;
-    bool m_hasBrokenContinuation { false };
     IsInternalMove m_internalMovesType { IsInternalMove::No };
     TearDownType m_tearDownType { TearDownType::Root };
     CheckedPtr<const RenderElement> m_subtreeDestroyRoot;

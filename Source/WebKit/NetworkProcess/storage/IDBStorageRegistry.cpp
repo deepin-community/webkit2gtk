@@ -46,16 +46,22 @@ IDBStorageRegistry::~IDBStorageRegistry() = default;
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(IDBStorageRegistry);
 
-WebCore::IDBServer::IDBConnectionToClient* IDBStorageRegistry::ensureConnectionToClient(IPC::Connection& ipcConnection, const WebCore::IDBResourceIdentifier& requestIdentifier)
+WebCore::IDBServer::IDBConnectionToClient* IDBStorageRegistry::ensureConnectionToClient(IPC::Connection& ipcConnection, const WebCore::IDBResourceIdentifier& requestIdentifier, NetworkStorageManager& networkStorageManager)
 {
     MESSAGE_CHECK_WITH_RETURN_VALUE(requestIdentifier.connectionIdentifier(), ipcConnection, nullptr);
     auto identifier = *requestIdentifier.connectionIdentifier();
     auto addResult = m_connectionsToClient.add(identifier, nullptr);
     if (addResult.isNewEntry)
-        addResult.iterator->value = makeUnique<IDBStorageConnectionToClient>(m_manager.get(), ipcConnection.uniqueID(), identifier);
+        addResult.iterator->value = makeUnique<IDBStorageConnectionToClient>(ipcConnection.uniqueID(), identifier, networkStorageManager);
 
     MESSAGE_CHECK_WITH_RETURN_VALUE(addResult.iterator->value->ipcConnection() == ipcConnection.uniqueID(), ipcConnection, nullptr);
     return &addResult.iterator->value->connectionToClient();
+}
+
+WebCore::IDBServer::IDBConnectionToClient* IDBStorageRegistry::existingConnectionToClient(WebCore::IDBConnectionIdentifier identifier)
+{
+    auto* connectionToClient = m_connectionsToClient.get(identifier);
+    return connectionToClient ? &connectionToClient->connectionToClient() : nullptr;
 }
 
 void IDBStorageRegistry::removeConnectionToClient(IPC::Connection::UniqueID connection)
@@ -111,7 +117,7 @@ bool IDBStorageRegistry::isValidConnectionForIPC(WebCore::IDBServer::UniqueIDBDa
     return it->value->ipcConnection() == ipcConnection.uniqueID();
 }
 
-RefPtr<WebCore::IDBServer::UniqueIDBDatabaseConnection> IDBStorageRegistry::connection(WebCore::IDBDatabaseConnectionIdentifier identifier, IPC::Connection& ipcConnection)
+SUPPRESS_NODELETE RefPtr<WebCore::IDBServer::UniqueIDBDatabaseConnection> IDBStorageRegistry::connection(WebCore::IDBDatabaseConnectionIdentifier identifier, IPC::Connection& ipcConnection)
 {
     RefPtr databaseConnection = m_connections.get(identifier);
     if (!databaseConnection)
@@ -122,7 +128,7 @@ RefPtr<WebCore::IDBServer::UniqueIDBDatabaseConnection> IDBStorageRegistry::conn
     return databaseConnection;
 }
 
-RefPtr<WebCore::IDBServer::UniqueIDBDatabaseTransaction> IDBStorageRegistry::transaction(WebCore::IDBResourceIdentifier identifier, IPC::Connection& ipcConnection)
+SUPPRESS_NODELETE RefPtr<WebCore::IDBServer::UniqueIDBDatabaseTransaction> IDBStorageRegistry::transaction(WebCore::IDBResourceIdentifier identifier, IPC::Connection& ipcConnection)
 {
     MESSAGE_CHECK_WITH_RETURN_VALUE(identifier.connectionIdentifier(), ipcConnection, nullptr);
     if (identifier.isEmpty())

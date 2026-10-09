@@ -63,6 +63,10 @@ VTTRegion::VTTRegion(ScriptExecutionContext& context)
     : ContextDestructionObserver(&context)
     , m_id(emptyString())
     , m_scrollTimer(*this, &VTTRegion::scrollTimerFired)
+#if !RELEASE_LOG_DISABLED
+    , m_logger(&downcast<Document>(context).logger())
+    , m_logIdentifier(uniqueLogIdentifier())
+#endif
 {
 }
 
@@ -182,7 +186,7 @@ VTTRegion::RegionSetting VTTRegion::scanSettingName(VTTScanner& input)
     return None;
 }
 
-static inline bool parsedEntireRun(const VTTScanner& input, const VTTScanner::Run& run)
+static inline bool NODELETE parsedEntireRun(const VTTScanner& input, const VTTScanner::Run& run)
 {
     return input.isAt(run.end()); 
 }
@@ -199,11 +203,11 @@ void VTTRegion::parseSettingValue(RegionSetting setting, VTTScanner& input)
         break;
     }
     case Width: {
-        float floatWidth;
+        double floatWidth;
         if (WebVTTParser::parseFloatPercentageValue(input, floatWidth) && parsedEntireRun(input, valueRun))
             m_width = floatWidth;
         else
-            LOG(Media, "VTTRegion::parseSettingValue, invalid Width");
+            ERROR_LOG(LOGIDENTIFIER, "invalid Width");
         break;
     }
     case Lines: {
@@ -211,7 +215,7 @@ void VTTRegion::parseSettingValue(RegionSetting setting, VTTScanner& input)
         if (input.scanDigits(number) && parsedEntireRun(input, valueRun))
             m_lines = number;
         else
-            LOG(Media, "VTTRegion::parseSettingValue, invalid Lines");
+            ERROR_LOG(LOGIDENTIFIER, "invalid Lines");
         break;
     }
     case RegionAnchor: {
@@ -219,7 +223,7 @@ void VTTRegion::parseSettingValue(RegionSetting setting, VTTScanner& input)
         if (WebVTTParser::parseFloatPercentageValuePair(input, ',', anchor) && parsedEntireRun(input, valueRun))
             m_regionAnchor = anchor;
         else
-            LOG(Media, "VTTRegion::parseSettingValue, invalid RegionAnchor");
+            ERROR_LOG(LOGIDENTIFIER, "invalid RegionAnchor");
         break;
     }
     case ViewportAnchor: {
@@ -227,14 +231,14 @@ void VTTRegion::parseSettingValue(RegionSetting setting, VTTScanner& input)
         if (WebVTTParser::parseFloatPercentageValuePair(input, ',', anchor) && parsedEntireRun(input, valueRun))
             m_viewportAnchor = anchor;
         else
-            LOG(Media, "VTTRegion::parseSettingValue, invalid ViewportAnchor");
+            ERROR_LOG(LOGIDENTIFIER, "invalid ViewportAnchor");
         break;
     }
     case Scroll:
         if (input.scanRun(valueRun, upKeyword()))
             m_scroll = ScrollSetting::Up;
         else
-            LOG(Media, "VTTRegion::parseSettingValue, invalid Scroll");
+            ERROR_LOG(LOGIDENTIFIER, "invalid Scroll");
         break;
     case None:
         break;
@@ -271,7 +275,7 @@ void VTTRegion::displayLastTextTrackCueBox()
 
     // If it's a scrolling region, add the scrolling class.
     if (scroll() == ScrollSetting::Up)
-        m_cueContainer->protectedClassList()->add(textTrackCueContainerScrollingClass());
+        protect(m_cueContainer->classList())->add(textTrackCueContainerScrollingClass());
 
     float regionBottom = m_regionDisplayTree->boundingClientRect().maxY();
 
@@ -296,12 +300,12 @@ void VTTRegion::displayLastTextTrackCueBox()
 
 void VTTRegion::willRemoveTextTrackCueBox(VTTCueBox* box)
 {
-    LOG(Media, "VTTRegion::willRemoveTextTrackCueBox");
+    DEBUG_LOG(LOGIDENTIFIER);
     ASSERT(m_cueContainer->contains(box));
 
     double boxHeight = box->boundingClientRect().height();
 
-    m_cueContainer->protectedClassList()->remove(textTrackCueContainerScrollingClass());
+    protect(m_cueContainer->classList())->remove(textTrackCueContainerScrollingClass());
 
     m_currentTop += boxHeight;
     m_cueContainer->setInlineStyleProperty(CSSPropertyTop, m_currentTop, CSSUnitType::CSS_PX);
@@ -310,7 +314,7 @@ void VTTRegion::willRemoveTextTrackCueBox(VTTCueBox* box)
 HTMLDivElement& VTTRegion::getDisplayTree()
 {
     if (!m_regionDisplayTree) {
-        lazyInitialize(m_regionDisplayTree, HTMLDivElement::create(*protectedDocument()));
+        lazyInitialize(m_regionDisplayTree, HTMLDivElement::create(*protect(document())));
         m_regionDisplayTree->setUserAgentPart(UserAgentParts::webkitMediaTextTrackRegion());
         m_recalculateStyles = true;
     }
@@ -333,7 +337,7 @@ void VTTRegion::prepareRegionDisplayTree()
     // The cue container is used to wrap the cues and it is the object which is
     // gradually scrolled out as multiple cues are appended to the region.
     if (!m_cueContainer) {
-        lazyInitialize(m_cueContainer, HTMLDivElement::create(*protectedDocument()));
+        lazyInitialize(m_cueContainer, HTMLDivElement::create(*protect(document())));
         m_cueContainer->setUserAgentPart(UserAgentParts::webkitMediaTextTrackRegionContainer());
         m_regionDisplayTree->appendChild(*m_cueContainer);
     }
@@ -380,7 +384,7 @@ void VTTRegion::prepareRegionDisplayTree()
 
 void VTTRegion::startTimer()
 {
-    LOG(Media, "VTTRegion::startTimer");
+    DEBUG_LOG(LOGIDENTIFIER);
 
     if (m_scrollTimer.isActive())
         return;
@@ -391,7 +395,7 @@ void VTTRegion::startTimer()
 
 void VTTRegion::stopTimer()
 {
-    LOG(Media, "VTTRegion::stopTimer");
+    DEBUG_LOG(LOGIDENTIFIER);
 
     if (m_scrollTimer.isActive())
         m_scrollTimer.stop();
@@ -399,16 +403,38 @@ void VTTRegion::stopTimer()
 
 void VTTRegion::scrollTimerFired()
 {
-    LOG(Media, "VTTRegion::scrollTimerFired");
+    DEBUG_LOG(LOGIDENTIFIER);
 
     stopTimer();
     displayLastTextTrackCueBox();
 }
 
-RefPtr<Document> VTTRegion::protectedDocument() const
+Document* VTTRegion::document() const
 {
-    return downcast<Document>(protectedScriptExecutionContext());
+    return downcast<Document>(scriptExecutionContext());
 }
+
+#if !RELEASE_LOG_DISABLED
+ASCIILiteral VTTRegion::logClassName() const
+{
+    return "VTTRegion"_s;
+}
+
+WTFLogChannel& VTTRegion::logChannel() const
+{
+    return LogMedia;
+}
+
+const Logger& VTTRegion::logger() const
+{
+    return *m_logger;
+}
+
+uint64_t VTTRegion::logIdentifier() const
+{
+    return m_logIdentifier;
+}
+#endif
 
 } // namespace WebCore
 

@@ -39,8 +39,8 @@ public:
     static Ref<WebGLSync> create(WebGLRenderingContextBase&);
 
     void updateCache(WebGLRenderingContextBase&);
-    GCGLint getCachedResult(GCGLenum pname) const;
-    bool isSignaled() const;
+    GCGLint NODELETE getCachedResult(GCGLenum pname) const;
+    bool NODELETE isSignaled() const;
     void scheduleAllowCacheUpdate(WebGLRenderingContextBase&);
 
     bool isUsable() const { return object() && !isDeleted(); }

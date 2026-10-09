@@ -34,6 +34,9 @@
 #include "ContextDestructionObserverInlines.h"
 #include "DocumentPage.h"
 #include "DocumentSecurityOrigin.h"
+#include "IDLTypes.h"
+#include "JSDOMConvertBoolean.h"
+#include "JSDOMConvertInterface.h"
 #include "JSDOMPromiseDeferred.h"
 #include "JSWebXRSession.h"
 #include "JSXRReferenceSpaceType.h"
@@ -57,7 +60,7 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(WebXRSystem);
 
 Ref<WebXRSystem> WebXRSystem::create(Navigator& navigator)
 {
-    auto system = adoptRef(*new WebXRSystem(navigator));
+    Ref system = adoptRef(*new WebXRSystem(navigator));
     system->suspendIfNeeded();
     return system;
 }
@@ -92,14 +95,14 @@ void WebXRSystem::ensureImmersiveXRDeviceIsSelected(CompletionHandler<void()>&& 
     }
 
     // https://immersive-web.github.io/webxr/#enumerate-immersive-xr-devices
-    auto document = downcast<Document>(scriptExecutionContext());
+    RefPtr document = dynamicDowncast<Document>(scriptExecutionContext());
     if (!document || !document->page()) {
         callback();
         return;
     }
 
     bool isFirstXRDevicesEnumeration = !m_immersiveXRDevicesHaveBeenEnumerated;
-    document->page()->chrome().client().enumerateImmersiveXRDevices([this, protectedThis = Ref { *this }, isFirstXRDevicesEnumeration, callback = WTF::move(callback)](auto& immersiveXRDevices) mutable {
+    document->page()->chrome().client().enumerateImmersiveXRDevices([this, protectedThis = protect(*this), isFirstXRDevicesEnumeration, callback = WTF::move(callback)](auto& immersiveXRDevices) mutable {
         m_immersiveXRDevicesHaveBeenEnumerated = true;
 
         auto callbackOnExit = makeScopeExit([&]() {
@@ -107,7 +110,7 @@ void WebXRSystem::ensureImmersiveXRDeviceIsSelected(CompletionHandler<void()>&& 
         });
 
         // https://immersive-web.github.io/webxr/#select-an-immersive-xr-device
-        auto oldDevice = m_activeImmersiveDevice.get();
+        RefPtr oldDevice { m_activeImmersiveDevice };
         if (immersiveXRDevices.isEmpty()) {
             m_activeImmersiveDevice = nullptr;
             return;
@@ -118,13 +121,13 @@ void WebXRSystem::ensureImmersiveXRDeviceIsSelected(CompletionHandler<void()>&& 
         }
 
         if (m_activeImmersiveSession && oldDevice && immersiveXRDevices.findIf([&](auto& entry) { return entry.ptr() == oldDevice; }) != notFound)
-            ASSERT(m_activeImmersiveDevice.get().get() == oldDevice.get());
+            ASSERT(m_activeImmersiveDevice.get() == oldDevice);
         else {
             // FIXME: implement a better UA selection mechanism if required.
             m_activeImmersiveDevice = immersiveXRDevices.first().get();
         }
 
-        if (isFirstXRDevicesEnumeration || m_activeImmersiveDevice.get().get() == oldDevice.get()) {
+        if (isFirstXRDevicesEnumeration || m_activeImmersiveDevice.get() == oldDevice) {
             return;
         }
 
@@ -163,7 +166,7 @@ void WebXRSystem::isSessionSupported(XRSessionMode mode, IsSessionSupportedPromi
 
     // 3. If the requesting document's origin is not allowed to use the "xr-spatial-tracking" feature policy,
     //    reject promise with a "SecurityError" DOMException and return it.
-    auto document = downcast<Document>(scriptExecutionContext());
+    RefPtr document = dynamicDowncast<Document>(scriptExecutionContext());
     if (!PermissionsPolicy::isFeatureEnabled(PermissionsPolicy::Feature::XRSpatialTracking, *document)) {
         promise.reject(Exception { ExceptionCode::SecurityError });
         return;
@@ -205,7 +208,7 @@ bool WebXRSystem::immersiveSessionRequestIsAllowedForGlobalObject(LocalDOMWindow
         return false;
 
     // https://immersive-web.github.io/webxr/#active-and-focused
-    if (!document.hasFocus() || !document.protectedSecurityOrigin()->isSameOriginAs(globalObject.document()->securityOrigin()))
+    if (!document.hasFocus() || !protect(document.securityOrigin())->isSameOriginAs(globalObject.document()->securityOrigin()))
         return false;
 
     // 3. If user intent to begin an immersive session is not well understood,
@@ -299,7 +302,7 @@ bool WebXRSystem::isFeatureSupported(PlatformXR::SessionFeature feature, XRSessi
 
 #if ENABLE(WEBXR_HANDS)
     if (feature == PlatformXR::SessionFeature::HandTracking) {
-        auto scriptExecutionContext = this->scriptExecutionContext();
+        RefPtr scriptExecutionContext = this->scriptExecutionContext();
         if (!scriptExecutionContext || !scriptExecutionContext->settingsValues().webXRHandInputModuleEnabled)
             return false;
     }
@@ -310,7 +313,7 @@ bool WebXRSystem::isFeatureSupported(PlatformXR::SessionFeature feature, XRSessi
         if (!isImmersive(mode))
             return false;
 
-        auto scriptExecutionContext = this->scriptExecutionContext();
+        RefPtr scriptExecutionContext = this->scriptExecutionContext();
         // FIXME: remove the testing check once the feature is stable.
         if (!scriptExecutionContext || (!scriptExecutionContext->settingsValues().webXRLayersAPIEnabled && !m_testingDevices))
             return false;
@@ -463,7 +466,7 @@ void WebXRSystem::resolveFeaturePermissions(XRSessionMode mode, const XRSessionI
     //        of these prompts should be included when determining if there is a clear signal of user intent to enable feature.
     //  10.2. If a clear signal of user intent to enable feature has not been determined, continue to the next entry.
     //  10.3. If feature is not in granted, append feature to granted.
-    auto document = downcast<Document>(scriptExecutionContext());
+    RefPtr document = dynamicDowncast<Document>(scriptExecutionContext());
     if (!document || !document->page()) {
         completionHandler(std::nullopt);
         return;
@@ -543,7 +546,7 @@ void WebXRSystem::requestSession(Document& document, XRSessionMode mode, const X
         //  - Reject promise with a "NotSupportedError" DOMException.
         //  - If immersive is true, set pending immersive session to false.
         //  - Abort these steps.
-        auto device = weakDevice.get();
+        RefPtr device { weakDevice };
         if (!device || !device->supports(mode))
             return;
 
@@ -572,7 +575,8 @@ void WebXRSystem::requestSession(Document& document, XRSessionMode mode, const X
 
             // 5.4.2 Let session be a new XRSession object.
             // 5.4.3 Initialize the session with session, mode, and device.
-            auto session = WebXRSession::create(protectedDocument.get(), *this, mode, *device, WTF::move(*requestedFeatures));
+            Ref session = WebXRSession::create(protectedDocument.get(), mode, *device, WTF::move(*requestedFeatures));
+            session->addSessionListener(*this);
 
             // 5.4.8 Potentially set the active immersive session as follows:
             if (immersive) {
@@ -600,7 +604,7 @@ void WebXRSystem::stop()
 
 void WebXRSystem::registerSimulatedXRDeviceForTesting(PlatformXR::Device& device)
 {
-    auto scriptExecutionContext = this->scriptExecutionContext();
+    RefPtr scriptExecutionContext = this->scriptExecutionContext();
     if (!scriptExecutionContext || !scriptExecutionContext->settingsValues().webXREnabled)
         return;
 
@@ -615,21 +619,21 @@ void WebXRSystem::registerSimulatedXRDeviceForTesting(PlatformXR::Device& device
 
 void WebXRSystem::unregisterSimulatedXRDeviceForTesting(PlatformXR::Device& device)
 {
-    auto scriptExecutionContext = this->scriptExecutionContext();
+    RefPtr scriptExecutionContext = this->scriptExecutionContext();
     if (!scriptExecutionContext || !scriptExecutionContext->settingsValues().webXREnabled)
         return;
 
     ASSERT(m_testingDevices);
     bool removed = m_immersiveDevices.remove(device);
-    ASSERT_UNUSED(removed, removed || m_inlineXRDevice.get().get() == &device);
-    if (m_activeImmersiveDevice.get().get() == &device)
+    ASSERT_UNUSED(removed, removed || m_inlineXRDevice.get() == &device);
+    if (m_activeImmersiveDevice.get() == &device)
         m_activeImmersiveDevice = nullptr;
-    if (m_inlineXRDevice.get().get() == &device)
+    if (m_inlineXRDevice.get() == &device)
         m_inlineXRDevice = m_defaultInlineDevice.get();
     m_testingDevices--;
 }
 
-void WebXRSystem::sessionEnded(WebXRSession& session)
+void WebXRSystem::onSessionEnded(const WebXRSession& session)
 {
     if (m_activeImmersiveSession == &session)
         m_activeImmersiveSession = nullptr;
@@ -653,7 +657,7 @@ public:
 
 private:
     InlineRequestAnimationFrameCallback(ScriptExecutionContext& scriptExecutionContext, Function<void()>&& callback)
-        : RequestAnimationFrameCallback(&scriptExecutionContext), m_callback(WTF::move(callback)) 
+        : RequestAnimationFrameCallback(&scriptExecutionContext), m_callback(WTF::move(callback))
     {
     }
 
@@ -687,11 +691,11 @@ void WebXRSystem::DummyInlineDevice::requestFrame(std::optional<PlatformXR::Requ
     if (!scriptExecutionContext())
         return;
     // Inline XR sessions rely on document.requestAnimationFrame to perform the render loop.
-    auto document = downcast<Document>(scriptExecutionContext());
+    RefPtr document = dynamicDowncast<Document>(scriptExecutionContext());
     if (!document)
         return;
 
-    auto raf = InlineRequestAnimationFrameCallback::create(*scriptExecutionContext(), [callback = WTF::move(callback)]() mutable {
+    Ref raf = InlineRequestAnimationFrameCallback::create(*scriptExecutionContext(), [callback = WTF::move(callback)]() mutable {
         PlatformXR::FrameData data;
         data.isTrackingValid = true;
         data.isPositionValid = true;

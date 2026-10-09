@@ -25,10 +25,10 @@
 
 #pragma once
 
-#include <WebCore/CSSAnimation.h>
-#include <WebCore/ScrollAxis.h>
-#include <WebCore/StyleNameScope.h>
-#include <WebCore/Styleable.h>
+#include "CSSAnimation.h"
+#include "ScrollAxis.h"
+#include "StyleNameScope.h"
+#include "Styleable.h"
 #include <wtf/CheckedRef.h>
 #include <wtf/WeakHashSet.h>
 #include <wtf/text/AtomStringHash.h>
@@ -77,14 +77,14 @@ public:
     void styleableWasRemoved(const Styleable&);
 
 private:
-    Vector<Ref<ScrollTimeline>>& timelinesForName(const AtomString&);
-    Vector<WeakStyleable> relatedTimelineScopeElements(const CustomIdentifier&);
+    Vector<Ref<ScrollTimeline>>& timelinesForName(const AtomString&) LIFETIME_BOUND;
+    Vector<WeakStyleable> relatedTimelineScopeElements(const Style::CustomIdent&);
     void updateCSSAnimationsAssociatedWithNamedTimeline(const AtomString&);
 
     enum class AllowsDeferral : bool { No, Yes };
     void attachAnimation(CSSAnimation&, AllowsDeferral);
-    ScrollTimeline* determineTimelineForElement(const Vector<Ref<ScrollTimeline>>&, const Styleable&, const Vector<WeakStyleable>&);
-    ScrollTimeline* determineTreeOrder(const Vector<Ref<ScrollTimeline>>&, const Styleable&, const Vector<WeakStyleable>&);
+    ScrollTimeline* determineTimelineForElement(const Vector<Ref<ScrollTimeline>>&, const Styleable&, const Element*);
+    ScrollTimeline* determineTreeOrder(const Vector<Ref<ScrollTimeline>>&, const Styleable&, const Element*);
     ScrollTimeline& inactiveNamedTimeline(const AtomString&);
 
     Vector<Ref<CSSAnimation>> m_cssAnimationsPendingAttachment;

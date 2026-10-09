@@ -34,10 +34,6 @@ WTF_DEFINE_GREF_TRAITS_INLINE(RiceUdpSocket, rice_udp_socket_ref, rice_udp_socke
 WTF_DEFINE_GREF_TRAITS_INLINE(RiceTlsConfig, rice_tls_config_ref, rice_tls_config_unref)
 WTF_DEFINE_GREF_TRAITS_INLINE(RiceTcpListener, rice_tcp_listener_ref, rice_tcp_listener_unref)
 
-#if !RICE_CHECK_VERSION(0, 4, 0)
-WTF_DEFINE_GREF_TRAITS_INLINE(RiceTurnConfig, rice_turn_config_ref, rice_turn_config_unref)
-#endif
-
 } // namespace WTF
 
 #endif // USE(LIBRICE)

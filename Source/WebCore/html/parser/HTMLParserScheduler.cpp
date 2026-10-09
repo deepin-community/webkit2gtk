@@ -42,7 +42,7 @@ namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(HTMLParserScheduler);
 
-static Seconds parserTimeLimit(Page* page)
+static Seconds NODELETE parserTimeLimit(Page* page)
 {
     // Always yield after exceeding this.
     constexpr auto defaultParserTimeLimit = 500_ms;
@@ -105,16 +105,21 @@ void HTMLParserScheduler::continueNextChunkTimerFired()
     ASSERT(!m_suspended);
     ASSERT(m_parser);
 
+    // If yield tokens are active, don't resume parsing. didEndYieldingParser()
+    // will schedule a new resume when the tokens are released.
+    if (m_documentHasActiveParserYieldTokens)
+        return;
+
     // FIXME: The timer class should handle timer priorities instead of this code.
     // If a layout is scheduled, wait again to let the layout timer run first.
     if (m_parser->document()->isLayoutPending()) {
         m_continueNextChunkTimer.startOneShot(0_s);
         return;
     }
-    m_parser->resumeParsingAfterYield();
+    Ref { *m_parser }->resumeParsingAfterYield();
 }
 
-static bool parsingProgressedSinceLastYield(PumpSession& session)
+static bool NODELETE parsingProgressedSinceLastYield(PumpSession& session)
 {
     // Only yield if there has been progress since last yield.
     if (session.processedTokens > session.processedTokensOnLastYieldBeforeScript) {

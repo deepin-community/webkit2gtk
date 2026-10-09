@@ -29,6 +29,10 @@
 #include "CallbackResult.h"
 #include <wtf/RefCounted.h>
 
+namespace JSC {
+class JSValue;
+}
+
 namespace WebCore {
 
 class ReducerCallback : public RefCounted<ReducerCallback>, public ActiveDOMCallback {
@@ -38,6 +42,8 @@ public:
     // ContextDestructionObserver.
     void ref() const final { RefCounted::ref(); }
     void deref() const final { RefCounted::deref(); }
+
+    virtual bool isJSReducerCallback() const { return false; }
 
     virtual CallbackResult<JSC::JSValue> invoke(JSC::JSValue, JSC::JSValue, uint64_t) = 0;
     virtual CallbackResult<JSC::JSValue> invokeRethrowingException(JSC::JSValue, JSC::JSValue, uint64_t) = 0;

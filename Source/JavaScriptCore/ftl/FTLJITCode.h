@@ -54,12 +54,12 @@ public:
 
     void initializeB3Code(CodeRef<JSEntryPtrTag>);
     void initializeB3Byproducts(std::unique_ptr<OpaqueByproducts>);
-    void initializeAddressForCall(CodePtr<JSEntryPtrTag>);
-    void initializeAddressForArityCheck(CodePtr<JSEntryPtrTag>);
+    void NODELETE initializeAddressForCall(CodePtr<JSEntryPtrTag>);
+    void NODELETE initializeAddressForArityCheck(CodePtr<JSEntryPtrTag>);
     
     void validateReferences(const TrackedReferences&) override;
 
-    RegisterSetBuilder liveRegistersToPreserveAtExceptionHandlingCallSite(CodeBlock*, CallSiteIndex) override;
+    RegisterSet liveRegistersToPreserveAtExceptionHandlingCallSite(CodeBlock*, CallSiteIndex) override;
 
     std::optional<CodeOrigin> findPC(CodeBlock*, void* pc) override;
 
@@ -75,7 +75,7 @@ public:
 
     PCToCodeOriginMap* pcToCodeOriginMap() override { return common.m_pcToCodeOriginMap.get(); }
 
-    const RegisterAtOffsetList* calleeSaveRegisters() const { return &m_calleeSaveRegisters; }
+    const RegisterAtOffsetList* calleeSaveRegisters() const LIFETIME_BOUND { return &m_calleeSaveRegisters; }
 
     unsigned numberOfCompiledDFGNodes() const { return m_numberOfCompiledDFGNodes; }
     void setNumberOfCompiledDFGNodes(unsigned numberOfCompiledDFGNodes)

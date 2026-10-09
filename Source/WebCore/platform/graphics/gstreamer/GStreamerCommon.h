@@ -27,20 +27,17 @@
 #include <gst/gst.h>
 #include <gst/video/video-format.h>
 #include <gst/video/video-info.h>
+#include <wtf/Lock.h>
 #include <wtf/Logger.h>
 #include <wtf/StdLibExtras.h>
 #include <wtf/TZoneMalloc.h>
 #include <wtf/ThreadSafeRefCounted.h>
+#include <wtf/ThreadSafeWeakPtr.h>
 #include <wtf/text/CStringView.h>
 
 #if USE(GSTREAMER_GL)
 #include "GraphicsTypesGL.h"
 #endif
-
-namespace WTF {
-class MediaTime;
-class URL;
-}
 
 namespace WebCore {
 
@@ -106,11 +103,7 @@ void deinitializeGStreamer();
 
 unsigned getGstPlayFlag(ASCIILiteral nick);
 uint64_t toGstUnsigned64Time(const WTF::MediaTime&);
-
-inline GstClockTime toGstClockTime(const WTF::MediaTime& mediaTime)
-{
-    return static_cast<GstClockTime>(toGstUnsigned64Time(mediaTime));
-}
+GstClockTime toGstClockTime(const WTF::MediaTime&);
 
 GstClockTime toGstClockTime(const Seconds&);
 WTF::MediaTime fromGstClockTime(GstClockTime);
@@ -285,7 +278,7 @@ enum class AsynchronousPipelineDumping : bool { No, Yes };
 void connectSimpleBusMessageCallback(GstElement*, Function<void(GstMessage*)>&& = [](GstMessage*) { }, AsynchronousPipelineDumping = AsynchronousPipelineDumping::No);
 void disconnectSimpleBusMessageCallback(GstElement*);
 
-enum class GstVideoDecoderPlatform { ImxVPU, Video4Linux, OpenMAX };
+enum class GstVideoDecoderPlatform { ImxVPU, Video4Linux, OpenMAX, Qualcomm };
 
 bool isGStreamerPluginAvailable(ASCIILiteral name);
 bool gstElementFactoryEquals(GstElement*, ASCIILiteral name);
@@ -322,6 +315,7 @@ GstClockTime webkitGstInitTime();
 PlatformVideoColorSpace videoColorSpaceFromCaps(const GstCaps*);
 PlatformVideoColorSpace videoColorSpaceFromInfo(const GstVideoInfo&);
 void fillVideoInfoColorimetryFromColorSpace(GstVideoInfo*, const PlatformVideoColorSpace&);
+GstVideoColorimetry colorimetryFromColorSpace(const PlatformVideoColorSpace&);
 
 void configureAudioDecoderForHarnessing(const GRefPtr<GstElement>&);
 void configureVideoDecoderForHarnessing(const GRefPtr<GstElement>&);
@@ -351,7 +345,7 @@ class WebCoreLogObserver : public Logger::Observer {
     friend NeverDestroyed<WebCoreLogObserver>;
 public:
     explicit WebCoreLogObserver() = default;
-    void didLogMessage(const WTFLogChannel&, WTFLogLevel, Vector<JSONLogValue>&&) final;
+    void didLogMessage(const WTFLogChannel&, WTFLogLevel, std::optional<WTFLogLocation>, Vector<JSONLogValue>&&) final;
 
     virtual GstDebugCategory* debugCategory() const = 0;
     virtual bool shouldEmitLogMessage(const WTFLogChannel&) const = 0;
@@ -386,6 +380,75 @@ bool setGstElementGLContext(GstElement*, ASCIILiteral contextType);
 GstStateChangeReturn gstElementLockAndSetState(GstElement*, GstState);
 
 GRefPtr<GstElement> createVideoConvertScaleElement(const String& name = emptyString());
+
+void dumpBinToDotFile(GstBin*, const String&, GstDebugGraphDetails = GST_DEBUG_GRAPH_SHOW_ALL);
+void dumpBinToDotFile(const GRefPtr<GstElement>&, const String&, GstDebugGraphDetails = GST_DEBUG_GRAPH_SHOW_ALL);
+
+GstDebugLevel gstDebugLevelFromWTFLogLevel(WTFLogLevel);
+
+template<class T>
+class PadProbeHandle : public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<PadProbeHandle<T>, WTF::DestructionThread::Main> {
+public:
+    using PadProbeCallback = Function<GstPadProbeReturn(const RefPtr<T>&, const GRefPtr<GstPad>&, GstPadProbeInfo*)>;
+    static RefPtr<PadProbeHandle> create(const T& owner, GRefPtr<GstPad>&& pad, GstPadProbeType probeType, PadProbeCallback&& callback)
+    {
+        return adoptRef(*new PadProbeHandle<T>(owner, WTF::move(pad), probeType, WTF::move(callback)));
+    }
+
+    ~PadProbeHandle()
+    {
+        Locker locker { m_lock };
+        if (!m_id)
+            return;
+        gst_pad_remove_probe(m_pad.get(), m_id);
+    }
+
+    const GRefPtr<GstPad>& pad() const { return m_pad; }
+
+private:
+    PadProbeHandle(const T& owner, GRefPtr<GstPad>&& pad, GstPadProbeType probeType, PadProbeCallback&& callback)
+        : m_pad(WTF::move(pad))
+        , m_owner(owner)
+        , m_callback(WTF::move(callback))
+    {
+        // The m_lock cannot be taken right away because if we are adding an idle probe its callback
+        // might be triggered during the add_probe_call, potentially leading to a deadlock in cases
+        // where owner is nullptr and where result is GST_PAD_PROBE_REMOVE.
+        auto id = gst_pad_add_probe(m_pad.get(), probeType, reinterpret_cast<GstPadProbeCallback>(+[](GstPad*, GstPadProbeInfo* info, gpointer userData) -> GstPadProbeReturn {
+            RefPtr self = reinterpret_cast<ThreadSafeWeakPtr<PadProbeHandle<T>>*>(userData)->get();
+            if (!self)
+                return GST_PAD_PROBE_REMOVE;
+
+            RefPtr owner = self->m_owner.get();
+            if (!owner) {
+                self->setId(0);
+                return GST_PAD_PROBE_REMOVE;
+            }
+
+            auto result = self->m_callback(owner, self->m_pad, info);
+            if (result == GST_PAD_PROBE_REMOVE)
+                self->setId(0);
+
+            return result;
+        }), new ThreadSafeWeakPtr<PadProbeHandle<T>> { this }, reinterpret_cast<GDestroyNotify>(+[](gpointer data) {
+            delete static_cast<ThreadSafeWeakPtr<PadProbeHandle<T>>*>(data);
+        }));
+
+        setId(id);
+    }
+
+    void setId(unsigned long id)
+    {
+        Locker locker { m_lock };
+        m_id = id;
+    }
+
+    Lock m_lock;
+    unsigned long m_id WTF_GUARDED_BY_LOCK(m_lock);
+    GRefPtr<GstPad> m_pad;
+    WTF::ThreadSafeWeakPtr<T> m_owner;
+    PadProbeCallback m_callback;
+};
 
 } // namespace WebCore
 
@@ -494,13 +557,11 @@ private:
 GstBuffer* gst_buffer_new_memdup(gconstpointer data, gsize size);
 #endif
 
-#if !GST_CHECK_VERSION(1, 27, 3)
+#if !GST_CHECK_VERSION(1, 28, 0)
 void gst_pad_probe_info_set_buffer(GstPadProbeInfo*, GstBuffer*);
 void gst_pad_probe_info_set_event(GstPadProbeInfo*, GstEvent*);
-#endif
-
-#if !GST_CHECK_VERSION(1, 28, 0)
 #define gst_state_get_name gst_element_state_get_name
+#define gst_state_change_return_get_name gst_element_state_change_return_get_name
 #endif
 
 #endif // USE(GSTREAMER)

@@ -17,9 +17,9 @@
 #include "include/core/SkScalar.h"
 #include "include/core/SkSpan.h"
 #include "include/core/SkTypes.h"
-#include "include/private/base/SkDebug.h"
-#include "include/private/base/SkTo.h"
-#include "include/private/base/SkTypeTraits.h"
+#include "include/private/SkDebug.h"
+#include "include/private/SkTo.h"
+#include "include/private/SkTypeTraits.h"
 
 #include <atomic>
 #include <cstddef>
@@ -33,7 +33,6 @@ class SkWStream;
 enum class SkPathConvexity;
 enum class SkResolveConvexity;
 struct SkPathRaw;
-struct SkPathVerbAnalysis;
 struct SkPathOvalInfo;
 struct SkPathRRectInfo;
 
@@ -57,8 +56,7 @@ class SkPathData;
     outside the geometry. SkPath also describes the winding rule used to fill
     overlapping contours.
 
-    Internally, SkPath lazily computes metrics likes bounds and convexity. Call
-    SkPath::updateBoundsCache to make SkPath thread safe.
+    Internally, SkPath lazily computes convexity.
 */
 class SK_API SkPath {
 public:
@@ -143,7 +141,8 @@ public:
 
         example: https://fiddle.skia.org/c/@Path_copy_const_SkPath
     */
-    SkPath(const SkPath& path);
+    SkPath(const SkPath&);
+    SkPath(SkPath&&);
 
     /** Releases ownership of any shared data and deletes data if SkPath is sole owner.
 
@@ -170,7 +169,8 @@ public:
 
         example: https://fiddle.skia.org/c/@Path_copy_operator
     */
-    SkPath& operator=(const SkPath& path);
+    SkPath& operator=(const SkPath&);
+    SkPath& operator=(SkPath&&);
 
     /** Compares a and b; returns true if SkPath::FillType, verb array, SkPoint array, and weights
         are equivalent.
@@ -509,19 +509,6 @@ public:
     */
     const SkRect& getBounds() const;
 
-    /** Updates internal bounds so that subsequent calls to getBounds() are instantaneous.
-        Unaltered copies of SkPath may also access cached bounds through getBounds().
-
-        For now, identical to calling getBounds() and ignoring the returned value.
-
-        Call to prepare SkPath subsequently drawn from multiple threads,
-        to avoid a race condition where each draw separately computes the bounds.
-    */
-    void updateBoundsCache() const {
-        // for now, just calling getBounds() is sufficient
-        this->getBounds();
-    }
-
     /** Returns minimum and maximum axes values of the lines and curves in SkPath.
         Returns (0, 0, 0, 0) if SkPath contains no points.
         Returned bounds width and height may be larger or smaller than area affected
@@ -555,15 +542,6 @@ public:
         example: https://fiddle.skia.org/c/@Path_conservativelyContainsRect
     */
     bool conservativelyContainsRect(const SkRect& rect) const;
-
-    /** \enum SkPath::ArcSize
-        Four oval parts with radii (rx, ry) start at last SkPath SkPoint and ends at (x, y).
-        ArcSize and Direction select one of the four oval parts.
-    */
-    enum ArcSize {
-        kSmall_ArcSize, //!< smaller of arc pair
-        kLarge_ArcSize, //!< larger of arc pair
-    };
 
     /** Approximates conic with quad array. Conic is constructed from start SkPoint p0,
         control SkPoint p1, end SkPoint p2, and weight w.
@@ -765,29 +743,6 @@ public:
         example: https://fiddle.skia.org/c/@Path_reset
     */
     SkPath& reset();
-
-#ifdef SK_SUPPORT_UNSPANNED_APIS
-    static SkPath Make(const SkPoint points[], int pointCount,
-                       const uint8_t verbs[], int verbCount,
-                       const SkScalar conics[], int conicWeightCount,
-                       SkPathFillType fillType, bool isVolatile = false) {
-        return Make({points, pointCount},
-                    {verbs, verbCount},
-                    {conics, conicWeightCount},
-                    fillType, isVolatile);
-    }
-    static SkPath Polygon(const SkPoint pts[], int count, bool isClosed,
-                          SkPathFillType fillType = SkPathFillType::kWinding,
-                          bool isVolatile = false) {
-        return Polygon({pts, count}, isClosed, fillType, isVolatile);
-    }
-    int getPoints(SkPoint points[], int max) const {
-        return (int)this->getPoints({points, max});
-    }
-    int getVerbs(uint8_t verbs[], int max) const {
-        return (int)this->getVerbs({verbs, max});
-    }
-#endif  // SK_SUPPORT_UNSPANNED_APIS
 
     SkPathIter iter() const;
 
@@ -1124,14 +1079,10 @@ public:
     static std::optional<SkPath> ReadFromMemory(const void* buffer, size_t length,
                                                 size_t* bytesRead = nullptr);
 
-    /** (See skbug.com/40032862)
-        Returns a non-zero, globally unique value. A different value is returned
+    /** Returns a non-zero, globally unique value. A different value is returned
         if verb array, SkPoint array, or conic weight changes.
 
         Setting SkPath::FillType does not change generation identifier.
-
-        Each time the path is modified, a different generation identifier will be returned.
-        SkPath::FillType does affect generation identifier on Android framework.
 
         @return  non-zero, globally unique value
 
@@ -1160,7 +1111,6 @@ private:
     bool              fIsVolatile;
 
     size_t writeToMemoryAsRRect(void* buffer) const;
-    size_t readAsRRect(const void*, size_t);
 
     friend class Iter;
     friend class SkPathPriv;

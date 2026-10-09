@@ -32,16 +32,22 @@
 
 #include <JavaScriptCore/Options.h>
 #include <limits.h>
+#include <wtf/text/ASCIILiteral.h>
 #include <wtf/text/StringImpl.h>
+
+namespace JSC {
+class FunctionAllowlist;
+}
 
 namespace JSC { namespace DFG {
 
+class Graph;
 struct Node;
 
 typedef uint32_t BlockIndex;
 static constexpr BlockIndex NoBlock = UINT_MAX;
 
-extern const char* const tierName;
+inline constexpr ASCIILiteral tierName { "DFG "_s };
 
 // Use RefChildren if the child ref counts haven't already been adjusted using
 // other means and either of the following is true:
@@ -77,12 +83,7 @@ inline bool logCompilationChanges(JITCompilationMode mode = JITCompilationMode::
     return verboseCompilationEnabled(mode) || Options::logCompilationChanges();
 }
 
-inline bool shouldDumpGraphAtEachPhase(JITCompilationMode mode = JITCompilationMode::DFG)
-{
-    if (isFTL(mode))
-        return Options::dumpGraphAtEachPhase() || Options::dumpDFGFTLGraphAtEachPhase();
-    return Options::dumpGraphAtEachPhase() || Options::dumpDFGGraphAtEachPhase();
-}
+inline bool shouldDumpGraphAtEachPhase(Graph&);
 
 inline bool validationEnabled()
 {
@@ -151,8 +152,6 @@ enum PredictionPass {
 };
 
 enum StructureRegistrationState { HaveNotStartedRegistering, AllStructuresAreRegistered };
-
-enum StructureRegistrationResult { StructureRegisteredNormally, StructureRegisteredAndWatched };
 
 enum OptimizationFixpointState { BeforeFixpoint, FixpointNotConverged, FixpointConverged };
 
@@ -254,7 +253,8 @@ inline KillStatus killStatusForDoesKill(bool doesKill)
 enum class PlanStage {
     Initial,
     AfterFixup,
-    LICMAndLater
+    LICMAndLater, // Inclusive of LICM
+    AfterStackLayout,
 };
 
 // If possible, this will acquire a lock to make sure that if multiple threads
@@ -262,7 +262,7 @@ enum class PlanStage {
 // when you're forcing a crash with diagnostics.
 void startCrashing();
 
-JS_EXPORT_PRIVATE bool isCrashing();
+JS_EXPORT_PRIVATE bool NODELETE isCrashing();
 
 struct NodeAndIndex {
     NodeAndIndex()
@@ -291,6 +291,14 @@ struct NodeAndIndex {
 // relation on characters. Ensures that if a is a prefix of b, then a < b.
 bool stringLessThan(StringImpl& a, StringImpl& b);
 
+// Get the global DFG allowlist for filtering which functions can be DFG-compiled
+JSC::FunctionAllowlist& ensureGlobalDFGAllowlist();
+
+#if ENABLE(FTL_JIT)
+// Get the global FTL allowlist for filtering which functions can be FTL-compiled
+JSC::FunctionAllowlist& ensureGlobalFTLAllowlist();
+#endif
+
 } } // namespace JSC::DFG
 
 namespace WTF {
@@ -309,7 +317,7 @@ namespace JSC { namespace DFG {
 
 // Put things here that must be defined even if ENABLE(DFG_JIT) is false.
 
-enum CapabilityLevel {
+enum CapabilityLevel : uint8_t {
     CannotCompile,
     CanCompile,
     CanCompileAndInline,

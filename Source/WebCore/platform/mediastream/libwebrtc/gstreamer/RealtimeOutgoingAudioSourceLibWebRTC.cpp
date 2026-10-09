@@ -87,8 +87,8 @@ void RealtimeOutgoingAudioSourceLibWebRTC::audioSamplesAvailable(const MediaTime
         m_inputStreamDescription = desc.getInfo();
         m_outputStreamDescription = libwebrtcAudioFormat(LibWebRTCAudioFormat::sampleRate, desc.numberOfChannels());
 #ifndef GST_DISABLE_GST_DEBUG
-        auto inputCaps = adoptGRef(gst_audio_info_to_caps(&m_inputStreamDescription));
-        auto outputCaps = adoptGRef(gst_audio_info_to_caps(&m_outputStreamDescription));
+        GRefPtr inputCaps = adoptGRef(gst_audio_info_to_caps(&m_inputStreamDescription));
+        GRefPtr outputCaps = adoptGRef(gst_audio_info_to_caps(&m_outputStreamDescription));
         GST_TRACE("Converting from %" GST_PTR_FORMAT " to %" GST_PTR_FORMAT, inputCaps.get(), outputCaps.get());
 #endif
         m_sampleConverter.reset(gst_audio_converter_new(GST_AUDIO_CONVERTER_FLAG_IN_WRITABLE, &m_inputStreamDescription,
@@ -101,9 +101,27 @@ void RealtimeOutgoingAudioSourceLibWebRTC::audioSamplesAvailable(const MediaTime
         auto* buffer = gst_sample_get_buffer(sample.get());
         gst_adapter_push(m_adapter.get(), gst_buffer_ref(buffer));
     }
-    LibWebRTCProvider::callOnWebRTCSignalingThread([protectedThis = Ref { *this }] {
+    LibWebRTCProvider::callOnWebRTCSignalingThread([protectedThis = protect(*this)] {
         protectedThis->pullAudioData();
     });
+}
+
+static std::optional<size_t> gstAudioConverterInputFramesForOutput(GstAudioConverter* converter, size_t outputFrames, size_t availableFrames)
+{
+    // gst_audio_converter_get_in_frames() derives its answer from the resampler phase and leaves out the
+    // filter history the resampler has yet to accumulate, so on its own it asks for fewer frames than a
+    // whole chunk needs and the resampler then reads past the end of its input. Only get_out_frames()
+    // accounts for that history, so it decides both whether a chunk fits and how large it has to be.
+    if (gst_audio_converter_get_out_frames(converter, availableFrames) < outputFrames)
+        return std::nullopt;
+
+    // With a fractional ratio the phase estimate can also sit one frame above what the accumulated
+    // history makes sufficient, so never start the search beyond the frames actually available.
+    auto inputFrames = std::min<size_t>(gst_audio_converter_get_in_frames(converter, outputFrames), availableFrames);
+    while (gst_audio_converter_get_out_frames(converter, inputFrames) < outputFrames)
+        inputFrames++;
+
+    return inputFrames;
 }
 
 void RealtimeOutgoingAudioSourceLibWebRTC::pullAudioData()
@@ -115,19 +133,31 @@ void RealtimeOutgoingAudioSourceLibWebRTC::pullAudioData()
 
     size_t outChunkSampleCount = LibWebRTCAudioFormat::chunkSampleCount;
     size_t outBufferSize = outChunkSampleCount * m_outputStreamDescription.bpf;
+    m_audioBuffer.grow(outBufferSize);
 
     Locker locker { m_adapterLock };
-    size_t inChunkSampleCount = gst_audio_converter_get_in_frames(m_sampleConverter.get(), outChunkSampleCount);
-    size_t inBufferSize = inChunkSampleCount * m_inputStreamDescription.bpf;
+    while (gst_adapter_available(m_adapter.get())) {
+        bool silenced = isSilenced();
+        size_t availableFrames = gst_adapter_available(m_adapter.get()) / m_inputStreamDescription.bpf;
+        size_t inChunkSampleCount;
+        if (silenced) {
+            // Silence bypasses the converter, so consume input at the nominal rate to keep pacing.
+            inChunkSampleCount = gst_audio_converter_get_in_frames(m_sampleConverter.get(), outChunkSampleCount);
+            if (inChunkSampleCount > availableFrames)
+                break;
+        } else {
+            auto frames = gstAudioConverterInputFramesForOutput(m_sampleConverter.get(), outChunkSampleCount, availableFrames);
+            if (!frames)
+                break;
+            inChunkSampleCount = *frames;
+        }
 
-    while (gst_adapter_available(m_adapter.get()) > inBufferSize) {
-        auto inBuffer = adoptGRef(gst_adapter_take_buffer(m_adapter.get(), inBufferSize));
-        m_audioBuffer.grow(outBufferSize);
-        if (isSilenced()) {
+        GRefPtr inBuffer = adoptGRef(gst_buffer_make_writable(gst_adapter_take_buffer(m_adapter.get(), inChunkSampleCount * m_inputStreamDescription.bpf)));
+        if (silenced) {
             GST_TRACE("Audio buffer will contain silence");
             webkitGstAudioFormatFillSilence(m_outputStreamDescription.finfo, m_audioBuffer.mutableSpan().data(), outBufferSize);
         } else {
-            GstMappedBuffer inMap(inBuffer.get(), GST_MAP_READ);
+            GstMappedBuffer inMap(inBuffer, GST_MAP_READWRITE);
 
             gpointer in[1] = { inMap.data() };
             gpointer out[1] = { m_audioBuffer.mutableSpan().data() };

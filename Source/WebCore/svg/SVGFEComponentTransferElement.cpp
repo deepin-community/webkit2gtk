@@ -82,13 +82,13 @@ RefPtr<FilterEffect> SVGFEComponentTransferElement::createFilterEffect(const Fil
     return FEComponentTransfer::create(WTF::move(functions));
 }
 
-static bool isRelevantTransferFunctionElement(const Element& child)
+static bool NODELETE isRelevantTransferFunctionElement(const Element& child)
 {
     auto name = child.elementName();
 
     ASSERT(is<SVGComponentTransferFunctionElement>(child));
 
-    for (CheckedPtr laterSibling = child.nextElementSibling(); laterSibling; laterSibling = laterSibling->nextElementSibling()) {
+    for (auto* laterSibling = child.nextElementSibling(); laterSibling; laterSibling = laterSibling->nextElementSibling()) {
         if (laterSibling->elementName() == name)
             return false;
     }
@@ -121,7 +121,7 @@ bool SVGFEComponentTransferElement::setFilterEffectAttributeFromChild(FilterEffe
     case AttributeNames::offsetAttr:
         return effect.setOffset(child->channel(), child->offset());
     case AttributeNames::tableValuesAttr:
-        return effect.setTableValues(child->channel(), child->tableValues());
+        return effect.setTableValues(protect(child)->channel(), child->tableValues());
     default:
         break;
     }

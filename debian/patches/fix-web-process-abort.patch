@@ -1,0 +1,27 @@
+From: Claudio Saavedra <csaavedra@igalia.com>
+Subject: Web process launch aborts for unix: PULSE_SERVER values and abstract D-Bus addresses
+Bug: https://bugs.webkit.org/show_bug.cgi?id=326070
+Bug-Debian: https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=1149690
+Origin: https://github.com/WebKit/WebKit/pull/75655
+Index: webkitgtk/Source/WebKit/UIProcess/Launcher/glib/BubblewrapLauncher.cpp
+===================================================================
+--- webkitgtk.orig/Source/WebKit/UIProcess/Launcher/glib/BubblewrapLauncher.cpp
++++ webkitgtk/Source/WebKit/UIProcess/Launcher/glib/BubblewrapLauncher.cpp
+@@ -294,7 +294,7 @@ static void bindPulse(Vector<CString>& a
+     if (pulseServer) {
+         auto pulseServerString = CStringView::unsafeFromUTF8(pulseServer);
+         if (startsWith(pulseServerString.span(), "unix:"_s))
+-            bindIfExists(args, CStringView::fromUTF8(pulseServerString.span().subspan(5)), BindFlags::ReadWrite);
++            bindIfExists(args, CStringView::fromUTF8(pulseServerString.spanIncludingNullTerminator().subspan(5)), BindFlags::ReadWrite);
+         // else it uses tcp
+     } else {
+         const char* runtimeDir = g_get_user_runtime_dir();
+@@ -760,7 +760,7 @@ static std::optional<CString> directoryC
+     if (!dbusAddressString.startsWith("unix:"_s))
+         return std::nullopt;
+ 
+-    if (auto pathStart = dbusAddressString.find("path="_s)) {
++    if (auto pathStart = dbusAddressString.find("path="_s); pathStart != notFound) {
+         pathStart += strlen("path=");
+ 
+         auto pathEnd = dbusAddressString.find(',', pathStart);

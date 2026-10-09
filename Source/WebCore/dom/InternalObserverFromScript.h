@@ -39,16 +39,16 @@ struct SubscriptionObserver;
 class InternalObserverFromScript final : public InternalObserver {
 public:
     static Ref<InternalObserverFromScript> create(ScriptExecutionContext&, RefPtr<JSSubscriptionObserverCallback>);
-    static Ref<InternalObserverFromScript> create(ScriptExecutionContext&, SubscriptionObserver&);
+    static Ref<InternalObserverFromScript> create(ScriptExecutionContext&, SubscriptionObserver&&);
 
     explicit InternalObserverFromScript(ScriptExecutionContext&, RefPtr<JSSubscriptionObserverCallback>);
-    explicit InternalObserverFromScript(ScriptExecutionContext&, SubscriptionObserver&);
+    explicit InternalObserverFromScript(ScriptExecutionContext&, SubscriptionObserver&&);
 
     void next(JSC::JSValue) final;
     void error(JSC::JSValue) final;
     void complete() final;
 
-    void visitAdditionalChildren(JSC::AbstractSlotVisitor&) const final;
+    void visitAdditionalChildrenInGCThread(JSC::AbstractSlotVisitor&) const final;
 
 protected:
     // ActiveDOMObject

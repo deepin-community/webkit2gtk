@@ -30,7 +30,6 @@
 #include <numeric>
 #include <wtf/DataLog.h>
 #include <wtf/StringPrintStream.h>
-#include <wtf/UniqueRef.h>
 
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
@@ -242,7 +241,7 @@ struct ExpressionInfo::Diff {
     using FieldID = ExpressionInfo::FieldID;
 
     template<unsigned bitCount>
-    void set(FieldID fieldID, unsigned value)
+    void NODELETE set(FieldID fieldID, unsigned value)
     {
         switch (fieldID) {
         case FieldID::InstPC:

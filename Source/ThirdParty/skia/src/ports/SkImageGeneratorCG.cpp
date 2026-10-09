@@ -7,7 +7,7 @@
 #include "include/ports/SkImageGeneratorCG.h"
 
 #include "include/codec/SkEncodedOrigin.h"
-#include "include/private/base/SkTemplates.h"
+#include "include/private/SkTemplates.h"
 #include "include/utils/mac/SkCGUtils.h"
 #include "src/codec/SkPixmapUtilsPriv.h"
 #include "src/utils/mac/SkUniqueCFRef.h"
@@ -31,11 +31,7 @@ public:
                      SkEncodedOrigin);
 
 protected:
-#if defined(SK_DISABLE_LEGACY_NONCONST_ENCODED_IMAGE_DATA)
     sk_sp<const SkData> onRefEncodedData() override;
-#else
-    sk_sp<SkData> onRefEncodedData() override;
-#endif
     bool onGetPixels(const SkImageInfo&, void* pixels, size_t rowBytes, const Options&) override;
 
 private:
@@ -117,13 +113,7 @@ ImageGeneratorCG::ImageGeneratorCG(const SkImageInfo& info,
                                    SkEncodedOrigin origin)
         : INHERITED(info), fImageSrc(std::move(src)), fData(std::move(data)), fOrigin(origin) {}
 
-#if defined(SK_DISABLE_LEGACY_NONCONST_ENCODED_IMAGE_DATA)
 sk_sp<const SkData> ImageGeneratorCG::onRefEncodedData() { return fData; }
-#else
-sk_sp<SkData> ImageGeneratorCG::onRefEncodedData() {
-    return sk_ref_sp(const_cast<SkData*>(fData.get()));
-}
-#endif
 
 bool ImageGeneratorCG::onGetPixels(const SkImageInfo& info, void* pixels, size_t rowBytes,
                                    const Options&)

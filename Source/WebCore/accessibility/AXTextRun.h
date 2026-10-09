@@ -25,7 +25,7 @@
 
 #pragma once
 
-#if ENABLE(AX_THREAD_TEXT_APIS)
+#if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
 
 #include <CoreText/CTFont.h>
 #include <WebCore/AXLoggerBase.h>
@@ -126,7 +126,7 @@ public:
     bool containsOnlyASCII { true };
 
     AXTextRuns() = default;
-    AXTextRuns(RenderBlock* containingBlock, Vector<AXTextRun>&& textRuns, String&& text, bool containsOnlyASCII = true)
+    AXTextRuns(void* containingBlock, Vector<AXTextRun>&& textRuns, String&& text, bool containsOnlyASCII = true)
         : text(WTF::move(text))
         , containingBlock(containingBlock)
         , runs(WTF::move(textRuns))
@@ -152,10 +152,10 @@ public:
         unsigned size = runs.size();
         return size ? runLengthSumTo(size - 1) : 0;
     }
-    unsigned runLengthSumTo(size_t index) const;
-    unsigned domOffset(unsigned) const;
+    unsigned NODELETE runLengthSumTo(size_t index) const;
+    unsigned NODELETE domOffset(unsigned) const;
 
-    size_t indexForOffset(unsigned textOffset, Affinity) const;
+    size_t NODELETE indexForOffset(unsigned textOffset, Affinity) const;
     AXTextRunLineID lineID(size_t index) const { return { containingBlock, runs[index].lineIndex }; }
     String toString() const { return text; }
     StringView toStringView() const { return StringView(text); }
@@ -180,10 +180,14 @@ public:
     //   {x: width_of_single_b, y: |lineHeight| * 1, width: width_of_two_b, height: |lineHeight * 1|}
     FloatRect localRect(unsigned start, unsigned end, FontOrientation) const;
 
+    // Like localRect(), but returns a separate rect for each line rather than a single union.
+    // Used to build non-rectangular (shrink-wrapped) paths for multi-line elements.
+    Vector<FloatRect> localRectsPerLine(unsigned start, unsigned end, FontOrientation) const;
+
     // Convenience methods for TextUnit movement.
     bool runStartsWithLineBreak(size_t runIndex) const { return text[runs[runIndex].startIndex] == '\n'; }
     bool runEndsWithLineBreak(size_t runIndex) const { return text[runs[runIndex].endIndex - 1] == '\n'; }
 };
 
 } // namespace WebCore
-#endif // ENABLE(AX_THREAD_TEXT_APIS)
+#endif // ENABLE(ACCESSIBILITY_ISOLATED_TREE)

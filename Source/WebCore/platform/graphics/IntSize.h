@@ -32,7 +32,6 @@
 #include <wtf/JSONValues.h>
 #include <wtf/Forward.h>
 #include <wtf/MathExtras.h>
-#include <wtf/Platform.h>
 
 #if USE(CG)
 typedef struct CGSize CGSize;
@@ -177,7 +176,7 @@ public:
     WEBCORE_EXPORT operator SIZE() const;
 #endif
 
-    String toJSONString() const;
+    WEBCORE_EXPORT String toJSONString() const;
     Ref<JSON::Object> toJSONObject() const;
 
 private:

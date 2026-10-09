@@ -72,7 +72,8 @@ WorkerThreadableLoader::~WorkerThreadableLoader()
 
 void WorkerThreadableLoader::loadResourceSynchronously(WorkerOrWorkletGlobalScope& workerOrWorkletGlobalScope, ResourceRequest&& request, ThreadableLoaderClient& client, const ThreadableLoaderOptions& options)
 {
-    WorkerRunLoop& runLoop = workerOrWorkletGlobalScope.workerOrWorkletThread()->runLoop();
+    RefPtr workerOrWorkletThread = workerOrWorkletGlobalScope.workerOrWorkletThread();
+    auto& runLoop = workerOrWorkletThread->runLoop();
 
     // Create a unique mode just for this synchronous resource load.
     auto mode = makeString("loadResourceSynchronouslyMode"_s, runLoop.createUniqueId());
@@ -191,7 +192,7 @@ WorkerThreadableLoader::MainThreadBridge::MainThreadBridge(ThreadableLoaderClien
 
 WorkerThreadableLoader::MainThreadBridge::~MainThreadBridge()
 {
-    if (RefPtr loader = m_mainThreadLoader)
+    if (auto* loader = m_mainThreadLoader.get())
         loader->clearClient();
 }
 
@@ -296,14 +297,13 @@ void WorkerThreadableLoader::MainThreadBridge::didFail(std::optional<ScriptExecu
 
 void WorkerThreadableLoader::MainThreadBridge::didFinishTiming(const ResourceTiming& resourceTiming)
 {
-    m_networkLoadMetrics = resourceTiming.networkLoadMetrics();
     ScriptExecutionContext::postTaskForModeToWorkerOrWorklet(m_contextIdentifier, [protectedWorkerClientWrapper = m_workerClientWrapper, resourceTiming = resourceTiming.isolatedCopy()] (ScriptExecutionContext& context) mutable {
         ASSERT(context.isWorkerGlobalScope() || context.isWorkletGlobalScope());
         ASSERT(!resourceTiming.initiatorType().isEmpty());
 
         // No need to notify clients, just add the performance timing entry.
         if (auto* globalScope = dynamicDowncast<WorkerGlobalScope>(context))
-            globalScope->protectedPerformance()->addResourceTiming(WTF::move(resourceTiming));
+            protect(globalScope->performance())->addResourceTiming(WTF::move(resourceTiming));
     }, m_taskMode);
 }
 

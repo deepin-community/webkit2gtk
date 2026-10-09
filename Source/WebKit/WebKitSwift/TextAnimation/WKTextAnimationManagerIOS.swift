@@ -21,8 +21,6 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
 // THE POSSIBILITY OF SUCH DAMAGE.
 
-#if compiler(>=6.0)
-
 #if ENABLE_WRITING_TOOLS && canImport(UIKit)
 
 import OSLog
@@ -30,7 +28,7 @@ import OSLog
 #if USE_APPLE_INTERNAL_SDK
 @_spi(TextEffects) import UIKit
 #else
-import UIKit_SPI
+public import UIKit_SPI
 #endif // USE_APPLE_INTERNAL_SDK
 
 @objc
@@ -67,7 +65,7 @@ extension WKTextAnimationManager {
     @nonobjc
     private var chunkToEffect: [UUID: UITextEffectView.EffectID] = [:]
 
-    private weak var delegate: WKTextAnimationSourceDelegate?
+    private weak var delegate: (any WKTextAnimationSourceDelegate)?
 
     init(delegate: any WKTextAnimationSourceDelegate) {
         super.init()
@@ -206,5 +204,3 @@ extension WKTextAnimationManager: @preconcurrency UITextEffectView.ReplacementTe
 }
 
 #endif // ENABLE_WRITING_TOOLS && canImport(UIKit)
-
-#endif // compiler(>=6.0)

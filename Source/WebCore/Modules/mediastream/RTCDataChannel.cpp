@@ -73,11 +73,15 @@ Ref<RTCDataChannel> RTCDataChannel::create(ScriptExecutionContext& context, std:
 Ref<NetworkSendQueue> RTCDataChannel::createMessageQueue(ScriptExecutionContext& context, RTCDataChannel& channel)
 {
     return NetworkSendQueue::create(context, [&channel](auto& utf8) {
+        if (!channel.m_handler)
+            return;
         if (!channel.m_handler->sendStringData(utf8))
-            channel.protectedScriptExecutionContext()->addConsoleMessage(MessageSource::JS, MessageLevel::Error, "Error sending string through RTCDataChannel."_s);
+            protect(channel.scriptExecutionContext())->addConsoleMessage(MessageSource::JS, MessageLevel::Error, "Error sending string through RTCDataChannel."_s);
     }, [&channel](auto span) {
+        if (!channel.m_handler)
+            return;
         if (!channel.m_handler->sendRawData(span))
-            channel.protectedScriptExecutionContext()->addConsoleMessage(MessageSource::JS, MessageLevel::Error, "Error sending binary data through RTCDataChannel."_s);
+            protect(channel.scriptExecutionContext())->addConsoleMessage(MessageSource::JS, MessageLevel::Error, "Error sending binary data through RTCDataChannel."_s);
     }, [&channel](ExceptionCode errorCode) {
         if (RefPtr context = channel.scriptExecutionContext()) {
             auto code = static_cast<int>(errorCode);
@@ -114,6 +118,23 @@ void RTCDataChannel::setBinaryType(BinaryType binaryType)
     m_binaryType = binaryType;
 }
 
+static size_t NODELETE maxSctpSendQueueSize()
+{
+    // This mirrors webrtc::DataChannelInterface::MaxSendQueueSize()
+    return 16 * 1024 * 1024;
+}
+
+static std::optional<size_t> NODELETE computeNewBufferedAmount(size_t bufferedAmount, size_t dataSize)
+{
+    if (!WTF::safeAdd(bufferedAmount, dataSize, bufferedAmount))
+        return { };
+
+    if (bufferedAmount > maxSctpSendQueueSize())
+        return { };
+
+    return bufferedAmount;
+}
+
 ExceptionOr<void> RTCDataChannel::send(const String& data)
 {
     if (m_readyState != RTCDataChannelState::Open)
@@ -121,7 +142,12 @@ ExceptionOr<void> RTCDataChannel::send(const String& data)
 
     // FIXME: We might want to use strict conversion like WebSocket.
     auto utf8 = data.utf8();
-    m_bufferedAmount += utf8.length();
+
+    auto newBufferedAmount = computeNewBufferedAmount(m_bufferedAmount, utf8.length());
+    if (!newBufferedAmount)
+        return Exception { ExceptionCode::OperationError, "Trying to send too much data"_s };
+
+    m_bufferedAmount = *newBufferedAmount;
     m_messageQueue->enqueue(WTF::move(utf8));
     return { };
 }
@@ -131,7 +157,11 @@ ExceptionOr<void> RTCDataChannel::send(ArrayBuffer& data)
     if (m_readyState != RTCDataChannelState::Open)
         return Exception { ExceptionCode::InvalidStateError };
 
-    m_bufferedAmount += data.byteLength();
+    auto newBufferedAmount = computeNewBufferedAmount(m_bufferedAmount, data.byteLength());
+    if (!newBufferedAmount)
+        return Exception { ExceptionCode::OperationError, "Trying to send too much data"_s };
+
+    m_bufferedAmount = *newBufferedAmount;
     m_messageQueue->enqueue(data, 0, data.byteLength());
     return { };
 }
@@ -141,7 +171,11 @@ ExceptionOr<void> RTCDataChannel::send(ArrayBufferView& data)
     if (m_readyState != RTCDataChannelState::Open)
         return Exception { ExceptionCode::InvalidStateError };
 
-    m_bufferedAmount += data.byteLength();
+    auto newBufferedAmount = computeNewBufferedAmount(m_bufferedAmount, data.byteLength());
+    if (!newBufferedAmount)
+        return Exception { ExceptionCode::OperationError, "Trying to send too much data"_s };
+
+    m_bufferedAmount = *newBufferedAmount;
     m_messageQueue->enqueue(*data.unsharedBuffer(), data.byteOffset(), data.byteLength());
     return { };
 }
@@ -151,7 +185,11 @@ ExceptionOr<void> RTCDataChannel::send(Blob& blob)
     if (m_readyState != RTCDataChannelState::Open)
         return Exception { ExceptionCode::InvalidStateError };
 
-    m_bufferedAmount += blob.size();
+    auto newBufferedAmount = computeNewBufferedAmount(m_bufferedAmount, blob.size());
+    if (!newBufferedAmount)
+        return Exception { ExceptionCode::OperationError, "Trying to send too much data"_s };
+
+    m_bufferedAmount = *newBufferedAmount;
     m_messageQueue->enqueue(blob);
     return { };
 }
@@ -166,10 +204,10 @@ void RTCDataChannel::close()
 
     m_readyState = RTCDataChannelState::Closing;
 
-    m_messageQueue->clear();
-
-    if (m_handler)
-        m_handler->close();
+    m_messageQueue->whenEmpty([protectedThis = Ref { *this }] {
+        if (protectedThis->m_handler)
+            protectedThis->m_handler->close();
+    });
 }
 
 bool RTCDataChannel::virtualHasPendingActivity() const
@@ -218,7 +256,7 @@ void RTCDataChannel::didReceiveRawData(std::span<const uint8_t> data)
 {
     switch (m_binaryType) {
     case BinaryType::Blob:
-        scheduleDispatchEvent(MessageEvent::create(Blob::create(protectedScriptExecutionContext().get(), Vector(data), emptyString()), { }));
+        scheduleDispatchEvent(MessageEvent::create(Blob::create(protect(scriptExecutionContext()).get(), Vector(data), emptyString()), { }));
         return;
     case BinaryType::Arraybuffer:
         scheduleDispatchEvent(MessageEvent::create(ArrayBuffer::create(data)));
@@ -247,6 +285,8 @@ void RTCDataChannel::stop()
     removeFromDataChannelLocalMapIfNeeded();
 
     id();
+
+    m_messageQueue->clear();
     close();
     m_stopped = true;
     m_handler = nullptr;
@@ -262,7 +302,7 @@ void RTCDataChannel::scheduleDispatchEvent(Ref<Event>&& event)
 }
 
 static Lock s_rtcDataChannelLocalMapLock;
-static HashMap<RTCDataChannelLocalIdentifier, std::unique_ptr<RTCDataChannelHandler>>& rtcDataChannelLocalMap() WTF_REQUIRES_LOCK(s_rtcDataChannelLocalMapLock)
+static HashMap<RTCDataChannelLocalIdentifier, std::unique_ptr<RTCDataChannelHandler>>& NODELETE rtcDataChannelLocalMap() WTF_REQUIRES_LOCK(s_rtcDataChannelLocalMapLock)
 {
     ASSERT(s_rtcDataChannelLocalMapLock.isHeld());
     static NeverDestroyed<HashMap<RTCDataChannelLocalIdentifier, std::unique_ptr<RTCDataChannelHandler>>> map;

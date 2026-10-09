@@ -28,34 +28,14 @@
 
 #include "NetworkProcessConnection.h"
 #include "WebProcess.h"
+#include <WebCore/SecurityOriginData.h>
 #include <wtf/RuntimeApplicationChecks.h>
 
 namespace WebKit {
 using namespace WebCore;
 
-static bool networkProcessHasAccessViaSandboxExtension(const String& path)
+void NetworkResourceLoadParameters::createSandboxExtensionHandlesIfNecessary()
 {
-#if PLATFORM(IOS_FAMILY)
-    return path.startsWith(WebProcess::singleton().containerTemporaryDirectory());
-#else
-    UNUSED_PARAM(path);
-    return false;
-#endif
-}
-
-bool NetworkResourceLoadParameters::createSandboxExtensionHandlesIfNecessary()
-{
-    if (request.httpBody()) {
-        for (const FormDataElement& element : request.httpBody()->elements()) {
-            auto* fileData = std::get_if<FormDataElement::EncodedFileData>(&element.data);
-            if (!fileData)
-                continue;
-            const String& path = fileData->filename;
-            if (auto handle = SandboxExtension::createHandle(path, SandboxExtension::Type::ReadOnly))
-                requestBodySandboxExtensions.append(WTF::move(*handle));
-        }
-    }
-
     if (request.url().protocolIsFile()) {
         String path = request.url().fileSystemPath();
 #if HAVE(AUDIT_TOKEN)
@@ -68,9 +48,7 @@ bool NetworkResourceLoadParameters::createSandboxExtensionHandlesIfNecessary()
             if (auto handle = SandboxExtension::createHandle(path, SandboxExtension::Type::ReadOnly))
                 resourceSandboxExtension = WTF::move(*handle);
         }
-        return resourceSandboxExtension.has_value() || networkProcessHasAccessViaSandboxExtension(path);
     }
-    return true;
 }
 
 RefPtr<SecurityOrigin> NetworkResourceLoadParameters::parentOrigin() const
@@ -78,6 +56,15 @@ RefPtr<SecurityOrigin> NetworkResourceLoadParameters::parentOrigin() const
     if (frameAncestorOrigins.isEmpty())
         return nullptr;
     return frameAncestorOrigins.first().ptr();
+}
+
+SecurityOriginData NetworkResourceLoadParameters::topOriginForServiceWorkers(const URL& requestURL) const
+{
+    if (isMainFrameNavigation) {
+        auto url = requestURL.protocolIsBlob() ? URL { requestURL.path().toString() } : requestURL;
+        return SecurityOriginData::fromURLWithoutStrictOpaqueness(url);
+    }
+    return topOrigin->data();
 }
 
 NetworkLoadParameters NetworkResourceLoadParameters::networkLoadParameters() const
@@ -106,7 +93,8 @@ NetworkLoadParameters NetworkResourceLoadParameters::networkLoadParameters() con
         allowPrivacyProxy,
         advancedPrivacyProtections,
         isInitiatedByDedicatedWorker,
-        requiredCookiesVersion
+        requiredCookiesVersion,
+        navigationLosesFrameSpecificStorageAccess
     };
 }
 

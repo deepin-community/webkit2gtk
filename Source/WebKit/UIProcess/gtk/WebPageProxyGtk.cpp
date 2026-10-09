@@ -42,6 +42,7 @@
 #include "WebProcessProxy.h"
 #include <WebCore/PlatformDisplay.h>
 #include <WebCore/PlatformEvent.h>
+#include <WebCore/SelectionType.h>
 #include <wtf/CallbackAggregator.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/glib/Sandbox.h>
@@ -74,7 +75,7 @@ void WebPageProxy::didUpdateEditorState(const EditorState&, const EditorState& n
 {
     if (newEditorState.shouldIgnoreSelectionChanges)
         return;
-    if (newEditorState.selectionIsRange)
+    if (newEditorState.selectionType == WebCore::SelectionType::Range)
         WebPasteboardProxy::singleton().setPrimarySelectionOwner(focusedFrame());
     if (RefPtr pageClient = this->pageClient())
         pageClient->selectionDidChange();
@@ -90,14 +91,10 @@ void WebPageProxy::showEmojiPicker(const WebCore::IntRect& caretRect, Completion
     webkitWebViewBaseShowEmojiChooser(WEBKIT_WEB_VIEW_BASE(viewWidget()), caretRect, WTF::move(completionHandler));
 }
 
-void WebPageProxy::showValidationMessage(const WebCore::IntRect& anchorClientRect, String&& message)
+void WebPageProxy::showValidationMessageWithMainFrameRect(const WebCore::IntRect& mainFrameAnchorRect)
 {
-    RefPtr pageClient = this->pageClient();
-    if (!pageClient)
-        return;
-
-    m_validationBubble = pageClient->createValidationBubble(WTF::move(message), { m_preferences->minimumFontSize() });
-    m_validationBubble->showRelativeTo(anchorClientRect);
+    if (RefPtr bubble = m_validationBubble)
+        bubble->showRelativeTo(mainFrameAnchorRect);
 }
 
 void WebPageProxy::sendMessageToWebViewWithReply(UserMessage&& message, CompletionHandler<void(UserMessage&&)>&& completionHandler)

@@ -62,14 +62,13 @@ public:
 
     WEBCORE_EXPORT ~UniqueIDBDatabaseTransaction();
 
-    WEBCORE_EXPORT UniqueIDBDatabaseConnection* databaseConnection() const;
-    UniqueIDBDatabase* database() const;
-    CheckedPtr<UniqueIDBDatabase> checkedDatabase() const;
-    const IDBTransactionInfo& info() const { return m_transactionInfo; }
-    WEBCORE_EXPORT bool isVersionChange() const;
-    bool isReadOnly() const;
+    WEBCORE_EXPORT UniqueIDBDatabaseConnection* NODELETE databaseConnection() const;
+    UniqueIDBDatabase* NODELETE database() const;
+    const IDBTransactionInfo& info() const LIFETIME_BOUND { return m_transactionInfo; }
+    WEBCORE_EXPORT bool NODELETE isVersionChange() const;
+    bool NODELETE isReadOnly() const;
 
-    IDBDatabaseInfo* originalDatabaseInfo() const;
+    IDBDatabaseInfo* NODELETE originalDatabaseInfo() const;
 
     WEBCORE_EXPORT void abort();
     WEBCORE_EXPORT void abortWithoutCallback();
@@ -97,7 +96,7 @@ public:
     const Vector<IDBObjectStoreIdentifier>& objectStoreIdentifiers();
 
     void setSuspensionAbortResult(const IDBError& error) { m_suspensionAbortResult = { error }; }
-    const std::optional<IDBError>& suspensionAbortResult() const { return m_suspensionAbortResult; }
+    const std::optional<IDBError>& suspensionAbortResult() const LIFETIME_BOUND { return m_suspensionAbortResult; }
 
     uint64_t pendingGenerateIndexKeyRequests() const { return m_pendingGenerateIndexKeyRequests; }
     WEBCORE_EXPORT void didCreateIndexAsync(const IDBError&);

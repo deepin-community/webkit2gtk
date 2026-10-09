@@ -28,7 +28,6 @@
 #include <JavaScriptCore/IndexingHeader.h>
 #include <JavaScriptCore/IndexingType.h>
 #include <JavaScriptCore/PropertyStorage.h>
-#include <wtf/Gigacage.h>
 #include <wtf/Noncopyable.h>
 
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
@@ -140,7 +139,7 @@ public:
     
     static size_t totalSize(size_t preCapacity, size_t propertyCapacity, bool hasIndexingHeader, size_t indexingPayloadSizeInBytes)
     {
-        ASSERT(indexingPayloadSizeInBytes ? hasIndexingHeader : true);
+        ASSERT(!indexingPayloadSizeInBytes || hasIndexingHeader);
         ASSERT(sizeof(EncodedJSValue) == sizeof(IndexingHeader));
         return (preCapacity + propertyCapacity) * sizeof(EncodedJSValue) + (hasIndexingHeader ? sizeof(IndexingHeader) : 0) + indexingPayloadSizeInBytes;
     }

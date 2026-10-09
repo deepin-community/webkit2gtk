@@ -62,7 +62,7 @@ SPDX-License-Identifier: BSD, LGPL-2.1
         <h3><a href="index.html">JavaScriptCore</a></h3>
         <p>API Version: 6.0</p>
         
-        <p>Library Version: 2.52.5</p>
+        <p>Library Version: 2.54.0</p>
         
       </div>
       
@@ -135,7 +135,7 @@ SPDX-License-Identifier: BSD, LGPL-2.1
 
     <div class="meta info">
       <table>
-        <tr><td><em>Version</em></td><td>2.52.5</td></tr>
+        <tr><td><em>Version</em></td><td>2.54.0</td></tr>
         <tr><td><em>Authors</em></td><td>The WebKit GTK and WPE teams</td></tr>
         <tr><td><em>License</em></td><td>BSD, LGPL-2.1</td></tr>
         <tr><td><em>Website</em></td><td><a href="https://webkit.org" class="external">https://webkit.org</a></td></tr>
@@ -230,11 +230,11 @@ SPDX-License-Identifier: BSD, LGPL-2.1
             <td><a title="Class" class="symbol" href="class.Class.html">Class</a></td>
             
             <td class="docblock-summary">
-            <p>A JSSClass represents a custom JavaScript class registered by the user in a <code>JSCContext</code>.
-It allows to create new JavaScripts objects whose instances are created by the user using
+            <p>A JSCClass represents a custom JavaScript class registered by the user in a <code>JSCContext</code>.
+It allows creating new JavaScript objects whose instances are created by the user using
 this <span class="caps">API</span>.
-It&#8217;s possible to add constructors, properties and methods for a JSSClass by providing
-<code>GCallback</code><!-- -->s to implement&nbsp;them.</p>
+It&#8217;s possible to add constructors, properties and methods for a JSCClass by providing
+<code>GCallback</code> functions to implement&nbsp;them.</p>
             <p></p>
             </td>
             
@@ -276,7 +276,7 @@ protects the referenced value from being garbage&nbsp;collected.</p>
             <td><a title="VirtualMachine" class="symbol" href="class.VirtualMachine.html">VirtualMachine</a></td>
             
             <td class="docblock-summary">
-            <p>JSCVirtualMachine represents a group of JSCContext<!-- -->s. It allows
+            <p>JSCVirtualMachine represents a group of JSCContext objects. It allows
 concurrent JavaScript execution by creating a different instance of
 JSCVirtualMachine in each&nbsp;thread.</p>
             <p></p>
@@ -503,7 +503,7 @@ external properties not added to the&nbsp;prototype.</p>
             <td><a title="Executor" class="symbol" href="callback.Executor.html">Executor</a></td>
             
             <td class="docblock-summary">
-            <p>A function passed to <code>jsc_value_new_promise</code> called during&nbsp;initialization.</p>
+            <p>A function passed to <code>jsc_value_new_promise()</code> called during&nbsp;initialization.</p>
             <p><span class="emblem available">since: 2.48</span></p>
             </td>
             
@@ -575,7 +575,7 @@ external properties not added to the&nbsp;prototype.</p>
             
             <td class="docblock-summary">
             <p>Iterates all available options calling <code>function</code> for each one. Iteration can
-stop early if <code>function</code> returns <code>FALSE</code>.</p>
+stop early if <code>function</code> returns <code>TRUE</code>.</p>
             <p><span class="emblem available">since: 2.24</span></p>
             </td>
             
@@ -617,11 +617,11 @@ stop early if <code>function</code> returns <code>FALSE</code>.</p>
             <td class="docblock-summary">
             <p>Create a <code>GOptionGroup</code> to handle JSCOptions as command line arguments.
 The options will be exposed as command line arguments with the form
-<emphasis>&#8212;jsc-&lt;option&gt;=&lt;value&gt;</emphasis>.
+<code>--jsc-&lt;option&gt;=&lt;value&gt;</code>.
 Each entry in the returned <code>GOptionGroup</code> is configured to apply the
 corresponding option during command line parsing. Applications only need to
 pass the returned group to g_option_context_add_group(), and the rest will
-be taken care for&nbsp;automatically.</p>
+be taken care of&nbsp;automatically.</p>
             <p><span class="emblem available">since: 2.24</span></p>
             </td>
             
@@ -632,9 +632,9 @@ be taken care for&nbsp;automatically.</p>
             
             <td class="docblock-summary">
             <p>Get <code>option</code> as a range string. The string must be in the
-format <emphasis>[!]&lt;low&gt;[:&lt;high&gt;]</emphasis> where low and high are #guint values.
+format <code>[!]&lt;low&gt;[:&lt;high&gt;]</code> where low and high are #guint values.
 Values between low and high (both included) will be considered in
-the range, unless <emphasis>!</emphasis> is used to invert the&nbsp;range.</p>
+the range, unless <code>!</code> is used to invert the&nbsp;range.</p>
             <p><span class="emblem available">since: 2.24</span></p>
             </td>
             
@@ -705,9 +705,9 @@ the range, unless <emphasis>!</emphasis> is used to invert the&nbsp;range.</p>
             
             <td class="docblock-summary">
             <p>Set <code>option</code> as a range string. The string must be in the
-format <emphasis>[!]&lt;low&gt;[:&lt;high&gt;]</emphasis> where low and high are #guint values.
+format <code>[!]&lt;low&gt;[:&lt;high&gt;]</code> where low and high are #guint values.
 Values between low and high (both included) will be considered in
-the range, unless <emphasis>!</emphasis> is used to invert the&nbsp;range.</p>
+the range, unless <code>!</code> is used to invert the&nbsp;range.</p>
             <p><span class="emblem available">since: 2.24</span></p>
             </td>
             

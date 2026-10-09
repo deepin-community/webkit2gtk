@@ -158,6 +158,8 @@ enum class MessageName : uint16_t {
     TestWithSuperclass_LoadURL,
 #if ENABLE(TEST_FEATURE)
     TestWithSuperclass_TestAsyncMessage,
+    TestWithSuperclass_TestAsyncMessageAnyThread,
+    TestWithSuperclass_TestAsyncMessageAnyThreadReply,
     TestWithSuperclass_TestAsyncMessageReply,
     TestWithSuperclass_TestAsyncMessageWithConnection,
     TestWithSuperclass_TestAsyncMessageWithConnectionReply,
@@ -322,7 +324,7 @@ namespace WTF {
 
 template<> constexpr bool isValidEnum<IPC::MessageName>(std::underlying_type_t<IPC::MessageName> messageName)
 {
-    return messageName <= WTF::enumToUnderlyingType(IPC::MessageName::Last);
+    return messageName <= std::to_underlying(IPC::MessageName::Last);
 }
 
 } // namespace WTF

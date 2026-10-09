@@ -40,6 +40,10 @@ headers: "NetworkProcessCreationParameters.h" "AuxiliaryProcessCreationParameter
     bool isParentProcessFullWebBrowserOrRunningTest
 #endif
 
+#if PLATFORM(IOS_FAMILY)
+    String containerTemporaryDirectory;
+#endif
+
 #if USE(SOUP)
     WebCore::HTTPCookieAcceptPolicy cookieAcceptPolicy
     Vector<String> languages
@@ -55,6 +59,9 @@ headers: "NetworkProcessCreationParameters.h" "AuxiliaryProcessCreationParameter
     bool ftpEnabled
 #if PLATFORM(COCOA)
     bool enableModernDownloadProgress
+#endif
+#if HAVE(ENHANCED_SECURITY_LINKS)
+    bool enableEnhancedSecurityLinks
 #endif
 
     Vector<WebKit::WebsiteDataStoreParameters> websiteDataStoreParameters

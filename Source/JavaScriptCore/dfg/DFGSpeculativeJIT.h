@@ -38,8 +38,8 @@
 #include "DFGSilentRegisterSavePlan.h"
 #include "JITMathIC.h"
 #include "JITOperations.h"
+#include "PropertyInlineCache.h"
 #include "SpillRegistersMode.h"
-#include "StructureStubInfo.h"
 #include "ValueRecovery.h"
 #include "VirtualRegister.h"
 #include <wtf/TZoneMalloc.h>
@@ -164,7 +164,7 @@ public:
 
     BasicBlock* nextBlock()
     {
-        for (BlockIndex resultIndex = m_block->index + 1; ; resultIndex++) {
+        for (BlockIndex resultIndex = m_block->index() + 1; ; resultIndex++) {
             if (resultIndex >= m_graph.numBlocks())
                 return nullptr;
             if (BasicBlock* result = m_graph.block(resultIndex))
@@ -322,7 +322,7 @@ public:
         use(nodeUse.node());
     }
     
-    RegisterSetBuilder usedRegisters();
+    RegisterSet usedRegisters();
     
     bool masqueradesAsUndefinedWatchpointSetIsStillValid()
     {
@@ -358,7 +358,7 @@ public:
 
     void checkArgumentTypes();
 
-    void clearGenerationInfo();
+    void NODELETE clearGenerationInfo();
 
     // These methods are used when generating 'unexpected'
     // calls out from JIT code to C++ helper routines -
@@ -370,9 +370,9 @@ public:
     void silentSpillImpl(const SilentRegisterSavePlan&);
     void silentFillImpl(const SilentRegisterSavePlan&);
 
-    RegisterSetBuilder spilledRegsForSilentSpillPlans(const auto& plans)
+    RegisterSet spilledRegsForSilentSpillPlans(const auto& plans)
     {
-        RegisterSetBuilder usedRegisters;
+        RegisterSet usedRegisters;
         for (auto& plan : plans)
             usedRegisters.add(plan.reg(), IgnoreVectors);
         return usedRegisters;
@@ -571,6 +571,7 @@ public:
     bool isKnownNotOther(Node* node) { return !(m_state.forNode(node).m_type & SpecOther); }
 
     bool canBeRope(Edge);
+    std::optional<unsigned> tryGetConstantStringLength(Edge);
 
     UniquedStringImpl* identifierUID(unsigned index)
     {
@@ -714,12 +715,12 @@ public:
     void cachedPutById(Node*, CodeOrigin, GPRReg baseGPR, JSValueRegs valueRegs, CacheableIdentifier, AccessType);
     void cachedGetByIdWithThis(Node*, CodeOrigin, JSValueRegs baseRegs, JSValueRegs thisRegs, JSValueRegs resultRegs, CacheableIdentifier, bool needsBaseAndThisCellCheck);
 #elif USE(JSVALUE32_64)
-    void cachedGetById(Node*, CodeOrigin, JSValueRegs base, JSValueRegs result, GPRReg stubInfoGPR, GPRReg scratchGPR, CacheableIdentifier, JITCompiler::Jump slowPathTarget, SpillRegistersMode, AccessType);
-    void cachedPutById(Node*, CodeOrigin, GPRReg baseGPR, JSValueRegs valueRegs, GPRReg stubInfoGPR, GPRReg scratchGPR, GPRReg scratch2GPR, CacheableIdentifier, AccessType, JITCompiler::Jump slowPathTarget = JITCompiler::Jump(), SpillRegistersMode = NeedToSpill);
-    void cachedGetById(Node*, CodeOrigin, GPRReg baseGPR, GPRReg resultGPR, GPRReg stubInfoGPR, GPRReg scratchGPR, CacheableIdentifier, JITCompiler::Jump slowPathTarget, SpillRegistersMode, AccessType);
-    void cachedGetByIdWithThis(Node*, CodeOrigin, GPRReg baseGPR, GPRReg thisGPR, GPRReg resultGPR, GPRReg stubInfoGPR, GPRReg scratchGPR, CacheableIdentifier, const JITCompiler::JumpList& slowPathTarget = JITCompiler::JumpList());
-    void cachedGetById(Node*, CodeOrigin, GPRReg baseTagGPROrNone, GPRReg basePayloadGPR, GPRReg resultTagGPR, GPRReg resultPayloadGPR, GPRReg stubInfoGPR, GPRReg scratchGPR, CacheableIdentifier, JITCompiler::Jump slowPathTarget, SpillRegistersMode, AccessType);
-    void cachedGetByIdWithThis(Node*, CodeOrigin, GPRReg baseTagGPROrNone, GPRReg basePayloadGPR, GPRReg thisTagGPROrNone, GPRReg thisPayloadGPR, GPRReg resultTagGPR, GPRReg resultPayloadGPR, GPRReg stubInfoGPR, GPRReg scratchGPR, CacheableIdentifier, const JITCompiler::JumpList& slowPathTarget = JITCompiler::JumpList());
+    void cachedGetById(Node*, CodeOrigin, JSValueRegs base, JSValueRegs result, GPRReg propertyCacheGPR, GPRReg scratchGPR, CacheableIdentifier, JITCompiler::Jump slowPathTarget, SpillRegistersMode, AccessType);
+    void cachedPutById(Node*, CodeOrigin, GPRReg baseGPR, JSValueRegs valueRegs, GPRReg propertyCacheGPR, GPRReg scratchGPR, GPRReg scratch2GPR, CacheableIdentifier, AccessType, JITCompiler::Jump slowPathTarget = JITCompiler::Jump(), SpillRegistersMode = NeedToSpill);
+    void cachedGetById(Node*, CodeOrigin, GPRReg baseGPR, GPRReg resultGPR, GPRReg propertyCacheGPR, GPRReg scratchGPR, CacheableIdentifier, JITCompiler::Jump slowPathTarget, SpillRegistersMode, AccessType);
+    void cachedGetByIdWithThis(Node*, CodeOrigin, GPRReg baseGPR, GPRReg thisGPR, GPRReg resultGPR, GPRReg propertyCacheGPR, GPRReg scratchGPR, CacheableIdentifier, const JITCompiler::JumpList& slowPathTarget = JITCompiler::JumpList());
+    void cachedGetById(Node*, CodeOrigin, GPRReg baseTagGPROrNone, GPRReg basePayloadGPR, GPRReg resultTagGPR, GPRReg resultPayloadGPR, GPRReg propertyCacheGPR, GPRReg scratchGPR, CacheableIdentifier, JITCompiler::Jump slowPathTarget, SpillRegistersMode, AccessType);
+    void cachedGetByIdWithThis(Node*, CodeOrigin, GPRReg baseTagGPROrNone, GPRReg basePayloadGPR, GPRReg thisTagGPROrNone, GPRReg thisPayloadGPR, GPRReg resultTagGPR, GPRReg resultPayloadGPR, GPRReg propertyCacheGPR, GPRReg scratchGPR, CacheableIdentifier, const JITCompiler::JumpList& slowPathTarget = JITCompiler::JumpList());
     void compileGetByIdFlush(Node*, AccessType);
     void compilePutByIdFlush(Node*);
     void compileInstanceOfForCells(Node*, JSValueRegs, JSValueRegs, GPRReg, GPRReg, Jump);
@@ -755,7 +756,7 @@ public:
     void compileOverridesHasInstance(Node*);
 
     void compileIsCellWithType(Node*);
-    void compileIsTypedArrayView(Node*);
+    void compileArrayIsArray(Node*);
 
     void emitCall(Node*);
 
@@ -954,6 +955,35 @@ public:
         }
     }
 
+#if USE(JSVALUE64)
+    void jsValueTupleResultWithoutUsingChildren(GPRReg reg, Node* node, unsigned index, DataFormat format = DataFormatJS)
+    {
+        ASSERT(index < node->tupleSize());
+        unsigned refCount = m_graph.m_tupleData.at(node->tupleOffset() + index).refCount;
+        if (!refCount)
+            return;
+        ASSERT(refCount == 1);
+        ASSERT(format & DataFormatJS);
+        VirtualRegister virtualRegister = m_graph.m_tupleData.at(node->tupleOffset() + index).virtualRegister;
+        GenerationInfo& info = generationInfoFromVirtualRegister(virtualRegister);
+        m_gprs.retain(reg, virtualRegister, SpillOrderJS);
+        info.initJSValue(node, refCount, reg, format);
+    }
+#endif
+
+    void cellTupleResultWithoutUsingChildren(GPRReg reg, Node* node, unsigned index)
+    {
+        ASSERT(index < node->tupleSize());
+        unsigned refCount = m_graph.m_tupleData.at(node->tupleOffset() + index).refCount;
+        if (!refCount)
+            return;
+        ASSERT(refCount == 1);
+        VirtualRegister virtualRegister = m_graph.m_tupleData.at(node->tupleOffset() + index).virtualRegister;
+        GenerationInfo& info = generationInfoFromVirtualRegister(virtualRegister);
+        m_gprs.retain(reg, virtualRegister, SpillOrderCell);
+        info.initCell(node, refCount, reg);
+    }
+
     template<typename OperationType>
     void operationExceptionCheck()
     {
@@ -1083,7 +1113,7 @@ public:
         }
 
         if (exceptionReg != InvalidGPRReg) {
-            RegisterSetBuilder spilledRegs = spilledRegsForSilentSpillPlans(plans);
+            RegisterSet spilledRegs = spilledRegsForSilentSpillPlans(plans);
             if constexpr (std::same_as<GPRReg, ResultRegType> || std::same_as<JSValueRegs, ResultRegType>) {
                 spilledRegs.add(GPRInfo::returnValueGPR, IgnoreVectors);
                 spilledRegs.add(result, IgnoreVectors);
@@ -1097,13 +1127,13 @@ public:
                 (addRegIfNeeded(spilledRegs, otherSpilledRegs), ...);
             }
 
-            if (spilledRegs.buildAndValidate().contains(exceptionReg, IgnoreVectors)) {
+            if (spilledRegs.contains(exceptionReg, IgnoreVectors)) {
                 // It would be nice if we could do m_gprs.tryAllocate() but we're possibly on a slow path and register allocation state is
                 // probably garbage.
-                constexpr RegisterSetBuilder registersInBank = decltype(m_gprs)::registersInBank();
+                constexpr RegisterSet registersInBank = decltype(m_gprs)::registersInBank();
                 // Move to a non-constexpr local so we can call exclude.
-                RegisterSetBuilder possibleRegisters = registersInBank;
-                RegisterSet freeRegs = possibleRegisters.exclude(spilledRegs).buildAndValidate();
+                RegisterSet possibleRegisters = registersInBank;
+                RegisterSet freeRegs = possibleRegisters.exclude(spilledRegs);
                 auto iter = freeRegs.begin();
                 if (iter != freeRegs.end()) {
                     move(exceptionReg, iter.gpr());
@@ -1387,7 +1417,8 @@ public:
         Node*, GPRReg leftGPR, GPRReg rightGPR, GPRReg lengthGPR,
         GPRReg leftTempGPR, GPRReg rightTempGPR, GPRReg leftTemp2GPR,
         GPRReg rightTemp2GPR, const JITCompiler::JumpList& fastTrue,
-        const JITCompiler::JumpList& fastSlow);
+        const JITCompiler::JumpList& fastFalse,
+        Edge leftEdge, Edge rightEdge);
     void compileStringEquality(Node*);
     void compileStringIdentEquality(Node*);
     void compileStringToUntypedEquality(Node*, Edge stringEdge, Edge untypedEdge);
@@ -1396,6 +1427,7 @@ public:
 
     void compileSymbolEquality(Node*);
     void compileHeapBigIntEquality(Node*);
+    void compileHeapBigIntCompare(Node*, RelationalCondition);
     void compilePeepHoleSymbolEquality(Node*, Node* branchNode);
 #if USE(JSVALUE64)
     void compileNeitherDoubleNorHeapBigIntToNotDoubleStrictEquality(Node*, Edge neitherDoubleNorHeapBigInt, Edge notDouble);
@@ -1448,10 +1480,13 @@ public:
     void compileNumberToStringWithRadix(Node*);
     void compileNumberToStringWithValidRadixConstant(Node*);
     void compileNumberToStringWithValidRadixConstant(Node*, int32_t radix);
+    void compileInt32ToStringRadix10(Node*);
     void compileNewStringObject(Node*);
     void compileNewSymbol(Node*);
     void compileNewMap(Node*);
     void compileNewSet(Node*);
+    void compileNewWeakMap(Node*);
+    void compileNewWeakSet(Node*);
     void compileNewRegExpUntyped(Node*);
 
     void emitNewTypedArrayWithSizeInRegister(Node*, TypedArrayType, RegisteredStructure, GPRReg sizeGPR);
@@ -1498,6 +1533,8 @@ public:
     void compileMapIterationEntry(Node*);
     void compileMapIterationEntryKey(Node*);
     void compileMapIterationEntryValue(Node*);
+    void compileMapOrSetSize(Node*);
+    void compileGetRegExpFlag(Node*);
     void compileSetAdd(Node*);
     void compileMapSet(Node*);
     void compileMapOrSetDelete(Node*);
@@ -1527,9 +1564,12 @@ public:
     // We use a scopedLambda to placate register allocation validation.
     void compileGetByVal(Node*, const ScopedLambda<std::tuple<JSValueRegs, DataFormat>(DataFormat preferredFormat, bool needsFlush)>& prefix);
 
+    void compileMultiGetByVal(Node*);
+    void compileMultiPutByVal(Node*);
+
     void compileGetCharCodeAt(Node*);
     void compileGetByValOnString(Node*, const ScopedLambda<std::tuple<JSValueRegs, DataFormat>(DataFormat preferredFormat, bool needsFlush)>& prefix);
-    void compileFromCharCode(Node*); 
+    void compileStringFromCharCodeOrCodePoint(Node*);
     void compileGetByValMegamorphic(Node*);
 
     void compileGetByValOnDirectArguments(Node*, const ScopedLambda<std::tuple<JSValueRegs, DataFormat>(DataFormat preferredFormat, bool needsFlush)>& prefix);
@@ -1661,6 +1701,7 @@ public:
     template <typename ClassType> void compileNewFunctionCommon(GPRReg, RegisteredStructure, GPRReg, GPRReg, GPRReg, JumpList&, size_t, FunctionExecutable*);
     void compileNewFunction(Node*);
     void compileSetFunctionName(Node*);
+    void compileEnqueueAsyncGeneratorDriver(Node*);
     void compileNewBoundFunction(Node*);
     void compileNewRegExp(Node*);
     void compileForwardVarargs(Node*);
@@ -1677,19 +1718,25 @@ public:
     void compileSpread(Node*);
     void compileNewArray(Node*);
     void compileNewArrayWithSpread(Node*);
-    void compileGetRestLength(Node*);
     void compileArraySlice(Node*);
+    void compileArrayConcatArray(Node*);
+    void compileArrayConcatAppendOne(Node*);
     void compileArraySplice(Node*);
     void compileArrayIndexOfOrArrayIncludes(Node*);
+    void compileArrayJoin(Node*);
     void compileArrayPush(Node*);
+    void compileArrayUnshift(Node*);
     void compileNotifyWrite(Node*);
     void compileRegExpExec(Node*);
     void compileRegExpExecNonGlobalOrSticky(Node*);
+    void compileRegExpExecSticky(Node*);
     void compileRegExpMatchFast(Node*);
     void compileRegExpMatchFastGlobal(Node*);
+    void compileRegExpSplitFast(Node*);
     void compileRegExpTest(Node*);
     void compileRegExpTestInline(Node*);
     void compileRegExpSearch(Node*);
+    void compileRegExpStringIteratorNext(Node*);
     void compileStringReplace(Node*);
     void compileStringReplaceAll(Node*);
     void compileStringReplaceString(Node*);
@@ -1711,6 +1758,7 @@ public:
     void compileMaterializeNewObject(Node*);
     void compileRecordRegExpCachedResult(Node*);
     void compileToObjectOrCallObjectConstructor(Node*);
+    void compileOpenAsyncFromSyncIterator(Node*);
     void compileResolveScope(Node*);
     void compileResolveScopeForHoistingFuncDeclInEval(Node*);
     void compileGetGlobalVariable(Node*);
@@ -1724,13 +1772,19 @@ public:
     void compileCompareEqPtr(Node*);
     void compileDefineDataProperty(Node*);
     void compileDefineAccessorProperty(Node*);
+    void compileObjectDefineProperty(Node*);
+    void compileObjectDefinePropertyFromFields(Node*);
     void compileStringSlice(Node*);
     void compileStringSubstring(Node*);
+    void compileStringSubstr(Node*);
+    void compileToUpperCase(Node*);
     void compileToLowerCase(Node*);
+    void compileStringTrim(Node*);
     void compileThrow(Node*);
     void compileThrowStaticError(Node*);
 
-    void compileExtractFromTuple(Node*);
+    void NODELETE compileExtractFromTuple(Node*);
+    void compileStringIteratorNext(Node*);
     void compileEnumeratorNextUpdateIndexAndMode(Node*);
     void compileEnumeratorNextUpdatePropertyName(Node*);
     void compileEnumeratorGetByVal(Node*);
@@ -1755,6 +1809,10 @@ public:
     void compileStrCat(Node*);
     void compileNewArrayBuffer(Node*);
     void compileNewButterflyWithSize(Node*);
+    void compileGetCellButterflySlot(Node*);
+    void compilePutCellButterflySlot(Node*);
+    void compileArraySortCompact(Node*);
+    void compileArraySortCommit(Node*);
     void compileNewArrayWithSize(Node*);
     void compileNewArrayWithButterfly(Node*);
     void compileNewArrayWithSpecies(Node*);
@@ -1766,14 +1824,14 @@ public:
     void compileObjectAssign(Node*);
     void compileObjectCreate(Node*);
     void compileObjectToString(Node*);
+    void compileSymbolToString(Node*);
     void compileCreateThis(Node*);
     void compileCreatePromise(Node*);
     void compileCreateGenerator(Node*);
     void compileCreateAsyncGenerator(Node*);
     void compileNewObject(Node*);
-    void compileNewGenerator(Node*);
-    void compileNewAsyncGenerator(Node*);
     void compileNewInternalFieldObject(Node*);
+    void compileNewPromise(Node*);
     void compileToPrimitive(Node*);
     void compileToPropertyKey(Node*);
     void compileToPropertyKeyOrNumber(Node*);
@@ -1788,6 +1846,15 @@ public:
     void compileStringCodePointAt(Node*);
     void compileStringLocaleCompare(Node*);
     void compileStringIndexOf(Node*);
+    void compileStringLastIndexOf(Node*);
+    void compileStringStartsOrEndsWith(Node*);
+#if USE(JSVALUE64)
+    void compileStringStartsOrEndsWithConstant(Node*, bool isStartsWith, std::span<const Latin1Character> search);
+#endif
+    void compileStringSplit(Node*);
+    void compileStringMatch(Node*);
+    void compileStringSearch(Node*);
+    void compileDateNow(Node*);
     void compileDateGet(Node*);
     void compileDateSet(Node*);
     void compileGlobalIsNaN(Node*);
@@ -1800,14 +1867,20 @@ public:
     void compileResolvePromiseFirstResolving(Node*);
     void compileRejectPromiseFirstResolving(Node*);
     void compileFulfillPromiseFirstResolving(Node*);
+    void compileNewResolvedPromise(Node*);
+    void compileNewRejectedPromise(Node*);
     void compilePromiseResolve(Node*);
     void compilePromiseReject(Node*);
     void compilePromiseThen(Node*);
+    void compilePerformPromiseThen(Node*);
+    void compilePerformPromiseThenOneHandler(Node*);
 
     template<typename JSClass, typename Operation>
     void compileCreateInternalFieldObject(Node*, Operation);
     template<typename JSClass, typename Operation>
     void compileNewInternalFieldObjectImpl(Node*, Operation);
+
+    void compileClampIntegerToByte(GPRReg srcGPR, GPRReg resultGPR);
 
     void moveTrueTo(GPRReg);
     void moveFalseTo(GPRReg);
@@ -1860,8 +1933,8 @@ public:
 
     void emitAllocateRawObject(GPRReg resultGPR, RegisteredStructure, GPRReg storageGPR, unsigned numElements, unsigned vectorLength);
     
-    void emitGetLength(InlineCallFrame*, GPRReg lengthGPR, bool includeThis = false);
-    void emitGetLength(CodeOrigin, GPRReg lengthGPR, bool includeThis = false);
+    void emitGetArgumentCount(InlineCallFrame*, GPRReg lengthGPR, bool includeThis = false);
+    void emitGetArgumentCount(CodeOrigin, GPRReg lengthGPR, bool includeThis = false);
     void emitGetCallee(CodeOrigin, GPRReg calleeGPR);
     void emitGetArgumentStart(CodeOrigin, GPRReg startGPR);
     void emitPopulateSliceIndex(Edge&, std::optional<GPRReg> indexGPR, GPRReg lengthGPR, GPRReg resultGPR);
@@ -2376,7 +2449,7 @@ public:
         return *this;
     }
 
-    void adopt(GPRTemporary&);
+    void NODELETE adopt(GPRTemporary&);
 
     ~GPRTemporary()
     {
@@ -2408,7 +2481,7 @@ public:
 
     JSValueRegsTemporary& operator=(JSValueRegsTemporary&&) = default;
 
-    JSValueRegs regs();
+    JSValueRegs NODELETE regs();
 
 private:
 #if USE(JSVALUE64)

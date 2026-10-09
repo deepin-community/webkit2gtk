@@ -37,7 +37,6 @@
 #include <wtf/Scope.h>
 #include <wtf/SystemTracing.h>
 #include <wtf/TZoneMalloc.h>
-#include <wtf/Threading.h>
 
 namespace WebKit {
 namespace IPCTestingAPI {
@@ -73,7 +72,7 @@ public:
     ~StreamClientConnection();
 
     void setSemaphores(IPC::Semaphore&& wakeUp, IPC::Semaphore&& clientWait);
-    bool hasSemaphores() const;
+    bool NODELETE hasSemaphores() const;
     void setMaxBatchSize(unsigned);
 
     void open(Connection::Client&, SerialFunctionDispatcher& = RunLoop::currentSingleton());
@@ -104,8 +103,8 @@ public:
     void addWorkQueueMessageReceiver(ReceiverName, WorkQueue&, WorkQueueMessageReceiverBase&, uint64_t destinationID = 0);
     void removeWorkQueueMessageReceiver(ReceiverName, uint64_t destinationID = 0);
 
-    StreamClientConnectionBuffer& bufferForTesting();
-    Connection& connectionForTesting();
+    StreamClientConnectionBuffer& NODELETE bufferForTesting();
+    Connection& NODELETE connectionForTesting();
 
     // Returns the timeout moment for current time.
     Timeout defaultTimeout() const { return m_defaultTimeoutDuration; }
@@ -116,7 +115,7 @@ public:
 
 #if ENABLE(CORE_IPC_SIGNPOSTS)
     static bool signpostsEnabled();
-    static void forceEnableSignposts();
+    static void NODELETE forceEnableSignposts();
 #endif
 
 private:
@@ -370,7 +369,6 @@ Error StreamClientConnection::waitForAsyncReplyAndDispatchImmediately(AsyncReply
     return m_connection->waitForAsyncReplyAndDispatchImmediately<T>(replyID, timeout);
 }
 
-#ifndef __swift__ // rdar://152496447
 template<typename T>
 std::optional<StreamClientConnection::SendSyncResult<T>> StreamClientConnection::trySendSyncStream(T& message, Timeout timeout, std::span<uint8_t> span)
 {
@@ -421,7 +419,6 @@ std::optional<StreamClientConnection::SendSyncResult<T>> StreamClientConnection:
         return { Error::FailedToDecodeReplyArguments };
     return { { WTF::move(decoder), WTF::move(*replyArguments) } };
 }
-#endif
 
 inline Error StreamClientConnection::trySendDestinationIDIfNeeded(uint64_t destinationID, Timeout timeout)
 {

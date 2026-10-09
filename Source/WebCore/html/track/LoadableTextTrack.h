@@ -42,7 +42,7 @@ public:
 
     void scheduleLoad(const URL&);
 
-    size_t trackElementIndex();
+    size_t NODELETE trackElementIndex();
     HTMLTrackElement* trackElement() const { return m_trackElement.get(); }
 
     void ref() const final { TextTrack::ref(); }
@@ -58,8 +58,6 @@ private:
 
     AtomString id() const final;
     bool isDefault() const final;
-
-    void loadTimerFired();
 
 #if !RELEASE_LOG_DISABLED
     ASCIILiteral logClassName() const override { return "LoadableTextTrack"_s; }

@@ -53,20 +53,20 @@ public:
 #endif
 
     RenderBoxModelObject& renderer() const { return downcast<RenderBoxModelObject>(LegacyInlineBox::renderer()); }
-    const RenderStyle& lineStyle() const { return isFirstLine() ? renderer().firstLineStyle() : renderer().style(); }
+    const Style::ComputedStyle& lineStyle() const LIFETIME_BOUND { return isFirstLine() ? renderer().firstLineStyle() : renderer().style(); }
 
-    LegacyInlineFlowBox* prevLineBox() const { return m_prevLineBox; }
-    LegacyInlineFlowBox* nextLineBox() const { return m_nextLineBox; }
+    LegacyInlineFlowBox* prevLineBox() const LIFETIME_BOUND { return m_prevLineBox; }
+    LegacyInlineFlowBox* nextLineBox() const LIFETIME_BOUND { return m_nextLineBox; }
     void setNextLineBox(LegacyInlineFlowBox* n) { m_nextLineBox = n; }
     void setPreviousLineBox(LegacyInlineFlowBox* p) { m_prevLineBox = p; }
 
-    LegacyInlineBox* firstChild() const { checkConsistency(); return m_firstChild; }
-    LegacyInlineBox* lastChild() const { checkConsistency(); return m_lastChild; }
+    LegacyInlineBox* firstChild() const LIFETIME_BOUND { checkConsistency(); return m_firstChild; }
+    LegacyInlineBox* lastChild() const LIFETIME_BOUND { checkConsistency(); return m_lastChild; }
 
     bool isLeaf() const final { return false; }
     
-    LegacyInlineBox* firstLeafDescendant() const;
-    LegacyInlineBox* lastLeafDescendant() const;
+    LegacyInlineBox* firstLeafDescendant() const LIFETIME_BOUND;
+    LegacyInlineBox* lastLeafDescendant() const LIFETIME_BOUND;
 
     void setConstructed() final
     {
@@ -152,7 +152,7 @@ protected:
     // The following members are only used by RootInlineBox but moved here to keep the bits packed.
 
     // Whether or not this line uses alphabetic or ideographic baselines by default.
-    unsigned m_baselineType : 1 { enumToUnderlyingType(FontBaseline::Alphabetic) }; // FontBaseline
+    unsigned m_baselineType : 1 { std::to_underlying(FontBaseline::Alphabetic) }; // FontBaseline
 
     unsigned m_lineBreakBidiStatusEor : 5; // UCharDirection
     unsigned m_lineBreakBidiStatusLastStrong : 5; // UCharDirection

@@ -29,6 +29,10 @@
 #include "CallbackResult.h"
 #include <wtf/RefCounted.h>
 
+namespace JSC {
+class JSValue;
+}
+
 namespace WebCore {
 
 class SubscriptionObserverCallback : public RefCounted<SubscriptionObserverCallback>, public ActiveDOMCallback {
@@ -38,6 +42,8 @@ public:
     // ContextDestructionObserver.
     void ref() const final { RefCounted::ref(); }
     void deref() const final { RefCounted::deref(); }
+
+    virtual bool isJSSubscriptionObserverCallback() const { return false; }
 
     virtual CallbackResult<void> invoke(JSC::JSValue) = 0;
     virtual CallbackResult<void> invokeRethrowingException(JSC::JSValue) = 0;

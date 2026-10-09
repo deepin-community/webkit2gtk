@@ -35,10 +35,10 @@ namespace Layout {
 class LineBoxVerticalAligner {
 public:
     LineBoxVerticalAligner(const InlineFormattingContext&);
-    InlineLayoutUnit computeLogicalHeightAndAlign(LineBox&) const;
+    InlineLayoutUnit computeLogicalHeightAndAlign(LineBox&, bool hasContentfulInlineContent) const;
 
 private:
-    InlineLayoutUnit simplifiedVerticalAlignment(LineBox&) const;
+    InlineLayoutUnit simplifiedVerticalAlignment(LineBox&, bool hasContentfulInlineContent) const;
 
     struct LineBoxAlignmentContent {
         InlineLayoutUnit height() const { return std::max(nonLineBoxRelativeAlignedMaximumHeight, std::max(topAndBottomAlignedMaximumHeight.top.value_or(0.f), topAndBottomAlignedMaximumHeight.bottom.value_or(0.f))); }
@@ -59,10 +59,10 @@ private:
     enum class IsInlineLevelBoxAlignment : bool { No, Yes };
     InlineLayoutUnit logicalTopOffsetFromParentBaseline(const InlineLevelBox&, const InlineLevelBox& parentInlineBox, IsInlineLevelBoxAlignment = IsInlineLevelBoxAlignment::No) const;
 
-    const InlineFormattingUtils& formattingUtils() const { return formattingContext().formattingUtils(); }
-    const InlineFormattingContext& formattingContext() const { return m_inlineFormattingContext; }
+    const InlineFormattingUtils& formattingUtils() const LIFETIME_BOUND { return formattingContext().formattingUtils(); }
+    const InlineFormattingContext& formattingContext() const LIFETIME_BOUND { return m_inlineFormattingContext; }
     const ElementBox& rootBox() const { return formattingContext().root(); }
-    const InlineLayoutState& layoutState() const { return formattingContext().layoutState(); }
+    const InlineLayoutState& layoutState() const LIFETIME_BOUND { return formattingContext().layoutState(); }
 
 private:
     const InlineFormattingContext& m_inlineFormattingContext;

@@ -51,7 +51,7 @@ private:
     {
     }
 
-    bool hasCallback() const final { return true; }
+    bool NODELETE hasCallback() const final { return true; }
 
     CallbackResult<void> invoke(IntersectionObserver&, const Vector<Ref<IntersectionObserverEntry>>& entries, IntersectionObserver&) final
     {
@@ -62,7 +62,7 @@ private:
                 continue;
             if (RefPtr element = dynamicDowncast<HTMLImageElement>(entry->target())) {
                 element->loadDeferredImage();
-                element->document().lazyLoadImageObserver().unobserve(*element, element->document());
+                protect(element->document())->lazyLoadImageObserver().unobserve(*element, protect(element->document()));
             }
         }
         return { };
@@ -76,8 +76,8 @@ private:
 
 void LazyLoadImageObserver::observe(Element& element)
 {
-    auto& observer = element.document().lazyLoadImageObserver();
-    auto* intersectionObserver = observer.intersectionObserver(element.protectedDocument());
+    auto& observer = protect(element.document())->lazyLoadImageObserver();
+    RefPtr intersectionObserver = observer.intersectionObserver(protect(element.document()));
     if (!intersectionObserver)
         return;
     intersectionObserver->observe(element);

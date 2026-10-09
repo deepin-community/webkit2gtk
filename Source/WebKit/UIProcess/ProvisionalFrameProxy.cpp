@@ -31,6 +31,7 @@
 #include "VisitedLinkStore.h"
 #include "WebFrameMessages.h"
 #include "WebFrameProxy.h"
+#include "WebPageInspectorController.h"
 #include "WebPageProxy.h"
 #include "WebProcessProxy.h"
 #include <wtf/TZoneMallocInlines.h>
@@ -55,6 +56,9 @@ ProvisionalFrameProxy::~ProvisionalFrameProxy()
     if (!m_frameProcess)
         return;
 
+    if (RefPtr page = m_frame->page())
+        page->inspectorController().willDestroyProvisionalFrame(*this);
+
     Ref frame = m_frame.get();
     Ref process = this->process();
     process->send(Messages::WebFrame::DestroyProvisionalFrame(), frame->frameID());
@@ -66,20 +70,10 @@ RefPtr<FrameProcess> ProvisionalFrameProxy::takeFrameProcess()
     return std::exchange(m_frameProcess, nullptr).releaseNonNull();
 }
 
-Ref<WebFrameProxy> ProvisionalFrameProxy::protectedFrame() const
-{
-    return m_frame.get();
-}
-
 WebProcessProxy& ProvisionalFrameProxy::process() const
 {
     ASSERT(m_frameProcess);
     return m_frameProcess->process();
-}
-
-Ref<WebProcessProxy> ProvisionalFrameProxy::protectedProcess() const
-{
-    return process();
 }
 
 } // namespace WebKit

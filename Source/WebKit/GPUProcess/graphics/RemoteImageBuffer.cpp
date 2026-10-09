@@ -43,9 +43,9 @@
 
 #define MESSAGE_CHECK(assertion, message) MESSAGE_CHECK_WITH_MESSAGE_BASE(assertion, m_renderingBackend->streamConnection(), message)
 
-using namespace WebCore;
-
 namespace WebKit {
+
+using namespace WebCore;
 
 Ref<RemoteImageBuffer> RemoteImageBuffer::create(Ref<WebCore::ImageBuffer>&& imageBuffer, WebCore::RenderingResourceIdentifier identifier, RemoteGraphicsContextIdentifier contextIdentifier, RemoteRenderingBackend& renderingBackend)
 {
@@ -110,6 +110,7 @@ void RemoteImageBuffer::getPixelBuffer(WebCore::PixelBufferFormat destinationFor
     MESSAGE_CHECK(memory, "No shared memory for getPixelBufferForImageBuffer");
     MESSAGE_CHECK(WebCore::PixelBuffer::supportedPixelFormat(destinationFormat.pixelFormat), "Pixel format not supported");
     MESSAGE_CHECK(m_imageBuffer->renderingMode() != RenderingMode::PDFDocument && m_imageBuffer->renderingMode() != RenderingMode::DisplayList, "Backend does not hold pixels");
+    MESSAGE_CHECK(m_imageBuffer->renderingPurpose() != RenderingPurpose::LayerBacking, "We should not interact with the pixelBuffer for LayerBacking");
     WebCore::IntRect srcRect(srcPoint, srcSize);
     if (auto pixelBuffer = m_imageBuffer->getPixelBuffer(destinationFormat, srcRect)) {
         MESSAGE_CHECK(pixelBuffer->bytes().size() <= memory->size(), "Shmem for return of getPixelBuffer is too small");
@@ -135,6 +136,7 @@ void RemoteImageBuffer::putPixelBuffer(const WebCore::PixelBufferSourceView& pix
 
     MESSAGE_CHECK(m_imageBuffer->resolutionScale() == 1, "putPixelBuffer() should not be called if (resolutionScale() != 1)");
     MESSAGE_CHECK(m_imageBuffer->renderingMode() != RenderingMode::PDFDocument && m_imageBuffer->renderingMode() != RenderingMode::DisplayList, "Backend does not hold pixels");
+    MESSAGE_CHECK(m_imageBuffer->renderingPurpose() != RenderingPurpose::LayerBacking, "We should not interact with the pixelBuffer for LayerBacking");
 
     WebCore::IntRect srcRect(srcPoint, srcSize);
     m_imageBuffer->putPixelBuffer(pixelBuffer, srcRect, destPoint, destFormat);

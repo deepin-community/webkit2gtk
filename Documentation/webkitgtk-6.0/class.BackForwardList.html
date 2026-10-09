@@ -62,7 +62,7 @@ SPDX-License-Identifier: BSD, LGPL-2.1
         <h3><a href="index.html">WebKit</a></h3>
         <p>API Version: 6.0</p>
         
-        <p>Library Version: 2.52.5</p>
+        <p>Library Version: 2.54.0</p>
         
       </div>
       
@@ -175,7 +175,7 @@ and the following item (which is at index 1).
 Methods <code>webkit_web_view_go_back()</code> and <code>webkit_web_view_go_forward()</code> move
 the current item backward or forward by one. Method
 <code>webkit_web_view_go_to_back_forward_list_item()</code> sets the current item to the
-specified item. All other methods returning <code>WebKitBackForwardListItem</code><!-- -->s
+specified item. All other methods returning <code>WebKitBackForwardListItem</code> objects
 do not change the value of the current item, they just return the requested
 item or&nbsp;items.</p>
         </div>
@@ -401,7 +401,7 @@ item or&nbsp;items.</p>
             <p>This signal is emitted when <code>back_forward_list</code> changes. This happens
 when the current item is updated, a new item is added or one or more
 items are removed. Note that both <code>item_added</code> and <code>items_removed</code> can
-<code>NULL</code> when only the current item is updated. Items are only removed
+be <code>NULL</code> when only the current item is updated. Items are only removed
 when the list is cleared or the maximum items limit is&nbsp;reached.</p>
           </div>
           <div class="docblock">

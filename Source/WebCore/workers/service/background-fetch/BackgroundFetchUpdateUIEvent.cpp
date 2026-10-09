@@ -35,7 +35,7 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(BackgroundFetchUpdateUIEvent);
 
 Ref<BackgroundFetchUpdateUIEvent> BackgroundFetchUpdateUIEvent::create(const AtomString& type, Init&& init, IsTrusted isTrusted)
 {
-    Ref registration = init.registration.releaseNonNull();
+    Ref registration = WTF::move(init.registration);
     return adoptRef(*new BackgroundFetchUpdateUIEvent(type, WTF::move(init), WTF::move(registration), isTrusted));
 }
 
@@ -44,9 +44,7 @@ BackgroundFetchUpdateUIEvent::BackgroundFetchUpdateUIEvent(const AtomString& typ
 {
 }
 
-BackgroundFetchUpdateUIEvent::~BackgroundFetchUpdateUIEvent()
-{
-}
+BackgroundFetchUpdateUIEvent::~BackgroundFetchUpdateUIEvent() = default;
 
 void BackgroundFetchUpdateUIEvent::updateUI(BackgroundFetchUIOptions&&, DOMPromiseDeferred<void>&&)
 {

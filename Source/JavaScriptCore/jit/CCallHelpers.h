@@ -132,7 +132,7 @@ public:
     ALWAYS_INLINE void shuffleRegisters(std::array<RegType, NumberOfRegisters> sources, std::array<RegType, NumberOfRegisters> destinations)
     {
         if (ASSERT_ENABLED) {
-            RegisterSetBuilder set;
+            RegisterSet set;
             for (RegType dest : destinations)
                 set.add(dest, IgnoreVectors);
             ASSERT_WITH_MESSAGE(set.numberOfSetRegisters() == NumberOfRegisters, "Destinations should not be aliased.");
@@ -533,7 +533,7 @@ private:
 #endif // USE(JSVALUE64)
 
     template<typename OperationType, unsigned numGPRArgs, unsigned numGPRSources, unsigned numFPRArgs, unsigned numFPRSources, unsigned numCrossSources, unsigned extraGPRArgs, unsigned nonArgGPRs, unsigned extraPoke, typename Arg, typename... Args>
-        requires WTF::DerivedFromOrConvertibleTo<Arg, TrustedImm> // DerivedFromOrConvertibleTo instead of derived_from since DFGSpeculativeJIT has its own implementation of TrustedImmPtr
+        requires DerivedFromOrConvertibleTo<Arg, TrustedImm> // DerivedFromOrConvertibleTo instead of derived_from since DFGSpeculativeJIT has its own implementation of TrustedImmPtr
     ALWAYS_INLINE void setupArgumentsImpl(ArgCollection<numGPRArgs, numGPRSources, numFPRArgs, numFPRSources, numCrossSources, extraGPRArgs, nonArgGPRs, extraPoke> argSourceRegs, Arg arg, Args... args)
     {
         // Right now this only supports non-floating point immediate arguments since we never call operations with non-register values.
@@ -667,8 +667,10 @@ private:
     template<typename OperationType, unsigned numGPRArgs, unsigned numGPRSources, unsigned numFPRArgs, unsigned numFPRSources, unsigned numCrossSources, unsigned extraGPRArgs, unsigned nonArgGPRs, unsigned extraPoke, typename... Args>
     ALWAYS_INLINE void setupArgumentsEntryImpl(ArgCollection<numGPRArgs, numGPRSources, numFPRArgs, numFPRSources, numCrossSources, extraGPRArgs, nonArgGPRs, extraPoke> argSourceRegs, Args... args)
     {
-        using FirstArgumentType = typename FunctionTraits<OperationType>::template ArgumentType<0>;
-        if constexpr (std::same_as<FirstArgumentType, CallFrame*>) {
+        if constexpr (!FunctionTraits<OperationType>::arity) {
+            static_assert(!sizeof...(Args), "Basic sanity check");
+            setupArgumentsImpl<OperationType>(argSourceRegs);
+        } else if constexpr (std::same_as<typename FunctionTraits<OperationType>::template ArgumentType<0>, CallFrame*>) {
 #if USE(JSVALUE64)
             // This only really works for 64-bit since jsvalue regs mess things up for 32-bit...
             static_assert(FunctionTraits<OperationType>::cCallArity() == sizeof...(Args) + 1, "Basic sanity check; Did you explicitly pass callFrameRegister for the first argument?");
@@ -816,9 +818,8 @@ public:
                     }
 
                     ASSERT(numParametersGPR != argCountGPR);
-                    Jump argumentCountWasNotFixedUp = branch32(BelowOrEqual, numParametersGPR, argCountGPR);
-                    move(numParametersGPR, argCountGPR);
-                    argumentCountWasNotFixedUp.link(this);
+                    // argCountGPR = max(numParametersGPR, argCountGPR)
+                    moveConditionally32(Above, numParametersGPR, argCountGPR, numParametersGPR, argCountGPR, argCountGPR);
                 }
 
                 add32(TrustedImm32(stackAlignmentRegisters() + CallFrame::headerSizeInRegisters - 1), argCountGPR, oldFrameSizeGPR);

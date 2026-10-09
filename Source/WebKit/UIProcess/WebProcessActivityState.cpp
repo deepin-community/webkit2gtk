@@ -32,6 +32,7 @@
 #include "WebPageProxy.h"
 #include "WebProcessPool.h"
 #include "WebProcessProxy.h"
+#include <wtf/NumberOfCores.h>
 
 namespace WebKit {
 
@@ -42,7 +43,7 @@ static Seconds webProcessSuspensionDelay(const WebPageProxy* page)
     if (!page)
         return WebProcessPool::defaultWebProcessSuspensionDelay();
 
-    RefPtr processPool = page->protectedLegacyMainFrameProcess()->processPoolIfExists();
+    RefPtr processPool = protect(page->legacyMainFrameProcess())->processPoolIfExists();
     if (!processPool)
         return WebProcessPool::defaultWebProcessSuspensionDelay();
 
@@ -62,14 +63,14 @@ WebProcessActivityState::WebProcessActivityState(WebPageProxy& page)
 WebProcessActivityState::WebProcessActivityState(RemotePageProxy& page)
     : m_page(page)
 #if PLATFORM(MAC)
-    , m_wasRecentlyVisibleActivity(ProcessThrottlerTimedActivity::create(webProcessSuspensionDelay(page.protectedPage().get())))
+    , m_wasRecentlyVisibleActivity(ProcessThrottlerTimedActivity::create(webProcessSuspensionDelay(protect(page.page()).get())))
 #endif
 {
 }
 
 void WebProcessActivityState::takeVisibleActivity()
 {
-    m_isVisibleActivity = protectedProcess()->protectedThrottler()->foregroundActivity("View is visible"_s);
+    m_isVisibleActivity = protect(protect(process())->throttler())->foregroundActivity("View is visible"_s);
 #if PLATFORM(MAC)
     m_wasRecentlyVisibleActivity->setActivity(nullptr);
 #endif
@@ -81,8 +82,8 @@ void WebProcessActivityState::takeTextExtractionAssertion()
         return weakPageRef.get();
     }, m_page);
 
-    auto processID = protectedProcess()->processID();
-    Ref assertion = ProcessAssertion::create(protectedProcess(), "WebKit text extraction"_s, ProcessAssertionType::Background);
+    auto processID = process().processID();
+    Ref assertion = ProcessAssertion::create(protect(process()), "WebKit text extraction"_s, ProcessAssertionType::Background);
     m_textExtractionAssertion = assertion.copyRef();
     assertion->setInvalidationHandler([processID, weakPage = page] {
         WTF::visit([processID](auto&& weakPage) {
@@ -107,17 +108,17 @@ void WebProcessActivityState::dropTextExtractionAssertion()
 
 void WebProcessActivityState::takeAudibleActivity()
 {
-    m_isAudibleActivity = protectedProcess()->protectedThrottler()->foregroundActivity("View is playing audio"_s);
+    m_isAudibleActivity = protect(protect(process())->throttler())->foregroundActivity("View is playing audio"_s);
 }
 
 void WebProcessActivityState::takeCapturingActivity()
 {
-    m_isCapturingActivity = protectedProcess()->protectedThrottler()->foregroundActivity("View is capturing media"_s);
+    m_isCapturingActivity = protect(protect(process())->throttler())->foregroundActivity("View is capturing media"_s);
 }
 
 void WebProcessActivityState::takeMutedCaptureAssertion()
 {
-    Ref isMutedCaptureAssertion = ProcessAssertion::create(protectedProcess(), "WebKit Muted Media Capture"_s, ProcessAssertionType::Background);
+    Ref isMutedCaptureAssertion = ProcessAssertion::create(protect(process()), "WebKit Muted Media Capture"_s, ProcessAssertionType::Background);
     m_isMutedCaptureAssertion = isMutedCaptureAssertion.copyRef();
 
     auto page = WTF::visit([](auto&& weakPageRef) -> Variant<WeakPtr<WebPageProxy>, WeakPtr<RemotePageProxy>> {
@@ -137,8 +138,8 @@ void WebProcessActivityState::takeMutedCaptureAssertion()
 
 void WebProcessActivityState::takeNetworkActivity()
 {
-    RELEASE_LOG(Process, "Taking network activity on WebProcess with PID %d", protectedProcess()->processID());
-    m_networkActivity = protectedProcess()->protectedThrottler()->backgroundActivity("Page Load"_s);
+    RELEASE_LOG(Process, "Taking network activity on WebProcess with PID %d", protect(process())->processID());
+    m_networkActivity = protect(protect(process())->throttler())->backgroundActivity("Page Load"_s);
 }
 
 void WebProcessActivityState::reset()
@@ -159,9 +160,9 @@ void WebProcessActivityState::dropVisibleActivity()
 {
 #if PLATFORM(MAC)
     if (WTF::numberOfProcessorCores() > 4)
-        m_wasRecentlyVisibleActivity->setActivity(protectedProcess()->protectedThrottler()->backgroundActivity("View was recently visible"_s));
+        m_wasRecentlyVisibleActivity->setActivity(protect(protect(process())->throttler())->backgroundActivity("View was recently visible"_s));
     else
-        m_wasRecentlyVisibleActivity->setActivity(protectedProcess()->protectedThrottler()->foregroundActivity("View was recently visible"_s));
+        m_wasRecentlyVisibleActivity->setActivity(protect(protect(process())->throttler())->foregroundActivity("View was recently visible"_s));
 #endif
     m_isVisibleActivity = nullptr;
 }
@@ -183,7 +184,7 @@ void WebProcessActivityState::dropMutedCaptureAssertion()
 
 void WebProcessActivityState::dropNetworkActivity()
 {
-    RELEASE_LOG(Process, "Dropping network activity on WebProcess with PID %d", protectedProcess()->processID());
+    RELEASE_LOG(Process, "Dropping network activity on WebProcess with PID %d", protect(process())->processID());
     m_networkActivity = nullptr;
 }
 
@@ -215,7 +216,7 @@ bool WebProcessActivityState::hasValidMutedCaptureAssertion() const
 #if PLATFORM(IOS_FAMILY)
 void WebProcessActivityState::takeOpeningAppLinkActivity()
 {
-    m_openingAppLinkActivity = protectedProcess()->protectedThrottler()->backgroundActivity("Opening AppLink"_s);
+    m_openingAppLinkActivity = protect(protect(process())->throttler())->backgroundActivity("Opening AppLink"_s);
 }
 
 void WebProcessActivityState::dropOpeningAppLinkActivity()
@@ -234,9 +235,9 @@ bool WebProcessActivityState::hasValidOpeningAppLinkActivity() const
 void WebProcessActivityState::updateWebProcessSuspensionDelay()
 {
     Seconds timeout = WTF::visit(WTF::makeVisitor([&](const WeakRef<WebPageProxy>& page) {
-        return webProcessSuspensionDelay(Ref { page.get() }.ptr());
+        return webProcessSuspensionDelay(protect(page).ptr());
     }, [&] (const WeakRef<RemotePageProxy>& page) {
-        return webProcessSuspensionDelay(page->protectedPage().get());
+        return webProcessSuspensionDelay(protect(page->page()).get());
     }), m_page);
     m_wasRecentlyVisibleActivity->setTimeout(timeout);
 }
@@ -251,7 +252,7 @@ void WebProcessActivityState::takeAccessibilityActivityWhenInWindow()
     bool isCurrentlyInWindow = WTF::switchOn(m_page, [](WeakRef<WebPageProxy> page) -> bool {
         return page->isInWindow();
     }, [](WeakRef<RemotePageProxy> remotePage) -> bool {
-        if (RefPtr page = remotePage->page())
+        if (auto* page = remotePage->page())
             return page->isInWindow();
         return false;
     });
@@ -262,7 +263,7 @@ void WebProcessActivityState::takeAccessibilityActivityWhenInWindow()
 
 void WebProcessActivityState::takeAccessibilityActivity()
 {
-    m_accessibilityActivity = protectedProcess()->protectedThrottler()->backgroundActivity("Remote AX element"_s);
+    m_accessibilityActivity = protect(protect(process())->throttler())->backgroundActivity("Remote AX element"_s);
 }
 
 bool WebProcessActivityState::hasAccessibilityActivityForTesting() const
@@ -294,11 +295,6 @@ WebProcessProxy& WebProcessActivityState::process() const
         else
             static_assert(std::is_same_v<T, std::false_type>, "Unhandled page type in WebProcessActivityState::process");
     }, m_page);
-}
-
-Ref<WebProcessProxy> WebProcessActivityState::protectedProcess() const
-{
-    return process();
 }
 
 } // namespace WebKit

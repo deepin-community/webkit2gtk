@@ -36,27 +36,22 @@
 
 namespace WebCore {
 
-IPAddressSpace determineIPAddressSpace(const URL& url)
+static IPAddressSpace classifyHost(String host)
 {
-    // Defined in https://wicg.github.io/local-network-access/#ip-address-space-section
-    String host = url.host().toString();
-    host = makeStringByReplacingAll(host, '[', ""_s);
-    host = makeStringByReplacingAll(host, ']', ""_s);
-
     if (!URL::hostIsIPAddress(host))
         return IPAddressSpace::Public;
 
     // Handle IPv6 addresses (check for colon to distinguish from IPv4)
     if (host.contains(':')) {
-        // ::1/128 - IPv6 Local - loopback
+        // ::1/128 - IPv6 Loopback
         if (host == "::1")
-            return IPAddressSpace::Local;
+            return IPAddressSpace::Loopback;
 
-        // fc00::/7 - Unique Loopback - local
+        // fc00::/7 - Unique Local - local
         if (host.startsWith("fc"_s) || host.startsWith("fd"_s))
             return IPAddressSpace::Local;
 
-        // fe80::/10 - Link-Loopback Unicast - local
+        // fe80::/10 - Link-Local Unicast - local
         if (host.startsWith("fe8"_s) || host.startsWith("fe9"_s) || host.startsWith("fea"_s) || host.startsWith("feb"_s))
             return IPAddressSpace::Local;
         // ::ffff: - IPv4 Mapped IPv6 Addresses - format for parsing by IPv4 Algorithm.
@@ -64,12 +59,13 @@ IPAddressSpace determineIPAddressSpace(const URL& url)
             host = host.substring(7);
             if (!host.contains('.')) {
                 // Parse hex representation like "c0a8:101" -> "192.168.1.1"
-                Vector<String> halves = host.split(':');
-                if (halves.size() != 2)
+                StringView hostView { host };
+                auto colonPosition = hostView.find(':');
+                if (colonPosition == notFound || hostView.find(':', colonPosition + 1) != notFound)
                     return IPAddressSpace::Public;
 
-                auto value1 = parseInteger<uint16_t>(halves[0], 16);
-                auto value2 = parseInteger<uint16_t>(halves[1], 16);
+                auto value1 = parseInteger<uint16_t>(hostView.left(colonPosition), 16);
+                auto value2 = parseInteger<uint16_t>(hostView.substring(colonPosition + 1), 16);
 
                 if (!value1.has_value() || !value2.has_value())
                     return IPAddressSpace::Public;
@@ -88,23 +84,24 @@ IPAddressSpace determineIPAddressSpace(const URL& url)
         }
     }
     if (host.contains('.')) {
-        Vector<String> octets = host.split('.');
-        if (octets.size() != 4)
-            return IPAddressSpace::Public;
-
         std::array<uint8_t, 4> parts;
-        for (size_t i = 0; i < 4; i++) {
-            auto value = parseInteger<uint8_t>(octets[i]);
+        size_t i = 0;
+        for (auto octet : StringView(host).split('.')) {
+            if (i >= 4)
+                return IPAddressSpace::Public;
+            auto value = parseInteger<uint8_t>(octet);
             if (!value)
                 return IPAddressSpace::Public;
-            parts[i] = *value;
+            parts[i++] = *value;
         }
+        if (i != 4)
+            return IPAddressSpace::Public;
 
         // Check IPv4 address blocks according to spec table:
 
-        // 127.0.0.0/8 - IPv4 Loopback - loopback
+        // 127.0.0.0/8 - IPv4 Loopback
         if (parts[0] == 127)
-            return IPAddressSpace::Local;
+            return IPAddressSpace::Loopback;
 
         // 10.0.0.0/8 - Local Use - local
         if (parts[0] == 10)
@@ -135,9 +132,14 @@ IPAddressSpace determineIPAddressSpace(const URL& url)
     return IPAddressSpace::Public;
 }
 
-bool isLocalIPAddressSpace(const URL& url)
+IPAddressSpace determineIPAddressSpace(const URL& url)
 {
-    return determineIPAddressSpace(url) == IPAddressSpace::Local;
+    // Defined in https://wicg.github.io/local-network-access/#ip-address-space-section
+    StringView host = url.host();
+    if (host.startsWith('[') && host.endsWith(']'))
+        host = host.substring(1, host.length() - 2);
+
+    return classifyHost(host.toString());
 }
 
 } // namespace WebCore

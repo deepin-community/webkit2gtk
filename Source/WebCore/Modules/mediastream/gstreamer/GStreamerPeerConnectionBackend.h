@@ -47,7 +47,8 @@ class RealtimeOutgoingVideoSourceGStreamer;
 class GStreamerPeerConnectionBackend final : public PeerConnectionBackend {
     WTF_MAKE_TZONE_ALLOCATED(GStreamerPeerConnectionBackend);
 public:
-    explicit GStreamerPeerConnectionBackend(RTCPeerConnection&);
+    using UDPPortsRange = std::optional<std::pair<int, int>>;
+    explicit GStreamerPeerConnectionBackend(RTCPeerConnection&, UDPPortsRange&&);
     ~GStreamerPeerConnectionBackend();
 
     GStreamerRtpSenderBackend& backendFromRTPSender(RTCRtpSender&);
@@ -98,16 +99,17 @@ private:
     GStreamerRtpSenderBackend::Source createSourceForTrack(MediaStreamTrack&);
 
     RefPtr<RTCRtpTransceiver> existingTransceiver(WTF::Function<bool(GStreamerRtpTransceiverBackend&)>&&);
-    Ref<RTCRtpTransceiver> newRemoteTransceiver(std::unique_ptr<GStreamerRtpTransceiverBackend>&&, RealtimeMediaSource::Type, String&&);
+    Ref<RTCRtpTransceiver> addInternalTransceiver(UniqueRef<GStreamerRtpTransceiverBackend>&&, RealtimeMediaSource::Type, String&&);
+    void removeTransceiver(const RTCRtpTransceiver&);
 
-    void collectTransceivers() final;
+    void collectTransceivers(Vector<Ref<RTCRtpTransceiver>>&&) final;
 
     bool isLocalDescriptionSet() const final { return m_isLocalDescriptionSet; }
 
     template<typename T>
     ExceptionOr<Ref<RTCRtpTransceiver>> addTransceiverFromTrackOrKind(T&& trackOrKind, const RTCRtpTransceiverInit&, IgnoreNegotiationNeededFlag);
 
-    Ref<RTCRtpReceiver> createReceiver(std::unique_ptr<GStreamerRtpReceiverBackend>&&, const String& trackKind, const String& trackId);
+    Ref<RTCRtpReceiver> createReceiver(UniqueRef<GStreamerRtpReceiverBackend>&&, const String& trackKind, const String& trackId);
 
     void suspend() final;
     void resume() final;
@@ -118,6 +120,9 @@ private:
     void trackWasReplaced(const String& previousId, const String& newId);
 
     void tearDown();
+
+    UDPPortsRange udpPortsRange() const { return m_udpPortsRange; }
+    UDPPortsRange m_udpPortsRange;
 
     Ref<GStreamerMediaEndpoint> m_endpoint;
     bool m_isLocalDescriptionSet { false };

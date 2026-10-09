@@ -50,7 +50,7 @@ public:
     explicit WebProcessCache(WebProcessPool&);
 
     bool addProcessIfPossible(Ref<WebProcessProxy>&&);
-    RefPtr<WebProcessProxy> takeProcess(const WebCore::Site&, WebsiteDataStore&, WebProcessProxy::LockdownMode, EnhancedSecurity, const API::PageConfiguration&);
+    RefPtr<WebProcessProxy> takeProcess(const WebCore::Site&, WebProcessProxy::IsolatedProcessType, const std::optional<WebCore::Site>&, WebsiteDataStore&, WebProcessProxy::LockdownMode, EnhancedSecurity, const API::PageConfiguration&);
     RefPtr<WebProcessProxy> takeSharedProcess(const WebCore::Site& mainFrameSite, WebsiteDataStore&, WebProcessProxy::LockdownMode, EnhancedSecurity, const API::PageConfiguration&);
 
     void updateCapacity(WebProcessPool&);
@@ -65,8 +65,8 @@ public:
 
     enum class ShouldShutDownProcess : bool { No, Yes };
     void removeProcess(WebProcessProxy&, ShouldShutDownProcess);
-    static void setCachedProcessSuspensionDelayForTesting(Seconds);
-    void setCachedProcessLifetimeForTesting(Seconds);
+    static void NODELETE setCachedProcessSuspensionDelayForTesting(Seconds);
+    void NODELETE setCachedProcessLifetimeForTesting(Seconds);
 
     void ref() const final;
     void deref() const final;
@@ -84,7 +84,6 @@ private:
 
         Ref<WebProcessProxy> takeProcess();
         WebProcessProxy& process() { ASSERT(m_process); return *m_process; }
-        RefPtr<WebProcessProxy> protectedProcess() const { return m_process; }
         void startSuspensionTimer();
 
 #if PLATFORM(COCOA) || PLATFORM(GTK) || PLATFORM(WPE)
@@ -116,7 +115,7 @@ private:
 
     WeakRef<WebProcessPool> m_processPool;
     HashMap<uint64_t, Ref<CachedProcess>> m_pendingAddRequests;
-    HashMap<WebCore::Site, Ref<CachedProcess>> m_processesPerSite;
+    HashMap<std::tuple<WebCore::Site, WebCore::Site>, Ref<CachedProcess>> m_processesPerSite;
     HashMap<WebCore::Site, Ref<CachedProcess>> m_sharedProcessesPerSite;
     RunLoop::Timer m_evictionTimer;
     Seconds m_cachedProcessLifetime;

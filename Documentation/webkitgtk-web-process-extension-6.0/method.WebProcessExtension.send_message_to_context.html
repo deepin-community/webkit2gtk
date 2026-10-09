@@ -62,7 +62,7 @@ SPDX-License-Identifier: BSD, LGPL-2.1
         <h3><a href="index.html">WebKitWebProcessExtension</a></h3>
         <p>API Version: 6.0</p>
         
-        <p>Library Version: 2.52.5</p>
+        <p>Library Version: 2.54.0</p>
         
       </div>
       
@@ -132,13 +132,13 @@ SPDX-License-Identifier: BSD, LGPL-2.1
         Description
         <a class="anchor" href="#description"></a>
         
-        <a class="srclink" title="go to source location" href="https://github.com/WebKit/WebKit/tree/main/Source/WebKit/WebProcess/InjectedBundle/API/glib/WebKitWebProcessExtension.cpp#L255">[src]</a>
+        <a class="srclink" title="go to source location" href="https://github.com/WebKit/WebKit/tree/main/Source/WebKit/WebProcess/InjectedBundle/API/glib/WebKitWebProcessExtension.cpp#L256">[src]</a>
         
       </h4>
 
       <div class="docblock">
         <p>Send <code>message</code> to the <code>WebKitWebContext</code> corresponding to <code>extension</code>. If <code>message</code> is floating, it&#8217;s&nbsp;consumed.</p>
-<p>If you don&#8217;t expect any reply, or you simply want to ignore it, you can pass <code>NULL</code> as <code>calback</code>.
+<p>If you don&#8217;t expect any reply, or you simply want to ignore it, you can pass <code>NULL</code> as <code>callback</code>.
 When the operation is finished, <code>callback</code> will be called. You can then call
 <code>webkit_web_process_extension_send_message_to_context_finish()</code> to get the message&nbsp;reply.</p>
       </div>

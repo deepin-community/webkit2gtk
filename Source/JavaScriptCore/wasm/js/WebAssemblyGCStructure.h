@@ -27,6 +27,7 @@
 
 #include <JavaScriptCore/Structure.h>
 #include <JavaScriptCore/WasmTypeDefinition.h>
+#include <JavaScriptCore/WriteBarrier.h>
 #include <wtf/Platform.h>
 
 #if ENABLE(WEBASSEMBLY)
@@ -46,8 +47,6 @@ class WebAssemblyGCStructure final : public Structure {
 public:
     friend class Structure;
 
-    static constexpr unsigned inlinedTypeDisplaySize = 6;
-
     template<typename CellType, SubspaceAccess>
     static GCClient::IsoSubspace* subspaceFor(VM& vm)
     {
@@ -55,21 +54,24 @@ public:
     }
 
     const Wasm::RTT& rtt() const LIFETIME_BOUND { return m_rtt; }
-    const Wasm::TypeDefinition& typeDefinition() const LIFETIME_BOUND { return m_type; }
 
-    static WebAssemblyGCStructure* create(VM&, JSGlobalObject*, const TypeInfo&, const ClassInfo*, Ref<const Wasm::TypeDefinition>&& unexpandedType, Ref<const Wasm::TypeDefinition>&& expandedType, Ref<const Wasm::RTT>&&);
+    static WebAssemblyGCStructure* create(VM&, const TypeInfo&, const ClassInfo*, Ref<const Wasm::RTT>&&);
 
     static constexpr ptrdiff_t offsetOfRTT() { return OBJECT_OFFSETOF(WebAssemblyGCStructure, m_rtt); }
-    static constexpr ptrdiff_t offsetOfInlinedTypeDisplay() { return OBJECT_OFFSETOF(WebAssemblyGCStructure, m_inlinedTypeDisplay); }
+
+    static constexpr unsigned inlinedDisplaySize = Wasm::RTT::inlinedDisplaySize;
+    static constexpr ptrdiff_t offsetOfInlinedDisplay() { return OBJECT_OFFSETOF(WebAssemblyGCStructure, m_inlinedDisplay); }
+
+    template<typename Visitor>
+    static void visitAdditionalChildren(JSCell*, Visitor&);
 
 private:
-    WebAssemblyGCStructure(VM&, JSGlobalObject*, const TypeInfo&, const ClassInfo*, Ref<const Wasm::TypeDefinition>&& unexpandedType, Ref<const Wasm::TypeDefinition>&& expandedType, Ref<const Wasm::RTT>&&);
-    WebAssemblyGCStructure(VM&, WebAssemblyGCStructure* previous);
+    WebAssemblyGCStructure(VM&, const TypeInfo&, const ClassInfo*, Ref<const Wasm::RTT>&&);
 
-    Ref<const Wasm::RTT> m_rtt;
-    Ref<const Wasm::TypeDefinition> m_type;
-    std::array<RefPtr<const Wasm::RTT>, inlinedTypeDisplaySize> m_inlinedTypeDisplay { };
-    Wasm::WebAssemblyGCTypeDependencies m_typeDependencies;
+    void finishCreation(VM&);
+
+    const Ref<const Wasm::RTT> m_rtt;
+    std::array<WriteBarrierStructureID, inlinedDisplaySize> m_inlinedDisplay { };
 };
 
 } // namespace JSC

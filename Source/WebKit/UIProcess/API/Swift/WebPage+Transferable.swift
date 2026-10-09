@@ -21,17 +21,17 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
 // THE POSSIBILITY OF SUCH DAMAGE.
 
-#if ENABLE_SWIFTUI && compiler(>=6.0)
+#if ENABLE_SWIFTUI
 
 public import CoreTransferable
 import Foundation
 import UniformTypeIdentifiers
-@_weakLinked internal import SwiftUI
-internal import WebKit_Private
-internal import WebKit_Private.WKSnapshotConfigurationPrivate
-internal import WebKit_Private.WKWebViewPrivate
+@_weakLinked import SwiftUI
+import WebKit_Private
+import WebKit_Private.WKSnapshotConfigurationPrivate
+import WebKit_Private.WKWebViewPrivate
 
-@available(iOS 26.0, macOS 26.0, visionOS 26.0, *)
+@available(anyAppleOSAndDownlevels 26.0, *)
 @available(watchOS, unavailable)
 @available(tvOS, unavailable)
 extension WebPage: Transferable {
@@ -295,4 +295,4 @@ extension WebPage {
     }
 }
 
-#endif // ENABLE_SWIFTUI && compiler(>=6.0)
+#endif // ENABLE_SWIFTUI

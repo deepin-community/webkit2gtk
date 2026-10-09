@@ -117,17 +117,16 @@ void DropTarget::accept(GdkDragContext* drop, std::optional<WebCore::IntPoint> p
     // data of targets we support. Once all data requests are done we start
     // notifying the web process about the DND events.
     auto* list = gdk_drag_context_list_targets(m_drop.get());
-    static const char* const supportedTargets[] = {
-        "text/plain;charset=utf-8",
-        "text/html",
-        "_NETSCAPE_URL",
-        "text/uri-list",
-        "application/vnd.webkitgtk.smartpaste",
-        "org.webkitgtk.WebKit.custom-pasteboard-data"
+    static const std::array<ASCIILiteral, 6> supportedTargets = {
+        "text/plain;charset=utf-8"_s,
+        "text/html"_s,
+        "_NETSCAPE_URL"_s,
+        "text/uri-list"_s,
+        "application/vnd.webkitgtk.smartpaste"_s,
+        "org.webkitgtk.WebKit.custom-pasteboard-data"_s
     };
     Vector<GdkAtom, 4> targets;
-    WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GTK
-    for (unsigned i = 0; i < G_N_ELEMENTS(supportedTargets); ++i) {
+    for (unsigned i = 0; i < supportedTargets.size(); ++i) {
         GdkAtom atom = gdk_atom_intern_static_string(supportedTargets[i]);
         if (g_list_find(list, atom))
             targets.append(atom);
@@ -137,7 +136,6 @@ void DropTarget::accept(GdkDragContext* drop, std::optional<WebCore::IntPoint> p
                 targets.append(atom);
         }
     }
-    WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
     if (targets.isEmpty())
         return;
@@ -186,13 +184,12 @@ void DropTarget::dataReceived(IntPoint&& position, GtkSelectionData* data, unsig
         gint length;
         const auto* markupData = gtk_selection_data_get_data_with_length(data, &length);
         if (length > 0) {
+            const auto span = unsafeMakeSpan(markupData, length);
             // If data starts with UTF-16 BOM assume it's UTF-16, otherwise assume UTF-8.
-            WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GTK
             if (length >= 2 && reinterpret_cast<const char16_t*>(markupData)[0] == 0xFEFF)
-                m_selectionData->setMarkup(String({ reinterpret_cast<const char16_t*>(markupData) + 1, static_cast<size_t>((length / 2) - 1) }));
+                m_selectionData->setMarkup(String(spanReinterpretCast<const char16_t>(span).subspan(1)));
             else
-                m_selectionData->setMarkup(String::fromUTF8(std::span(markupData, length)));
-            WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
+                m_selectionData->setMarkup(String(span));
         }
         break;
     }
@@ -200,14 +197,14 @@ void DropTarget::dataReceived(IntPoint&& position, GtkSelectionData* data, unsig
         gint length;
         const auto* uriListData = gtk_selection_data_get_data_with_length(data, &length);
         if (length > 0)
-            m_selectionData->setURIList(String::fromUTF8(std::span(uriListData, length)));
+            m_selectionData->setURIList(String(unsafeMakeSpan(uriListData, length)));
         break;
     }
     case DropTargetType::NetscapeURL: {
         gint length;
         const auto* urlData = gtk_selection_data_get_data_with_length(data, &length);
         if (length > 0) {
-            Vector<String> tokens = String::fromUTF8(std::span(urlData, length)).split('\n');
+            Vector<String> tokens = String(unsafeMakeSpan(urlData, length)).split('\n');
             URL url({ }, tokens[0]);
             if (url.isValid())
                 m_selectionData->setURL(url, tokens.size() > 1 ? tokens[1] : String());
@@ -221,7 +218,7 @@ void DropTarget::dataReceived(IntPoint&& position, GtkSelectionData* data, unsig
         int length;
         const auto* customData = gtk_selection_data_get_data_with_length(data, &length);
         if (length > 0)
-            m_selectionData->setCustomData(SharedBuffer::create(std::span { customData, static_cast<size_t>(length) }));
+            m_selectionData->setCustomData(SharedBuffer::create(unsafeMakeSpan(customData, static_cast<size_t>(length))));
         break;
     }
     }

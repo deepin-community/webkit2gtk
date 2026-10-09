@@ -33,9 +33,10 @@ namespace API {
 class JSHandle final : public ObjectImpl<Object::Type::JSHandle> {
 public:
     static Ref<JSHandle> create(WebKit::JSHandleInfo&&);
+
     virtual ~JSHandle();
 
-    const WebKit::JSHandleInfo& info() const { return m_info; }
+    const WebKit::JSHandleInfo& info() const LIFETIME_BOUND { return m_info; }
 
 private:
     JSHandle(WebKit::JSHandleInfo&&);

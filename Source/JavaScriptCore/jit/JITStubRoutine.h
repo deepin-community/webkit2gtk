@@ -94,7 +94,7 @@ public:
     // MacroAssemblerCodeRef is copyable, but at the cost of reference
     // counting churn. Returning a reference is a good way of reducing
     // the churn.
-    const MacroAssemblerCodeRef<JITStubRoutinePtrTag>& code() const { return m_code; }
+    const MacroAssemblerCodeRef<JITStubRoutinePtrTag>& code() const LIFETIME_BOUND { return m_code; }
     
     static CodePtr<JITStubRoutinePtrTag> asCodePtr(Ref<JITStubRoutine>&& stubRoutine)
     {
@@ -153,7 +153,7 @@ protected:
     ALWAYS_INLINE CallLinkInfo* callLinkInfoAtImpl(const ConcurrentJSLocker&, unsigned) { return nullptr; }
 
     template<typename Func>
-    ALWAYS_INLINE void runWithDowncast(const Func& function);
+    ALWAYS_INLINE void NODELETE runWithDowncast(const Func& function);
 
     MacroAssemblerCodeRef<JITStubRoutinePtrTag> m_code;
     unsigned m_refCount;

@@ -42,7 +42,7 @@ class RemoteImageBufferSetProxyFlushFence : public ThreadSafeRefCounted<RemoteIm
     WTF_MAKE_NONCOPYABLE(RemoteImageBufferSetProxyFlushFence);
     WTF_MAKE_TZONE_ALLOCATED_INLINE(RemoteImageBufferSetProxyFlushFence);
 public:
-    static Ref<RemoteImageBufferSetProxyFlushFence> create(RenderingUpdateID renderingUpdateID, Seconds timeoutDuration)
+    static Ref<RemoteImageBufferSetProxyFlushFence> NODELETE create(RenderingUpdateID renderingUpdateID, Seconds timeoutDuration)
     {
         return adoptRef(*new RemoteImageBufferSetProxyFlushFence { renderingUpdateID, timeoutDuration });
     }
@@ -69,7 +69,7 @@ public:
         return std::exchange(m_handles, std::nullopt);
     }
 
-    RenderingUpdateID renderingUpdateID() const { return m_renderingUpdateID; }
+    RenderingUpdateID NODELETE renderingUpdateID() const { return m_renderingUpdateID; }
 
 private:
     RemoteImageBufferSetProxyFlushFence(RenderingUpdateID renderingUpdateID, Seconds timeoutDuration)
@@ -235,6 +235,15 @@ void RemoteImageBufferSetProxy::setConfiguration(RemoteImageBufferSetConfigurati
 {
     m_configuration = WTF::move(configuration);
     m_remoteNeedsConfigurationUpdate = true;
+}
+
+void RemoteImageBufferSetProxy::submitDrawingCommands()
+{
+    RefPtr connection = this->connection();
+    if (!connection)
+        return;
+
+    send(Messages::RemoteImageBufferSet::SubmitDrawingCommands());
 }
 
 std::unique_ptr<ThreadSafeImageBufferSetFlusher> RemoteImageBufferSetProxy::flushFrontBufferAsync(ThreadSafeImageBufferSetFlusher::FlushType flushType)

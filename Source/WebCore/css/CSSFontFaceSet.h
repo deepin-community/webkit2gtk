@@ -26,7 +26,6 @@
 #pragma once
 
 #include "CSSFontFace.h"
-#include "ExceptionOr.h"
 #include <wtf/AbstractRefCountedAndCanMakeWeakPtr.h>
 #include <wtf/HashMap.h>
 #include <wtf/Observer.h>
@@ -36,8 +35,8 @@
 
 namespace WebCore {
 
-class CSSPrimitiveValue;
 class CSSSegmentedFontFace;
+class CSSValue;
 class FontFaceSet;
 
 template<typename> class ExceptionOr;
@@ -68,14 +67,14 @@ public:
     // Calling updateStyleIfNeeded() might delete |this|.
     void updateStyleIfNeeded();
 
-    bool hasFace(const CSSFontFace&) const;
+    bool NODELETE hasFace(const CSSFontFace&) const;
     size_t faceCount() const { return m_faces.size(); }
     void add(CSSFontFace&);
     void remove(const CSSFontFace&);
     void purge();
     void emptyCaches();
     void clear();
-    CSSFontFace& operator[](size_t i);
+    CSSFontFace& NODELETE operator[](size_t i);
 
     CSSFontFace* lookUpByCSSConnection(StyleRuleFontFace&);
 
@@ -109,7 +108,7 @@ private:
 
     void ensureLocalFontFacesForFamilyRegistered(const AtomString&);
 
-    static String familyNameFromPrimitive(const CSSPrimitiveValue&);
+    static AtomString familyName(const CSSValue&);
 
     using FontSelectionKey = std::optional<FontSelectionRequest>;
     struct FontSelectionKeyHash : WTF::HasherBasedHash<FontSelectionKey> {
@@ -121,7 +120,7 @@ private:
         static void constructDeletedValue(FontSelectionKey& slot) { slot = std::nullopt; }
         static bool isDeletedValue(const FontSelectionKey& value) { return !value; }
     };
-    using FontSelectionHashMap = HashMap<FontSelectionKey, RefPtr<CSSSegmentedFontFace>, FontSelectionKeyHash, FontSelectionKeyHashTraits>;
+    using FontSelectionHashMap = HashMap<FontSelectionKey, Ref<CSSSegmentedFontFace>, FontSelectionKeyHash, FontSelectionKeyHashTraits>;
 
     // m_faces should hold all the same fonts as the ones inside inside m_facesLookupTable.
     Vector<Ref<CSSFontFace>> m_faces; // We should investigate moving m_faces to FontFaceSet and making it reference FontFaces. This may clean up the font loading design.

@@ -76,7 +76,6 @@ RTCRtpSender::RTCRtpSender(RTCPeerConnection& connection, String&& trackKind, Re
     , m_logIdentifier(connection.logIdentifier())
 #endif
 {
-    ASSERT(m_backend);
 }
 
 RTCRtpSender::~RTCRtpSender()
@@ -98,8 +97,7 @@ void RTCRtpSender::stop()
         m_transform->detachFromSender(*this);
 
     m_trackId = { };
-    m_track = nullptr;
-    m_backend = nullptr;
+    m_isStopped = true;
 }
 
 void RTCRtpSender::setTrack(Ref<MediaStreamTrack>&& track)
@@ -124,7 +122,7 @@ void RTCRtpSender::replaceTrack(RefPtr<MediaStreamTrack>&& withTrack, Ref<Deferr
         return;
     }
 
-    m_connection->chainOperation(WTF::move(promise), [this, weakThis = WeakPtr { *this }, withTrack = WTF::move(withTrack)](Ref<DeferredPromise>&& promise) mutable {
+    protect(m_connection)->chainOperation(WTF::move(promise), [this, weakThis = WeakPtr { *this }, withTrack = WTF::move(withTrack)](Ref<DeferredPromise>&& promise) mutable {
         if (!weakThis)
             return;
         if (isStopped()) {
@@ -158,12 +156,32 @@ RTCRtpSendParameters RTCRtpSender::getParameters()
     return m_backend->getParameters();
 }
 
-void RTCRtpSender::setParameters(const RTCRtpSendParameters& parameters, DOMPromiseDeferred<void>&& promise)
+void RTCRtpSender::setParameters(RTCRtpSendParameters&& parameters, DOMPromiseDeferred<void>&& promise)
 {
     if (isStopped()) {
         promise.reject(ExceptionCode::InvalidStateError);
         return;
     }
+
+    // https://w3c.github.io/webrtc-pc/#dfn-setparameters-validation-steps
+    if (m_trackKind == "audio"_s) {
+        for (auto& encoding : parameters.encodings) {
+            encoding.scaleResolutionDownBy = { };
+            encoding.maxFramerate = { };
+        }
+    } else {
+        for (auto& encoding : parameters.encodings) {
+            if (encoding.scaleResolutionDownBy && encoding.scaleResolutionDownBy < 1) {
+                promise.reject(Exception { ExceptionCode::RangeError });
+                return;
+            }
+            if (encoding.maxFramerate && encoding.maxFramerate < 0) {
+                promise.reject(Exception { ExceptionCode::RangeError });
+                return;
+            }
+        }
+    }
+
     return m_backend->setParameters(parameters, WTF::move(promise));
 }
 
@@ -176,7 +194,7 @@ ExceptionOr<void> RTCRtpSender::setStreams(const FixedVector<std::reference_wrap
 
 ExceptionOr<void> RTCRtpSender::setMediaStreamIds(const FixedVector<String>& streamIds)
 {
-    if (!m_connection || m_connection->isClosed() || !m_backend)
+    if (!m_connection || m_connection->isClosed() || isStopped())
         return Exception { ExceptionCode::InvalidStateError, "connection is closed"_s };
     m_backend->setMediaStreamIds(streamIds);
     return { };
@@ -188,7 +206,7 @@ void RTCRtpSender::getStats(Ref<DeferredPromise>&& promise)
         promise->reject(ExceptionCode::InvalidStateError);
         return;
     }
-    m_connection->getStats(*this, WTF::move(promise));
+    protect(m_connection)->getStats(*this, WTF::move(promise));
 }
 
 bool RTCRtpSender::isCreatedBy(const RTCPeerConnection& connection) const
@@ -203,8 +221,8 @@ std::optional<RTCRtpCapabilities> RTCRtpSender::getCapabilities(ScriptExecutionC
 
 RTCDTMFSender* RTCRtpSender::dtmf()
 {
-    if (!m_dtmfSender && m_connection && m_connection->scriptExecutionContext() && m_backend && m_trackKind == "audio"_s)
-        m_dtmfSender = RTCDTMFSender::create(*m_connection->protectedScriptExecutionContext(), *this, m_backend->createDTMFBackend());
+    if (!m_dtmfSender && m_connection && m_connection->scriptExecutionContext() && m_trackKind == "audio"_s)
+        m_dtmfSender = RTCDTMFSender::create(*protect(m_connection->scriptExecutionContext()), *this, m_backend->createDTMFBackend());
 
     return m_dtmfSender.get();
 }
@@ -251,16 +269,16 @@ ExceptionOr<void> RTCRtpSender::setTransform(std::unique_ptr<RTCRtpTransform>&& 
     return { };
 }
 
-std::optional<RTCRtpTransform::Internal> RTCRtpSender::transform()
+RefPtr<RTCRtpScriptTransform> RTCRtpSender::transform()
 {
     if (!m_transform)
-        return { };
+        return nullptr;
     return m_transform->internalTransform();
 }
 
 ExceptionOr<RTCEncodedStreams> RTCRtpSender::createEncodedStreams(ScriptExecutionContext& context)
 {
-    if (!m_backend)
+    if (isStopped())
         return Exception { ExceptionCode::InvalidStateError };
 
     if (!m_encodedStreamProducer) {
@@ -273,6 +291,16 @@ ExceptionOr<RTCEncodedStreams> RTCRtpSender::createEncodedStreams(ScriptExecutio
     }
 
     return m_encodedStreamProducer->streams();
+}
+
+std::unique_ptr<RTCDtlsTransportBackend> RTCRtpSender::dtlsTransportBackend()
+{
+    return m_backend->dtlsTransportBackend();
+}
+
+Ref<RTCRtpTransformBackend> RTCRtpSender::rtcRtpTransformBackend()
+{
+    return m_backend->rtcRtpTransformBackend();
 }
 
 #if !RELEASE_LOG_DISABLED

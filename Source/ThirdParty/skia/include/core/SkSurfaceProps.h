@@ -10,7 +10,7 @@
 
 #include "include/core/SkScalar.h"
 #include "include/core/SkTypes.h"
-#include "include/private/base/SkTo.h"
+#include "include/private/SkTo.h"
 
 /**
  *  Description of how the LCD strips are arranged for each pixel. If this is unknown, or the
@@ -60,6 +60,8 @@ public:
         // If set, all rendering will have dithering enabled
         // Currently this only impacts GPU backends
         kAlwaysDither_Flag = 1 << 2,
+        // The surface will preserve transparent draws (instead of skipping them).
+        kPreservesTransparentDraws_Flag = 1 << 3,
     };
 
     /** No flags, unknown pixel geometry, platform-default contrast/gamma. */
@@ -92,6 +94,10 @@ public:
 
     bool isAlwaysDither() const {
         return SkToBool(fFlags & kAlwaysDither_Flag);
+    }
+
+    bool preservesTransparentDraws() const {
+        return SkToBool(fFlags & kPreservesTransparentDraws_Flag);
     }
 
     bool operator==(const SkSurfaceProps& that) const {

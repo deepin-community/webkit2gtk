@@ -64,8 +64,6 @@
 #include <wtf/TZoneMallocInlines.h>
 #if ENABLE(WEB_AUTHN)
 #include "AuthenticatorCoordinatorClient.h"
-#endif
-#if HAVE(DIGITAL_CREDENTIALS_UI)
 #include "CredentialRequestCoordinatorClient.h"
 #endif
 #if ENABLE(APPLE_PAY)
@@ -78,6 +76,7 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(PageConfiguration);
 
 PageConfiguration::PageConfiguration(
     std::optional<PageIdentifier> identifier,
+    std::optional<BrowsingContextGroupIdentifier> browsingContextGroupIdentifier,
     PAL::SessionID sessionID,
     UniqueRef<EditorClient>&& editorClient,
     Ref<SocketProvider>&& socketProvider,
@@ -105,11 +104,12 @@ PageConfiguration::PageConfiguration(
     UniqueRef<ChromeClient>&& chromeClient,
     UniqueRef<CryptoClient>&& cryptoClient,
     UniqueRef<DocumentSyncClient>&& documentSyncClient
-#if HAVE(DIGITAL_CREDENTIALS_UI)
+#if ENABLE(WEB_AUTHN)
     , Ref<CredentialRequestCoordinatorClient>&& credentialRequestCoordinatorClient
 #endif
 )
     : identifier(identifier)
+    , browsingContextGroupIdentifier(browsingContextGroupIdentifier)
     , sessionID(sessionID)
     , chromeClient(WTF::move(chromeClient))
 #if ENABLE(CONTEXT_MENUS)
@@ -137,7 +137,7 @@ PageConfiguration::PageConfiguration(
     , historyItemClient(WTF::move(historyItemClient))
     , cryptoClient(WTF::move(cryptoClient))
     , documentSyncClient(WTF::move(documentSyncClient))
-#if HAVE(DIGITAL_CREDENTIALS_UI)
+#if ENABLE(WEB_AUTHN)
     , credentialRequestCoordinatorClient(WTF::move(credentialRequestCoordinatorClient))
 #endif
 {

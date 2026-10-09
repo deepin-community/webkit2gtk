@@ -61,16 +61,16 @@ class NavigateEvent final : public Event {
 public:
     struct Init : EventInit {
         NavigationNavigationType navigationType { NavigationNavigationType::Push };
-        RefPtr<NavigationDestination> destination;
-        RefPtr<AbortSignal> signal;
-        RefPtr<DOMFormData> formData;
-        String downloadRequest;
-        JSC::JSValue info;
-        RefPtr<Element> sourceElement;
+        Ref<NavigationDestination> destination;
         bool canIntercept { false };
         bool userInitiated { false };
         bool hashChange { false };
+        Ref<AbortSignal> signal;
+        RefPtr<DOMFormData> formData;
+        String downloadRequest;
+        JSC::JSValue info;
         bool hasUAVisualTransition { false };
+        RefPtr<Element> sourceElement;
     };
 
     enum class NavigationFocusReset : bool {
@@ -89,8 +89,8 @@ public:
         std::optional<NavigationScrollBehavior> scroll;
     };
 
-    static Ref<NavigateEvent> create(const AtomString& type, Init&&);
-    static Ref<NavigateEvent> create(const AtomString& type, Init&&, AbortController*);
+    static Ref<NavigateEvent> create(JSC::JSGlobalObject&, const AtomString& type, Init&&);
+    static Ref<NavigateEvent> create(RefPtr<DOMWrapperWorld>&&, const AtomString& type, Init&&, AbortController*);
 
     NavigationNavigationType navigationType() const { return m_navigationType; }
     bool canIntercept() const { return m_canIntercept; }
@@ -101,23 +101,23 @@ public:
     AbortSignal& signal() { return m_signal; }
     DOMFormData* formData() { return m_formData.get(); }
     String downloadRequest() { return m_downloadRequest; }
-    JSC::JSValue info() { return m_info.getValue(); }
-    JSValueInWrappedObject& infoWrapper() { return m_info; }
+    JSC::JSValue info();
+    JSValueInWrappedObject& infoWrapper() LIFETIME_BOUND { return m_info; }
     Element* sourceElement() { return m_sourceElement.get(); }
 
     ExceptionOr<void> intercept(Document&, NavigationInterceptOptions&&);
     ExceptionOr<void> scroll(Document&);
 
     bool wasIntercepted() const { return m_interceptionState.has_value(); }
-    void setCanIntercept(bool canIntercept) { m_canIntercept = canIntercept; }
     void setInterceptionState(InterceptionState interceptionState) { m_interceptionState = interceptionState; }
 
     void finish(Document&, InterceptionHandlersDidFulfill, FocusDidChange);
 
-    Vector<Ref<NavigationInterceptHandler>>& handlers() { return m_handlers; }
+    Vector<Ref<NavigationInterceptHandler>>& handlers() LIFETIME_BOUND { return m_handlers; }
 
 private:
-    NavigateEvent(const AtomString& type, Init&&, EventIsTrusted, AbortController*);
+    NavigateEvent(JSC::JSGlobalObject&, const AtomString& type, Init&&, EventIsTrusted, AbortController*);
+    NavigateEvent(RefPtr<DOMWrapperWorld>&&, const AtomString& type, Init&&, EventIsTrusted, AbortController*);
 
     ExceptionOr<void> sharedChecks(Document&);
     void potentiallyProcessScrollBehavior(Document&);
@@ -141,6 +141,6 @@ private:
     const RefPtr<AbortController> m_abortController;
 };
 
-WebCoreOpaqueRoot root(NavigateEvent*);
+WebCoreOpaqueRoot NODELETE root(NavigateEvent*);
 
 } // namespace WebCore

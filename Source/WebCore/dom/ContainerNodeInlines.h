@@ -30,6 +30,12 @@
 
 namespace WebCore {
 
+inline ContainerNode::ContainerNode(Document& document, NodeType type, OptionSet<TypeFlag> typeFlags)
+    : Node(document, type, typeFlags | TypeFlag::IsContainerNode)
+{
+    ASSERT(!isCharacterDataNode());
+}
+
 inline ContainerNode& ContainerNode::rootNode() const
 {
     if (isInTreeScope())
@@ -37,19 +43,9 @@ inline ContainerNode& ContainerNode::rootNode() const
     return downcast<ContainerNode>(shadowIncludingRoot());
 }
 
-inline Ref<ContainerNode> ContainerNode::protectedRootNode() const
-{
-    return rootNode();
-}
-
 inline RenderElement* ContainerNode::renderer() const
 {
     return downcast<RenderElement>(Node::renderer());
-}
-
-inline CheckedPtr<RenderElement> ContainerNode::checkedRenderer() const
-{
-    return renderer();
 }
 
 } // namespace WebCore

@@ -40,30 +40,6 @@ namespace WebCore {
 
 using namespace HTMLNames;
 
-// You might think we should put these find functions elsewhere, perhaps with the
-// similar functions that operate on char16_t, but arguably only the decoder has
-// a reason to process strings of char rather than char16_t.
-
-static size_t find(std::span<const uint8_t> subject, std::span<const uint8_t> target)
-{
-    if (target.size() > subject.size())
-        return notFound;
-
-    size_t sizeDifference = subject.size() - target.size();
-    for (size_t i = 0; i < sizeDifference; ++i) {
-        bool match = true;
-        for (size_t j = 0; j < target.size(); ++j) {
-            if (subject[i + j] != target[j]) {
-                match = false;
-                break;
-            }
-        }
-        if (match)
-            return i;
-    }
-    return notFound;
-}
-
 static PAL::TextEncoding findTextEncoding(std::span<const Latin1Character> encodingName)
 {
     return StringView { encodingName };
@@ -75,13 +51,13 @@ public:
     static enum Type judge(std::span<const uint8_t>);
     static constexpr int ESC = 0x1b;
     static const std::array<uint8_t, 256> sjisMap;
-    static int ISkanji(int code)
+    static int NODELETE ISkanji(int code)
     {
         if (code >= 0x100)
             return 0;
         return sjisMap[code & 0xff] & 1;
     }
-    static int ISkana(int code)
+    static int NODELETE ISkana(int code)
     {
         if (code >= 0x100)
             return 0;
@@ -236,12 +212,12 @@ auto KanjiCode::judge(std::span<const uint8_t> string) -> Type
                 } else if (0x81 <= string[i] && string[i] <= 0x9f) {
                     /* SJIS only */
                     code = Type::SJIS;
-                    if ((string.size() - i >= 1) && ((0x40 <= string[i + 1] && string[i + 1] <= 0x7e) || (0x80 <= string[i + 1] && string[i + 1] <= 0xfc)))
+                    if ((string.size() - i > 1) && ((0x40 <= string[i + 1] && string[i + 1] <= 0x7e) || (0x80 <= string[i + 1] && string[i + 1] <= 0xfc)))
                         return code;
                 } else if (0xfd <= string[i] && string[i] <= 0xfe) {
                     /* EUC only */
                     code = Type::EUC;
-                    if ((string.size() - i >= 1) && (0xa1 <= string[i + 1] && string[i + 1] <= 0xfe))
+                    if ((string.size() - i > 1) && (0xa1 <= string[i + 1] && string[i + 1] <= 0xfe))
                         return code;
                 } else if (string[i] <= 0x7f)
                     ;
@@ -343,7 +319,7 @@ bool TextResourceDecoder::hasEqualEncodingForCharset(const String& charset) cons
 }
 
 // Returns the position of the encoding string.
-static size_t findXMLEncoding(std::span<const uint8_t> string, size_t& encodingLength)
+static size_t NODELETE findXMLEncoding(std::span<const uint8_t> string, size_t& encodingLength)
 {
     size_t position = find(string, byteCast<uint8_t>("encoding"_span));
     if (position == notFound)

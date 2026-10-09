@@ -60,16 +60,17 @@ public:
     void ref() const final { RefCounted::ref(); }
     void deref() const final { RefCounted::deref(); }
 
-    using CanvasImageSource = Variant<RefPtr<HTMLImageElement>
-        , RefPtr<SVGImageElement>
-        , RefPtr<HTMLCanvasElement>
-        , RefPtr<ImageBitmap>
-        , RefPtr<CSSStyleImageValue>
+    using CanvasImageSource = Variant<
+          Ref<HTMLImageElement>
+        , Ref<SVGImageElement>
+        , Ref<HTMLCanvasElement>
+        , Ref<ImageBitmap>
+        , Ref<CSSStyleImageValue>
 #if ENABLE(OFFSCREEN_CANVAS)
-        , RefPtr<OffscreenCanvas>
+        , Ref<OffscreenCanvas>
 #endif
 #if ENABLE(VIDEO)
-        , RefPtr<HTMLVideoElement>
+        , Ref<HTMLVideoElement>
 #endif
     >;
 
@@ -113,14 +114,14 @@ public:
     size_t codedWidth() const { return m_data.codedWidth; }
     size_t codedHeight() const { return m_data.codedHeight; }
 
-    DOMRectReadOnly* codedRect() const;
-    DOMRectReadOnly* visibleRect() const;
+    DOMRectReadOnly* NODELETE codedRect() const;
+    DOMRectReadOnly* NODELETE visibleRect() const;
 
     size_t displayWidth() const { return m_data.displayWidth; }
     size_t displayHeight() const { return m_data.displayHeight; }
     std::optional<uint64_t> duration() const { return m_data.duration; }
     int64_t timestamp() const { return m_data.timestamp; }
-    VideoColorSpace& colorSpace() const;
+    VideoColorSpace& NODELETE colorSpace() const;
 
     struct CopyToOptions {
         std::optional<DOMRectInit> rect;
@@ -136,11 +137,11 @@ public:
     bool isDetached() const { return m_isDetached; }
     RefPtr<VideoFrame> internalFrame() const { return m_data.internalFrame; }
 
-    void setDisplaySize(size_t, size_t);
-    void setVisibleRect(const DOMRectInit&);
+    void NODELETE setDisplaySize(size_t, size_t);
+    void NODELETE setVisibleRect(const DOMRectInit&);
     bool shoudlDiscardAlpha() const { return m_data.format && (*m_data.format == VideoPixelFormat::RGBX || *m_data.format == VideoPixelFormat::BGRX); }
 
-    const WebCodecsVideoFrameData& data() const { return m_data; }
+    const WebCodecsVideoFrameData& data() const LIFETIME_BOUND { return m_data; }
 
     size_t memoryCost() const { return m_data.memoryCost(); }
 

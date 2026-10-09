@@ -38,7 +38,6 @@
 #include "CCallHelpers.h"
 #include "DisallowMacroScratchRegisterUsage.h"
 #include "Reg.h"
-#include <wtf/ListDump.h>
 #include <wtf/SequesteredMalloc.h>
 #include <wtf/TZoneMallocInlines.h>
 
@@ -70,7 +69,7 @@ ALWAYS_INLINE void GenerateAndAllocateRegisters::checkConsistency()
             ASSERT(m_currentAllocation->at(reg) == tmp);
         });
 
-        for (Reg reg : RegisterSetBuilder::allRegisters()) {
+        for (Reg reg : RegisterSet::allRegisters()) {
             if (isDisallowedRegister(reg))
                 continue;
 
@@ -322,13 +321,13 @@ ALWAYS_INLINE bool GenerateAndAllocateRegisters::assignTmp(Tmp& tmp, Bank bank, 
     auto interferesWithClobber = [&] (Reg reg) {
         if (!mightInterfere)
             return false;
-        if (Arg::isAnyUse(role) && m_earlyClobber.buildWithLowerBits().contains(reg, IgnoreVectors))
+        if (Arg::isAnyUse(role) && m_earlyClobber.normalizeWidths().contains(reg, IgnoreVectors))
             return true;
-        if (Arg::isAnyDef(role) && m_lateClobber.buildWithLowerBits().contains(reg, IgnoreVectors))
+        if (Arg::isAnyDef(role) && m_lateClobber.normalizeWidths().contains(reg, IgnoreVectors))
             return true;
-        if (Arg::activeAt(role, Arg::Phase::Early) && m_earlyClobber.buildWithLowerBits().contains(reg, IgnoreVectors))
+        if (Arg::activeAt(role, Arg::Phase::Early) && m_earlyClobber.normalizeWidths().contains(reg, IgnoreVectors))
             return true;
-        if (Arg::activeAt(role, Arg::Phase::Late) && m_lateClobber.buildWithLowerBits().contains(reg, IgnoreVectors))
+        if (Arg::activeAt(role, Arg::Phase::Late) && m_lateClobber.normalizeWidths().contains(reg, IgnoreVectors))
             return true;
         return false;
     };
@@ -388,7 +387,7 @@ ALWAYS_INLINE bool GenerateAndAllocateRegisters::isDisallowedRegister(Reg reg)
 void GenerateAndAllocateRegisters::prepareForGeneration()
 {
     // We pessimistically assume we use all callee saves.
-    handleCalleeSaves(m_code, RegisterSetBuilder::calleeSaveRegisters());
+    handleCalleeSaves(m_code, RegisterSet::calleeSaveRegisters());
     allocateEscapedStackSlots(m_code);
 
     insertBlocksForFlushAfterTerminalPatchpoints();
@@ -697,9 +696,9 @@ void GenerateAndAllocateRegisters::generate(CCallHelpers& jit)
                 if (!isOrdinaryMove)
                     return true;
 
-                ASSERT(inst.args.size() >= 2);
-                Arg source = inst.args[0];
-                Arg dest = inst.args[1];
+                ASSERT(inst.args().size() >= 2);
+                Arg source = inst.args()[0];
+                Arg dest = inst.args()[1];
                 if (!source.isTmp() || !dest.isTmp())
                     return true;
 
@@ -791,8 +790,8 @@ void GenerateAndAllocateRegisters::generate(CCallHelpers& jit)
             });
 
             if (inst.kind.opcode == Patch) {
-                m_earlyClobber.merge(inst.extraEarlyClobberedRegs().buildWithLowerBits());
-                m_lateClobber.merge(inst.extraClobberedRegs().buildWithLowerBits());
+                m_earlyClobber.merge(inst.extraEarlyClobberedRegs().normalizeWidths());
+                m_lateClobber.merge(inst.extraClobberedRegs().normalizeWidths());
 
                 m_earlyClobber.filter(m_allowedRegisters.includeWholeRegisterWidth());
                 m_lateClobber.filter(m_allowedRegisters.includeWholeRegisterWidth());
@@ -822,8 +821,8 @@ void GenerateAndAllocateRegisters::generate(CCallHelpers& jit)
 
             freeDeadTmpsAtCurrentInst();
 
-            spillIfNeeded(m_earlyClobber.buildWithLowerBits());
-            spillIfNeeded(m_lateClobber.buildWithLowerBits());
+            spillIfNeeded(m_earlyClobber.normalizeWidths());
+            spillIfNeeded(m_lateClobber.normalizeWidths());
 
             allocNamed(m_namedUsedRegs, Arg::Role::Use); // Must come before the defd registers since we may use and def the same register.
             allocNamed(m_namedDefdRegs, Arg::Role::Def);
@@ -905,7 +904,7 @@ void GenerateAndAllocateRegisters::generate(CCallHelpers& jit)
             }
 
             if (m_code.needsUsedRegisters() && inst.kind.opcode == Patch) {
-                RegisterSetBuilder registerSetBuilder;
+                RegisterSet registerSetBuilder;
                 for (size_t i = 0; i < currentAllocation.size(); ++i) {
                     if (currentAllocation[i])
                         registerSetBuilder.add(Reg::fromIndex(i), m_code.usesSIMD() ? conservativeWidth(Reg::fromIndex(i)) : conservativeWidthWithoutVectors(Reg::fromIndex(i)));
@@ -914,7 +913,7 @@ void GenerateAndAllocateRegisters::generate(CCallHelpers& jit)
             }
 
             auto handleClobber = [&] {
-                for (Reg reg : m_clobberedToClear.buildWithLowerBits()) {
+                for (Reg reg : m_clobberedToClear.normalizeWidths()) {
                     if (Tmp tmp = m_currentAllocation->at(reg))
                         release(tmp, reg);
                 }

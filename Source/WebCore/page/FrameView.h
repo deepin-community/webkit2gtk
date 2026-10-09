@@ -26,11 +26,13 @@
 #pragma once
 
 #include <WebCore/ScrollView.h>
-#include <wtf/TZoneMallocInlines.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
 class Frame;
+class RenderElement;
+enum class FrameOwnerElementAppearance : uint8_t;
 enum class RenderAsTextFlag : uint16_t;
 
 class FrameView : public ScrollView {
@@ -41,12 +43,12 @@ public:
     virtual Type viewType() const = 0;
     virtual void writeRenderTreeAsText(TextStream&, OptionSet<RenderAsTextFlag>) = 0;
     virtual Frame& frame() const = 0;
-    Ref<Frame> protectedFrame() const;
 
     WEBCORE_EXPORT int headerHeight() const final;
     WEBCORE_EXPORT int footerHeight() const final;
 
     WEBCORE_EXPORT FloatBoxExtent obscuredContentInsets(InsetType = InsetType::WebCoreInset) const final;
+    CornerRadii scrollbarAvoidanceCornerRadii() const override;
 
     float visibleContentScaleFactor() const final;
 
@@ -98,6 +100,12 @@ public:
     WEBCORE_EXPORT IntRect convertFromContainingViewToRenderer(const RenderElement*, const IntRect&) const;
     WEBCORE_EXPORT FloatRect convertFromContainingViewToRenderer(const RenderElement*, const FloatRect&) const;
 
+    WEBCORE_EXPORT FloatPoint absoluteToLayoutViewportPoint(FloatPoint) const;
+    FloatPoint layoutViewportToAbsolutePoint(FloatPoint) const;
+
+    WEBCORE_EXPORT FloatRect absoluteToLayoutViewportRect(FloatRect) const;
+    FloatRect layoutViewportToAbsoluteRect(FloatRect) const;
+
     // Override ScrollView methods to do point conversion via renderers, in order to take transforms into account.
     IntPoint convertToContainingView(IntPoint) const final;
     FloatPoint convertToContainingView(FloatPoint) const final;
@@ -117,6 +125,26 @@ public:
     // the visible area is not computable. The given child frame must be a
     // direct child of this frame.
     virtual std::optional<LayoutRect> visibleRectOfChild(const Frame&) const = 0;
+
+    // Returns the appearance info of the child frame's owner element (which is
+    // in this frame). Note that this is _different_ from the child frame's
+    // document's appearance, and they can be different (e.g the owner element
+    // uses dark appearance, but the child frame's document is light).
+    virtual OptionSet<FrameOwnerElementAppearance> appearanceOfOwnerElementOfChildFrame(const Frame&) const = 0;
+
+    // Returns the offset of the content box of the child's frame owner content box
+    // from its border box. This can be non-zero due to padding or border.
+    virtual LayoutPoint childFrameOwnerContentBoxLocation(const Frame&) const = 0;
+
+    // Return the transformation matrix to convert a point/rect from the coordinate
+    // system of the child's frame owner to this FrameView's RenderView. Note this
+    // does not correspond to the absolute coordinate of this FrameView, as it doesn't
+    // include the page scale transform on the RenderView (if page is scaled).
+    virtual TransformationMatrix childFrameOwnerToRootContentTransform(const Frame&) const = 0;
+
+    // Returns the transformation matrix to project from this frame view's absolute coordinate
+    // to a child frame's owner renderer's local coordinate.
+    virtual TransformationMatrix absoluteToChildFrameOwnerLocalTransform(const Frame&) const = 0;
 
 private:
     ScrollableArea* enclosingScrollableArea() const final;

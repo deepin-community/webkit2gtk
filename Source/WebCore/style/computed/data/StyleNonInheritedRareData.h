@@ -35,10 +35,10 @@
 #include <WebCore/StyleContain.h>
 #include <WebCore/StyleContainIntrinsicSize.h>
 #include <WebCore/StyleContainerName.h>
+#include <WebCore/StyleContainerType.h>
 #include <WebCore/StyleCounterIncrement.h>
 #include <WebCore/StyleCounterReset.h>
 #include <WebCore/StyleCounterSet.h>
-#include <WebCore/StyleFlowTolerance.h>
 #include <WebCore/StyleGapGutter.h>
 #include <WebCore/StyleMarginTrim.h>
 #include <WebCore/StyleMaskBorder.h>
@@ -49,6 +49,7 @@
 #include <WebCore/StyleOffsetPath.h>
 #include <WebCore/StyleOffsetPosition.h>
 #include <WebCore/StyleOffsetRotate.h>
+#include <WebCore/StyleOverflowClipMargin.h>
 #include <WebCore/StylePageSize.h>
 #include <WebCore/StylePerspective.h>
 #include <WebCore/StylePerspectiveOrigin.h>
@@ -57,8 +58,6 @@
 #include <WebCore/StylePositionTryFallbacks.h>
 #include <WebCore/StylePositionVisibility.h>
 #include <WebCore/StylePrimitiveNumericTypes.h>
-#include <WebCore/StyleProgressTimelineAxes.h>
-#include <WebCore/StyleProgressTimelineName.h>
 #include <WebCore/StyleRotate.h>
 #include <WebCore/StyleScale.h>
 #include <WebCore/StyleScrollBehavior.h>
@@ -72,16 +71,18 @@
 #include <WebCore/StyleShapeImageThreshold.h>
 #include <WebCore/StyleShapeMargin.h>
 #include <WebCore/StyleShapeOutside.h>
+#include <WebCore/StyleTextDecorationInset.h>
 #include <WebCore/StyleTextDecorationThickness.h>
+#include <WebCore/StyleTimelineTriggers.h>
 #include <WebCore/StyleTouchAction.h>
 #include <WebCore/StyleTranslate.h>
-#include <WebCore/StyleViewTimelineInsets.h>
 #include <WebCore/StyleViewTimelines.h>
 #include <WebCore/StyleViewTransitionClass.h>
 #include <WebCore/StyleViewTransitionName.h>
 #include <WebCore/StyleWebKitBoxReflect.h>
 #include <WebCore/StyleWebKitInitialLetter.h>
 #include <WebCore/StyleWebKitLineClamp.h>
+#include <WebCore/StyleWhiteSpaceTrim.h>
 #include <WebCore/StyleWillChange.h>
 #include <WebCore/StyleZoom.h>
 #include <wtf/DataRef.h>
@@ -176,8 +177,6 @@ public:
     GapGutter columnGap;
     GapGutter rowGap;
 
-    FlowTolerance flowTolerance;
-
     OffsetPath offsetPath;
     OffsetDistance offsetDistance;
     OffsetPosition offsetPosition;
@@ -185,20 +184,19 @@ public:
     OffsetRotate offsetRotate;
 
     Color textDecorationColor;
+    TextDecorationInset textDecorationInset;
     TextDecorationThickness textDecorationThickness;
 
     ScrollTimelines scrollTimelines;
-    ProgressTimelineAxes scrollTimelineAxes;
-    ProgressTimelineNames scrollTimelineNames;
-
     ViewTimelines viewTimelines;
-    ViewTimelineInsets viewTimelineInsets;
-    ProgressTimelineAxes viewTimelineAxes;
-    ProgressTimelineNames viewTimelineNames;
 
     NameScope timelineScope;
 
+    NameScope triggerScope;
+    TimelineTriggers timelineTriggers;
+
     ScrollbarGutter scrollbarGutter;
+    Style::ContainerType containerType;
 
     ScrollSnapType scrollSnapType;
     ScrollSnapAlign scrollSnapAlign;
@@ -212,10 +210,13 @@ public:
     PositionTryFallbacks positionTryFallbacks;
     std::optional<size_t> usedPositionOptionIndex;
 
+    OverflowClipMargin overflowClipMargin;
+
     BlockStepSize blockStepSize;
     PREFERRED_TYPE(BlockStepAlign) unsigned blockStepAlign : 2;
     PREFERRED_TYPE(BlockStepInsert) unsigned blockStepInsert : 2;
     PREFERRED_TYPE(BlockStepRound) unsigned blockStepRound : 2;
+    PREFERRED_TYPE(SpatialType) unsigned spatial : 1;
 
     PREFERRED_TYPE(OverscrollBehavior) unsigned overscrollBehaviorX : 2;
     PREFERRED_TYPE(OverscrollBehavior) unsigned overscrollBehaviorY : 2;
@@ -238,12 +239,12 @@ public:
     PREFERRED_TYPE(BreakBetween) unsigned breakBefore : 4;
     PREFERRED_TYPE(BreakBetween) unsigned breakAfter : 4;
     PREFERRED_TYPE(BreakInside) unsigned breakInside : 3;
-    PREFERRED_TYPE(ContainerType) unsigned containerType : 2;
     PREFERRED_TYPE(TextBoxTrim) unsigned textBoxTrim : 2;
     PREFERRED_TYPE(OverflowAnchor) unsigned overflowAnchor : 1;
     PREFERRED_TYPE(PositionTryOrder) unsigned positionTryOrder : 3;
-    PREFERRED_TYPE(PositionVisibility) unsigned positionVisibility : 3;
+    PREFERRED_TYPE(PositionVisibility) unsigned positionVisibility : 5;
     PREFERRED_TYPE(FieldSizing) unsigned fieldSizing : 1;
+    PREFERRED_TYPE(WrapInside) unsigned wrapInside : 1;
     PREFERRED_TYPE(bool) unsigned nativeAppearanceDisabled : 1;
 #if HAVE(CORE_MATERIAL)
     PREFERRED_TYPE(AppleVisualEffect) unsigned appleVisualEffect : 5;
@@ -251,13 +252,13 @@ public:
     PREFERRED_TYPE(ScrollbarWidth) unsigned scrollbarWidth : 2;
     PREFERRED_TYPE(bool) unsigned usesAnchorFunctions : 1;
     PREFERRED_TYPE(EnumSet<BoxAxis>) unsigned anchorFunctionScrollCompensatedAxes : 2;
-    PREFERRED_TYPE(bool) unsigned usesTreeCountingFunctions : 1;
     PREFERRED_TYPE(bool) unsigned isPopoverInvoker : 1;
     PREFERRED_TYPE(bool) unsigned useSVGZoomRulesForLength : 1;
     PREFERRED_TYPE(MarginTrim) unsigned marginTrim : 4;
     PREFERRED_TYPE(Contain) unsigned contain : 5;
     PREFERRED_TYPE(OverflowContinue) unsigned overflowContinue : 1;
     PREFERRED_TYPE(ScrollSnapStop) unsigned scrollSnapStop : 1;
+    PREFERRED_TYPE(WhiteSpaceTrim) unsigned whiteSpaceTrim : 3;
 
 private:
     NonInheritedRareData();

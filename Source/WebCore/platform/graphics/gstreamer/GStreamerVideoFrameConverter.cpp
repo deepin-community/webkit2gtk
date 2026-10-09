@@ -22,6 +22,7 @@
 
 #if ENABLE(VIDEO) && USE(GSTREAMER)
 
+#include "FloatSize.h"
 #include "GStreamerCommon.h"
 #include <gst/allocators/gstdmabuf.h>
 #include <gst/app/gstappsink.h>
@@ -106,13 +107,16 @@ GRefPtr<GstSample> GStreamerVideoFrameConverter::Pipeline::run(const GRefPtr<Gst
 #endif
 
     unsigned capsSize = gst_caps_get_size(destinationCaps);
-    auto newCaps = adoptGRef(gst_caps_new_empty());
+    GRefPtr newCaps = adoptGRef(gst_caps_new_empty());
     for (unsigned i = 0; i < capsSize; i++) {
         auto structure = gst_caps_get_structure(destinationCaps, i);
         auto modifiedStructure = gst_structure_copy(structure);
         gst_structure_remove_field(modifiedStructure, "framerate");
         gst_caps_append_structure(newCaps.get(), modifiedStructure);
     }
+
+    auto destinationSize = getVideoResolutionFromCaps(newCaps.get());
+    ASSERT_UNUSED(destinationSize, destinationSize && !destinationSize->isEmpty());
 
     GST_TRACE_OBJECT(m_pipeline.get(), "Converting sample with caps %" GST_PTR_FORMAT " to %" GST_PTR_FORMAT, gst_sample_get_caps(sample.get()), newCaps.get());
     g_object_set(m_sink.get(), "caps", newCaps.get(), nullptr);
@@ -124,10 +128,10 @@ GRefPtr<GstSample> GStreamerVideoFrameConverter::Pipeline::run(const GRefPtr<Gst
     gst_element_set_state(m_pipeline.get(), GST_STATE_PAUSED);
     gst_app_src_push_sample(GST_APP_SRC_CAST(m_src.get()), sample.get());
 
-    auto bus = adoptGRef(gst_element_get_bus(m_pipeline.get()));
-    auto message = adoptGRef(gst_bus_timed_pop_filtered(bus.get(), 200 * GST_MSECOND, static_cast<GstMessageType>(GST_MESSAGE_ERROR | GST_MESSAGE_ASYNC_DONE)));
+    GRefPtr bus = adoptGRef(gst_element_get_bus(m_pipeline.get()));
+    GRefPtr message = adoptGRef(gst_bus_timed_pop_filtered(bus.get(), 400 * GST_MSECOND, static_cast<GstMessageType>(GST_MESSAGE_ERROR | GST_MESSAGE_ASYNC_DONE)));
     if (!message) {
-        GST_ERROR_OBJECT(m_pipeline.get(), "Video frame conversion 200ms timeout expired.");
+        GST_ERROR_OBJECT(m_pipeline.get(), "Video frame conversion 400ms timeout expired.");
         return nullptr;
     }
 
@@ -197,12 +201,12 @@ GRefPtr<GstSample> GStreamerVideoFrameConverter::convert(const GRefPtr<GstSample
     if (!outputSample)
         return nullptr;
 
-    auto convertedSample = adoptGRef(gst_sample_make_writable(outputSample.leakRef()));
+    GRefPtr convertedSample = adoptGRef(gst_sample_make_writable(outputSample.leakRef()));
     gst_sample_set_caps(convertedSample.get(), destinationCaps.get());
 
     GRefPtr buffer = gst_sample_get_buffer(convertedSample.get());
 IGNORE_WARNINGS_BEGIN("cast-align")
-    auto writableBuffer = adoptGRef(gst_buffer_make_writable(buffer.leakRef()));
+    GRefPtr writableBuffer = adoptGRef(gst_buffer_make_writable(buffer.leakRef()));
 IGNORE_WARNINGS_END
 
     if (auto meta = gst_buffer_get_video_meta(writableBuffer.get()))
@@ -213,12 +217,13 @@ IGNORE_WARNINGS_END
 
     auto structure = gst_caps_get_structure(destinationCaps.get(), 0);
     auto width = gstStructureGet<int>(structure, "width"_s);
+    RELEASE_ASSERT(width && *width);
     auto height = gstStructureGet<int>(structure, "height"_s);
+    RELEASE_ASSERT(height && *height);
     auto formatString = gstStructureGetString(structure, "format"_s);
-    if (width && height && !formatString.isEmpty()) {
-        auto format = gst_video_format_from_string(formatString.utf8());
-        gst_buffer_add_video_meta(writableBuffer.get(), GST_VIDEO_FRAME_FLAG_NONE, format, *width, *height);
-    }
+    RELEASE_ASSERT(!formatString.isEmpty());
+    auto format = gst_video_format_from_string(formatString.utf8());
+    gst_buffer_add_video_meta(writableBuffer.get(), GST_VIDEO_FRAME_FLAG_NONE, format, *width, *height);
     gst_sample_set_buffer(convertedSample.get(), writableBuffer.get());
 
     return convertedSample;

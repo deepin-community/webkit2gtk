@@ -24,12 +24,13 @@
 
 #include "config.h"
 #include "LibWebRTCRtpSenderTransformBackend.h"
+#include <wtf/TZoneMallocInlines.h>
 
 #if ENABLE(WEB_RTC) && USE(LIBWEBRTC)
 
 #include "EventTarget.h"
 #include "LibWebRTCRtpTransformableFrame.h"
-#include <wtf/TZoneMallocInlines.h>
+#include "RTCPeerConnection.h"
 
 namespace WebCore {
 
@@ -46,8 +47,11 @@ LibWebRTCRtpSenderTransformBackend::LibWebRTCRtpSenderTransformBackend(Ref<webrt
 {
 }
 
-LibWebRTCRtpSenderTransformBackend::~LibWebRTCRtpSenderTransformBackend()
+LibWebRTCRtpSenderTransformBackend::~LibWebRTCRtpSenderTransformBackend() = default;
+
+void LibWebRTCRtpSenderTransformBackend::detachFromOwningBackend()
 {
+    m_rtcSender->SetFrameTransformer(nullptr);
 }
 
 void LibWebRTCRtpSenderTransformBackend::setTransformableFrameCallback(Callback&& callback)

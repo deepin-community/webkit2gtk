@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2005-2024 Apple Inc. All rights reserved.
+ * Copyright (C) 2005-2026 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -21,9 +21,7 @@
 #pragma once
 
 #include <JavaScriptCore/JSExportMacros.h>
-#include <mutex>
 #include <wtf/Assertions.h>
-#include <wtf/ForbidHeapAllocation.h>
 #include <wtf/Lock.h>
 #include <wtf/Noncopyable.h>
 #include <wtf/RefPtr.h>
@@ -106,7 +104,7 @@ public:
 
     bool currentThreadIsHoldingLock() { return m_hasOwnerThread.load(std::memory_order_acquire) && m_ownerThread.get() == &Thread::currentSingleton(); }
 
-    void willDestroyVM(VM*);
+    void NODELETE willDestroyVM(VM*);
 
     class DropAllLocks {
         WTF_MAKE_NONCOPYABLE(DropAllLocks);
@@ -141,6 +139,11 @@ private:
 
     unsigned dropAllLocks(DropAllLocks*);
     void grabAllLocks(DropAllLocks*, unsigned lockCount);
+
+#if PLATFORM(COCOA) && CPU(ADDRESS64) && CPU(ARM64)
+    // FIXME: rdar://168614004
+    NO_RETURN_DUE_TO_CRASH NEVER_INLINE void dumpInfoAndCrashForLockNotOwned();
+#endif
 
     Lock m_lock;
     bool m_isWebThreadAware { false };

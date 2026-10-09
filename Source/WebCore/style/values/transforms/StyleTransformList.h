@@ -41,6 +41,8 @@ struct Transform;
 // https://drafts.csswg.org/css-transforms-1/#typedef-transform-list
 struct TransformList {
     using Container = SpaceSeparatedFixedVector<TransformFunction>;
+    using iterator = typename Container::iterator;
+    using reverse_iterator = typename Container::reverse_iterator;
     using const_iterator = typename Container::const_iterator;
     using const_reverse_iterator = typename Container::const_reverse_iterator;
     using value_type = typename Container::value_type;
@@ -56,6 +58,11 @@ struct TransformList {
     {
     }
 
+    iterator begin() LIFETIME_BOUND { return m_value.begin(); }
+    iterator end() LIFETIME_BOUND { return m_value.end(); }
+    reverse_iterator rbegin() LIFETIME_BOUND { return m_value.rbegin(); }
+    reverse_iterator rend() LIFETIME_BOUND { return m_value.rend(); }
+
     const_iterator begin() const LIFETIME_BOUND { return m_value.begin(); }
     const_iterator end() const LIFETIME_BOUND { return m_value.end(); }
     const_reverse_iterator rbegin() const LIFETIME_BOUND { return m_value.rbegin(); }
@@ -70,7 +77,7 @@ struct TransformList {
     template<TransformFunctionType>
     bool hasTransformOfType() const;
 
-    void apply(TransformationMatrix&, const FloatSize&, unsigned start = 0) const;
+    void apply(TransformationMatrix&, const FloatSize&, ZoomFactor, unsigned start = 0) const;
 
     // Return true if any of the operation types are 3D operation types (even if the
     // values describe affine transforms)

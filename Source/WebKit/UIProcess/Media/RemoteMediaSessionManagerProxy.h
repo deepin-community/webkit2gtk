@@ -28,15 +28,17 @@
 #if ENABLE(VIDEO) || ENABLE(WEB_AUDIO)
 
 #include "MessageReceiver.h"
-#include "MessageSender.h"
 #include "RemoteAudioSessionConfiguration.h"
-#include "WebProcessProxy.h"
 #include <WebCore/AudioHardwareListener.h>
 #include <WebCore/AudioSession.h>
 #include <WebCore/MediaSessionIdentifier.h>
-#include <WebCore/PageIdentifier.h>
-#include <wtf/RefCounted.h>
+#include <WebCore/ProcessQualified.h>
+#include <wtf/HashMap.h>
+#include <wtf/Ref.h>
+#include <wtf/RefPtr.h>
 #include <wtf/TZoneMalloc.h>
+#include <wtf/ThreadSafeWeakPtr.h>
+#include <wtf/WeakPtr.h>
 
 #if PLATFORM(IOS_FAMILY)
 #include <WebCore/MediaSessionManagerIOS.h>
@@ -57,21 +59,22 @@ namespace WebKit {
 
 class RemoteMediaSessionManagerAudioHardwareListener;
 class RemoteMediaSessionProxy;
+class WebPageProxy;
 class WebProcessProxy;
 struct RemoteMediaSessionState;
+struct SharedPreferencesForWebProcess;
 
 class RemoteMediaSessionManagerProxy
     : public WebCore::REMOTE_MEDIA_SESSION_MANAGER_BASE_CLASS
 #if USE(AUDIO_SESSION)
     , public WebCore::AudioSession
 #endif
-    , public IPC::MessageReceiver
-    , public IPC::MessageSender {
+    , public IPC::MessageReceiver {
     WTF_MAKE_TZONE_ALLOCATED(RemoteMediaSessionManagerProxy);
 public:
     USING_CAN_MAKE_WEAKPTR(MessageReceiver);
 
-    static RefPtr<RemoteMediaSessionManagerProxy> create(WebCore::PageIdentifier, WebProcessProxy&);
+    static Ref<RemoteMediaSessionManagerProxy> singleton();
 
     virtual ~RemoteMediaSessionManagerProxy();
 
@@ -85,21 +88,18 @@ public:
     uint32_t weakRefCount() const final { return REMOTE_MEDIA_SESSION_MANAGER_BASE_CLASS::weakRefCount(); }
 #endif
 
-    const Ref<WebProcessProxy> process() const { return m_process; }
-
-    void addRemoteMediaSessionManager(WebCore::PageIdentifier);
-    void removeRemoteMediaSessionManager(WebCore::PageIdentifier);
+    void didReceiveMessage(IPC::Connection&, IPC::Decoder&);
 
 private:
-    RemoteMediaSessionManagerProxy(WebCore::PageIdentifier, WebProcessProxy&);
+    RemoteMediaSessionManagerProxy();
 
     // Messages
-    void addMediaSession(RemoteMediaSessionState&&);
-    void removeMediaSession(RemoteMediaSessionState&&);
-    void setCurrentMediaSession(RemoteMediaSessionState&&);
+    void addMediaSession(IPC::Connection&, RemoteMediaSessionState&&);
+    void removeMediaSession(IPC::Connection&, RemoteMediaSessionState&&);
+    void setCurrentMediaSession(IPC::Connection&, RemoteMediaSessionState&&);
     void updateMediaSessionState();
-    void mediaSessionStateChanged(WebKit::RemoteMediaSessionState&&);
-    void mediaSessionWillBeginPlayback(RemoteMediaSessionState&&, CompletionHandler<void(bool)>&&);
+    void mediaSessionStateChanged(IPC::Connection&, WebKit::RemoteMediaSessionState&&);
+    void mediaSessionWillBeginPlayback(IPC::Connection&, RemoteMediaSessionState&&, CompletionHandler<void(bool)>&&);
 
     void setCurrentSession(WebCore::PlatformMediaSessionInterface&) final;
 
@@ -138,29 +138,19 @@ private:
     CategoryType categoryOverride() const final  { return m_audioConfiguration.categoryOverride; }
 #endif
 
-    void forEachRemoteSessionManager(NOESCAPE const Function<void(WebCore::PageIdentifier)>&);
-    RefPtr<WebCore::PlatformMediaSessionInterface> findAndUpdateSession(RemoteMediaSessionState&);
+    RefPtr<WebCore::PlatformMediaSessionInterface> findAndUpdateSession(IPC::Connection&, const RemoteMediaSessionState&);
     Ref<RemoteMediaSessionManagerAudioHardwareListener> ensureAudioHardwareListenerProxy(WebCore::AudioHardwareListener::Client&);
 
-    void didReceiveMessage(IPC::Connection&, IPC::Decoder&);
-
-    // IPC::MessageSender.
-    IPC::Connection* messageSenderConnection() const final;
-    uint64_t messageSenderDestinationID() const final;
-
-    std::optional<SharedPreferencesForWebProcess> sharedPreferencesForWebProcess() const;
+    std::optional<SharedPreferencesForWebProcess> sharedPreferencesForWebProcess(IPC::Connection&) const;
 
 #if !RELEASE_LOG_DISABLED
     ASCIILiteral logClassName() const final;
 #endif
 
-    const Ref<WebProcessProxy> m_process;
-    WebCore::PageIdentifier m_localPageID;
-    HashMap<WebCore::MediaSessionIdentifier, Ref<RemoteMediaSessionProxy>> m_sessionProxies;
-    HashSet<WebCore::PageIdentifier> m_remoteSessionManagerPages;
+    HashMap<WebCore::ProcessQualified<WebCore::MediaSessionIdentifier>, Ref<RemoteMediaSessionProxy>> m_sessionProxies;
 
 #if PLATFORM(COCOA)
-    RefPtr<RemoteMediaSessionManagerAudioHardwareListener> m_audioHardwareListenerProxy;
+    ThreadSafeWeakPtr<RemoteMediaSessionManagerAudioHardwareListener> m_audioHardwareListenerProxy;
 #endif
 
 #if USE(AUDIO_SESSION)

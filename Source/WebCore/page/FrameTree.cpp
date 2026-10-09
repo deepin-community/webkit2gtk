@@ -21,6 +21,7 @@
 #include "config.h"
 #include "FrameTree.h"
 
+#include "Document.h"
 #include "DocumentPage.h"
 #include "DocumentView.h"
 #include "FrameInlines.h"
@@ -31,10 +32,12 @@
 #include "LocalFrameView.h"
 #include "Page.h"
 #include "PageGroup.h"
+#include "RemoteFrame.h"
 #include <stdarg.h>
 #include <wtf/Vector.h>
 #include <wtf/text/CString.h>
 #include <wtf/text/StringBuilder.h>
+#include "LocalFrameViewInlines.h"
 
 namespace WebCore {
 
@@ -134,20 +137,15 @@ void FrameTree::replaceChild(Frame& oldChild, Frame& newChild)
         oldPreviousSibling->tree().m_nextSibling = &newChild;
 }
 
-Ref<Frame> FrameTree::protectedThisFrame() const
+static bool NODELETE inScope(Frame& frame, TreeScope& scope)
 {
-    return m_thisFrame.get();
-}
-
-static bool inScope(Frame& frame, TreeScope& scope)
-{
-    RefPtr localFrame = dynamicDowncast<LocalFrame>(frame);
+    auto* localFrame = dynamicDowncast<LocalFrame>(frame);
     if (!localFrame)
         return true;
-    RefPtr document = localFrame->document();
+    auto* document = localFrame->document();
     if (!document)
         return false;
-    RefPtr owner = document->ownerElement();
+    auto* owner = document->ownerElement();
     return owner && &owner->treeScope() == &scope;
 }
 
@@ -157,7 +155,7 @@ RefPtr<Frame> FrameTree::scopedChild(unsigned index, TreeScope* scope) const
         return nullptr;
 
     unsigned scopedIndex = 0;
-    for (RefPtr frame = firstChild(); frame; frame = frame->tree().nextSibling()) {
+    for (auto* frame = firstChild(); frame; frame = frame->tree().nextSibling()) {
         if (inScope(*frame, *scope)) {
             if (scopedIndex == index)
                 return frame;
@@ -186,7 +184,7 @@ inline unsigned FrameTree::scopedChildCount(TreeScope* scope) const
         return 0;
 
     unsigned scopedCount = 0;
-    for (RefPtr result = firstChild(); result; result = result->tree().nextSibling()) {
+    for (auto* result = firstChild(); result; result = result->tree().nextSibling()) {
         if (inScope(*result, *scope))
             scopedCount++;
     }
@@ -199,7 +197,7 @@ RefPtr<Frame> FrameTree::scopedChild(unsigned index) const
     RefPtr localFrame = dynamicDowncast<LocalFrame>(m_thisFrame.get());
     if (!localFrame)
         return nullptr;
-    return scopedChild(index, localFrame->protectedDocument().get());
+    return scopedChild(index, protect(localFrame->document()).get());
 }
 
 RefPtr<Frame> FrameTree::scopedChildByUniqueName(const AtomString& uniqueName) const
@@ -209,7 +207,7 @@ RefPtr<Frame> FrameTree::scopedChildByUniqueName(const AtomString& uniqueName) c
         return nullptr;
     return scopedChild([&](auto& frameTree) {
         return frameTree.uniqueName() == uniqueName;
-    }, localFrame->protectedDocument().get());
+    }, protect(localFrame->document()).get());
 }
 
 RefPtr<Frame> FrameTree::scopedChildBySpecifiedName(const AtomString& specifiedName) const
@@ -219,19 +217,19 @@ RefPtr<Frame> FrameTree::scopedChildBySpecifiedName(const AtomString& specifiedN
         return childBySpecifiedName(specifiedName);
     return scopedChild([&](auto& frameTree) {
         return frameTree.specifiedName() == specifiedName;
-    }, localFrame->protectedDocument().get());
+    }, protect(localFrame->document()).get());
 }
 
 unsigned FrameTree::scopedChildCount() const
 {
     if (m_scopedChildCount == invalidCount) {
         if (RefPtr localFrame = dynamicDowncast<LocalFrame>(m_thisFrame.get()))
-            m_scopedChildCount = scopedChildCount(localFrame->protectedDocument().get());
+            m_scopedChildCount = scopedChildCount(localFrame->document());
     }
     return m_scopedChildCount;
 }
 
-unsigned FrameTree::childCount() const
+unsigned NODELETE FrameTree::childCount() const
 {
     unsigned count = 0;
     for (auto* child = firstChild(); child; child = child->tree().nextSibling())
@@ -275,7 +273,7 @@ Frame* FrameTree::childBySpecifiedName(const AtomString& name) const
 
 // FrameTree::find() only returns frames in pages that are related to the active
 // page by an opener <-> openee relationship.
-static bool isFrameFamiliarWith(Frame& frameA, Frame& frameB)
+static bool NODELETE isFrameFamiliarWith(Frame& frameA, Frame& frameB)
 {
     if (frameA.page() == frameB.page())
         return true;
@@ -348,7 +346,7 @@ RefPtr<Frame> FrameTree::findBySpecifiedName(const AtomString& specifiedName, Fr
     }, activeFrame);
 }
 
-bool FrameTree::isDescendantOf(const Frame* ancestor) const
+bool NODELETE FrameTree::isDescendantOf(const Frame* ancestor) const
 {
     if (!ancestor)
         return false;
@@ -565,11 +563,6 @@ Frame& FrameTree::top() const
     return m_thisFrame->mainFrame();
 }
 
-Ref<Frame> FrameTree::protectedTop() const
-{
-    return top();
-}
-
 unsigned FrameTree::depth() const
 {
     unsigned depth = 0;
@@ -578,9 +571,18 @@ unsigned FrameTree::depth() const
     return depth;
 }
 
+bool FrameTree::hasRemoteFrameDescendant() const
+{
+    for (RefPtr frame = firstChild(); frame; frame = frame->tree().traverseNext(m_thisFrame.ptr())) {
+        if (is<RemoteFrame>(*frame))
+            return true;
+    }
+    return false;
+}
+
 AtomString FrameTree::uniqueName() const
 {
-    if (!parent())
+    if (m_thisFrame->isMainFrame() || !m_specifiedName.isEmpty())
         return m_specifiedName;
 
     auto frameIndex { 0u };
@@ -657,7 +659,7 @@ static void printFrames(const WebCore::Frame& frame, const WebCore::Frame* targe
         printIndent(indent);
         printf("  ownerElement=%p\n", localFrame->ownerElement());
         printIndent(indent);
-        printf("  frameView=%p (needs layout %d)\n", view, view ? view->needsLayout() : false);
+        printf("  frameView=%p (needs layout %d)\n", view, view && view->needsLayout());
         printIndent(indent);
         printf("  renderView=%p\n", view ? view->renderView() : nullptr);
         printIndent(indent);
@@ -678,7 +680,7 @@ void showFrameTree(const WebCore::Frame* frame)
         return;
     }
 
-    printFrames(frame->tree().protectedTop(), frame, 0);
+    printFrames(protect(frame->tree().top()), frame, 0);
 }
 
 #endif

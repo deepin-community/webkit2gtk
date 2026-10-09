@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Apple Inc. All rights reserved.
+ * Copyright (C) 2008, 2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -116,29 +116,39 @@ namespace WTF {
             destroyAllItems();
         }
 
+        SegmentedVector(SegmentedVector&&) requires (hasInlineStorage) = delete;
+        SegmentedVector& operator=(SegmentedVector&&) requires (hasInlineStorage) = delete;
+
+        SegmentedVector(SegmentedVector&& other) requires (!hasInlineStorage)
+            : m_size(std::exchange(other.m_size, 0))
+            , m_segments(WTF::move(other.m_segments))
+        {
+        }
+
+        SegmentedVector& operator=(SegmentedVector&& other) requires (!hasInlineStorage)
+        {
+            destroyAllItems();
+            m_segments = WTF::move(other.m_segments);
+            m_size = std::exchange(other.m_size, 0);
+            return *this;
+        }
+
         size_t size() const { return m_size; }
         bool isEmpty() const { return !size(); }
 
-        T& at(size_t index) LIFETIME_BOUND
+        ALWAYS_INLINE T& at(size_t index) LIFETIME_BOUND
         {
             ASSERT_WITH_SECURITY_IMPLICATION(index < m_size);
             return *addressAt(index);
         }
 
-        const T& at(size_t index) const LIFETIME_BOUND
+        ALWAYS_INLINE const T& at(size_t index) const LIFETIME_BOUND
         {
             return const_cast<SegmentedVector*>(this)->at(index);
         }
 
-        T& operator[](size_t index) LIFETIME_BOUND
-        {
-            return at(index);
-        }
-
-        const T& operator[](size_t index) const LIFETIME_BOUND
-        {
-            return at(index);
-        }
+        T& operator[](size_t index) LIFETIME_BOUND { return at(index); }
+        const T& operator[](size_t index) const LIFETIME_BOUND { return at(index); }
 
         T& first() LIFETIME_BOUND
         {
@@ -150,12 +160,12 @@ namespace WTF {
             ASSERT_WITH_SECURITY_IMPLICATION(!isEmpty());
             return at(0);
         }
-        T& last() LIFETIME_BOUND
+        ALWAYS_INLINE T& last() LIFETIME_BOUND
         {
             ASSERT_WITH_SECURITY_IMPLICATION(!isEmpty());
             return at(size() - 1);
         }
-        const T& last() const LIFETIME_BOUND
+        ALWAYS_INLINE const T& last() const LIFETIME_BOUND
         {
             ASSERT_WITH_SECURITY_IMPLICATION(!isEmpty());
             return at(size() - 1);
@@ -172,10 +182,15 @@ namespace WTF {
         template<typename... Args>
         ALWAYS_INLINE T& alloc(Args&&... args)
         {
-            ++m_size;
-            if (!segmentExistsFor(m_size - 1))
-                ensureSegmentsFor(m_size);
-            T* ptr = addressAt(m_size - 1);
+            size_t newIndex = m_size++;
+            if constexpr (hasInlineStorage) {
+                if (newIndex >= InlineCapacity && !heapSegmentExistsFor(newIndex)) [[unlikely]]
+                    allocateSegment();
+            } else {
+                if (!segmentExistsFor(newIndex))
+                    allocateSegment();
+            }
+            T* ptr = addressAt(newIndex);
             new (NotNull, ptr) T(std::forward<Args>(args)...);
             return *ptr;
         }
@@ -186,9 +201,10 @@ namespace WTF {
             alloc(std::forward<Args>(args)...);
         }
 
-        ALWAYS_INLINE void append(value_type&& value)
+        template<typename... Args>
+        ALWAYS_INLINE void constructAndAppend(Args&&... args)
         {
-            alloc(WTF::move(value));
+            alloc(std::forward<Args>(args)...);
         }
 
         ALWAYS_INLINE void removeLast()
@@ -215,20 +231,10 @@ namespace WTF {
             m_size = 0;
         }
 
-        Iterator begin() LIFETIME_BOUND
-        {
-            return Iterator(*this, 0);
-        }
+        Iterator begin() LIFETIME_BOUND { return Iterator(*this, 0); }
+        Iterator end() LIFETIME_BOUND { return Iterator(*this, m_size); }
 
-        Iterator end() LIFETIME_BOUND
-        {
-            return Iterator(*this, m_size);
-        }
-
-        void shrinkToFit()
-        {
-            m_segments.shrinkToFit();
-        }
+        void shrinkToFit() { m_segments.shrinkToFit(); }
 
         unsigned removeAllMatching(NOESCAPE const Invocable<bool(T&)> auto& matches)
         {
@@ -293,9 +299,7 @@ namespace WTF {
         using SegmentPtr = std::unique_ptr<Segment, NonDestructingDeleter<Segment, Malloc>>;
 
         struct EmptyInlineStorage { };
-        struct InlineStorageData {
-            AlignedStorage<T> m_data[InlineCapacity];
-        };
+        struct InlineStorageData { AlignedStorage<T> m_data[InlineCapacity]; };
 
         ALWAYS_INLINE T* inlineStorage() LIFETIME_BOUND
         {
@@ -330,7 +334,7 @@ WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
                 std::destroy_at(addressAt(i));
         }
 
-        bool segmentExistsFor(size_t index)
+        ALWAYS_INLINE bool segmentExistsFor(size_t index)
         {
             if constexpr (hasInlineStorage) {
                 if (index < InlineCapacity)
@@ -381,8 +385,8 @@ WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
         }
 
         size_t m_size { 0 };
+        NO_UNIQUE_ADDRESS std::conditional_t<hasInlineStorage, InlineStorageData, EmptyInlineStorage> m_inlineStorageMember;
         Vector<SegmentPtr, 0, CrashOnOverflow, 16, Malloc> m_segments;
-        [[no_unique_address]] std::conditional_t<hasInlineStorage, InlineStorageData, EmptyInlineStorage> m_inlineStorageMember;
     };
 
 } // namespace WTF

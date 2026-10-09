@@ -30,9 +30,11 @@
 #include "Document.h"
 #include "InternalObserver.h"
 #include "JSDOMExceptionHandling.h"
+#include "JSValueInWrappedObjectInlines.h"
 #include "ScriptWrappableInlines.h"
 #include "SubscriberCallback.h"
 #include "SubscriptionObserverCallback.h"
+#include <JavaScriptCore/Exception.h>
 #include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
@@ -48,6 +50,7 @@ Subscriber::Subscriber(ScriptExecutionContext& context, Ref<InternalObserver>&& 
     , m_observer(observer)
     , m_options(options)
 {
+    m_observer->setSubscriber(*this);
     relaxAdoptionRequirement();
     followSignal(m_signal);
     if (RefPtr signal = options.signal)
@@ -155,19 +158,19 @@ void Subscriber::reportErrorObject(JSC::JSValue value)
 }
 
 template<typename Visitor>
-void Subscriber::visitAdditionalChildren(Visitor& visitor)
+void Subscriber::visitAdditionalChildrenInGCThread(Visitor& visitor)
 {
     // Do not ref anything in this function, which runs in a GC thread concurrently to the main thread.
     {
         Locker locker { m_teardownsLock };
         SUPPRESS_UNCOUNTED_LOCAL for (auto& teardown : m_teardowns)
-            SUPPRESS_UNCOUNTED_ARG teardown->visitJSFunction(visitor);
+            SUPPRESS_UNCOUNTED_ARG teardown->visitJSFunctionInGCThread(visitor);
     }
 
-    SUPPRESS_UNRETAINED_ARG m_observer->visitAdditionalChildren(visitor);
+    SUPPRESS_UNRETAINED_ARG m_observer->visitAdditionalChildrenInGCThread(visitor);
 }
 
-DEFINE_VISIT_ADDITIONAL_CHILDREN(Subscriber);
+DEFINE_VISIT_ADDITIONAL_CHILDREN_IN_GC_THREAD(Subscriber);
 
 Subscriber::~Subscriber() = default;
 

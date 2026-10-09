@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2002 Lars Knoll (knoll@kde.org)
  *           (C) 2002 Dirk Mueller (mueller@kde.org)
- * Copyright (C) 2003-2025 Apple Inc. All rights reserved.
+ * Copyright (C) 2003-2026 Apple Inc. All rights reserved.
  * Copyright (C) 2014-2017 Google Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
@@ -33,21 +33,37 @@
 #include "RenderTableSection.h"
 #include "RenderView.h"
 #include "StylePreferredSize.h"
+#include "StylePrimitiveNumericTypes+EvaluationMinimum.h"
 
 namespace WebCore {
 
 AutoTableLayout::AutoTableLayout(RenderTable* table)
     : TableLayout(table)
-    , m_hasPercent(false)
-    , m_effectiveLogicalWidthDirty(true)
 {
 }
 
 AutoTableLayout::~AutoTableLayout() = default;
 
+bool AutoTableLayout::isColumnCollapsed(unsigned effCol) const
+{
+    CheckedPtr colElement = m_table->colElement(effCol);
+    return colElement && colElement->style().visibility() == Visibility::Collapse;
+}
+
 void AutoTableLayout::recalcColumn(unsigned effCol)
 {
     Layout& columnLayout = m_layoutStruct[effCol];
+
+    // Check if this column is collapsed.
+    if (isColumnCollapsed(effCol)) {
+        columnLayout.effectiveLogicalWidth = CSS::Keyword::Auto { };
+        columnLayout.effectiveMinLogicalWidth = 0;
+        columnLayout.effectiveMaxLogicalWidth = 0;
+        columnLayout.minLogicalWidth = 0;
+        columnLayout.maxLogicalWidth = 0;
+        columnLayout.logicalWidth = CSS::Keyword::Auto { };
+        return;
+    }
 
     RenderTableCell* fixedContributor = nullptr;
     RenderTableCell* maxContributor = nullptr;
@@ -55,9 +71,9 @@ void AutoTableLayout::recalcColumn(unsigned effCol)
     for (auto& child : childrenOfType<RenderObject>(*m_table)) {
         if (CheckedPtr column = dynamicDowncast<RenderTableCol>(child)) {
             // RenderTableCols don't have the concept of preferred logical width, but we need to clear their dirty bits
-            // so that if we call setPreferredWidthsDirty(true) on a col or one of its descendants, we'll mark its
+            // so that if we call setContentWidthsDirty(true) on a col or one of its descendants, we'll mark its
             // ancestors as dirty.
-            column->clearNeedsPreferredLogicalWidthsUpdate();
+            column->clearContentLogicalWidthsInvalidation();
         } else if (CheckedPtr section = dynamicDowncast<RenderTableSection>(child)) {
             unsigned numRows = section->numRows();
             for (unsigned i = 0; i < numRows; ++i) {
@@ -67,7 +83,10 @@ void AutoTableLayout::recalcColumn(unsigned effCol)
                 if (current.inColSpan || !cell)
                     continue;
 
-                bool cellHasContent = cell->firstChild() || cell->style().hasBorder() || !Style::isKnownZero(cell->style().paddingBox()) || cell->style().hasBackground();
+                bool cellHasContent = cell->firstChild()
+                    || cell->style().border().hasBorder()
+                    || !Style::isKnownZero(cell->style().paddingBox())
+                    || cell->style().hasBackground();
                 if (cellHasContent)
                     columnLayout.emptyCellsOnly = false;
 
@@ -98,9 +117,11 @@ void AutoTableLayout::recalcColumn(unsigned effCol)
                     }
                     WTF::switchOn(cellLogicalWidth,
                         [&](const Style::PreferredSize::Fixed& fixedCellLogicalWidth) {
-                            // ignore width=0
-                            if (fixedCellLogicalWidth.isPositive() && !columnLayout.logicalWidth.isPercentOrCalculated()) {
+                            if (fixedCellLogicalWidth.isPositiveOrZero() && !columnLayout.logicalWidth.isPercentOrCalculated()) {
                                 float logicalWidth = cell->adjustBorderBoxLogicalWidthForBoxSizing(fixedCellLogicalWidth);
+                                // Honor the cell's CSS max-width constraint.
+                                if (auto fixedMaxWidth = cell->style().logicalMaxWidth().tryFixed())
+                                    logicalWidth = std::min(logicalWidth, cell->adjustBorderBoxLogicalWidthForBoxSizing(*fixedMaxWidth).toFloat());
                                 if (auto fixedColumnLayoutLogicalWidth = columnLayout.logicalWidth.tryFixed()) {
                                     // Nav/IE weirdness
                                     if ((logicalWidth > fixedColumnLayoutLogicalWidth->resolveZoom(cellUsedZoom))
@@ -195,9 +216,9 @@ void AutoTableLayout::fullRecalc()
         recalcColumn(i);
 
     for (auto& section : childrenOfType<RenderTableSection>(*m_table)) {
-        section.clearNeedsPreferredWidthsUpdate();
+        section.clearContentLogicalWidthsInvalidation();
         for (auto* row = section.firstRow(); row; row = row->nextRow())
-            row->clearNeedsPreferredWidthsUpdate();
+            row->clearContentLogicalWidthsInvalidation();
     }
 }
 
@@ -215,20 +236,21 @@ static bool shouldScaleColumnsForParent(const RenderTable& table)
         // logical width. In such situations no table logical width will be large enough to satisfy the constraint
         // set by the contents. So the idea is to use ~infinity to make sure we use all available size in the containing
         // block. However, this just doesn't work if this is a flex or grid item, so disallow scaling in that case.
-        if (is<RenderFlexibleBox>(containingBlock) || is<RenderGrid>(containingBlock))
+        if (isAnyOf<RenderFlexibleBox, RenderGrid>(containingBlock))
             return false;
         containingBlock = containingBlock->containingBlock();
     }
     return true;
 }
 
-void AutoTableLayout::computeIntrinsicLogicalWidths(LayoutUnit& minWidth, LayoutUnit& maxWidth, TableIntrinsics intrinsics)
+std::pair<LayoutUnit, LayoutUnit> AutoTableLayout::computeIntrinsicLogicalWidths(TableIntrinsics intrinsics)
 {
     fullRecalc();
 
+    auto minWidth = LayoutUnit { };
+    auto maxWidth = LayoutUnit { };
+
     float spanMaxLogicalWidth = calcEffectiveLogicalWidth();
-    minWidth = 0;
-    maxWidth = 0;
     float maxPercent = 0;
     float maxNonPercent = 0;
     bool scaleColumnsForSelf = intrinsics == TableIntrinsics::ForLayout;
@@ -269,9 +291,10 @@ void AutoTableLayout::computeIntrinsicLogicalWidths(LayoutUnit& minWidth, Layout
     }
 
     maxWidth = std::max(maxWidth, LayoutUnit(spanMaxLogicalWidth));
+    return { minWidth, maxWidth };
 }
 
-void AutoTableLayout::applyPreferredLogicalWidthQuirks(LayoutUnit& minWidth, LayoutUnit& maxWidth) const
+void AutoTableLayout::applyContentLogicalWidthQuirks(LayoutUnit& minWidth, LayoutUnit& maxWidth) const
 {
     if (auto fixedTableLogicalWidth = m_table->style().logicalWidth().tryFixed(); fixedTableLogicalWidth && fixedTableLogicalWidth->isPositive()) {
         LayoutUnit minContentWidth = minWidth;
@@ -418,6 +441,32 @@ float AutoTableLayout::calcEffectiveLogicalWidth()
             }
         }
 
+        // Distribute the spanning cell's min/max widths across [effCol, lastCol) in proportion to
+        // each column's percentage, using the given total as the denominator. percentForColumn
+        // returns std::nullopt for columns that should be skipped.
+        auto distributeByPercent = [&](float totalPercentForDistribution, auto&& percentForColumn) {
+#if ASSERT_ENABLED
+            float allocatedMinLogicalWidth = 0;
+#endif
+            float allocatedMaxLogicalWidth = 0;
+            for (unsigned pos = effCol; pos < lastCol; ++pos) {
+                auto percent = percentForColumn(pos);
+                if (!percent)
+                    continue;
+                float columnMinLogicalWidth = *percent * cellMinLogicalWidth / totalPercentForDistribution;
+                float columnMaxLogicalWidth = *percent * cellMaxLogicalWidth / totalPercentForDistribution;
+                m_layoutStruct[pos].effectiveMinLogicalWidth = std::max(m_layoutStruct[pos].effectiveMinLogicalWidth, columnMinLogicalWidth);
+                m_layoutStruct[pos].effectiveMaxLogicalWidth = columnMaxLogicalWidth;
+#if ASSERT_ENABLED
+                allocatedMinLogicalWidth += columnMinLogicalWidth;
+#endif
+                allocatedMaxLogicalWidth += columnMaxLogicalWidth;
+            }
+            ASSERT(allocatedMinLogicalWidth < cellMinLogicalWidth || WTF::areEssentiallyEqual(allocatedMinLogicalWidth, cellMinLogicalWidth));
+            ASSERT(allocatedMaxLogicalWidth < cellMaxLogicalWidth || WTF::areEssentiallyEqual(allocatedMaxLogicalWidth, cellMaxLogicalWidth));
+            cellMaxLogicalWidth -= allocatedMaxLogicalWidth;
+        };
+
         // make sure minWidth and maxWidth of the spanning cell are honored
         if (cellMinLogicalWidth > spanMinLogicalWidth) {
             if (allColsAreFixed) {
@@ -433,30 +482,14 @@ float AutoTableLayout::calcEffectiveLogicalWidth()
                 }
             } else if (allColsArePercent) {
                 // In this case, we just split the colspan's min and max widths following the percentage.
-#if ASSERT_ENABLED
-                float allocatedMinLogicalWidth = 0;
-#endif
-                float allocatedMaxLogicalWidth = 0;
-                for (unsigned pos = effCol; pos < lastCol; ++pos) {
+                // |allColsArePercent| means that either the logicalWidth *or* the effectiveLogicalWidth are percents, handle both of them here.
+                distributeByPercent(totalPercent, [&](unsigned pos) -> std::optional<float> {
                     ASSERT(m_layoutStruct[pos].logicalWidth.isPercent() || m_layoutStruct[pos].effectiveLogicalWidth.isPercent());
-                    // |allColsArePercent| means that either the logicalWidth *or* the effectiveLogicalWidth are percents, handle both of them here.
                     auto percentageLogicalWidth = m_layoutStruct[pos].logicalWidth.tryPercentage();
                     auto percentageEffectiveLogicalWidth = m_layoutStruct[pos].effectiveLogicalWidth.tryPercentage();
                     ASSERT(percentageLogicalWidth || percentageEffectiveLogicalWidth);
-                    float percent = percentageLogicalWidth ? percentageLogicalWidth->value : percentageEffectiveLogicalWidth->value;
-
-                    float columnMinLogicalWidth = percent * cellMinLogicalWidth / totalPercent;
-                    float columnMaxLogicalWidth = percent * cellMaxLogicalWidth / totalPercent;
-                    m_layoutStruct[pos].effectiveMinLogicalWidth = std::max(m_layoutStruct[pos].effectiveMinLogicalWidth, columnMinLogicalWidth);
-                    m_layoutStruct[pos].effectiveMaxLogicalWidth = columnMaxLogicalWidth;
-#if ASSERT_ENABLED
-                    allocatedMinLogicalWidth += columnMinLogicalWidth;
-#endif
-                    allocatedMaxLogicalWidth += columnMaxLogicalWidth;
-                }
-                ASSERT(allocatedMinLogicalWidth < cellMinLogicalWidth || WTF::areEssentiallyEqual(allocatedMinLogicalWidth, cellMinLogicalWidth));
-                ASSERT(allocatedMaxLogicalWidth < cellMaxLogicalWidth || WTF::areEssentiallyEqual(allocatedMaxLogicalWidth, cellMaxLogicalWidth));
-                cellMaxLogicalWidth -= allocatedMaxLogicalWidth;
+                    return percentageLogicalWidth ? percentageLogicalWidth->value : percentageEffectiveLogicalWidth->value;
+                });
             } else if (!allColsAreFixed && fixedWidth <= 0 && totalPercent > 0 && haveAuto) {
                 // This branch handles the case where a percentage colspan cell has already
                 // converted AUTO columns to effective percentages. We need to verify that:
@@ -477,10 +510,6 @@ float AutoTableLayout::calcEffectiveLogicalWidth()
                 if (hasConvertedAutoColumns && currentCellIsNotPercentage) {
                     // By this point, the earlier code has converted auto columns to effectiveLogicalWidth percentages,
                     // so we can use the same percentage-based distribution as the allColsArePercent case.
-#if ASSERT_ENABLED
-                    float allocatedMinLogicalWidth = 0;
-#endif
-                    float allocatedMaxLogicalWidth = 0;
 
                     // Calculate total effective percent (includes both original percent columns and converted auto columns)
                     float totalEffectivePercent = 0;
@@ -491,23 +520,11 @@ float AutoTableLayout::calcEffectiveLogicalWidth()
 
                     // If all columns now have effective percentages, distribute accordingly
                     if (totalEffectivePercent > 0) {
-                        for (unsigned pos = effCol; pos < lastCol; ++pos) {
-                            auto percentageEffectiveLogicalWidth = m_layoutStruct[pos].effectiveLogicalWidth.tryPercentage();
-                            if (percentageEffectiveLogicalWidth) {
-                                float percent = percentageEffectiveLogicalWidth->value;
-                                float columnMinLogicalWidth = percent * cellMinLogicalWidth / totalEffectivePercent;
-                                float columnMaxLogicalWidth = percent * cellMaxLogicalWidth / totalEffectivePercent;
-                                m_layoutStruct[pos].effectiveMinLogicalWidth = std::max(m_layoutStruct[pos].effectiveMinLogicalWidth, columnMinLogicalWidth);
-                                m_layoutStruct[pos].effectiveMaxLogicalWidth = columnMaxLogicalWidth;
-#if ASSERT_ENABLED
-                                allocatedMinLogicalWidth += columnMinLogicalWidth;
-#endif
-                                allocatedMaxLogicalWidth += columnMaxLogicalWidth;
-                            }
-                        }
-                        ASSERT(allocatedMinLogicalWidth < cellMinLogicalWidth || WTF::areEssentiallyEqual(allocatedMinLogicalWidth, cellMinLogicalWidth));
-                        ASSERT(allocatedMaxLogicalWidth < cellMaxLogicalWidth || WTF::areEssentiallyEqual(allocatedMaxLogicalWidth, cellMaxLogicalWidth));
-                        cellMaxLogicalWidth -= allocatedMaxLogicalWidth;
+                        distributeByPercent(totalEffectivePercent, [&](unsigned pos) -> std::optional<float> {
+                            if (auto percentageEffectiveLogicalWidth = m_layoutStruct[pos].effectiveLogicalWidth.tryPercentage())
+                                return percentageEffectiveLogicalWidth->value;
+                            return std::nullopt;
+                        });
                     }
                 }
             } else {
@@ -617,6 +634,12 @@ void AutoTableLayout::layout()
 
     // fill up every cell with its minWidth
     for (size_t i = 0; i < nEffCols; ++i) {
+        // Check if this column is collapsed
+        if (isColumnCollapsed(i)) {
+            m_layoutStruct[i].computedLogicalWidth = 0;
+            continue;
+        }
+
         float cellLogicalWidth = m_layoutStruct[i].effectiveMinLogicalWidth;
         m_layoutStruct[i].computedLogicalWidth = cellLogicalWidth;
         available -= cellLogicalWidth;
@@ -645,6 +668,9 @@ void AutoTableLayout::layout()
     // allocate width to percent cols
     if (available > 0 && havePercent) {
         for (size_t i = 0; i < nEffCols; ++i) {
+            if (isColumnCollapsed(i))
+                continue;
+
             auto& logicalWidth = m_layoutStruct[i].effectiveLogicalWidth;
             if (logicalWidth.isPercentOrCalculated()) {
                 float cellLogicalWidth = std::max<float>(m_layoutStruct[i].effectiveMinLogicalWidth, Style::evaluateMinimum<float>(logicalWidth, tableLogicalWidth, Style::ZoomFactor { m_layoutStruct[i].usedZoom }));
@@ -657,6 +683,9 @@ void AutoTableLayout::layout()
             float excess = tableLogicalWidth * (totalPercent - 100) / 100;
             for (unsigned i = nEffCols; i; ) {
                 --i;
+                if (isColumnCollapsed(i))
+                    continue;
+
                 if (m_layoutStruct[i].effectiveLogicalWidth.isPercentOrCalculated()) {
                     float cellLogicalWidth = m_layoutStruct[i].computedLogicalWidth;
                     float reduction = std::min(cellLogicalWidth,  excess);
@@ -673,6 +702,9 @@ void AutoTableLayout::layout()
     // then allocate width to fixed cols
     if (available > 0) {
         for (size_t i = 0; i < nEffCols; ++i) {
+            if (isColumnCollapsed(i))
+                continue;
+
             auto& logicalWidth = m_layoutStruct[i].effectiveLogicalWidth;
             auto usedZoom = m_layoutStruct[i].usedZoom;
             if (auto fixedLogicalWidth = logicalWidth.tryFixed(); fixedLogicalWidth && fixedLogicalWidth->resolveZoom(Style::ZoomFactor { usedZoom }) > m_layoutStruct[i].computedLogicalWidth) {
@@ -692,6 +724,9 @@ void AutoTableLayout::layout()
             equalWidthForZeroLengthColumns = available / numberOfNonEmptyAuto;
         }
         for (size_t i = 0; i < nEffCols; ++i) {
+            if (isColumnCollapsed(i))
+                continue;
+
             auto& column = m_layoutStruct[i];
             if (!column.effectiveLogicalWidth.isAuto() || column.emptyCellsOnly)
                 continue;
@@ -709,6 +744,9 @@ void AutoTableLayout::layout()
     // spread over fixed columns
     if (available > 0 && numFixed) {
         for (size_t i = 0; i < nEffCols; ++i) {
+            if (isColumnCollapsed(i))
+                continue;
+
             auto& logicalWidth = m_layoutStruct[i].effectiveLogicalWidth;
             if (logicalWidth.isFixed()) {
                 float cellLogicalWidth = available * m_layoutStruct[i].effectiveMaxLogicalWidth / totalFixed;
@@ -722,6 +760,9 @@ void AutoTableLayout::layout()
     // spread over percent columns
     if (available > 0 && m_hasPercent && totalPercent < 100) {
         for (size_t i = 0; i < nEffCols; ++i) {
+            if (isColumnCollapsed(i))
+                continue;
+
             auto& logicalWidth = m_layoutStruct[i].effectiveLogicalWidth;
             if (auto percentageLogicalWidth = logicalWidth.tryPercentage()) {
                 float cellLogicalWidth = available * percentageLogicalWidth->value / totalPercent;
@@ -737,9 +778,20 @@ void AutoTableLayout::layout()
     // spread over the rest
     if (available > 0 && nEffCols > numAutoEmptyCellsOnly) {
         unsigned total = nEffCols - numAutoEmptyCellsOnly;
+        // Count collapsed columns to subtract from total
+        unsigned numCollapsed = 0;
+        for (size_t i = 0; i < nEffCols; ++i) {
+            if (isColumnCollapsed(i))
+                numCollapsed++;
+        }
+        total -= numCollapsed;
+
         // still have some width to spread
-        for (unsigned i = nEffCols; i; ) {
+        for (unsigned i = nEffCols; i && total > 0; ) {
             --i;
+            if (isColumnCollapsed(i))
+                continue;
+
             // variable columns with empty cells only don't get any width
             if (m_layoutStruct[i].effectiveLogicalWidth.isAuto() && m_layoutStruct[i].emptyCellsOnly)
                 continue;
@@ -754,6 +806,9 @@ void AutoTableLayout::layout()
         // All columns in this table are empty with 'width: auto'.
         auto equalWidthForColumns = available / numAutoEmptyCellsOnly;
         for (size_t i = 0; i < nEffCols; ++i) {
+            if (isColumnCollapsed(i))
+                continue;
+
             auto& column = m_layoutStruct[i];
             column.computedLogicalWidth = equalWidthForColumns;
             available -= column.computedLogicalWidth;
@@ -774,6 +829,12 @@ void AutoTableLayout::layout()
     LayoutUnit pos;
     for (size_t i = 0; i < nEffCols; ++i) {
         m_table->setColumnPosition(i, pos);
+
+        if (isColumnCollapsed(i)) {
+            // Don't add width or spacing for collapsed columns.
+            continue;
+        }
+
         pos += LayoutUnit::fromFloatCeil(m_layoutStruct[i].computedLogicalWidth) + m_table->hBorderSpacing();
     }
     m_table->setColumnPosition(m_table->columnPositions().size() - 1, pos);

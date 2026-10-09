@@ -308,6 +308,11 @@ WI.SpreadsheetCSSStyleDeclarationSection = class SpreadsheetCSSStyleDeclarationS
         this._delegate?.spreadsheetCSSStyleDeclarationSectionSetAllPropertyVisibilityMode?.(this, propertyVisibilityMode);
     }
 
+    spreadsheetCSSStyleDeclarationEditorStyleLockedChanged(editor, locked)
+    {
+        this._delegate?.spreadsheetCSSStyleDeclarationSectionStyleLockedChanged(this, locked);
+    }
+
     applyFilter(filterText)
     {
         this._filterText = filterText;
@@ -787,7 +792,7 @@ WI.SpreadsheetCSSStyleDeclarationSection = class SpreadsheetCSSStyleDeclarationS
         if (direction === "forward")
             this._setSelectorTextPromise.then(() => this._propertiesEditor.startEditingFirstProperty());
         else if (direction === "backward") {
-            for (let i = this._groupingElements.length - 1; i >= 0; ++i) {
+            for (let i = this._groupingElements.length - 1; i >= 0; --i) {
                 let groupingElementTextField = this._groupingElements[i].associatedTextField;
                 if (groupingElementTextField) {
                     groupingElementTextField.startEditing();
@@ -844,7 +849,10 @@ WI.SpreadsheetCSSStyleDeclarationSection = class SpreadsheetCSSStyleDeclarationS
         }
 
         if (newGroupingIndex >= this._groupingElements.length) {
-            this._selectorTextField.startEditing();
+            if (this._selectorTextField)
+                this._selectorTextField.startEditing();
+            else
+                this._propertiesEditor.startEditingFirstProperty();
             return;
         }
 

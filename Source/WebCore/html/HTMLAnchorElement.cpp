@@ -30,6 +30,7 @@
 #include "ContainerNodeInlines.h"
 #include "DOMTokenList.h"
 #include "DocumentPage.h"
+#include "DocumentQuirks.h"
 #include "DocumentSecurityOrigin.h"
 #include "ElementAncestorIteratorInlines.h"
 #include "EventHandler.h"
@@ -40,6 +41,7 @@
 #include "FrameSelection.h"
 #include "HTMLCanvasElement.h"
 #include "HTMLImageElement.h"
+#include "HTMLModelElement.h"
 #include "HTMLParserIdioms.h"
 #include "HTMLPictureElement.h"
 #include "KeyboardEvent.h"
@@ -72,6 +74,7 @@
 
 #if PLATFORM(COCOA)
 #include "DataDetection.h"
+#include <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
 #endif
 
 namespace WebCore {
@@ -109,7 +112,7 @@ bool HTMLAnchorElement::isMouseFocusable() const
 {
 #if !(PLATFORM(GTK) || PLATFORM(WPE))
     // Only allow links with tabIndex or contentEditable to be mouse focusable.
-    if (isLink())
+    if (isLink() && !protect(document())->quirks().needsAnchorToBeMouseFocusable())
         return HTMLElement::supportsFocus();
 #endif
 
@@ -164,7 +167,17 @@ static void appendServerMapMousePosition(StringBuilder& url, Event& event)
 void HTMLAnchorElement::defaultEventHandler(Event& event)
 {
     if (m_prefetchEagerness == PrefetchEagerness::Conservative && (event.type() == eventNames().keydownEvent || event.type() == eventNames().mousedownEvent || event.type() == eventNames().pointerdownEvent))
-        protectedDocument()->prefetch(href(), m_speculationRulesTags, m_prefetchReferrerPolicy);
+        protect(document())->prefetch(href(), m_speculationRulesTags, m_prefetchReferrerPolicy);
+    else if (m_prefetchEagerness == PrefetchEagerness::None
+        && document().settings().speculationRulesPrefetchEnabled()
+        && (event.type() == eventNames().keydownEvent || event.type() == eventNames().mousedownEvent || event.type() == eventNames().pointerdownEvent)) {
+        // Lazy matching for conservative rules: evaluate at interaction time
+        // instead of scanning all links on every style recalculation.
+        if (auto prefetchRule = SpeculationRulesMatcher::hasMatchingRule(protect(document()), *this)) {
+            if (prefetchRule->eagerness != SpeculationRules::Eagerness::Immediate)
+                protect(document())->prefetch(href(), prefetchRule->tags, prefetchRule->referrerPolicy);
+        }
+    }
 
     if (isLink()) {
         if (focused() && isEnterKeyKeydownEvent(event) && treatLinkAsLiveForEventType(NonMouseEvent)) {
@@ -183,7 +196,7 @@ void HTMLAnchorElement::defaultEventHandler(Event& event)
             // for the LiveWhenNotFocused editable link behavior
             auto& eventNames = WebCore::eventNames();
             if (auto* mouseEvent = dynamicDowncast<MouseEvent>(event); event.type() == eventNames.mousedownEvent && mouseEvent && mouseEvent->button() != MouseButton::Right && document().frame()) {
-                setRootEditableElementForSelectionOnMouseDown(document().frame()->selection().selection().protectedRootEditableElement().get());
+                setRootEditableElementForSelectionOnMouseDown(protect(document().frame()->selection().selection().rootEditableElement()).get());
                 m_wasShiftKeyDownOnMouseDown = mouseEvent->shiftKey();
             } else if (event.type() == eventNames.mouseoverEvent) {
                 // These are cleared on mouseover and not mouseout because their values are needed for drag events,
@@ -232,6 +245,7 @@ void HTMLAnchorElement::attributeChanged(const QualifiedName& name, const AtomSt
         static MainThreadNeverDestroyed<const AtomString> noReferrer("noreferrer"_s);
         static MainThreadNeverDestroyed<const AtomString> noOpener("noopener"_s);
         static MainThreadNeverDestroyed<const AtomString> opener("opener"_s);
+        m_linkRelations = { };
         SpaceSplitString relValue(newValue, SpaceSplitString::ShouldFoldCase::Yes);
         if (relValue.contains(noReferrer))
             m_linkRelations.add(Relation::NoReferrer);
@@ -242,7 +256,7 @@ void HTMLAnchorElement::attributeChanged(const QualifiedName& name, const AtomSt
         if (m_relList)
             m_relList->associatedAttributeValueChanged();
     } else if (name == nameAttr)
-        protectedDocument()->processInternalResourceLinks(this);
+        protect(document())->processInternalResourceLinks(this);
 
     // Check speculation rules for any attribute change to catch either an href attribute change
     // or anything that can impact CSS selectors.
@@ -251,7 +265,8 @@ void HTMLAnchorElement::attributeChanged(const QualifiedName& name, const AtomSt
 
 bool HTMLAnchorElement::isURLAttribute(const Attribute& attribute) const
 {
-    return attribute.name().localName() == hrefAttr || HTMLElement::isURLAttribute(attribute);
+    // FIXME: Should this be attribute.name().matches(hrefAttr) to also enforce the namespace?
+    return hrefAttr->hasLocalName(attribute.name().localName()) || HTMLElement::isURLAttribute(attribute);
 }
 
 bool HTMLAnchorElement::canStartSelection() const
@@ -273,7 +288,7 @@ bool HTMLAnchorElement::draggable() const
 
 URL HTMLAnchorElement::href() const
 {
-    return protectedDocument()->completeURL(attributeWithoutSynchronization(hrefAttr));
+    return protect(document())->encodingParseURL(attributeWithoutSynchronization(hrefAttr));
 }
 
 bool HTMLAnchorElement::hasRel(Relation relation) const
@@ -354,7 +369,7 @@ void HTMLAnchorElement::sendPings(const URL& destinationURL)
     Ref document = this->document();
     SpaceSplitString pingURLs(pingValue, SpaceSplitString::ShouldFoldCase::No);
     for (auto& pingURL : pingURLs)
-        PingLoader::sendPing(*document->protectedFrame(), document->completeURL(pingURL), destinationURL);
+        PingLoader::sendPing(*protect(document->frame()), document->encodingParseURL(pingURL), destinationURL);
 }
 
 #if USE(SYSTEM_PREVIEW)
@@ -365,11 +380,15 @@ bool HTMLAnchorElement::isSystemPreviewLink()
 
     static MainThreadNeverDestroyed<const AtomString> systemPreviewRelValue("ar"_s);
 
-    if (!relList().contains(systemPreviewRelValue))
+    if (!protect(relList())->contains(systemPreviewRelValue))
         return false;
 
-    if (auto* child = firstElementChild()) {
-        if (is<HTMLImageElement>(child) || is<HTMLPictureElement>(child)) {
+    if (RefPtr child = firstElementChild()) {
+#if ENABLE(GPU_PROCESS_MODEL) || ENABLE(MODEL_PROCESS)
+        if (isAnyOf<HTMLImageElement, HTMLPictureElement, HTMLModelElement>(child)) {
+#else
+        if (isAnyOf<HTMLImageElement, HTMLPictureElement>(child)) {
+#endif
             auto numChildren = childElementCount();
             // FIXME: We've documented that it should be the only child, but some early demos have two children.
             return numChildren == 1 || numChildren == 2;
@@ -386,7 +405,7 @@ std::optional<URL> HTMLAnchorElement::attributionDestinationURLForPCM() const
     if (destinationURL.isValid() && destinationURL.protocolIsInHTTPFamily())
         return destinationURL;
 
-    protectedDocument()->addConsoleMessage(MessageSource::Other, MessageLevel::Warning, "attributiondestination could not be converted to a valid HTTP-family URL."_s);
+    protect(document())->addConsoleMessage(MessageSource::Other, MessageLevel::Warning, "attributiondestination could not be converted to a valid HTTP-family URL."_s);
     return std::nullopt;
 }
 
@@ -410,7 +429,7 @@ std::optional<PCM::EphemeralNonce> HTMLAnchorElement::attributionSourceNonceForP
 
     auto ephemeralNonce = PCM::EphemeralNonce { attributionSourceNonceAttr };
     if (!ephemeralNonce.isValid()) {
-        protectedDocument()->addConsoleMessage(MessageSource::Other, MessageLevel::Warning, "attributionsourcenonce was not valid."_s);
+        protect(document())->addConsoleMessage(MessageSource::Other, MessageLevel::Warning, "attributionsourcenonce was not valid."_s);
         return std::nullopt;
     }
 
@@ -483,36 +502,36 @@ std::optional<PrivateClickMeasurement> HTMLAnchorElement::parsePrivateClickMeasu
     auto attributionDestinationAttr = attributeWithoutSynchronization(attributiondestinationAttr);
 
     if (!hasAttributionSourceIDAttr || !hasAttributionDestinationAttr || attributionSourceIDAttr.isEmpty() || attributionDestinationAttr.isEmpty()) {
-        protectedDocument()->addConsoleMessage(MessageSource::Other, MessageLevel::Warning, "Both attributionsourceid and attributiondestination need to be set for Private Click Measurement to work."_s);
+        protect(document())->addConsoleMessage(MessageSource::Other, MessageLevel::Warning, "Both attributionsourceid and attributiondestination need to be set for Private Click Measurement to work."_s);
         return std::nullopt;
     }
 
     auto attributionSourceID = parseHTMLNonNegativeInteger(attributionSourceIDAttr);
     if (!attributionSourceID) {
-        protectedDocument()->addConsoleMessage(MessageSource::Other, MessageLevel::Warning, "attributionsourceid is not a non-negative integer which is required for Private Click Measurement."_s);
+        protect(document())->addConsoleMessage(MessageSource::Other, MessageLevel::Warning, "attributionsourceid is not a non-negative integer which is required for Private Click Measurement."_s);
         return std::nullopt;
     }
     
     if (attributionSourceID.value() > std::numeric_limits<uint8_t>::max()) {
-        protectedDocument()->addConsoleMessage(MessageSource::Other, MessageLevel::Warning, makeString("attributionsourceid must have a non-negative value less than or equal to "_s, std::numeric_limits<uint8_t>::max(), " for Private Click Measurement."_s));
+        protect(document())->addConsoleMessage(MessageSource::Other, MessageLevel::Warning, makeString("attributionsourceid must have a non-negative value less than or equal to "_s, std::numeric_limits<uint8_t>::max(), " for Private Click Measurement."_s));
         return std::nullopt;
     }
 
     URL destinationURL { attributionDestinationAttr };
     if (!destinationURL.isValid() || !destinationURL.protocolIsInHTTPFamily()) {
-        protectedDocument()->addConsoleMessage(MessageSource::Other, MessageLevel::Warning, "attributiondestination could not be converted to a valid HTTP-family URL."_s);
+        protect(document())->addConsoleMessage(MessageSource::Other, MessageLevel::Warning, "attributiondestination could not be converted to a valid HTTP-family URL."_s);
         return std::nullopt;
     }
 
     auto& mainURL = page->mainFrameURL();
     if (mainURL.isEmpty()) {
-        protectedDocument()->addConsoleMessage(MessageSource::Other, MessageLevel::Warning, "Could not find a main document to use as source site for Private Click Measurement."_s);
+        protect(document())->addConsoleMessage(MessageSource::Other, MessageLevel::Warning, "Could not find a main document to use as source site for Private Click Measurement."_s);
         return std::nullopt;
     }
 
     RegistrableDomain mainDocumentRegistrableDomain = RegistrableDomain { mainURL };
     if (mainDocumentRegistrableDomain.matches(destinationURL)) {
-        protectedDocument()->addConsoleMessage(MessageSource::Other, MessageLevel::Warning, "attributiondestination can not be the same site as the current website."_s);
+        protect(document())->addConsoleMessage(MessageSource::Other, MessageLevel::Warning, "attributiondestination can not be the same site as the current website."_s);
         return std::nullopt;
     }
 
@@ -550,9 +569,9 @@ void HTMLAnchorElement::handleClick(Event& event)
         return;
 
     StringBuilder url;
-    url.append(attributeWithoutSynchronization(hrefAttr).string().trim(isASCIIWhitespace));
+    url.append(StringView(attributeWithoutSynchronization(hrefAttr).string()).trim(isASCIIWhitespace));
     appendServerMapMousePosition(url, event);
-    URL completedURL = document->completeURL(url.toString());
+    URL completedURL = document->encodingParseURL(url.toString());
 
 #if ENABLE(DATA_DETECTION) && PLATFORM(IOS_FAMILY)
     if (DataDetection::canPresentDataDetectorsUIForElement(*this)) {
@@ -566,11 +585,11 @@ void HTMLAnchorElement::handleClick(Event& event)
     AtomString downloadAttribute;
     if (document->settings().downloadAttributeEnabled()) {
         // Ignore the download attribute completely if the href URL is cross origin.
-        bool isSameOrigin = completedURL.protocolIsData() || document->protectedSecurityOrigin()->canRequest(completedURL, OriginAccessPatternsForWebProcess::singleton());
+        bool isSameOrigin = completedURL.protocolIsData() || protect(document->securityOrigin())->canRequest(completedURL, OriginAccessPatternsForWebProcess::singleton());
         if (isSameOrigin)
             downloadAttribute = AtomString { ResourceResponse::sanitizeSuggestedFilename(attributeWithoutSynchronization(downloadAttr)) };
         else if (hasAttributeWithoutSynchronization(downloadAttr))
-            protectedDocument()->addConsoleMessage(MessageSource::Security, MessageLevel::Warning, "The download attribute on anchor was ignored because its href URL has a different security origin."_s);
+            document->addConsoleMessage(MessageSource::Security, MessageLevel::Warning, "The download attribute on anchor was ignored because its href URL has a different security origin."_s);
     }
 
     SystemPreviewInfo systemPreviewInfo;
@@ -581,7 +600,7 @@ void HTMLAnchorElement::handleClick(Event& event)
         systemPreviewInfo.element.nodeIdentifier = nodeIdentifier();
         systemPreviewInfo.element.documentIdentifier = document->identifier();
         systemPreviewInfo.element.webPageIdentifier = document->pageID();
-        if (auto* child = firstElementChild())
+        if (RefPtr child = firstElementChild())
             systemPreviewInfo.previewRect = child->boundsInRootViewSpace();
 
         if (RefPtr page = document->page())
@@ -602,7 +621,7 @@ void HTMLAnchorElement::handleClick(Event& event)
     // Thus, URLs should be empty for now.
     ASSERT(!privateClickMeasurement || (privateClickMeasurement->attributionReportClickSourceURL().isNull() && privateClickMeasurement->attributionReportClickDestinationURL().isNull()));
     
-    frame->loader().changeLocation(completedURL, effectiveTarget, &event, referrerPolicy, document->shouldOpenExternalURLsPolicyToPropagate(), newFrameOpenerPolicy, downloadAttribute, WTF::move(privateClickMeasurement), NavigationHistoryBehavior::Push, this);
+    frame->loader().changeLocation(completedURL, effectiveTarget, &event, referrerPolicy, document->shouldOpenExternalURLsPolicyToPropagate(), newFrameOpenerPolicy, downloadAttribute, WTF::move(privateClickMeasurement), NavigationHistoryBehavior::Auto, this);
 
     sendPings(completedURL);
 
@@ -673,7 +692,7 @@ bool HTMLAnchorElement::willRespondToMouseClickEventsWithEditability(Editability
     return isLink() || HTMLElement::willRespondToMouseClickEventsWithEditability(editability);
 }
 
-static auto& rootEditableElementMap()
+static auto& NODELETE rootEditableElementMap()
 {
     static NeverDestroyed<WeakHashMap<HTMLAnchorElement, WeakPtr<Element, WeakPtrImplWithEventTargetData>, WeakPtrImplWithEventTargetData>> map;
     return map.get();
@@ -715,18 +734,18 @@ ReferrerPolicy HTMLAnchorElement::referrerPolicy() const
     return parseReferrerPolicy(attributeWithoutSynchronization(referrerpolicyAttr), ReferrerPolicySource::ReferrerPolicyAttribute).value_or(ReferrerPolicy::EmptyString);
 }
 
-Node::InsertedIntoAncestorResult HTMLAnchorElement::insertedIntoAncestor(InsertionType insertionType, ContainerNode& parentOfInsertedTree)
+Node::NeedsPostConnectionSteps HTMLAnchorElement::insertionSteps(InsertionType insertionType, ContainerNode& parentOfInsertedTree)
 {
-    HTMLElement::insertedIntoAncestor(insertionType, parentOfInsertedTree);
-    protectedDocument()->processInternalResourceLinks(this);
-    if (document().settings().speculationRulesPrefetchEnabled())
-        return InsertedIntoAncestorResult::NeedsPostInsertionCallback;
-    return InsertedIntoAncestorResult::Done;
+    HTMLElement::insertionSteps(insertionType, parentOfInsertedTree);
+    protect(document())->processInternalResourceLinks(this);
+    if (insertionType.connectedToDocument && document().settings().speculationRulesPrefetchEnabled())
+        return NeedsPostConnectionSteps::Yes;
+    return NeedsPostConnectionSteps::No;
 }
 
-void HTMLAnchorElement::didFinishInsertingNode()
+void HTMLAnchorElement::postConnectionSteps()
 {
-    HTMLElement::didFinishInsertingNode();
+    HTMLElement::postConnectionSteps();
     checkForSpeculationRules();
 }
 
@@ -744,14 +763,34 @@ void HTMLAnchorElement::setShouldBePrefetched(SpeculationRules::Eagerness eagern
     m_speculationRulesTags = WTF::move(tags);
     m_prefetchReferrerPolicy = WTF::move(referrerPolicy);
     if (m_prefetchEagerness == PrefetchEagerness::Immediate)
-        protectedDocument()->prefetch(href(), m_speculationRulesTags, m_prefetchReferrerPolicy, true);
+        protect(document())->prefetch(href(), m_speculationRulesTags, m_prefetchReferrerPolicy, true);
+}
+
+String HTMLAnchorElement::prefetchEagernessForTesting() const
+{
+    switch (m_prefetchEagerness) {
+    case PrefetchEagerness::None:
+        return "none"_s;
+    case PrefetchEagerness::Conservative:
+        return "conservative"_s;
+    case PrefetchEagerness::Immediate:
+        return "immediate"_s;
+    }
+    return "none"_s;
 }
 
 void HTMLAnchorElement::checkForSpeculationRules()
 {
     if (!document().settings().speculationRulesPrefetchEnabled())
         return;
-    if (auto prefetchRule = SpeculationRulesMatcher::hasMatchingRule(protectedDocument(), *this))
+    // For conservative-only rules, defer matching to interaction time.
+    if (!document().speculationRules().hasNonConservativePrefetchRules()) {
+        m_prefetchEagerness = PrefetchEagerness::None;
+        m_speculationRulesTags.clear();
+        m_prefetchReferrerPolicy = std::nullopt;
+        return;
+    }
+    if (auto prefetchRule = SpeculationRulesMatcher::hasMatchingRule(protect(document()), *this))
         setShouldBePrefetched(prefetchRule->eagerness, WTF::move(prefetchRule->tags), WTF::move(prefetchRule->referrerPolicy));
     else {
         m_prefetchEagerness = PrefetchEagerness::None;

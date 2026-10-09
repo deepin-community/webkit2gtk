@@ -33,7 +33,6 @@
 #include "StreamServerConnectionBuffer.h"
 #include <wtf/Deque.h>
 #include <wtf/Lock.h>
-#include <wtf/Threading.h>
 
 namespace IPC {
 
@@ -98,14 +97,13 @@ public:
     void stopReceivingMessages(ReceiverName, uint64_t destinationID);
 
     Connection& connection() { return m_connection; }
-    Ref<Connection> protectedConnection() { return m_connection; }
 
     enum DispatchResult : bool {
         HasNoMessages,
         HasMoreMessages
     };
     DispatchResult dispatchStreamMessages(size_t messageLimit);
-    void markCurrentlyDispatchedMessageAsInvalid(ASCIILiteral error);
+    void NODELETE markCurrentlyDispatchedMessageAsInvalid(ASCIILiteral error);
 
     void open(Client&, StreamConnectionWorkQueue&);
     void invalidate();
@@ -122,7 +120,7 @@ public:
     template<typename T, typename... Arguments>
     void sendAsyncReply(AsyncReplyID, Arguments&&...);
 
-    Semaphore& clientWaitSemaphore() { return m_clientWaitSemaphore; }
+    Semaphore& clientWaitSemaphore() LIFETIME_BOUND { return m_clientWaitSemaphore; }
 
 private:
     StreamServerConnection(Ref<Connection>, StreamServerConnectionBuffer&&);
@@ -141,8 +139,6 @@ private:
     bool processOutOfStreamMessage(Decoder&);
     bool dispatchStreamMessage(Decoder&, StreamMessageReceiver&);
     void dispatchDidReceiveInvalidMessage(Decoder&);
-
-    RefPtr<StreamConnectionWorkQueue> protectedWorkQueue() const;
 
     using WakeUpClient = StreamServerConnectionBuffer::WakeUpClient;
     const Ref<IPC::Connection> m_connection;

@@ -26,9 +26,9 @@
 #include "bmalloc.h"
 
 #include "Environment.h"
-#include "PerProcess.h"
 #include "ProcessCheck.h"
 #include "SystemHeap.h"
+#include "VMAllocate.h"
 
 #if BENABLE(LIBPAS)
 #include "bmalloc_heap_config.h"
@@ -82,25 +82,8 @@ void* tryLargeZeroedMemalignVirtual(size_t requiredAlignment, size_t requestedSi
     void* result;
     if (auto* systemHeap = SystemHeap::tryGetIfShouldSupplantBmalloc())
         result = systemHeap->memalignLarge(alignment, size);
-    else {
-#if BUSE(LIBPAS)
+    else
         result = tryMemalign(alignment, size, mode, kind);
-#else
-        BUNUSED(mode);
-        kind = mapToActiveHeapKind(kind);
-        Heap& heap = PerProcess<PerHeapKind<Heap>>::get()->at(kind);
-
-        UniqueLockHolder lock(Heap::mutex());
-        result = heap.allocateLarge(lock, alignment, size, FailureAction::ReturnNull);
-        if (result) {
-            // Don't track this as dirty memory that dictates how we drive the scavenger.
-            // FIXME: We should make it so that users of this API inform bmalloc which
-            // pages they dirty:
-            // https://bugs.webkit.org/show_bug.cgi?id=184207
-            heap.externalDecommit(lock, result, size);
-        }
-#endif
-    }
 
     if (result)
         vmZeroAndPurge(result, size);
@@ -110,25 +93,22 @@ void* tryLargeZeroedMemalignVirtual(size_t requiredAlignment, size_t requestedSi
 
 void freeLargeVirtual(void* object, size_t size, HeapKind kind)
 {
+    if (auto* systemHeap = SystemHeap::tryGetIfShouldSupplantBmalloc()) {
+        systemHeap->freeLarge(object);
+        return;
+    }
 #if BUSE(LIBPAS)
     BUNUSED(size);
     BUNUSED(kind);
-    if (auto* systemHeap = SystemHeap::tryGetIfShouldSupplantBmalloc()) {
-        systemHeap->freeLarge(object);
-        return;
-    }
     bmalloc_deallocate_inline(object);
+#elif BUSE(MIMALLOC)
+    BUNUSED(size);
+    BUNUSED(kind);
+    mi_free(object);
 #else
-    if (auto* systemHeap = SystemHeap::tryGetIfShouldSupplantBmalloc()) {
-        systemHeap->freeLarge(object);
-        return;
-    }
-    kind = mapToActiveHeapKind(kind);
-    Heap& heap = PerProcess<PerHeapKind<Heap>>::get()->at(kind);
-    UniqueLockHolder lock(Heap::mutex());
-    // Balance out the externalDecommit when we allocated the zeroed virtual memory.
-    heap.externalCommit(lock, object, size);
-    heap.deallocateLarge(lock, object);
+    BUNUSED(size);
+    BUNUSED(kind);
+    ::free(object);
 #endif
 }
 
@@ -137,13 +117,8 @@ void scavengeThisThread()
 #if BENABLE(LIBPAS)
     pas_thread_local_cache_shrink(pas_thread_local_cache_try_get(),
                                   pas_lock_is_not_held);
-#endif
-#if !BUSE(LIBPAS)
-    if (!SystemHeap::tryGetIfShouldSupplantBmalloc()) {
-        for (unsigned i = numHeaps; i--;)
-            Cache::scavenge(static_cast<HeapKind>(i));
-        IsoTLS::scavenge();
-    }
+#elif BUSE(MIMALLOC)
+    mi_theap_collect(mi_theap_get_default(), /* force */ true);
 #endif
 }
 
@@ -151,14 +126,13 @@ void scavenge()
 {
 #if BENABLE(LIBPAS)
     pas_scavenger_run_synchronously_now();
-#endif
     scavengeThisThread();
-    if (SystemHeap* systemHeap = SystemHeap::tryGetIfShouldSupplantBmalloc())
-        systemHeap->scavenge();
-    else {
-#if !BUSE(LIBPAS)
-        Scavenger::get()->scavenge();
+#elif BUSE(MIMALLOC)
+    mi_collect(/* force */ true);
 #endif
+    if (SystemHeap* systemHeap = SystemHeap::tryGetIfShouldSupplantBmalloc()) {
+        systemHeap->scavenge();
+        return;
     }
 }
 
@@ -167,43 +141,38 @@ bool isEnabled(HeapKind)
     return !Environment::get()->shouldBmallocAllocateThroughSystemHeap();
 }
 
+bool isMTEEnabled(HeapKind kind)
+{
+    BUNUSED_PARAM(kind);
+#if PAS_BMALLOC && defined(PAS_ENABLE_MTE) && PAS_ENABLE_MTE
+    // MTE is not currently enabled for the Gigacage
+    return isEnabled(kind) && kind == HeapKind::Primary && pas_mte_is_mte_enabled();
+#else
+    return false;
+#endif
+}
+
 #if BOS(DARWIN)
 void setScavengerThreadQOSClass(qos_class_t overrideClass)
 {
 #if BENABLE(LIBPAS)
     pas_scavenger_set_requested_qos_class(overrideClass);
-#endif
-#if !BUSE(LIBPAS)
-    if (!SystemHeap::tryGetIfShouldSupplantBmalloc()) {
-        UniqueLockHolder lock(Heap::mutex());
-        Scavenger::get()->setScavengerThreadQOSClass(overrideClass);
-    }
+#else
+    BUNUSED(overrideClass);
 #endif
 }
 #endif
 
-void commitAlignedPhysical(void* object, size_t size, HeapKind kind)
+void commitAlignedPhysical(void* object, size_t size, HeapKind)
 {
     vmValidatePhysical(object, size);
     vmAllocatePhysicalPages(object, size);
-#if BUSE(LIBPAS)
-    BUNUSED(kind);
-#else
-    if (!SystemHeap::tryGetIfShouldSupplantBmalloc())
-        PerProcess<PerHeapKind<Heap>>::get()->at(kind).externalCommit(object, size);
-#endif
 }
 
-void decommitAlignedPhysical(void* object, size_t size, HeapKind kind)
+void decommitAlignedPhysical(void* object, size_t size, HeapKind)
 {
     vmValidatePhysical(object, size);
     vmDeallocatePhysicalPages(object, size);
-#if BUSE(LIBPAS)
-    BUNUSED(kind);
-#else
-    if (!SystemHeap::tryGetIfShouldSupplantBmalloc())
-        PerProcess<PerHeapKind<Heap>>::get()->at(kind).externalDecommit(object, size);
-#endif
 }
 
 void enableMiniMode(bool forceMiniMode)
@@ -220,44 +189,16 @@ void enableMiniMode(bool forceMiniMode)
     pas_physical_page_sharing_pool_balancing_enabled = true;
     pas_physical_page_sharing_pool_balancing_enabled_for_utility = true;
 
-    // Switch to bitfit allocation for anything that isn't isoheaped.
-    bmalloc_intrinsic_runtime_config.base.max_segregated_object_size = 0;
-    bmalloc_primitive_runtime_config.base.max_segregated_object_size = 0;
-    bmalloc_intrinsic_runtime_config.base.max_bitfit_object_size = UINT_MAX;
-    bmalloc_primitive_runtime_config.base.max_bitfit_object_size = UINT_MAX;
-
-    // If large-object delegation is enabled, we don't want to override that
-    // just because we've entered mini-mode.
-    // One way we could get around that would be to leave the bitfit object
-    // size limits the way they are. However, in cases where the bitfit
-    // size-limit had previously been constrained for performance, e.g. by
-    // setting them to 0, we do want enableMiniMode to be able to re-expand
-    // them.
-    // So we take the object-delegation path to be a special case and make
-    // sure to re-apply after performing the above expansion.
-    PAS_IGNORE_WARNINGS_BEGIN("unreachable-code");
-#if defined(PAS_MTE_USE_LARGE_OBJECT_DELEGATION)
-    if (PAS_MTE_USE_LARGE_OBJECT_DELEGATION)
-        pas_mte_force_nontaggable_user_allocations_into_large_heap();
-#endif // defined(PAS_MTE_USE_LARGE_OBJECT_DELEGATION)
-    PAS_IGNORE_WARNINGS_END;
+    pas_bmalloc_force_allocations_into_bitfit_heaps_where_available();
+#else
+    BUNUSED_PARAM(forceMiniMode);
 #endif // BENABLE(LIBPAS)
-
-#if !BUSE(LIBPAS)
-    BUNUSED(forceMiniMode);
-    if (!SystemHeap::tryGetIfShouldSupplantBmalloc())
-        Scavenger::get()->enableMiniMode();
-#endif
 }
 
 void disableScavenger()
 {
 #if BENABLE(LIBPAS)
     pas_scavenger_suspend();
-#endif
-#if !BUSE(LIBPAS)
-    if (!SystemHeap::tryGetIfShouldSupplantBmalloc())
-        Scavenger::get()->disable();
 #endif
 }
 

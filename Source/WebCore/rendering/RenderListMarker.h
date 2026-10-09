@@ -26,7 +26,8 @@
 
 namespace WebCore {
 
-class CSSCounterStyle;
+class CSSRegisteredCounterStyle;
+class RenderBlockFlow;
 class RenderListItem;
 class StyleRuleCounterStyle;
 
@@ -56,38 +57,55 @@ class RenderListMarker final : public RenderBox {
     WTF_MAKE_TZONE_ALLOCATED(RenderListMarker);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderListMarker);
 public:
-    RenderListMarker(RenderListItem&, RenderStyle&&);
+    RenderListMarker(RenderListItem&, Style::ComputedStyle&&);
     virtual ~RenderListMarker();
 
     String textWithoutSuffix() const { return m_textContent.textWithoutSuffix().toString(); };
     String textWithSuffix() const { return m_textContent.textWithSuffix; };
 
-    bool isInside() const;
+    bool NODELETE isInside() const;
     bool isDisclosureMarker() const;
 
     void updateInlineMarginsAndContent();
 
     bool isImage() const final;
 
+    // True when the ::marker's `content` property generates the marker box contents
+    // (css-lists-3 §3.3). In that case the contents live in an anonymous inline-block
+    // child (contentContainer()) that this marker lays out and paints itself.
+    bool hasContent() const;
+    RenderBlockFlow* contentContainer() const;
+
     LayoutUnit lineLogicalOffsetForListItem() const { return m_lineLogicalOffsetForListItem; }
-    const RenderListItem* listItem() const;
+    const RenderListItem* NODELETE listItem() const;
 
     std::pair<float, float> layoutBounds() const { return m_layoutBounds; }
+
+    bool shouldCollapseAnonymousBlockParent() const { return m_shouldCollapseAnonymousBlockParent; }
+    void setShouldCollapseAnonymousBlockParent(bool value)
+    {
+        if (value) {
+            ASSERT(parent());
+            ASSERT(parent()->isAnonymousBlock());
+            ASSERT(!isInside());
+        }
+        m_shouldCollapseAnonymousBlockParent = value;
+    }
 
 private:
     void willBeDestroyed() final;
     ASCIILiteral renderName() const final { return "RenderListMarker"_s; }
-    void computePreferredLogicalWidths() final;
-    bool canHaveChildren() const final { return false; }
+    void computeIntrinsicLogicalWidthContributions() final;
+    bool canHaveChildren() const final { return hasContent(); }
     void paint(PaintInfo&, const LayoutPoint&) final;
     void layout() final;
     void imageChanged(WrappedImagePtr, const IntRect*) final;
-    LayoutRect selectionRectForRepaint(const RenderLayerModelObject* repaintContainer, bool clipToVisibleContent) final;
+    LayoutRect NODELETE selectionRectForRepaint(const RenderLayerModelObject* repaintContainer, bool clipToVisibleContent) final;
     bool canBeSelectionLeaf() const final { return true; }
-    void styleWillChange(Style::Difference, const RenderStyle& newStyle) final;
-    void styleDidChange(Style::Difference, const RenderStyle* oldStyle) final;
+    void styleWillChange(Style::Difference, const Style::ComputedStyle& newStyle) final;
+    void styleDidChange(Style::Difference, const Style::ComputedStyle* oldStyle) final;
     Node* nodeForHitTest() const final;
-    void computeIntrinsicLogicalWidths(LayoutUnit&, LayoutUnit&) const override { ASSERT_NOT_REACHED(); }
+    std::pair<LayoutUnit, LayoutUnit> computeIntrinsicLogicalWidths() const override { ASSERT_NOT_REACHED(); return { }; }
     std::pair<float, float> layoutBoundForTextContent(String) const;
 
     void element() const = delete;
@@ -95,21 +113,24 @@ private:
     void updateInlineMargins();
     void updateContent();
     RenderBox* parentBox(RenderBox&);
+    void layoutContentContainer(RenderBlockFlow&);
+
     FloatRect relativeMarkerRect();
-    LayoutRect localSelectionRect();
+    LayoutRect NODELETE localSelectionRect();
     void paintDisclosureMarker(GraphicsContext&, const FloatRect& markerRect);
 
-    RefPtr<CSSCounterStyle> counterStyle() const;
+    RefPtr<CSSRegisteredCounterStyle> counterStyle() const;
     bool widthUsesMetricsOfPrimaryFont() const;
 
 private:
     ListMarkerTextContent m_textContent;
-    RefPtr<StyleImage> m_image;
+    RefPtr<Style::Image> m_image;
 
     SingleThreadWeakPtr<RenderListItem> m_listItem;
     LayoutUnit m_lineOffsetForListItem;
     LayoutUnit m_lineLogicalOffsetForListItem;
     std::pair<float, float> m_layoutBounds;
+    bool m_shouldCollapseAnonymousBlockParent { false };
 };
 
 } // namespace WebCore

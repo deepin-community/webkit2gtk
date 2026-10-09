@@ -43,7 +43,7 @@ namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(RenderSVGResourceMasker);
 
-RenderSVGResourceMasker::RenderSVGResourceMasker(SVGMaskElement& element, RenderStyle&& style)
+RenderSVGResourceMasker::RenderSVGResourceMasker(SVGMaskElement& element, Style::ComputedStyle&& style)
     : RenderSVGResourceContainer(Type::SVGResourceMasker, element, WTF::move(style))
 {
 }
@@ -183,13 +183,13 @@ bool RenderSVGResourceMasker::drawContentIntoContext(GraphicsContext& context, c
     // Eventually adjust the mask image context according to the target objectBoundingBox.
     AffineTransform maskContentTransformation;
 
-    if (protectedMaskElement()->maskContentUnits() == SVGUnitTypes::SVG_UNIT_TYPE_OBJECTBOUNDINGBOX) {
+    if (protect(maskElement())->maskContentUnits() == SVGUnitTypes::SVG_UNIT_TYPE_OBJECTBOUNDINGBOX) {
         maskContentTransformation.translate(objectBoundingBox.location());
         maskContentTransformation.scale(objectBoundingBox.size());
     }
 
     // Draw the content into the ImageBuffer.
-    checkedLayer()->paintSVGResourceLayer(context, maskContentTransformation);
+    protect(layer())->paintResourceLayerForSVG(context, maskContentTransformation);
     return true;
 }
 

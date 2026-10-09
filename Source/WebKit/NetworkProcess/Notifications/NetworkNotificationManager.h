@@ -30,7 +30,6 @@
 #include "NetworkProcess.h"
 #include "NotificationManagerMessageHandler.h"
 #include "SharedPreferencesForWebProcess.h"
-#include "WebPushDaemonConnection.h"
 #include "WebPushDaemonConnectionConfiguration.h"
 #include "WebPushMessage.h"
 #include <WebCore/ExceptionData.h>
@@ -50,6 +49,7 @@ class SecurityOriginData;
 namespace WebKit {
 
 namespace WebPushD {
+class Connection;
 enum class MessageType : uint8_t;
 }
 
@@ -57,6 +57,7 @@ class NetworkNotificationManager : public NotificationManagerMessageHandler, pub
     WTF_MAKE_TZONE_ALLOCATED(NetworkNotificationManager);
 public:
     static Ref<NetworkNotificationManager> create(const String& webPushMachServiceName, WebPushD::WebPushDaemonConnectionConfiguration&&, NetworkProcess&);
+    ~NetworkNotificationManager();
 
     void ref() const final { RefCounted::ref(); }
     void deref() const final { RefCounted::deref(); }
@@ -75,6 +76,7 @@ public:
     void incrementSilentPushCount(WebCore::SecurityOriginData&&, CompletionHandler<void(unsigned)>&&);
     void removeAllPushSubscriptions(CompletionHandler<void(unsigned)>&&);
     void removePushSubscriptionsForOrigin(WebCore::SecurityOriginData&&, CompletionHandler<void(unsigned)>&&);
+    void getAllPushSubscriptionOrigins(CompletionHandler<void(Vector<WebCore::SecurityOriginData>&&)>&&);
 
     void showNotification(const WebCore::NotificationData&, RefPtr<WebCore::NotificationResources>&&, CompletionHandler<void()>&&);
     void getNotifications(const URL& registrationURL, const String& tag, CompletionHandler<void(Expected<Vector<WebCore::NotificationData>, WebCore::ExceptionData>&&)>&&);
@@ -94,7 +96,6 @@ private:
     void pageWasNotifiedOfNotificationPermission() final { }
     void getPermissionStateSync(WebCore::SecurityOriginData&&, CompletionHandler<void(WebCore::PushPermissionState)>&&) final;
     std::optional<SharedPreferencesForWebProcess> sharedPreferencesForWebProcess(const IPC::Connection&) const final;
-    RefPtr<WebPushD::Connection> protectedConnection() const;
 
     RefPtr<WebPushD::Connection> m_connection;
     const Ref<NetworkProcess> m_networkProcess;

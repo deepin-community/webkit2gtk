@@ -38,6 +38,7 @@
 #include "Crypto.h"
 #include "CryptoKeyData.h"
 #include "DOMTimer.h"
+#include "Document.h"
 #include "FontCustomPlatformData.h"
 #include "FontFaceSet.h"
 #include "FrameConsoleClient.h"
@@ -80,6 +81,7 @@
 #include "WorkerThread.h"
 #include <JavaScriptCore/ScriptArguments.h>
 #include <JavaScriptCore/ScriptCallStack.h>
+#include <JavaScriptCore/VMManager.h>
 #include <wtf/Lock.h>
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/WorkQueue.h>
@@ -93,7 +95,7 @@ namespace WebCore {
 using namespace Inspector;
 
 static Lock allWorkerGlobalScopeIdentifiersLock;
-static HashSet<ScriptExecutionContextIdentifier>& allWorkerGlobalScopeIdentifiers() WTF_REQUIRES_LOCK(allWorkerGlobalScopeIdentifiersLock)
+static HashSet<ScriptExecutionContextIdentifier>& NODELETE allWorkerGlobalScopeIdentifiers() WTF_REQUIRES_LOCK(allWorkerGlobalScopeIdentifiersLock)
 {
     static NeverDestroyed<HashSet<ScriptExecutionContextIdentifier>> identifiers;
     ASSERT(allWorkerGlobalScopeIdentifiersLock.isLocked());
@@ -125,6 +127,7 @@ WorkerGlobalScope::WorkerGlobalScope(WorkerThreadType type, const WorkerParamete
     , m_settingsValues(params.settingsValues)
     , m_workerType(params.workerType)
     , m_credentials(params.credentials)
+    , m_agentClusterID(params.agentClusterID)
 {
     {
         Locker locker { allWorkerGlobalScopeIdentifiersLock };
@@ -175,8 +178,8 @@ void WorkerGlobalScope::prepareForDestruction()
     if (settingsValues().serviceWorkersEnabled)
         swClientConnection().unregisterServiceWorkerClient(identifier());
 
-    if (m_connectionProxy)
-        m_connectionProxy->abortActivitiesForCurrentThread();
+    if (RefPtr connectionProxy = m_connectionProxy)
+        connectionProxy->abortActivitiesForCurrentThread();
 
     if (m_storageConnection)
         m_storageConnection->scopeClosed();
@@ -202,7 +205,8 @@ bool WorkerGlobalScope::isSecureContext() const
     return m_topOrigin->isPotentiallyTrustworthy();
 }
 
-URL WorkerGlobalScope::completeURL(const String& url, ForceUTF8) const
+// https://html.spec.whatwg.org/multipage/webappapis.html#parse-a-url
+URL WorkerGlobalScope::parseURL(const String& url) const
 {
     // Always return a null URL when passed a null string.
     // FIXME: Should we change the URL constructor to have this behavior?
@@ -222,11 +226,6 @@ SocketProvider* WorkerGlobalScope::socketProvider()
     return m_socketProvider.get();
 }
 
-RefPtr<SocketProvider> WorkerGlobalScope::protectedSocketProvider()
-{
-    return socketProvider();
-}
-
 RefPtr<RTCDataChannelRemoteHandlerConnection> WorkerGlobalScope::createRTCDataChannelRemoteHandlerConnection()
 {
     RefPtr<RTCDataChannelRemoteHandlerConnection> connection;
@@ -241,6 +240,21 @@ RefPtr<RTCDataChannelRemoteHandlerConnection> WorkerGlobalScope::createRTCDataCh
 
 IDBClient::IDBConnectionProxy* WorkerGlobalScope::idbConnectionProxy()
 {
+    if (RefPtr connectionProxy = m_connectionProxy; connectionProxy && connectionProxy->isValid())
+        return m_connectionProxy.get();
+
+    // Request a fresh connection from the loader context on the main thread.
+    // Fetching it goes through Page::idbConnection() which lazily relaunches the network process.
+    RefPtr<IDBClient::IDBConnectionProxy> newConnectionProxy;
+    callOnMainThreadAndWait([workerThread = Ref { thread() }, &newConnectionProxy]() mutable {
+        if (workerThread->runLoop().terminated())
+            return;
+        if (CheckedPtr loader = workerThread->workerLoaderProxy())
+            newConnectionProxy = loader->createIDBConnectionProxy();
+    });
+    if (newConnectionProxy)
+        m_connectionProxy = WTF::move(newConnectionProxy);
+
     return m_connectionProxy.get();
 }
 
@@ -251,8 +265,8 @@ GraphicsClient* WorkerGlobalScope::graphicsClient()
 
 void WorkerGlobalScope::suspend()
 {
-    if (m_connectionProxy)
-        m_connectionProxy->setContextSuspended(*this, true);
+    if (RefPtr connectionProxy = m_connectionProxy)
+        connectionProxy->setContextSuspended(*this, true);
 
     if (settingsValues().serviceWorkersEnabled)
         swClientConnection().unregisterServiceWorkerClient(identifier());
@@ -263,8 +277,8 @@ void WorkerGlobalScope::resume()
     if (settingsValues().serviceWorkersEnabled)
         updateServiceWorkerClientData();
 
-    if (m_connectionProxy)
-        m_connectionProxy->setContextSuspended(*this, false);
+    if (RefPtr connectionProxy = m_connectionProxy)
+        connectionProxy->setContextSuspended(*this, false);
 }
 
 WorkerStorageConnection& WorkerGlobalScope::storageConnection()
@@ -294,6 +308,17 @@ WorkerFileSystemStorageConnection& WorkerGlobalScope::getFileSystemStorageConnec
 
 WorkerFileSystemStorageConnection* WorkerGlobalScope::fileSystemStorageConnection()
 {
+    if (!m_fileSystemStorageConnection) {
+        RefPtr<FileSystemStorageConnection> mainThreadConnection;
+        callOnMainThreadAndWait([workerThread = Ref { thread() }, &mainThreadConnection]() mutable {
+            if (workerThread->runLoop().terminated())
+                return;
+            if (CheckedPtr workerLoaderProxy = workerThread->workerLoaderProxy())
+                mainThreadConnection = workerLoaderProxy->createFileSystemStorageConnection();
+        });
+        if (mainThreadConnection)
+            m_fileSystemStorageConnection = WorkerFileSystemStorageConnection::create(*this, mainThreadConnection.releaseNonNull());
+    }
     return m_fileSystemStorageConnection.get();
 }
 
@@ -329,11 +354,6 @@ WorkerNavigator& WorkerGlobalScope::navigator()
     return *m_navigator;
 }
 
-Ref<WorkerNavigator> WorkerGlobalScope::protectedNavigator()
-{
-    return navigator();
-}
-
 void WorkerGlobalScope::setIsOnline(bool isOnline)
 {
     m_isOnline = isOnline;
@@ -345,7 +365,7 @@ ExceptionOr<int> WorkerGlobalScope::setTimeout(std::unique_ptr<ScheduledAction> 
 {
     // FIXME: Should this check really happen here? Or should it happen when code is about to eval?
     if (action->type() == ScheduledAction::Type::Code) {
-        if (!checkedContentSecurityPolicy()->allowEval(globalObject(), LogToConsole::Yes, action->code()))
+        if (!protect(contentSecurityPolicy())->allowEval(globalObject(), LogToConsole::Yes, action->code()))
             return 0;
     }
 
@@ -363,7 +383,7 @@ ExceptionOr<int> WorkerGlobalScope::setInterval(std::unique_ptr<ScheduledAction>
 {
     // FIXME: Should this check really happen here? Or should it happen when code is about to eval?
     if (action->type() == ScheduledAction::Type::Code) {
-        if (!checkedContentSecurityPolicy()->allowEval(globalObject(), LogToConsole::Yes, action->code()))
+        if (!protect(contentSecurityPolicy())->allowEval(globalObject(), LogToConsole::Yes, action->code()))
             return 0;
     }
 
@@ -377,7 +397,7 @@ void WorkerGlobalScope::clearInterval(int timeoutId)
     DOMTimer::removeById(*this, timeoutId);
 }
 
-ExceptionOr<void> WorkerGlobalScope::importScripts(const FixedVector<Variant<RefPtr<TrustedScriptURL>, String>>& urls)
+ExceptionOr<void> WorkerGlobalScope::importScripts(const FixedVector<Variant<Ref<TrustedScriptURL>, String>>& urls)
 {
     ASSERT(contentSecurityPolicy());
 
@@ -388,7 +408,7 @@ ExceptionOr<void> WorkerGlobalScope::importScripts(const FixedVector<Variant<Ref
             [this](const String& str) -> ExceptionOr<String> {
                 return trustedTypeCompliantString(TrustedType::TrustedScriptURL, *this, str, "WorkerGlobalScope importScripts"_s);
             },
-            [](const RefPtr<TrustedScriptURL>& trustedScriptURL) -> ExceptionOr<String> {
+            [](const Ref<TrustedScriptURL>& trustedScriptURL) -> ExceptionOr<String> {
                 return trustedScriptURL->toString();
             }
         );
@@ -407,7 +427,7 @@ ExceptionOr<void> WorkerGlobalScope::importScripts(const FixedVector<Variant<Ref
     Vector<URLKeepingBlobAlive> completedURLs;
     completedURLs.reserveInitialCapacity(urls.size());
     for (auto& entry : urlStrings) {
-        URL url = completeURL(entry);
+        URL url = parseURL(entry);
         if (!url.isValid())
             return Exception { ExceptionCode::SyntaxError };
         completedURLs.append({ WTF::move(url), m_topOrigin->data() });
@@ -426,7 +446,8 @@ ExceptionOr<void> WorkerGlobalScope::importScripts(const FixedVector<Variant<Ref
     for (auto& url : completedURLs) {
         // FIXME: Convert this to check the isolated world's Content Security Policy once webkit.org/b/104520 is solved.
         bool shouldBypassMainWorldContentSecurityPolicy = this->shouldBypassMainWorldContentSecurityPolicy();
-        if (!shouldBypassMainWorldContentSecurityPolicy && !checkedContentSecurityPolicy()->allowScriptFromSource(url))
+        // FIXME: Provide a source location for the blocked script URL load request.
+        if (!shouldBypassMainWorldContentSecurityPolicy && !protect(contentSecurityPolicy())->allowScriptFromSource(url, { }))
             return Exception { ExceptionCode::NetworkError };
 
         auto scriptLoader = WorkerScriptLoader::create();
@@ -522,7 +543,10 @@ std::optional<Vector<uint8_t>> WorkerGlobalScope::serializeAndWrapCryptoKey(Cryp
         wrappedKey = context.serializeAndWrapCryptoKey(WTF::move(keyData));
         semaphore.signal();
     });
-    semaphore.wait();
+    {
+        JSC::VMBlockingScope blockingScope(vm());
+        semaphore.wait();
+    }
     return wrappedKey;
 }
 
@@ -539,7 +563,10 @@ std::optional<Vector<uint8_t>> WorkerGlobalScope::unwrapCryptoKey(const Vector<u
         key = context.unwrapCryptoKey(wrappedKey);
         semaphore.signal();
     });
-    semaphore.wait();
+    {
+        JSC::VMBlockingScope blockingScope(vm());
+        semaphore.wait();
+    }
     return key;
 }
 
@@ -551,11 +578,6 @@ Crypto& WorkerGlobalScope::crypto()
 }
 
 Performance& WorkerGlobalScope::performance() const
-{
-    return *m_performance;
-}
-
-Ref<Performance> WorkerGlobalScope::protectedPerformance() const
 {
     return *m_performance;
 }
@@ -625,7 +647,7 @@ Ref<FontFaceSet> WorkerGlobalScope::fonts()
 
 RefPtr<FontLoadRequest> WorkerGlobalScope::fontLoadRequest(const String& url, bool, bool, LoadedFromOpaqueSource loadedFromOpaqueSource)
 {
-    return WorkerFontLoadRequest::create(completeURL(url), loadedFromOpaqueSource);
+    return WorkerFontLoadRequest::create(parseURL(url), loadedFromOpaqueSource);
 }
 
 void WorkerGlobalScope::beginLoadingFontSoon(FontLoadRequest& request)
@@ -722,7 +744,7 @@ void WorkerGlobalScope::clearDecodedScriptData()
 
 bool WorkerGlobalScope::crossOriginIsolated() const
 {
-    return ScriptExecutionContext::crossOriginMode() == CrossOriginMode::Isolated;
+    return crossOriginEmbedderPolicy().value == CrossOriginEmbedderPolicyValue::RequireCORP;
 }
 
 void WorkerGlobalScope::updateSourceProviderBuffers(const ScriptBuffer& mainScript, const HashMap<URL, ScriptBuffer>& importedScripts)

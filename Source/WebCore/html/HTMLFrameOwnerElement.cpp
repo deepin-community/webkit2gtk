@@ -29,10 +29,8 @@
 #include "LocalFrame.h"
 #include "LocalFrameInlines.h"
 #include "FrameDestructionObserverInlines.h"
-#include "NodeInlines.h"
 #include "RemoteFrame.h"
 #include "RemoteFrameClient.h"
-#include "RenderStyle+GettersInlines.h"
 #include "RenderWidget.h"
 #include "SVGDocument.h"
 #include "SVGElementTypeHelpers.h"
@@ -66,7 +64,7 @@ void HTMLFrameOwnerElement::setContentFrame(Frame& frame)
     ASSERT(isConnected());
     m_contentFrame = frame;
 
-    for (RefPtr<ContainerNode> node = this; node; node = node->parentOrShadowHostNode())
+    for (Node* node = this; node; node = node->parentOrShadowHostNode())
         node->incrementConnectedSubframeCount();
 }
 
@@ -77,15 +75,15 @@ void HTMLFrameOwnerElement::clearContentFrame()
 
     m_contentFrame = nullptr;
 
-    for (RefPtr<ContainerNode> node = this; node; node = node->parentOrShadowHostNode())
+    for (Node* node = this; node; node = node->parentOrShadowHostNode())
         node->decrementConnectedSubframeCount();
 }
 
 void HTMLFrameOwnerElement::disconnectContentFrame()
 {
     if (RefPtr frame = m_contentFrame.get()) {
-        if (RefPtr innerDocument = contentDocument())
-            innerDocument->willBeDisconnectedFromFrame(protectedDocument());
+        if (auto* innerDocument = contentDocument())
+            innerDocument->willBeDisconnectedFromFrame(document());
         frame->frameDetached();
         if (frame == m_contentFrame.get())
             frame->disconnectOwnerElement();
@@ -97,11 +95,6 @@ HTMLFrameOwnerElement::~HTMLFrameOwnerElement()
 {
     if (RefPtr contentFrame = m_contentFrame.get())
         contentFrame->disconnectOwnerElement();
-}
-
-RefPtr<Frame> HTMLFrameOwnerElement::protectedContentFrame() const
-{
-    return m_contentFrame.get();
 }
 
 Document* HTMLFrameOwnerElement::contentDocument() const

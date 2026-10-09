@@ -146,7 +146,7 @@ guint64 webkit_frame_get_id(WebKitFrame* frame)
  * webkit_frame_is_main_frame:
  * @frame: a #WebKitFrame
  *
- * Gets whether @frame is the main frame of a #WebKitWebPage
+ * Gets whether @frame is the main frame of a #WebKitWebPage.
  *
  * Returns: %TRUE if @frame is a main frame or %FALSE otherwise
  *
@@ -313,7 +313,7 @@ JSCValue* webkit_frame_get_js_value_for_dom_object_in_script_world(WebKitFrame* 
         JSC::JSLockHolder lock(globalObject);
         G_GNUC_BEGIN_IGNORE_DEPRECATIONS;
         if (WEBKIT_DOM_IS_NODE(domObject))
-            jsValue = toRef(globalObject, toJS(globalObject, globalObject, RefPtr { WebKit::core(WEBKIT_DOM_NODE(domObject)) }.releaseNonNull()));
+            jsValue = toRef(globalObject, toJS(globalObject, globalObject, protect(WebKit::core(WEBKIT_DOM_NODE(domObject))).releaseNonNull()));
         G_GNUC_END_IGNORE_DEPRECATIONS;
     }
 

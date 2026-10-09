@@ -91,9 +91,11 @@ WebBackForwardListFrameItem* WebBackForwardListFrameItem::childItemForFrameID(Fr
     return nullptr;
 }
 
-RefPtr<WebBackForwardListFrameItem> WebBackForwardListFrameItem::protectedChildItemForFrameID(FrameIdentifier frameID)
+WebBackForwardListFrameItem* WebBackForwardListFrameItem::childItemAtIndex(uint64_t index)
 {
-    return childItemForFrameID(frameID);
+    if (index >= m_children.size())
+        return nullptr;
+    return m_children[index].ptr();
 }
 
 WebBackForwardListItem* WebBackForwardListFrameItem::backForwardListItem() const
@@ -101,15 +103,10 @@ WebBackForwardListItem* WebBackForwardListFrameItem::backForwardListItem() const
     return m_backForwardListItem.get();
 }
 
-RefPtr<WebBackForwardListItem> WebBackForwardListFrameItem::protectedBackForwardListItem() const
-{
-    return m_backForwardListItem.get();
-}
-
 void WebBackForwardListFrameItem::setChild(Ref<FrameState>&& frameState)
 {
     ASSERT(m_backForwardListItem);
-    Ref childItem = WebBackForwardListFrameItem::create(*protectedBackForwardListItem(), this, WTF::move(frameState));
+    Ref childItem = WebBackForwardListFrameItem::create(*protect(backForwardListItem()), this, WTF::move(frameState));
     for (size_t i = 0; i < m_children.size(); i++) {
         if (m_children[i]->frameID() == childItem->m_frameState->frameID) {
             m_children[i] = WTF::move(childItem);
@@ -135,11 +132,6 @@ Ref<WebBackForwardListFrameItem> WebBackForwardListFrameItem::mainFrame()
     return mainFrame;
 }
 
-Ref<WebBackForwardListFrameItem> WebBackForwardListFrameItem::protectedMainFrame()
-{
-    return mainFrame();
-}
-
 void WebBackForwardListFrameItem::setWasRestoredFromSession()
 {
     m_frameState->wasRestoredFromSession = true;
@@ -147,16 +139,26 @@ void WebBackForwardListFrameItem::setWasRestoredFromSession()
         child->setWasRestoredFromSession();
 }
 
-void WebBackForwardListFrameItem::setFrameState(Ref<FrameState>&& frameState)
+void WebBackForwardListFrameItem::updateFrameStatePayload(Ref<FrameState>&& frameState)
 {
-    m_frameState = WTF::move(frameState);
-    m_frameState->children.clear();
+    m_frameState->replacePayloadFrom(WTF::move(frameState));
+}
+
+void WebBackForwardListFrameItem::updateFrameID(FrameIdentifier newFrameID)
+{
+    m_frameState->frameID = newFrameID;
+}
+
+Ref<FrameState> WebBackForwardListFrameItem::copyFrameState()
+{
+    Ref frameState = protect(this->frameState())->copy();
+    ASSERT(frameState->children.isEmpty());
+    return frameState;
 }
 
 Ref<FrameState> WebBackForwardListFrameItem::copyFrameStateWithChildren()
 {
-    Ref frameState = protectedFrameState()->copy();
-    ASSERT(frameState->children.isEmpty());
+    Ref frameState = copyFrameState();
     for (auto& child : m_children)
         frameState->children.append(child->copyFrameStateWithChildren());
     return frameState;
@@ -168,7 +170,7 @@ bool WebBackForwardListFrameItem::sharesAncestor(WebBackForwardListFrameItem& fr
     for (RefPtr currentAncestor = m_parent.get(); currentAncestor; currentAncestor = currentAncestor->m_parent.get())
         currentAncestors.add(currentAncestor->m_identifier);
 
-    for (RefPtr frameItemAncestor = frameItem.m_parent.get(); frameItemAncestor; frameItemAncestor = frameItemAncestor->m_parent.get()) {
+    for (auto* frameItemAncestor = frameItem.m_parent.get(); frameItemAncestor; frameItemAncestor = frameItemAncestor->m_parent.get()) {
         if (currentAncestors.contains(frameItemAncestor->m_identifier))
             return true;
     }
@@ -189,17 +191,22 @@ String WebBackForwardListFrameItem::loggingStringAtIndent(size_t indent)
 
     StringBuilder builder;
     {
-        uint64_t calculatedFrameID = frameID() ? frameID()->toRawValue() : 0;
-        builder.append(makeString(url(), " ("_s, String::number(calculatedFrameID), ")"_s));
+        String frameIDString = String::number(frameID() ? frameID()->toUInt64() : 0);
+        String frameItemIDString = m_identifier.loggingString();
+        builder.append("FrameItemID:"_s, frameItemIDString, ", URL:"_s, url(), ", FrameID:"_s, frameIDString);
         if (!m_frameState->target.isEmpty())
-            builder.append(makeString(" in "_s, m_frameState->target));
+            builder.append(", FrameUniqueName:"_s, m_frameState->target);
+        if (m_frameState->wasCreatedByJSWithoutUserInteraction)
+            builder.append(" (no user gesture)"_s);
         builder.append('\n');
+        builder.append(indentString);
+        builder.append("("_s, m_frameState->title, ")\n"_s);
     }
 
     for (size_t i = 0; i < m_children.size(); ++i) {
         Ref child = m_children[i];
         auto childString = child->loggingStringAtIndent(indent + 1);
-        builder.append(makeString(indentString, String::number(i), " - "_s, childString));
+        builder.append(indentString, String::number(i), " - "_s, childString);
     }
 
     return builder.toString();

@@ -26,7 +26,7 @@
 #include "IntegrityInlines.h"
 #include "IntlNumberFormat.h"
 #include "JSCInlines.h"
-#include "Operations.h"
+#include "OperationsInlines.h"
 #include "ParseInt.h"
 #include "Uint16WithFraction.h"
 #include <wtf/Assertions.h>
@@ -84,11 +84,12 @@ void NumberPrototype::finishCreation(VM& vm, JSGlobalObject* globalObject)
     putDirectWithoutTransition(vm, vm.propertyNames->toString, globalObject->numberProtoToStringFunction(), static_cast<unsigned>(PropertyAttribute::DontEnum));
     ASSERT(inherits(info()));
     globalObject->installNumberPrototypeWatchpoint(this);
+    structure()->setMayBePrototype(true);
 }
 
 // ------------------------------ Functions ---------------------------
 
-static ALWAYS_INLINE bool toThisNumber(JSValue thisValue, double& x)
+static ALWAYS_INLINE bool NODELETE toThisNumber(JSValue thisValue, double& x)
 {
     if (thisValue.isInt32()) {
         x = thisValue.asInt32();
@@ -100,7 +101,7 @@ static ALWAYS_INLINE bool toThisNumber(JSValue thisValue, double& x)
         return true;
     }
 
-    if (auto* numberObject = jsDynamicCast<NumberObject*>(thisValue)) {
+    if (auto* numberObject = dynamicDowncast<NumberObject>(thisValue)) {
         Integrity::auditStructureID(numberObject->structureID());
         x = numberObject->internalValue().asNumber();
         return true;
@@ -128,7 +129,7 @@ static ALWAYS_INLINE EncodedJSValue throwVMToThisNumberError(JSGlobalObject* glo
 // fo any number of digits an IEEE number may require to represent.
 typedef char RadixBuffer[2180];
 
-static inline char* int52ToStringWithRadix(char* startOfResultString, int64_t int52Value, unsigned radix)
+static inline char* NODELETE int52ToStringWithRadix(char* startOfResultString, int64_t int52Value, unsigned radix)
 {
     bool negative = false;
     uint64_t positiveNumber = int52Value;

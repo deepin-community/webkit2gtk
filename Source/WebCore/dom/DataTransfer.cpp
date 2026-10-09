@@ -70,7 +70,7 @@ public:
     static Ref<DragImageLoader> create(DataTransfer&, const Document&);
     void startLoading(CachedResourceHandle<CachedImage>&);
     void stopLoading(CachedResourceHandle<CachedImage>&);
-    void moveToDataTransfer(DataTransfer&);
+    void NODELETE moveToDataTransfer(DataTransfer&);
 
     // CachedResourceClient.
     void ref() const final { RefCounted::ref(); }
@@ -195,7 +195,7 @@ String DataTransfer::getDataForItem(Document& document, const String& type) cons
     auto lowercaseType = type.trim(isASCIIWhitespace).convertToASCIILowercase();
     if (shouldSuppressGetAndSetDataToAvoidExposingFilePaths()) {
         if (lowercaseType == "text/uri-list"_s) {
-            return readURLsFromPasteboardAsString(document.page(), *m_pasteboard, [] (auto& urlString) {
+            return readURLsFromPasteboardAsString(protect(document.page()), *m_pasteboard, [] (auto& urlString) {
                 return Pasteboard::canExposeURLToDOMWhenPasteboardContainsFiles(urlString);
             });
         }
@@ -232,13 +232,13 @@ String DataTransfer::readStringFromPasteboard(Document& document, const String& 
     if (!is<StaticPasteboard>(*m_pasteboard) && lowercaseType == textHTMLContentTypeAtom()) {
         if (!document.frame())
             return { };
-        WebContentMarkupReader reader { document.protectedFrame().releaseNonNull() };
+        WebContentMarkupReader reader { protect(document.frame()).releaseNonNull() };
         m_pasteboard->read(reader, policy);
         return reader.takeMarkup();
     }
 
     if (!is<StaticPasteboard>(*m_pasteboard) && lowercaseType == "text/uri-list"_s) {
-        return readURLsFromPasteboardAsString(document.protectedPage().get(), *m_pasteboard, [] (auto&) {
+        return readURLsFromPasteboardAsString(protect(document.page()).get(), *m_pasteboard, [] (auto&) {
             return true;
         });
     }
@@ -323,7 +323,7 @@ void DataTransfer::didAddFileToItemList()
 
     auto& newItem = m_itemList->items().last();
     ASSERT(newItem->isFile());
-    m_fileList->append(*newItem->file());
+    protect(m_fileList)->append(*newItem->file());
 }
 
 DataTransferItemList& DataTransfer::items(Document& document)
@@ -401,7 +401,7 @@ Vector<Ref<File>> DataTransfer::filesFromPasteboardAndItemList(ScriptExecutionCo
     bool itemListContainsItems = false;
     if (m_itemList && m_itemList->hasItems()) {
         for (auto& item : m_itemList->items()) {
-            if (auto file = item->file())
+            if (RefPtr file = item->file())
                 files.append(file.releaseNonNull());
         }
         itemListContainsItems = true;
@@ -416,7 +416,7 @@ FileList& DataTransfer::files(Document* document) const
 {
     if (!canReadData()) {
         if (m_fileList)
-            m_fileList->clear();
+            protect(m_fileList)->clear();
         else
             m_fileList = FileList::create();
         return *m_fileList;
@@ -610,9 +610,9 @@ DragImageRef DataTransfer::createDragImage(const Document* document, IntPoint& l
     location = m_dragLocation;
 
     if (m_dragImage) {
-        HostWindow* hostWindow = document && document->view() ? document->view()->hostWindow() : nullptr;
+        HostWindow* hostWindow = document && document->view() ? protect(document->view())->hostWindow() : nullptr;
         auto deviceScaleFactor = document ? document->deviceScaleFactor() : 1.f;
-        return createDragImageFromImage(m_dragImage->protectedImage().get(), ImageOrientation::Orientation::None, hostWindow, deviceScaleFactor);
+        return createDragImageFromImage(protect(protect(m_dragImage)->image()).get(), ImageOrientation::Orientation::None, hostWindow, deviceScaleFactor);
     }
 
     if (m_dragImageElement) {
@@ -645,12 +645,12 @@ void DragImageLoader::moveToDataTransfer(DataTransfer& newDataTransfer)
 void DragImageLoader::startLoading(CachedResourceHandle<WebCore::CachedImage>& image)
 {
     // FIXME: Does this really trigger a load? Does it need to?
-    image->addClient(*this);
+    protect(image)->addClient(*this);
 }
 
 void DragImageLoader::stopLoading(CachedResourceHandle<WebCore::CachedImage>& image)
 {
-    image->removeClient(*this);
+    protect(image)->removeClient(*this);
 }
 
 void DragImageLoader::imageChanged(CachedImage*, const IntRect*)
@@ -782,7 +782,7 @@ void DataTransfer::moveDragState(Ref<DataTransfer>&& other)
     m_dragImage = other->m_dragImage;
     m_dragImageElement = WTF::move(other->m_dragImageElement);
     m_dragImageLoader = WTF::move(other->m_dragImageLoader);
-    if (RefPtr dragImageLoader = m_dragImageLoader)
+    if (auto* dragImageLoader = m_dragImageLoader.get())
         dragImageLoader->moveToDataTransfer(*this);
     m_fileList = WTF::move(other->m_fileList);
 }

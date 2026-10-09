@@ -1,2 +1,6 @@
+usr/include/mimalloc-*
+usr/lib/*/cmake/mimalloc-*
+usr/lib/*/mimalloc-*
+usr/lib/*/pkgconfig/mimalloc.pc
 usr/lib/*/webkit2gtk-4.1/jsc
 usr/lib/*/webkitgtk-6.0/jsc

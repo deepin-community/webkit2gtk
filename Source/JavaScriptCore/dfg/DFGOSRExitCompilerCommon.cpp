@@ -35,7 +35,7 @@
 #include "JSCJSValueInlines.h"
 #include "LLIntData.h"
 #include "LLIntThunks.h"
-#include "StructureStubInfo.h"
+#include "PropertyInlineCache.h"
 
 namespace JSC { namespace DFG {
 
@@ -152,6 +152,13 @@ static CodePtr<JSEntryPtrTag> callerReturnPC(CodeBlock* baselineCodeBlockForCall
     if (callBytecodeIndex.checkpoint())
         return LLInt::checkpointOSRExitFromInlinedCallTrampolineThunk().code();
 
+    // Array.prototype.sort's comparator is inlined by the DFG ArraySortIntrinsic.
+    // Same stack layout as Call, but on OSR exit inside the comparator its return
+    // PC is arraySortComparatorReturnTrampoline, which discards the return value
+    // and re-dispatches the caller's op_call instead of advancing past it.
+    if (trueCallerCallKind == InlineCallFrame::ArraySortComparatorCall)
+        return LLInt::arraySortComparatorReturnTrampolineThunk().code();
+
     CodePtr<JSEntryPtrTag> jumpTarget;
 
     const auto& callInstruction = *baselineCodeBlockForCaller->instructions().at(callBytecodeIndex).ptr();
@@ -169,6 +176,10 @@ static CodePtr<JSEntryPtrTag> callerReturnPC(CodeBlock* baselineCodeBlockForCall
                 jumpTarget = LLINT_RETURN_LOCATION(op_iterator_open);
             else if (callInstruction.opcodeID() == op_iterator_next)
                 jumpTarget = LLINT_RETURN_LOCATION(op_iterator_next);
+            else if (callInstruction.opcodeID() == op_async_iterator_open)
+                jumpTarget = LLINT_RETURN_LOCATION(op_async_iterator_open);
+            else if (callInstruction.opcodeID() == op_async_iterator_next)
+                jumpTarget = LLINT_RETURN_LOCATION(op_async_iterator_next);
             break;
         }
         case InlineCallFrame::Construct:
@@ -251,9 +262,9 @@ static CodePtr<JSEntryPtrTag> callerReturnPC(CodeBlock* baselineCodeBlockForCall
         case InlineCallFrame::ProxyObjectLoadCall:
         case InlineCallFrame::ProxyObjectStoreCall:
         case InlineCallFrame::ProxyObjectInCall: {
-            StructureStubInfo* stubInfo = baselineCodeBlockForCaller->findStubInfo(CodeOrigin(callBytecodeIndex));
-            RELEASE_ASSERT(stubInfo, callInstruction.opcodeID());
-            jumpTarget = stubInfo->doneLocation.retagged<JSEntryPtrTag>();
+            PropertyInlineCache* propertyCache = baselineCodeBlockForCaller->findPropertyCache(CodeOrigin(callBytecodeIndex));
+            RELEASE_ASSERT(propertyCache, callInstruction.opcodeID());
+            jumpTarget = propertyCache->doneLocation.retagged<JSEntryPtrTag>();
             break;
         }
 
@@ -489,7 +500,7 @@ void adjustAndJumpToTarget(VM& vm, CCallHelpers& jit, const OSRExitBase& exit)
     }
 
     if (exit.isExceptionHandler()) {
-        ASSERT(!RegisterSetBuilder::vmCalleeSaveRegisters().contains(LLInt::Registers::pcGPR, IgnoreVectors));
+        ASSERT(!RegisterSet::vmCalleeSaveRegisters().contains(LLInt::Registers::pcGPR, IgnoreVectors));
         jit.copyCalleeSavesToEntryFrameCalleeSavesBuffer(vm.topEntryFrame, AssemblyHelpers::selectScratchGPR(LLInt::Registers::pcGPR));
 
         // Since we're jumping to op_catch, we need to set callFrameForCatch.

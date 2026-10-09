@@ -10,8 +10,8 @@
 
 #include "include/core/SkRefCnt.h"
 #include "include/core/SkTypes.h"
-#include "include/private/base/SkFixed.h"
-#include "include/private/base/SkOnce.h"
+#include "include/private/SkFixed.h"
+#include "include/private/SkOnce.h"
 #include "modules/skcms/skcms.h"
 
 #include <cstddef>
@@ -37,7 +37,16 @@ struct SK_API SkColorSpacePrimaries {
      *  representation of SkColorSpace.
      */
     bool toXYZD50(skcms_Matrix3x3* toXYZD50) const;
+
+    bool operator==(const SkColorSpacePrimaries& other) const {
+        return fRX == other.fRX && fRY == other.fRY && fGX == other.fGX && fGY == other.fGY &&
+               fBX == other.fBX && fBY == other.fBY && fWX == other.fWX && fWY == other.fWY;
+    }
 };
+
+// TODO(https://issuetracker.google.com/issues/40044808): Remove this when no longer needed by
+// Chromium.
+#define SKIA_COLOR_SPACE_PRIMARIES_OPERATOR_EQUAL
 
 namespace SkNamedPrimaries {
 

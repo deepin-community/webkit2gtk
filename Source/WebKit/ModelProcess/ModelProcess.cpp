@@ -54,7 +54,9 @@
 
 #if PLATFORM(VISION) && ENABLE(GPU_PROCESS)
 #include "SharedFileHandle.h"
+#if HAVE(CORE_RE)
 #include <WebKitAdditions/WKREEngine.h>
+#endif
 #endif
 
 namespace WebKit {
@@ -66,6 +68,11 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(ModelProcess);
 // idle-exits less than 5 seconds after getting launched. This amount of time should be sufficient for the WebProcess to schedule
 // work in the ModelProcess.
 constexpr Seconds minimumLifetimeBeforeIdleExit { 5_s };
+
+Ref<ModelProcess> ModelProcess::create(AuxiliaryProcessInitializationParameters&& parameters)
+{
+    return adoptRef(*new ModelProcess(WTF::move(parameters)));
+}
 
 ModelProcess::ModelProcess(AuxiliaryProcessInitializationParameters&& parameters)
     : m_idleExitTimer(*this, &ModelProcess::tryExitIfUnused)
@@ -92,7 +99,7 @@ void ModelProcess::createModelConnectionToWebProcess(
     if (!connectionHandle)
         return;
 
-#if PLATFORM(VISION) && ENABLE(GPU_PROCESS)
+#if PLATFORM(VISION) && ENABLE(GPU_PROCESS) && HAVE(CORE_RE)
     WKREEngine::singleton().initializeWithSharedSimulationConnectionGetterIfNeeded([identifier, weakThis = WeakPtr { *this }] (CompletionHandler<void(std::optional<IPC::SharedFileHandle>)>&& completionHandler) {
         RefPtr protectedThis = weakThis.get();
         if (!protectedThis) {
@@ -200,7 +207,10 @@ void ModelProcess::initializeModelProcess(ModelProcessCreationParameters&& param
     CompletionHandlerCallingScope callCompletionHandler(WTF::move(completionHandler));
 
     m_debugEntityMemoryLimit = parameters.debugEntityMemoryLimit;
+    m_debugImmersiveEntityMemoryLimit = parameters.debugImmersiveEntityMemoryLimit;
+#if HAVE(CORE_RE)
     WKREEngine::enableRestrictiveRenderingMode(parameters.restrictiveRenderingMode);
+#endif
 
     applyProcessCreationParameters(WTF::move(parameters.auxiliaryProcessParameters));
     RELEASE_LOG(Process, "%p - ModelProcess::initializeModelProcess:", this);
@@ -248,7 +258,7 @@ ModelConnectionToWebProcess* ModelProcess::webProcessConnection(WebCore::Process
     return m_webProcessConnections.get(identifier);
 }
 
-#if PLATFORM(VISION) && ENABLE(GPU_PROCESS)
+#if PLATFORM(VISION) && ENABLE(GPU_PROCESS) && HAVE(CORE_RE)
 void ModelProcess::requestSharedSimulationConnection(WebCore::ProcessIdentifier webProcessIdentifier, CompletionHandler<void(std::optional<IPC::SharedFileHandle>)>&& completionHandler)
 {
     parentProcessConnection()->sendWithAsyncReply(Messages::ModelProcessProxy::RequestSharedSimulationConnection(webProcessIdentifier), WTF::move(completionHandler));

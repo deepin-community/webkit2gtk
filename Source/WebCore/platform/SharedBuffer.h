@@ -27,20 +27,14 @@
 #pragma once
 
 #include <JavaScriptCore/Forward.h>
-#include <span>
-#include <utility>
 #include <wtf/FileSystem.h>
-#include <wtf/Forward.h>
 #include <wtf/Function.h>
 #include <wtf/MappedFileData.h>
-#include <wtf/RawPtrTraits.h>
 #include <wtf/TZoneMalloc.h>
 #include <wtf/ThreadSafeRefCounted.h>
 #include <wtf/TypeCasts.h>
-#include <wtf/TypeTraits.h>
 #include <wtf/Variant.h>
 #include <wtf/Vector.h>
-#include <wtf/text/WTFString.h>
 
 #if USE(CF)
 #include <wtf/RetainPtr.h>
@@ -111,7 +105,7 @@ public:
     WEBCORE_EXPORT RetainPtr<NSData> createNSData() const;
 #endif
 
-    WEBCORE_EXPORT bool containsMappedFileData() const;
+    WEBCORE_EXPORT bool NODELETE containsMappedFileData() const;
 
 private:
     void iterate(NOESCAPE const Function<void(std::span<const uint8_t>)>& apply) const;
@@ -231,7 +225,7 @@ protected:
         : m_contiguous(contiguous == Contiguous::Yes) { }
     // To be used only by SharedBuffer constructor, set m_contiguous to true.
     WEBCORE_EXPORT explicit FragmentedSharedBuffer(Ref<const DataSegment>&&);
-    const DataSegmentVector& segments() const { return m_segments; }
+    const DataSegmentVector& segments() const LIFETIME_BOUND { return m_segments; }
 
 private:
     friend class SharedBufferBuilder;
@@ -390,7 +384,6 @@ public:
         updateBufferIfNeeded();
         return m_buffer.get();
     }
-    RefPtr<FragmentedSharedBuffer> protectedBuffer() const { return buffer(); }
     Ref<FragmentedSharedBuffer> copyBuffer() const { return createBuffer(); }
 
     WEBCORE_EXPORT RefPtr<ArrayBuffer> tryCreateArrayBuffer() const;
@@ -408,7 +401,6 @@ private:
     WEBCORE_EXPORT SharedBufferBuilder(const SharedBufferBuilder&);
     WEBCORE_EXPORT SharedBufferBuilder& operator=(const SharedBufferBuilder&);
 
-    WEBCORE_EXPORT void initialize(Ref<FragmentedSharedBuffer>&&);
     WEBCORE_EXPORT void updateBufferIfNeeded() const;
     WEBCORE_EXPORT void appendDataSegment(Ref<DataSegment>&&);
     WEBCORE_EXPORT Ref<FragmentedSharedBuffer> createBuffer() const;

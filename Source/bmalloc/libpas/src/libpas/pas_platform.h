@@ -28,8 +28,6 @@
 
 #ifdef __APPLE__
 #include <Availability.h>
-#include <AvailabilityMacros.h>
-#include <TargetConditionals.h>
 #endif
 
 /* PAS_CPU() - the target CPU architecture */
@@ -56,6 +54,17 @@
 #if defined(_MSC_VER)
 #define PAS_COMPILER_MSVC 1
 #endif
+
+/* PAS_COMPILER_HAS_CLANG_FEATURE() - whether the compiler supports a particular language or library feature. */
+/* Adapted from BCompiler.h */
+/* http://clang.llvm.org/docs/LanguageExtensions.html#has-feature-and-has-extension */
+#ifdef __has_feature
+#define PAS_COMPILER_HAS_CLANG_FEATURE(x) __has_feature(x)
+#else
+#define PAS_COMPILER_HAS_CLANG_FEATURE(x) 0
+#endif
+
+#define PAS_ASAN_ENABLED PAS_COMPILER_HAS_CLANG_FEATURE(address_sanitizer)
 
 /* PAS_IGNORE_WARNINGS */
 
@@ -144,7 +153,7 @@
 #define PAS_OS_WINDOWS 1
 #endif
 
-#if PAS_OS(DARWIN) && !defined(BUILDING_WITH_CMAKE)
+#if PAS_OS(DARWIN)
 #if TARGET_OS_IOS
 #define PAS_OS_IOS 1
 #define PAS_PLATFORM_IOS 1

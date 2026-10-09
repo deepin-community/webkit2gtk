@@ -53,16 +53,16 @@ void GetSupportedFormatColorspaces(VkPhysicalDevice physicalDevice,
         uint32_t surfaceFormatCount = 0;
 
         // Query the count first
-        VkResult result = vkGetPhysicalDeviceSurfaceFormats2KHR(physicalDevice, &surfaceInfo2,
-                                                                &surfaceFormatCount, nullptr);
+        VkResult result = VK_CALL(vkGetPhysicalDeviceSurfaceFormats2KHR, physicalDevice,
+                                  &surfaceInfo2, &surfaceFormatCount, nullptr);
         ASSERT(result == VK_SUCCESS);
         ASSERT(surfaceFormatCount > 0);
 
         // Query the VkSurfaceFormat2KHR list
         std::vector<VkSurfaceFormat2KHR> surfaceFormats2(surfaceFormatCount,
                                                          kSurfaceFormat2Initializer);
-        result = vkGetPhysicalDeviceSurfaceFormats2KHR(physicalDevice, &surfaceInfo2,
-                                                       &surfaceFormatCount, surfaceFormats2.data());
+        result = VK_CALL(vkGetPhysicalDeviceSurfaceFormats2KHR, physicalDevice, &surfaceInfo2,
+                         &surfaceFormatCount, surfaceFormats2.data());
         ASSERT(result == VK_SUCCESS);
 
         *surfaceFormatsOut = std::move(surfaceFormats2);
@@ -71,14 +71,14 @@ void GetSupportedFormatColorspaces(VkPhysicalDevice physicalDevice,
     {
         uint32_t surfaceFormatCount = 0;
         // Query the count first
-        VkResult result = vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface,
-                                                               &surfaceFormatCount, nullptr);
+        VkResult result = VK_CALL(vkGetPhysicalDeviceSurfaceFormatsKHR, physicalDevice, surface,
+                                  &surfaceFormatCount, nullptr);
         ASSERT(result == VK_SUCCESS);
 
         // Query the VkSurfaceFormatKHR list
         std::vector<VkSurfaceFormatKHR> surfaceFormats(surfaceFormatCount);
-        result = vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, &surfaceFormatCount,
-                                                      surfaceFormats.data());
+        result = VK_CALL(vkGetPhysicalDeviceSurfaceFormatsKHR, physicalDevice, surface,
+                         &surfaceFormatCount, surfaceFormats.data());
         ASSERT(result == VK_SUCCESS);
 
         // Copy over data from std::vector<VkSurfaceFormatKHR> to std::vector<VkSurfaceFormat2KHR>
@@ -261,8 +261,7 @@ egl::Error DisplayVk::waitClient(const gl::Context *context)
 {
     ANGLE_TRACE_EVENT0("gpu.angle", "DisplayVk::waitClient");
     ContextVk *contextVk = vk::GetImpl(context);
-    return angle::ToEGL(contextVk->finishImpl(RenderPassClosureReason::EGLWaitClient),
-                        EGL_BAD_ACCESS);
+    return angle::ToEGL(contextVk->finishImpl(QueueSubmitReason::EGLWaitClient), EGL_BAD_ACCESS);
 }
 
 egl::Error DisplayVk::waitNative(const gl::Context *context, EGLint engine)
@@ -620,8 +619,7 @@ void DisplayVk::generateExtensions(egl::DisplayExtensions *outExtensions) const
     outExtensions->surfaceCompressionEXT =
         getFeatures().supportsImageCompressionControlSwapchain.enabled;
 
-    outExtensions->contextPriorityRealtimeNV = (getFeatures().supportsGlobalPriority.enabled &&
-                                                getFeatures().supportsGlobalPriorityQuery.enabled);
+    outExtensions->contextPriorityRealtimeNV = getFeatures().supportsGlobalPriority.enabled;
 }
 
 void DisplayVk::generateCaps(egl::Caps *outCaps) const
@@ -728,8 +726,8 @@ egl::Error DisplayVk::querySupportedCompressionRates(const egl::Config *configur
         vk::GetVkFormatFromFormatID(mRenderer, format.getActualRenderableImageFormatID());
     imageFormatInfo.type   = VK_IMAGE_TYPE_2D;
     imageFormatInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
-    imageFormatInfo.usage  = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT |
-                            VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+    imageFormatInfo.usage  = vk::kImageUsageTransferBits | VK_IMAGE_USAGE_SAMPLED_BIT |
+                            VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
                             VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT;
 
     VkImageCompressionPropertiesEXT compressionProperties = {};
@@ -739,8 +737,9 @@ egl::Error DisplayVk::querySupportedCompressionRates(const egl::Config *configur
     imageFormatProperties2.sType                    = VK_STRUCTURE_TYPE_IMAGE_FORMAT_PROPERTIES_2;
     imageFormatProperties2.pNext                    = &compressionProperties;
 
-    VkResult result = vkGetPhysicalDeviceImageFormatProperties2(
-        mRenderer->getPhysicalDevice(), &imageFormatInfo, &imageFormatProperties2);
+    VkResult result =
+        VK_CALL(vkGetPhysicalDeviceImageFormatProperties2, mRenderer->getPhysicalDevice(),
+                &imageFormatInfo, &imageFormatProperties2);
 
     if (result == VK_ERROR_FORMAT_NOT_SUPPORTED)
     {

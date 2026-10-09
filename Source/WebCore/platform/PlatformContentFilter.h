@@ -31,6 +31,7 @@
 #include <wtf/Ref.h>
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/ThreadSafeWeakPtr.h>
+#include <wtf/URL.h>
 #include <wtf/WeakPtr.h>
 #include <wtf/text/WTFString.h>
 
@@ -41,6 +42,8 @@ class FragmentedSharedBuffer;
 class ResourceRequest;
 class ResourceResponse;
 class SharedBuffer;
+
+enum class IsMainFrameLoad : bool { No, Yes };
 
 class PlatformContentFilter : public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<PlatformContentFilter> {
     WTF_MAKE_TZONE_ALLOCATED_INLINE(PlatformContentFilter);
@@ -77,8 +80,12 @@ public:
 #endif
 
     struct FilterParameters {
+#if HAVE(WEBCONTENTRESTRICTIONS)
 #if HAVE(WEBCONTENTRESTRICTIONS_PATH_SPI)
         String webContentRestrictionsConfigurationPath { };
+#endif
+        IsMainFrameLoad isMainFrameLoad;
+        URL mainDocumentURL;
 #endif
     };
 

@@ -35,7 +35,7 @@ namespace WebKit::WebPushD {
 constexpr unsigned maxSilentPushCount = 3;
 
 constexpr auto protocolVersionKey = "protocol version"_s;
-constexpr uint64_t protocolVersionValue = 5;
+constexpr uint64_t protocolVersionValue = 6;
 constexpr auto protocolEncodedMessageKey = "encoded message"_s;
 
 // FIXME: ConnectionToMachService traits requires we have a message type, so keep this placeholder here

@@ -88,7 +88,7 @@ const TransformationMatrix TransformationMatrix::identity { };
 //
 //  calculate the determinant of a 2x2 matrix.
 
-static double determinant2x2(double a, double b, double c, double d)
+static double NODELETE determinant2x2(double a, double b, double c, double d)
 {
     return a * d - b * c;
 }
@@ -102,7 +102,7 @@ static double determinant2x2(double a, double b, double c, double d)
 //      | a2,  b2,  c2 |
 //      | a3,  b3,  c3 |
 
-static double determinant3x3(double a1, double a2, double a3, double b1, double b2, double b3, double c1, double c2, double c3)
+static double NODELETE determinant3x3(double a1, double a2, double a3, double b1, double b2, double b3, double c1, double c2, double c3)
 {
     return a1 * determinant2x2(b2, b3, c2, c3)
          - b1 * determinant2x2(a2, a3, c2, c3)
@@ -113,7 +113,7 @@ static double determinant3x3(double a1, double a2, double a3, double b1, double 
 //
 //  calculate the determinant of a 4x4 matrix.
 
-static double determinant4x4(const TransformationMatrix::Matrix4& m)
+static double NODELETE determinant4x4(const TransformationMatrix::Matrix4& m)
 {
     // Assign to individual variable names to aid selecting
     // correct elements
@@ -144,6 +144,7 @@ static double determinant4x4(const TransformationMatrix::Matrix4& m)
          - d1 * determinant3x3(a2, a3, a4, b2, b3, b4, c2, c3, c4);
 }
 
+#if !CPU(ARM64) || !CPU(ADDRESS64)
 // adjoint( original_matrix, inverse_matrix )
 //
 //   calculate the adjoint of a 4x4 matrix
@@ -160,7 +161,7 @@ static double determinant4x4(const TransformationMatrix::Matrix4& m)
 //  The matrix B = (b  ) is the adjoint of A
 //                   ij
 
-static inline void adjoint(const TransformationMatrix::Matrix4& matrix, TransformationMatrix::Matrix4& result)
+[[maybe_unused]] static inline void NODELETE adjoint(const TransformationMatrix::Matrix4& matrix, TransformationMatrix::Matrix4& result)
 {
     // Assign to individual variable names to aid
     // selecting correct values
@@ -205,6 +206,7 @@ static inline void adjoint(const TransformationMatrix::Matrix4& matrix, Transfor
     result[2][3]  = - determinant3x3(a1, a2, a3, b1, b2, b3, d1, d2, d3);
     result[3][3]  =   determinant3x3(a1, a2, a3, b1, b2, b3, c1, c2, c3);
 }
+#endif
 
 // Returns false if the matrix is not invertible
 static bool inverse(const TransformationMatrix::Matrix4& matrix, TransformationMatrix::Matrix4& result)
@@ -350,7 +352,7 @@ static bool inverse(const TransformationMatrix::Matrix4& matrix, TransformationM
 // From Graphics Gems: unmatrix.c
 
 // Transpose rotation portion of matrix a, return b
-static void transposeMatrix4(const TransformationMatrix::Matrix4& a, TransformationMatrix::Matrix4& b)
+static void NODELETE transposeMatrix4(const TransformationMatrix::Matrix4& a, TransformationMatrix::Matrix4& b)
 {
     for (int i = 0; i < 4; i++)
         for (int j = 0; j < 4; j++)
@@ -358,7 +360,7 @@ static void transposeMatrix4(const TransformationMatrix::Matrix4& a, Transformat
 }
 
 // Multiply a homogeneous point by a matrix and return the transformed point
-static void v4MulPointByMatrix(const Vector4& p, const TransformationMatrix::Matrix4& m, Vector4& result)
+static void NODELETE v4MulPointByMatrix(const Vector4& p, const TransformationMatrix::Matrix4& m, Vector4& result)
 {
     result[0] = (p[0] * m[0][0]) + (p[1] * m[1][0]) +
                 (p[2] * m[2][0]) + (p[3] * m[3][0]);
@@ -370,12 +372,12 @@ static void v4MulPointByMatrix(const Vector4& p, const TransformationMatrix::Mat
                 (p[2] * m[2][3]) + (p[3] * m[3][3]);
 }
 
-static double v3Length(const Vector3& a)
+static double NODELETE v3Length(const Vector3& a)
 {
     return std::hypot(a[0], a[1], a[2]);
 }
 
-static void v3Scale(Vector3& v, double desiredLength)
+static void NODELETE v3Scale(Vector3& v, double desiredLength)
 {
     double len = v3Length(v);
     if (len != 0) {
@@ -386,14 +388,14 @@ static void v3Scale(Vector3& v, double desiredLength)
     }
 }
 
-static double v3Dot(const Vector3& a, const Vector3& b)
+static double NODELETE v3Dot(const Vector3& a, const Vector3& b)
 {
     return (a[0] * b[0]) + (a[1] * b[1]) + (a[2] * b[2]);
 }
 
 // Make a linear combination of two vectors and return the result.
 // result = (a * ascl) + (b * bscl)
-static void v3Combine(const Vector3& a, const Vector3& b, Vector3& result, double ascl, double bscl)
+static void NODELETE v3Combine(const Vector3& a, const Vector3& b, Vector3& result, double ascl, double bscl)
 {
     result[0] = (ascl * a[0]) + (bscl * b[0]);
     result[1] = (ascl * a[1]) + (bscl * b[1]);
@@ -401,7 +403,7 @@ static void v3Combine(const Vector3& a, const Vector3& b, Vector3& result, doubl
 }
 
 // Return the cross product result = a cross b */
-static void v3Cross(const Vector3& a, const Vector3& b, Vector3& result)
+static void NODELETE v3Cross(const Vector3& a, const Vector3& b, Vector3& result)
 {
     result[0] = (a[1] * b[2]) - (a[2] * b[1]);
     result[1] = (a[2] * b[0]) - (a[0] * b[2]);
@@ -644,7 +646,7 @@ static bool decompose4(const TransformationMatrix::Matrix4& mat, TransformationM
         r = std::sqrt(1.0 + column[0][0] - column[1][1] - column[2][2]);
         s = 0.5 / r;
         x = 0.5 * r;
-        y = (column[1][0] - column[0][1]) * s;
+        y = (column[1][0] + column[0][1]) * s;
         z = (column[2][0] + column[0][2]) * s;
         w = (column[1][2] - column[2][1]) * s;
     } else if (column[1][1] > column[2][2]) {
@@ -1006,10 +1008,10 @@ TransformationMatrix& TransformationMatrix::scale3d(double sx, double sy, double
     return *this;
 }
 
-static double roundEpsilonToZero(double val)
+static double NODELETE roundEpsilonToZero(double val)
 {
     if (-DBL_EPSILON < val && val < DBL_EPSILON)
-        return 0.0f;
+        return 0.0;
     return val;
 }
 
@@ -1277,6 +1279,17 @@ TransformationMatrix& TransformationMatrix::zoom(double zoomFactor)
     m_matrix[3][0] *= zoomFactor;
     m_matrix[3][1] *= zoomFactor;
     m_matrix[3][2] *= zoomFactor;
+    return *this;
+}
+
+TransformationMatrix& TransformationMatrix::unzoom(double zoomFactor)
+{
+    m_matrix[0][3] *= zoomFactor;
+    m_matrix[1][3] *= zoomFactor;
+    m_matrix[2][3] *= zoomFactor;
+    m_matrix[3][0] /= zoomFactor;
+    m_matrix[3][1] /= zoomFactor;
+    m_matrix[3][2] /= zoomFactor;
     return *this;
 }
 
@@ -1783,7 +1796,7 @@ AffineTransform TransformationMatrix::toAffineTransform() const
                            m_matrix[1][1], m_matrix[3][0], m_matrix[3][1]);
 }
 
-static inline void blendFloat(double& from, double to, double progress, CompositeOperation compositeOperation)
+static inline void NODELETE blendFloat(double& from, double to, double progress, CompositeOperation compositeOperation)
 {
     switch (compositeOperation) {
     case CompositeOperation::Replace:

@@ -35,8 +35,8 @@ class RenderInline : public RenderBoxModelObject {
     WTF_MAKE_TZONE_ALLOCATED(RenderInline);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderInline);
 public:
-    RenderInline(Type, Element&, RenderStyle&&);
-    RenderInline(Type, Document&, RenderStyle&&);
+    RenderInline(Type, Element&, Style::ComputedStyle&&);
+    RenderInline(Type, Document&, Style::ComputedStyle&&);
     virtual ~RenderInline();
 
     LayoutUnit marginLeft() const final;
@@ -70,11 +70,11 @@ public:
 
     LegacyInlineFlowBox* createAndAppendInlineFlowBox();
 
-    RenderLineBoxList& legacyLineBoxes() { return m_legacyLineBoxes; }
-    const RenderLineBoxList& legacyLineBoxes() const { return m_legacyLineBoxes; }
+    RenderLineBoxList& legacyLineBoxes() LIFETIME_BOUND { return m_legacyLineBoxes; }
+    const RenderLineBoxList& legacyLineBoxes() const LIFETIME_BOUND { return m_legacyLineBoxes; }
     void deleteLegacyLineBoxes();
-    LegacyInlineFlowBox* firstLegacyInlineBox() const { return m_legacyLineBoxes.firstLegacyLineBox(); }
-    LegacyInlineFlowBox* lastLegacyInlineBox() const { return m_legacyLineBoxes.lastLegacyLineBox(); }
+    LegacyInlineFlowBox* firstLegacyInlineBox() const LIFETIME_BOUND { return m_legacyLineBoxes.firstLegacyLineBox(); }
+    LegacyInlineFlowBox* lastLegacyInlineBox() const LIFETIME_BOUND { return m_legacyLineBoxes.lastLegacyLineBox(); }
 
 #if PLATFORM(IOS_FAMILY)
     void absoluteQuadsForSelection(Vector<FloatQuad>& quads) const override;
@@ -92,8 +92,8 @@ public:
 protected:
     void willBeDestroyed() override;
 
-    void styleWillChange(Style::Difference, const RenderStyle& newStyle) override;
-    void styleDidChange(Style::Difference, const RenderStyle* oldStyle) override;
+    void styleWillChange(Style::Difference, const Style::ComputedStyle& newStyle) override;
+    void styleDidChange(Style::Difference, const Style::ComputedStyle* oldStyle) override;
 
     void updateFromStyle() override;
 
@@ -101,8 +101,6 @@ private:
     ASCIILiteral renderName() const override;
 
     bool canHaveChildren() const final { return true; }
-
-    void absoluteQuadsIgnoringContinuation(const FloatRect&, Vector<FloatQuad>&, bool* wasFixed) const override;
 
     template<typename GeneratorContext>
     void generateLineBoxRects(GeneratorContext& yield) const;

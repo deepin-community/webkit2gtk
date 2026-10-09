@@ -35,6 +35,9 @@
 #include "FetchResponse.h"
 #include "FetchResponseBodyLoader.h"
 #include "JSBackgroundFetchRecord.h"
+#include "JSDOMConvertBoolean.h"
+#include "JSDOMConvertInterface.h"
+#include "JSDOMConvertSequences.h"
 #include "Node.h"
 #include "RetrieveRecordsOptions.h"
 #include "SWClientConnection.h"
@@ -68,9 +71,7 @@ BackgroundFetchRegistration::BackgroundFetchRegistration(ScriptExecutionContext&
 {
 }
 
-BackgroundFetchRegistration::~BackgroundFetchRegistration()
-{
-}
+BackgroundFetchRegistration::~BackgroundFetchRegistration() = default;
 
 void BackgroundFetchRegistration::abort(ScriptExecutionContext& context, DOMPromiseDeferred<IDLBoolean>&& promise)
 {

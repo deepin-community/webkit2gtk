@@ -26,9 +26,11 @@
 #include "config.h"
 #include <wtf/Threading.h>
 
+#include <bmalloc/BPlatform.h>
+#include <bmalloc/pas_process.h>
 #include <cstring>
 #include <wtf/DateMath.h>
-#include <wtf/Gigacage.h>
+#include <wtf/FastMalloc.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/PrintStream.h>
 #include <wtf/RunLoop.h>
@@ -37,10 +39,6 @@
 #include <wtf/WTFConfig.h>
 #include <wtf/text/AtomString.h>
 #include <wtf/threads/Signals.h>
-
-#if HAVE(QOS_CLASSES)
-#include <bmalloc/bmalloc.h>
-#endif
 
 #if OS(LINUX)
 #include <wtf/linux/RealTimeThreads.h>
@@ -51,8 +49,6 @@
 #include <wtf/darwin/LibraryPathDiagnostics.h>
 #endif
 
-#if !USE(SYSTEM_MALLOC)
-#include <bmalloc/BPlatform.h>
 #if BENABLE(LIBPAS)
 #define USE_LIBPAS_THREAD_SUSPEND_LOCK 1
 #include <bmalloc/pas_thread_suspend_lock.h>
@@ -64,7 +60,6 @@
 #error USE(TZONE_MALLOC) requires BUSE(TZONE)
 #endif
 #endif // USE(TZONE_MALLOC)
-#endif // !USE(SYSTEM_MALLOC)
 
 namespace WTF {
 
@@ -103,7 +98,7 @@ ThreadSuspendLocker::~ThreadSuspendLocker()
 }
 #endif
 
-static std::optional<size_t> stackSize(ThreadType threadType)
+static std::optional<size_t> NODELETE stackSize(ThreadType threadType)
 {
     // Return the stack size for the created thread based on its type.
     // If the stack size is not specified, then use the system default. Platforms can tune the values here.
@@ -138,7 +133,16 @@ static std::optional<size_t> stackSize(ThreadType threadType)
 #endif
 }
 
-std::atomic<uint32_t> ThreadLike::s_uid;
+#if PLATFORM(COCOA) || OS(LINUX)
+// uid 1 is reserved for the main thread, assigned in Thread::initializeCurrentTLS
+// when current thread is detected as main thread. ++s_uid yields >= 2 for every non-main thread.
+std::atomic<uint32_t> ThreadLike::s_uid { 1 };
+#else
+// On platforms without a way to detect the main thread before initializeMainThread()
+// has run, ++s_uid yields uids starting at 1 — the first Thread to be lazily
+// constructed gets uid 1 which currently is the main thread.
+std::atomic<uint32_t> ThreadLike::s_uid { 0 };
+#endif
 
 uint32_t ThreadLike::currentSequence()
 {
@@ -260,17 +264,22 @@ void Thread::entryPoint(NewThreadContext* newThreadContext)
     function();
 }
 
-Ref<Thread> Thread::create(ASCIILiteral name, Function<void()>&& entryPoint, ThreadType threadType, QOS qos, SchedulingPolicy schedulingPolicy)
+Ref<Thread> Thread::create(ASCIILiteral name, Function<void()>&& entryPoint, ThreadType threadType, QOS qos, SchedulingPolicy schedulingPolicy, StackAllocationSpecification stackSpec)
 {
     WTF::initialize();
 
-    Ref thread = adoptRef(*new Thread(schedulingPolicy));
+    Ref thread = adoptRef(*new Thread(schedulingPolicy, Thread::IsMain::No));
 
     Ref context = adoptRef(*new NewThreadContext { name, WTF::move(entryPoint), thread.get() });
     {
         MutexLocker locker(context->mutex);
         context->ref(); // Adopted by Thread::entryPoint
-        bool success = thread->establishHandle(context.get(), stackSize(threadType), qos, schedulingPolicy);
+        if (stackSpec.kind() == StackAllocationSpecification::Kind::Default) {
+            auto maybeSize = stackSize(threadType);
+            if (maybeSize)
+                stackSpec = StackAllocationSpecification::RequestSize(maybeSize.value());
+        }
+        bool success = thread->establishHandle(context.get(), stackSpec, qos, schedulingPolicy);
         RELEASE_ASSERT(success);
 
 #if HAVE(STACK_BOUNDS_FOR_NEW_THREAD)
@@ -292,25 +301,14 @@ Ref<Thread> Thread::create(ASCIILiteral name, Function<void()>&& entryPoint, Thr
     return thread;
 }
 
-static bool shouldRemoveThreadFromThreadGroup()
-{
-#if OS(WINDOWS)
-    // On Windows the thread specific destructor is also called when the
-    // main thread is exiting. This may lead to the main thread waiting
-    // forever for the thread group lock when exiting, if the sampling
-    // profiler thread was terminated by the system while holding the
-    // thread group lock.
-    if (WTF::isMainThread())
-        return false;
-#endif
-    return true;
-}
-
 void Thread::didExit()
 {
+    if (pas_process_is_shutting_down())
+        return;
+
     allThreads().remove(*this);
 
-    if (shouldRemoveThreadFromThreadGroup()) {
+    {
         {
             Vector<Ref<ThreadGroup>> threadGroups;
             {
@@ -405,7 +403,7 @@ void Thread::setCurrentThreadIsUserInitiated(int relativePriority)
 }
 
 #if HAVE(QOS_CLASSES)
-static Thread::QOS toQOS(qos_class_t qosClass)
+static Thread::QOS NODELETE toQOS(qos_class_t qosClass)
 {
     switch (qosClass) {
     case QOS_CLASS_USER_INTERACTIVE:
@@ -446,7 +444,7 @@ static qos_class_t globalMaxQOSclass { QOS_CLASS_UNSPECIFIED };
 
 void Thread::setGlobalMaxQOSClass(qos_class_t maxClass)
 {
-    bmalloc::api::setScavengerThreadQOSClass(maxClass);
+    fastSetScavengerThreadQOSClass(maxClass);
     globalMaxQOSclass = maxClass;
 }
 
@@ -467,15 +465,6 @@ void Thread::dump(PrintStream& out) const
 ThreadSpecificKey Thread::s_key = InvalidThreadSpecificKey;
 #endif
 
-#if USE(TZONE_MALLOC)
-#if PLATFORM(COCOA)
-static bool hasDisableTZoneEntitlement()
-{
-    return processHasEntitlement("webkit.tzone.disable"_s);
-}
-#endif
-#endif
-
 void initialize()
 {
     static std::once_flag onceKey;
@@ -486,9 +475,6 @@ void initialize()
         setPermissionsOfConfigPage();
         Config::initialize();
 #if USE(TZONE_MALLOC)
-#if PLATFORM(COCOA)
-        bmalloc::api::TZoneHeapManager::setHasDisableTZoneEntitlementCallback(hasDisableTZoneEntitlement);
-#endif
         bmalloc::api::TZoneHeapManager::ensureSingleton(); // Force initialization.
 #endif
         Gigacage::ensureGigacage();

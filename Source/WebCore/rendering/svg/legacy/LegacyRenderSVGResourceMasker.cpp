@@ -28,15 +28,15 @@
 #include "Image.h"
 #include "IntRect.h"
 #include "LegacyRenderSVGResourceMaskerInlines.h"
-#include "RenderStyle+GettersInlines.h"
 #include "SVGRenderingContext.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(LegacyRenderSVGResourceMasker);
 
-LegacyRenderSVGResourceMasker::LegacyRenderSVGResourceMasker(SVGMaskElement& element, RenderStyle&& style)
+LegacyRenderSVGResourceMasker::LegacyRenderSVGResourceMasker(SVGMaskElement& element, Style::ComputedStyle&& style)
     : LegacyRenderSVGResourceContainer(Type::LegacySVGResourceMasker, element, WTF::move(style))
 {
 }
@@ -54,16 +54,17 @@ void LegacyRenderSVGResourceMasker::removeClientFromCache(RenderElement& client)
     m_masker.remove(client);
 }
 
-auto LegacyRenderSVGResourceMasker::applyResource(RenderElement& renderer, const RenderStyle&, GraphicsContext*& context, OptionSet<RenderSVGResourceMode> resourceMode) -> OptionSet<ApplyResult>
+auto LegacyRenderSVGResourceMasker::applyResource(RenderElement& renderer, const Style::ComputedStyle&, GraphicsContext*& context, OptionSet<RenderSVGResourceMode> resourceMode) -> OptionSet<ApplyResult>
 {
     ASSERT(context);
     ASSERT_UNUSED(resourceMode, !resourceMode);
 
-    bool missingMaskerData = !m_masker.contains(renderer);
-    if (missingMaskerData)
-        m_masker.set(renderer, makeUnique<MaskerData>());
+    auto result = m_masker.ensure(renderer, [] {
+        return makeUnique<MaskerData>();
+    });
 
-    MaskerData* maskerData = m_masker.get(renderer);
+    bool missingMaskerData = result.isNewEntry;
+    MaskerData* maskerData = result.iterator->value.get();
     AffineTransform absoluteTransform = SVGRenderingContext::calculateTransformationToOutermostCoordinateSystem(renderer);
     FloatRect decoratedBounds = renderer.decoratedBoundingBox();
 
@@ -145,7 +146,7 @@ bool LegacyRenderSVGResourceMasker::drawContentIntoContext(GraphicsContext& cont
         if (renderer->needsLayout())
             return false;
         const CheckedRef style = renderer->style();
-        if (style->display() == DisplayType::None)
+        if (style->display() == Style::DisplayType::None)
             continue;
         SVGRenderingContext::renderSubtreeToContext(context, *renderer, maskContentTransformation);
     }
@@ -176,7 +177,7 @@ void LegacyRenderSVGResourceMasker::calculateMaskContentRepaintRect(RepaintRectC
         if (!renderer || !childNode->isSVGElement())
             continue;
         const CheckedRef style = renderer->style();
-        if (style->display() == DisplayType::None)
+        if (style->display() == Style::DisplayType::None)
              continue;
         m_maskContentBoundaries[repaintRectCalculation].unite(renderer->localToParentTransform().mapRect(renderer->repaintRectInLocalCoordinates(repaintRectCalculation)));
     }

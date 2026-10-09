@@ -39,6 +39,7 @@
 #include <WebCore/StyleJustifySelf.h>
 #include <WebCore/StyleMaskLayers.h>
 #include <WebCore/StyleObjectPosition.h>
+#include <WebCore/StyleObjectViewBox.h>
 #include <WebCore/StyleOpacity.h>
 #include <WebCore/StyleOrder.h>
 #include <WebCore/StyleResize.h>
@@ -71,7 +72,7 @@ public:
     void dumpDifferences(TextStream&, const NonInheritedMiscData&) const;
 #endif
 
-    bool hasFilters() const;
+    bool NODELETE hasFilters() const;
 
     // This is here to pack in with m_refCount.
     Opacity opacity;
@@ -98,6 +99,7 @@ public:
     JustifySelf justifySelf;
 
     ObjectPosition objectPosition;
+    ObjectViewBox objectViewBox;
     Order order;
 
     PREFERRED_TYPE(bool) unsigned hasAttrContent : 1 { false };

@@ -32,8 +32,6 @@
 #include <WebCore/IntPoint.h>
 #include <wtf/JSONValues.h>
 #include <wtf/MathExtras.h>
-#include <wtf/Platform.h>
-#include <wtf/text/WTFString.h>
 
 #if PLATFORM(IOS_FAMILY)
 #include <CoreGraphics/CoreGraphics.h>
@@ -61,7 +59,7 @@ public:
     constexpr FloatSize(float width, float height) : m_width(width), m_height(height) { }
     constexpr FloatSize(const IntSize& size) : m_width(size.width()), m_height(size.height()) { }
 
-    static FloatSize narrowPrecision(double width, double height);
+    static FloatSize NODELETE narrowPrecision(double width, double height);
 
     constexpr float width() const { return m_width; }
     constexpr float height() const { return m_height; }
@@ -74,7 +72,7 @@ public:
 
     constexpr bool isEmpty() const { return m_width <= 0 || m_height <= 0; }
     constexpr bool isZero() const;
-    bool isExpressibleAsIntSize() const;
+    bool NODELETE isExpressibleAsIntSize() const;
 
     constexpr float aspectRatio() const { return m_width / m_height; }
     constexpr double aspectRatioDouble() const { return m_width / static_cast<double>(m_height); }
@@ -124,6 +122,22 @@ public:
     float diagonalLength() const
     {
         return std::hypot(m_width, m_height);
+    }
+
+    FloatSize normalized() const
+    {
+        float length = diagonalLength();
+        return !length ? *this : scaled(1.0f / length);
+    }
+
+    FloatSize directionScaledBy(float length) const
+    {
+        return normalized().scaled(length);
+    }
+
+    constexpr FloatSize perpendicular() const
+    {
+        return { -m_height, m_width };
     }
 
     constexpr float diagonalLengthSquared() const

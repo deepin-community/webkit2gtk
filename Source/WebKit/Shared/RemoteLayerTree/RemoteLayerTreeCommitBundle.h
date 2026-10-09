@@ -87,9 +87,9 @@ struct MainFrameData {
     bool viewportMetaTagWidthWasExplicit { false };
     bool viewportMetaTagCameFromImageDocument { false };
     bool isInStableState { false };
+    bool hasMainThreadScrollDrivenAnimations { false };
     WebCore::InteractiveWidget viewportMetaTagInteractiveWidget { WebCore::InteractiveWidget::ResizesVisual };
 
-    std::optional<EditorState> editorState;
 #if PLATFORM(IOS_FAMILY)
     std::optional<DynamicViewportSizeUpdateID> dynamicViewportSizeUpdateID;
 #endif
@@ -105,6 +105,8 @@ struct RemoteLayerTreeCommitBundle {
     Vector<RootFrameData> transactions;
     PageData pageData;
     std::optional<MainFrameData> mainFrameData;
+
+    std::optional<EditorState> editorState;
 
     TransactionID transactionID;
     MonotonicTime startTime;

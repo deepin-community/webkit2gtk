@@ -44,8 +44,6 @@
 #include "OperandsInlines.h"
 #include "ProbeContext.h"
 
-#include <wtf/Scope.h>
-
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace JSC { namespace FTL {
@@ -83,7 +81,8 @@ static void reboxAccordingToFormat(
         break;
     }
 
-    case DataFormatJS: {
+    case DataFormatJS:
+    case DataFormatStorage: {
         // Done already!
         break;
     }
@@ -490,7 +489,7 @@ static void compileStub(VM& vm, unsigned exitID, JITCode* jitCode, OSRExit& exit
     jit.checkStackPointerAlignment();
 
     {
-        auto allFTLCalleeSaves = RegisterSetBuilder::ftlCalleeSaveRegisters();
+        auto allFTLCalleeSaves = RegisterSet::ftlCalleeSaveRegisters();
         const RegisterAtOffsetList* baselineCalleeSaves = baselineCodeBlock->jitCode()->calleeSaveRegisters();
         auto iterateCalleeSavesImpl = [&](auto check, auto func) {
             for (Reg reg = Reg::first(); reg <= Reg::last(); reg = reg.next()) {

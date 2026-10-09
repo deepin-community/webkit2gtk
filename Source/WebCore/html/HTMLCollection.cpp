@@ -71,7 +71,7 @@ inline auto HTMLCollection::rootTypeFromCollectionType(CollectionType type) -> R
     return HTMLCollection::RootType::AtNode;
 }
 
-static NodeListInvalidationType invalidationTypeExcludingIdAndNameAttributes(CollectionType type)
+static NodeListInvalidationType NODELETE invalidationTypeExcludingIdAndNameAttributes(CollectionType type)
 {
     switch (type) {
     case CollectionType::ByTag:
@@ -127,7 +127,7 @@ HTMLCollection::HTMLCollection(ContainerNode& ownerNode, CollectionType type)
 HTMLCollection::~HTMLCollection()
 {
     if (hasNamedElementCache())
-        protectedDocument()->collectionWillClearIdNameMap(*this);
+        document().collectionWillClearIdNameMap(*this);
 
     // HTMLNameCollection & ClassCollection remove cache by themselves.
     // FIXME: We need a cleaner way to handle this.

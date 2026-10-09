@@ -62,7 +62,7 @@ SPDX-License-Identifier: BSD, LGPL-2.1
         <h3><a href="index.html">WebKit</a></h3>
         <p>API Version: 6.0</p>
         
-        <p>Library Version: 2.52.5</p>
+        <p>Library Version: 2.54.0</p>
         
       </div>
       
@@ -131,7 +131,7 @@ SPDX-License-Identifier: BSD, LGPL-2.1
           Description
           <a href="#description" class="anchor"></a>
           
-          <a class="srclink" title="go to source location" href="https://github.com/WebKit/WebKit/tree/main/Source/WebKit/UIProcess/API/glib/WebKitFeature.cpp#L79">[src]</a>
+          <a class="srclink" title="go to source location" href="https://github.com/WebKit/WebKit/tree/main/Source/WebKit/UIProcess/API/glib/WebKitFeature.cpp#L80">[src]</a>
           
         </h4>
 
@@ -155,14 +155,14 @@ information about&nbsp;it:</p>
   for details): <a href="method.Feature.get_status.html"><code>webkit_feature_get_status()</code></a>.</li>
 <li>A category, which may be used to group features together:
   <a href="method.Feature.get_category.html"><code>webkit_feature_get_category()</code></a>.</li>
-<li>An optional short “name” which can be presented to an user:
+<li>An optional short “name” which can be presented to a user:
   <a href="method.Feature.get_name.html"><code>webkit_feature_get_name()</code></a>.</li>
 <li>An optional longer “detailed” description:
   <a href="method.Feature.get_details.html"><code>webkit_feature_get_details()</code></a>.</li>
 </ul>
 <p>The lists of available features can be obtained with
 <a href="type_func.Settings.get_all_features.html"><code>webkit_settings_get_all_features()</code></a>, <a href="type_func.Settings.get_experimental_features.html"><code>webkit_settings_get_experimental_features()</code></a>,
-and <a href="type_func.Settings.get_development_features.html"><code>webkit_settings_get_development_features()</code></a>). As a rule of thumb,
+and <a href="type_func.Settings.get_development_features.html"><code>webkit_settings_get_development_features()</code></a>. As a rule of thumb,
 applications which may want to allow users (i.e. web developers) to test
 WebKit features should use the list of experimental features. Additionally,
 applications might want to expose development features <em>when targeting

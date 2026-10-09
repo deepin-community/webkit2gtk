@@ -62,7 +62,7 @@ SPDX-License-Identifier: BSD, LGPL-2.1
         <h3><a href="index.html">WebKit</a></h3>
         <p>API Version: 6.0</p>
         
-        <p>Library Version: 2.52.5</p>
+        <p>Library Version: 2.54.0</p>
         
       </div>
       
@@ -170,15 +170,15 @@ SPDX-License-Identifier: BSD, LGPL-2.1
         Description
         <a class="anchor" href="#description"></a>
         
-        <a class="srclink" title="go to source location" href="https://github.com/WebKit/WebKit/tree/main/Source/WebKit/UIProcess/API/glib/WebKitWebExtension.cpp#L1038">[src]</a>
+        <a class="srclink" title="go to source location" href="https://github.com/WebKit/WebKit/tree/main/Source/WebKit/UIProcess/API/glib/WebKitWebExtension.cpp#L1039">[src]</a>
         
       </h4>
 
       <div class="docblock">
         <p>Get whether the extension has script or stylesheet content
 that can be injected into&nbsp;webpages.</p>
-<p>Once the extension is loaded, use the <code>hasInjectedContent</code>
-property on an extension context, as the injectable content
+<p>Once the extension is loaded, use
+webkit_web_extension_context_get_has_injected_content(), as the injectable content
 can change after the extension is&nbsp;loaded.</p>
       </div>
 

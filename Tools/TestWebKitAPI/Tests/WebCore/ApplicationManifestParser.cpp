@@ -203,6 +203,11 @@ public:
         EXPECT_EQ(expectedValue, value);
     }
 
+    void testLang(const String& rawJSON, const String& expectedValue)
+    {
+        EXPECT_EQ(expectedValue, parseTopLevelProperty("lang"_s, rawJSON).lang);
+    }
+
     void testName(const String& rawJSON, const String& expectedValue)
     {
         auto manifest = parseTopLevelProperty("name"_s, rawJSON);
@@ -245,10 +250,24 @@ public:
         EXPECT_EQ(expectedValue, value);
     }
 
+    void testBackgroundColorDark(const String& rawJSON, const Color& expectedValue, bool nested = true)
+    {
+        auto manifest = parseTopLevelProperty("color_scheme_dark"_s, nested ? makeString("{ \"background_color\" : "_s, rawJSON, " }"_s) : rawJSON);
+        auto value = manifest.backgroundColorDark;
+        EXPECT_EQ(expectedValue, value);
+    }
+
     void testThemeColor(const String& rawJSON, const Color& expectedValue)
     {
         auto manifest = parseTopLevelProperty("theme_color"_s, rawJSON);
         auto value = manifest.themeColor;
+        EXPECT_EQ(expectedValue, value);
+    }
+
+    void testThemeColorDark(const String& rawJSON, const Color& expectedValue, bool nested = true)
+    {
+        auto manifest = parseTopLevelProperty("color_scheme_dark"_s, nested ? makeString("{ \"theme_color\" : "_s, rawJSON, " }"_s) : rawJSON);
+        auto value = manifest.themeColorDark;
         EXPECT_EQ(expectedValue, value);
     }
 
@@ -348,7 +367,6 @@ public:
         auto value = manifest.id;
         EXPECT_STREQ(expectedValue.utf8().data(), value.string().utf8().data());
     }
-
 };
 
 static void assertManifestHasDefaultValues(const URL& manifestURL, const URL& documentURL, const ApplicationManifest& manifest)
@@ -522,6 +540,39 @@ TEST_F(ApplicationManifestParserTest, Orientation)
     testOrientation("\"portrait-secondary\""_s, WebCore::ScreenOrientationLockType::PortraitSecondary);
 }
 
+TEST_F(ApplicationManifestParserTest, Lang)
+{
+    testLang("123"_s, String());
+    testLang("null"_s, String());
+    testLang("true"_s, String());
+    testLang("{ }"_s, String());
+    testLang("[ ]"_s, String());
+    testLang("\"\""_s, String());
+
+    // Invalid language tags should be ignored.
+    testLang("\"invalid-language-tag\""_s, String());
+
+    testLang("\"en\""_s, "en"_s);
+    testLang("\" en \""_s, "en"_s);
+    testLang("\"en-AU\""_s, "en-AU"_s);
+    testLang("\"zh-Hans-CN\""_s, "zh-Hans-CN"_s);
+    testLang("\"en-x-custom\""_s, "en-x-custom"_s);
+
+    // Language tags should be canonicalized.
+    testLang("\"DE-DE\""_s, "de-DE"_s);
+    testLang("\" DE-DE \""_s, "de-DE"_s);
+
+    // ISO-8859-1 characters.
+    testLang(String::fromUTF8("\"en-Latn-US-àéîöü\""), String());
+    testLang(String::fromUTF8("\"frçñch\""), String());
+
+    // Unicode characters beyond ISO-8859-1.
+    testLang(String::fromUTF8("\"zh-中文\""), String());
+    testLang(String::fromUTF8("\"ja-日本語\""), String());
+    testLang(String::fromUTF8("\"ko-한국어\""), String());
+    testLang(String::fromUTF8("\"ar-العربية\""), String());
+}
+
 TEST_F(ApplicationManifestParserTest, Name)
 {
     testName("123"_s, String());
@@ -641,6 +692,43 @@ TEST_F(ApplicationManifestParserTest, BackgroundColor)
     testBackgroundColor("\"hsla(0, 100%, 50%, 1)\""_s, Color::red);
 }
 
+TEST_F(ApplicationManifestParserTest, BackgroundColorDark)
+{
+    // nested inside "color_scheme_dark" object
+    testBackgroundColorDark("123"_s, Color());
+    testBackgroundColorDark("null"_s, Color());
+    testBackgroundColorDark("true"_s, Color());
+    testBackgroundColorDark("{ }"_s, Color());
+    testBackgroundColorDark("[ ]"_s, Color());
+    testBackgroundColorDark("\"\""_s, Color());
+    testBackgroundColorDark("\"garbage string\""_s, Color());
+    testBackgroundColorDark("\"red\""_s, Color::red);
+    testBackgroundColorDark("\"#f00\""_s, Color::red);
+    testBackgroundColorDark("\"#ff0000\""_s, Color::red);
+    testBackgroundColorDark("\"#ff0000ff\""_s, Color::red);
+    testBackgroundColorDark("\"rgb(255, 0, 0)\""_s, Color::red);
+    testBackgroundColorDark("\"rgba(255, 0, 0, 1)\""_s, Color::red);
+    testBackgroundColorDark("\"hsl(0, 100%, 50%)\""_s, Color::red);
+    testBackgroundColorDark("\"hsla(0, 100%, 50%, 1)\""_s, Color::red);
+
+    // set at top-level
+    testBackgroundColorDark("123"_s, Color(), false);
+    testBackgroundColorDark("null"_s, Color(), false);
+    testBackgroundColorDark("true"_s, Color(), false);
+    testBackgroundColorDark("{ }"_s, Color(), false);
+    testBackgroundColorDark("[ ]"_s, Color(), false);
+    testBackgroundColorDark("\"\""_s, Color(), false);
+    testBackgroundColorDark("\"garbage string\""_s, Color(), false);
+    testBackgroundColorDark("\"red\""_s, Color(), false);
+    testBackgroundColorDark("\"#f00\""_s, Color(), false);
+    testBackgroundColorDark("\"#ff0000\""_s, Color(), false);
+    testBackgroundColorDark("\"#ff0000ff\""_s, Color(), false);
+    testBackgroundColorDark("\"rgb(255, 0, 0)\""_s, Color(), false);
+    testBackgroundColorDark("\"rgba(255, 0, 0, 1)\""_s, Color(), false);
+    testBackgroundColorDark("\"hsl(0, 100%, 50%)\""_s, Color(), false);
+    testBackgroundColorDark("\"hsla(0, 100%, 50%, 1)\""_s, Color(), false);
+}
+
 TEST_F(ApplicationManifestParserTest, ThemeColor)
 {
     testThemeColor("123"_s, Color());
@@ -659,6 +747,43 @@ TEST_F(ApplicationManifestParserTest, ThemeColor)
     testThemeColor("\"rgba(255, 0, 0, 1)\""_s, Color::red);
     testThemeColor("\"hsl(0, 100%, 50%)\""_s, Color::red);
     testThemeColor("\"hsla(0, 100%, 50%, 1)\""_s, Color::red);
+}
+
+TEST_F(ApplicationManifestParserTest, ThemeColorDark)
+{
+    // nested inside "color_scheme_dark" object
+    testThemeColorDark("123"_s, Color());
+    testThemeColorDark("null"_s, Color());
+    testThemeColorDark("true"_s, Color());
+    testThemeColorDark("{ }"_s, Color());
+    testThemeColorDark("[ ]"_s, Color());
+    testThemeColorDark("\"\""_s, Color());
+    testThemeColorDark("\"garbage string\""_s, Color());
+    testThemeColorDark("\"red\""_s, Color::red);
+    testThemeColorDark("\"#f00\""_s, Color::red);
+    testThemeColorDark("\"#ff0000\""_s, Color::red);
+    testThemeColorDark("\"#ff0000ff\""_s, Color::red);
+    testThemeColorDark("\"rgb(255, 0, 0)\""_s, Color::red);
+    testThemeColorDark("\"rgba(255, 0, 0, 1)\""_s, Color::red);
+    testThemeColorDark("\"hsl(0, 100%, 50%)\""_s, Color::red);
+    testThemeColorDark("\"hsla(0, 100%, 50%, 1)\""_s, Color::red);
+
+    // set at top-level
+    testThemeColorDark("123"_s, Color(), false);
+    testThemeColorDark("null"_s, Color(), false);
+    testThemeColorDark("true"_s, Color(), false);
+    testThemeColorDark("{ }"_s, Color(), false);
+    testThemeColorDark("[ ]"_s, Color(), false);
+    testThemeColorDark("\"\""_s, Color(), false);
+    testThemeColorDark("\"garbage string\""_s, Color(), false);
+    testThemeColorDark("\"red\""_s, Color(), false);
+    testThemeColorDark("\"#f00\""_s, Color(), false);
+    testThemeColorDark("\"#ff0000\""_s, Color(), false);
+    testThemeColorDark("\"#ff0000ff\""_s, Color(), false);
+    testThemeColorDark("\"rgb(255, 0, 0)\""_s, Color(), false);
+    testThemeColorDark("\"rgba(255, 0, 0, 1)\""_s, Color(), false);
+    testThemeColorDark("\"hsl(0, 100%, 50%)\""_s, Color(), false);
+    testThemeColorDark("\"hsla(0, 100%, 50%, 1)\""_s, Color(), false);
 }
 
 TEST_F(ApplicationManifestParserTest, Categories)

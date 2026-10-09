@@ -62,7 +62,7 @@ SPDX-License-Identifier: BSD, LGPL-2.1
         <h3><a href="index.html">WebKit</a></h3>
         <p>API Version: 6.0</p>
         
-        <p>Library Version: 2.52.5</p>
+        <p>Library Version: 2.54.0</p>
         
       </div>
       
@@ -396,7 +396,7 @@ they will affect the web pages loaded&nbsp;afterwards.</p>
             <p>Removes a filter from the given <code>WebKitUserContentManager</code>.</p>
           </div>
           <div class="docblock">
-            <p></p>
+            <p><span class="emblem available">since: 2.24</span></p>
           </div>
         </div>
       
@@ -477,8 +477,8 @@ If <code>NULL</code> is passed as the <code>world_name</code>, the default world
           <h6><a href="signal.UserContentManager.script-message-received.html">WebKit.UserContentManager::script-message-received</a></h6>
           <div class="docblock">
             <p>This signal is emitted when JavaScript in a web view calls
-<code>window.webkit.messageHandlers.<name>.postMessage()</code>, after registering
-<code><name></code> using
+<code>window.webkit.messageHandlers.&lt;name&gt;.postMessage()</code>, after registering
+<code>&lt;name&gt;</code> using
 <code>webkit_user_content_manager_register_script_message_handler()</code></p>
           </div>
           <div class="docblock">
@@ -490,8 +490,8 @@ If <code>NULL</code> is passed as the <code>world_name</code>, the default world
           <h6><a href="signal.UserContentManager.script-message-with-reply-received.html">WebKit.UserContentManager::script-message-with-reply-received</a></h6>
           <div class="docblock">
             <p>This signal is emitted when JavaScript in a web view calls
-<code>window.webkit.messageHandlers.<name>.postMessage()</code>, after registering
-<code><name></code> using
+<code>window.webkit.messageHandlers.&lt;name&gt;.postMessage()</code>, after registering
+<code>&lt;name&gt;</code> using
 <code>webkit_user_content_manager_register_script_message_handler_with_reply()</code></p>
           </div>
           <div class="docblock">

@@ -28,10 +28,10 @@
 
 #include <array>
 #include <wtf/DebugHeap.h>
-#include <wtf/FastMalloc.h>
 #include <wtf/Noncopyable.h>
 #include <wtf/RefPtr.h>
 #include <wtf/TZoneMalloc.h>
+#include <wtf/text/AtomStringImpl.h>
 
 namespace JSC {
 

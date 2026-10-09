@@ -85,6 +85,7 @@ public:
     void drawTextureSemiPlanarYUV(const std::array<GLuint, 2>& textures, bool uvReversed, const std::array<GLfloat, 16>& yuvToRgbMatrix, OptionSet<TextureMapperFlags>, const FloatRect& targetRect, const TransformationMatrix& modelViewMatrix, float opacity, TransferFunction, AllEdgesExposed = AllEdgesExposed::Yes);
     void drawTexturePackedYUV(GLuint texture, const std::array<GLfloat, 16>& yuvToRgbMatrix, OptionSet<TextureMapperFlags>, const FloatRect& targetRect, const TransformationMatrix& modelViewMatrix, float opacity, TransferFunction, AllEdgesExposed = AllEdgesExposed::Yes);
     void drawTextureExternalOES(GLuint texture, OptionSet<TextureMapperFlags>, const FloatRect&, const TransformationMatrix& modelViewMatrix, float opacity);
+    void drawTextureExternalOESYUV(GLuint texture, OptionSet<TextureMapperFlags>, const FloatRect&, const TransformationMatrix& modelViewMatrix, float opacity);
     void drawSolidColor(const FloatRect&, const TransformationMatrix&, const Color&, bool);
     void clearColor(const Color&);
 
@@ -116,12 +117,12 @@ public:
 
 #if ENABLE(DAMAGE_TRACKING)
     void setDamage(const std::optional<Damage>& damage) { m_damage = damage; }
-    const std::optional<Damage>& damage() const { return m_damage; }
+    const std::optional<Damage>& damage() const LIFETIME_BOUND { return m_damage; }
 #endif
 
 private:
     bool isInMaskMode() const { return m_isMaskMode; }
-    const TransformationMatrix& patternTransform() const { return m_patternTransform; }
+    const TransformationMatrix& patternTransform() const LIFETIME_BOUND { return m_patternTransform; }
 
     enum class Direction { X, Y };
 

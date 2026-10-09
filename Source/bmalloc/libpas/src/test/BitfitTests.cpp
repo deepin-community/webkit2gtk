@@ -37,6 +37,7 @@
 #include "pas_race_test_hooks.h"
 #include "pas_scavenger.h"
 #include "pas_versioned_field.h"
+#include <algorithm>
 #include <functional>
 #include <vector>
 

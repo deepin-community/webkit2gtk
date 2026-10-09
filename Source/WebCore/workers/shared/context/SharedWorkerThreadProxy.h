@@ -53,9 +53,9 @@ public:
     WEBCORE_EXPORT ~SharedWorkerThreadProxy();
 
     static RefPtr<SharedWorkerThreadProxy> byIdentifier(ScriptExecutionContextIdentifier);
-    WEBCORE_EXPORT static bool hasInstances();
+    WEBCORE_EXPORT static bool NODELETE hasInstances();
 
-    SharedWorkerIdentifier identifier() const;
+    SharedWorkerIdentifier NODELETE identifier() const;
     SharedWorkerThread& thread() { return m_workerThread; }
 
     bool isTerminatingOrTerminated() const { return m_isTerminatingOrTerminated; }
@@ -81,7 +81,9 @@ private:
 
     // WorkerLoaderProxy.
     RefPtr<CacheStorageConnection> createCacheStorageConnection() final;
+    RefPtr<FileSystemStorageConnection> createFileSystemStorageConnection() final;
     RefPtr<RTCDataChannelRemoteHandlerConnection> createRTCDataChannelRemoteHandlerConnection() final;
+    RefPtr<IDBClient::IDBConnectionProxy> createIDBConnectionProxy() final;
     void postTaskToLoader(ScriptExecutionContext::Task&&) final;
     ScriptExecutionContextIdentifier loaderContextIdentifier() const final;
 

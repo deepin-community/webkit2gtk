@@ -62,7 +62,7 @@ SPDX-License-Identifier: BSD, LGPL-2.1
         <h3><a href="index.html">WebKit</a></h3>
         <p>API Version: 6.0</p>
         
-        <p>Library Version: 2.52.5</p>
+        <p>Library Version: 2.54.0</p>
         
       </div>
       
@@ -137,8 +137,10 @@ properties of the <code>WebKitWebsiteDataManager</code> of the network session. 
 <code>NULL</code> is passed, the default directory will be passed to <code>WebKitWebsiteDataManager</code>
 so that <code>webkit_website_data_manager_get_base_data_directory()</code> and
 <code>webkit_website_data_manager_get_base_cache_directory()</code> always return a value for
-non ephemeral&nbsp;sessions.</p>
-<p>It must be passed as construct parameter of a <code>WebKitWebView</code>.</p>
+non-ephemeral&nbsp;sessions.</p>
+<p>It can be passed as the <code>WebKitWebView:network-session</code> construct parameter
+of a <code>WebKitWebView</code>. A web view created without a network session uses the
+one of its related view, if any, or the default one returned by&nbsp;webkit_network_session_get_default().</p>
       </div>
 
       <div class="docblock">

@@ -168,6 +168,35 @@ constexpr T fabsConstExpr(T value)
 inline double roundTowardsPositiveInfinity(double value) { return std::floor(value + 0.5); }
 inline float roundTowardsPositiveInfinity(float value) { return std::floor(value + 0.5f); }
 
+// C23 roundeven polyfill.
+#if CPU(ARM64)
+// On ARM64, __builtin_roundeven(f) inlines to frintn. On x86_64, Clang
+// may emit a library call to roundeven which is C23 and not
+// universally available.
+inline float roundevenf(float value) { return __builtin_roundevenf(value); }
+inline double roundeven(double value) { return __builtin_roundeven(value); }
+#else
+inline float roundevenf(float value)
+{
+    float rounded = std::round(value);
+    if (std::fabs(value - rounded) == 0.5f) {
+        if (std::fmod(rounded, 2.0f) != 0.0f)
+            return rounded - std::copysign(1.0f, value);
+    }
+    return rounded;
+}
+
+inline double roundeven(double value)
+{
+    double rounded = std::round(value);
+    if (std::fabs(value - rounded) == 0.5) {
+        if (std::fmod(rounded, 2.0) != 0.0)
+            return rounded - std::copysign(1.0, value);
+    }
+    return rounded;
+}
+#endif
+
 // std::numeric_limits<T>::min() returns the smallest positive value for floating point types
 template<typename T> consteval T defaultMinimumForClamp() { return std::numeric_limits<T>::min(); }
 template<> consteval float defaultMinimumForClamp() { return -std::numeric_limits<float>::max(); }
@@ -331,7 +360,9 @@ constexpr bool hasTwoOrMoreBitsSet(T value)
 template<typename T>
 constexpr T divideRoundedUp(T a, T b)
 {
-    return (a + b - 1) / b;
+    // Mathematically equivalent to (a + b - 1) / b, but does not overflow
+    // when a is close to the maximum representable value of T.
+    return a / b + !!(a % b);
 }
 
 template<typename T>
@@ -363,6 +394,12 @@ constexpr bool isGreaterThanNonZeroPowerOfTwo(T value, unsigned power)
     // The crazy way of testing of index >= 2 ** power
     // (where I use ** to denote pow()).
     return !!((value >> 1) >> (power - 1));
+}
+
+template<typename T>
+constexpr bool isMultipleOf(unsigned factor, T value)
+{
+    return factor && !(value % factor);
 }
 
 template<typename T> constexpr bool isLessThan(const T& a, const T& b) { return a < b; }
@@ -574,92 +611,30 @@ constexpr void shuffleVector(VectorType& vector, const RandomFunc& randomFunc)
 }
 
 template<typename T>
-constexpr unsigned clzConstexpr(T value)
+constexpr unsigned clz(T value)
 {
-    constexpr unsigned bitSize = sizeof(T) * CHAR_BIT;
-
-    auto uValue = unsignedCast(value);
-
-    unsigned zeroCount = 0;
-    for (int i = bitSize - 1; i >= 0; i--) {
-        if (uValue >> i)
-            break;
-        zeroCount++;
-    }
-    return zeroCount;
+    return std::countl_zero(unsignedCast(value));
 }
 
 template<typename T>
-inline unsigned clz(T value)
+constexpr unsigned ctz(T value)
 {
-    constexpr unsigned bitSize = sizeof(T) * CHAR_BIT;
-
-    auto uValue = unsignedCast(value);
-
-    constexpr unsigned bitSize64 = sizeof(uint64_t) * CHAR_BIT;
-    if (uValue)
-        return __builtin_clzll(uValue) - (bitSize64 - bitSize);
-    return bitSize;
+    return std::countr_zero(unsignedCast(value));
 }
 
 template<typename T>
-constexpr unsigned ctzConstexpr(T value)
+constexpr unsigned getLSBSet(T t)
 {
-    constexpr unsigned bitSize = sizeof(T) * CHAR_BIT;
-
-    auto uValue = unsignedCast(value);
-
-    unsigned zeroCount = 0;
-    for (unsigned i = 0; i < bitSize; i++) {
-        if (uValue & 1)
-            break;
-
-        zeroCount++;
-        uValue >>= 1;
-    }
-    return zeroCount;
-}
-
-template<typename T>
-inline unsigned ctz(T value)
-{
-    constexpr unsigned bitSize = sizeof(T) * CHAR_BIT;
-
-    auto uValue = unsignedCast(value);
-
-    if (uValue)
-        return __builtin_ctzll(uValue);
-    return bitSize;
-}
-
-template<typename T>
-inline unsigned getLSBSet(T t)
-{
-    ASSERT(t);
+    ASSERT_UNDER_CONSTEXPR_CONTEXT(t);
     return ctz(t);
 }
 
 template<typename T>
-constexpr unsigned getLSBSetConstexpr(T t)
-{
-    ASSERT_UNDER_CONSTEXPR_CONTEXT(t);
-    return ctzConstexpr(t);
-}
-
-template<typename T>
-inline unsigned getMSBSet(T t)
+constexpr unsigned getMSBSet(T t)
 {
     constexpr unsigned bitSize = sizeof(T) * CHAR_BIT;
-    ASSERT(t);
+    ASSERT_UNDER_CONSTEXPR_CONTEXT(t);
     return bitSize - 1 - clz(t);
-}
-
-template<typename T>
-constexpr unsigned getMSBSetConstexpr(T t)
-{
-    constexpr unsigned bitSize = sizeof(T) * CHAR_BIT;
-    ASSERT_UNDER_CONSTEXPR_CONTEXT(t);
-    return bitSize - 1 - clzConstexpr(t);
 }
 
 inline uint32_t reverseBits32(uint32_t value)
@@ -842,7 +817,7 @@ constexpr T roundDownToMultipleOf(T x)
 
 #define WTF_PROVEN_TRUE(x) (__builtin_constant_p(x) && (x))
 
-ALWAYS_INLINE int32_t truncateDoubleToInt32(double number)
+SUPPRESS_NODELETE ALWAYS_INLINE int32_t NODELETE truncateDoubleToInt32(double number)
 {
 #if CPU(X86_64)
     return _mm_cvttsd_si32(_mm_set_sd(number));
@@ -869,7 +844,7 @@ ALWAYS_INLINE int32_t truncateDoubleToInt32(double number)
 #endif
 }
 
-ALWAYS_INLINE int64_t truncateDoubleToInt64(double number)
+SUPPRESS_NODELETE ALWAYS_INLINE int64_t NODELETE truncateDoubleToInt64(double number)
 {
 #if CPU(X86_64)
     return _mm_cvttsd_si64(_mm_set_sd(number));
@@ -891,7 +866,7 @@ ALWAYS_INLINE int64_t truncateDoubleToInt64(double number)
 #endif
 }
 
-ALWAYS_INLINE uint32_t truncateDoubleToUint32(double number)
+SUPPRESS_NODELETE ALWAYS_INLINE uint32_t NODELETE truncateDoubleToUint32(double number)
 {
 #if CPU(X86_64)
     return static_cast<uint32_t>(_mm_cvttsd_si64(_mm_set_sd(number)));
@@ -913,7 +888,7 @@ ALWAYS_INLINE uint32_t truncateDoubleToUint32(double number)
 #endif
 }
 
-ALWAYS_INLINE uint64_t truncateDoubleToUint64(double number)
+SUPPRESS_NODELETE ALWAYS_INLINE uint64_t NODELETE truncateDoubleToUint64(double number)
 {
 #if CPU(X86_64)
     // Branchless conversion matching compiler codegen for static_cast<uint64_t>(double).
@@ -949,7 +924,7 @@ ALWAYS_INLINE uint64_t truncateDoubleToUint64(double number)
 
 // Float-to-integer truncation helpers.
 
-ALWAYS_INLINE int32_t truncateFloatToInt32(float number)
+SUPPRESS_NODELETE ALWAYS_INLINE int32_t NODELETE truncateFloatToInt32(float number)
 {
 #if CPU(X86_64)
     return _mm_cvttss_si32(_mm_set_ss(number));
@@ -971,7 +946,7 @@ ALWAYS_INLINE int32_t truncateFloatToInt32(float number)
 #endif
 }
 
-ALWAYS_INLINE int64_t truncateFloatToInt64(float number)
+SUPPRESS_NODELETE ALWAYS_INLINE int64_t NODELETE truncateFloatToInt64(float number)
 {
 #if CPU(X86_64)
     return _mm_cvttss_si64(_mm_set_ss(number));
@@ -998,7 +973,7 @@ ALWAYS_INLINE int64_t truncateFloatToInt64(float number)
 #endif
 }
 
-ALWAYS_INLINE uint32_t truncateFloatToUint32(float number)
+SUPPRESS_NODELETE ALWAYS_INLINE uint32_t NODELETE truncateFloatToUint32(float number)
 {
 #if CPU(X86_64)
     return static_cast<uint32_t>(_mm_cvttss_si64(_mm_set_ss(number)));
@@ -1014,7 +989,7 @@ ALWAYS_INLINE uint32_t truncateFloatToUint32(float number)
 #endif
 }
 
-ALWAYS_INLINE uint64_t truncateFloatToUint64(float number)
+SUPPRESS_NODELETE ALWAYS_INLINE uint64_t NODELETE truncateFloatToUint64(float number)
 {
 #if CPU(X86_64)
     // Branchless conversion matching compiler codegen for static_cast<uint64_t>(float).
@@ -1052,7 +1027,7 @@ ALWAYS_INLINE uint64_t truncateFloatToUint64(float number)
 // tryConvertToStrictInt32: Attempts to convert a double to int32_t, returning
 // std::nullopt if the value is not exactly representable as int32 (including
 // -0.0, NaN, Infinity, non-integer values, and out-of-range values).
-ALWAYS_INLINE std::optional<int32_t> tryConvertToStrictInt32(double value)
+SUPPRESS_NODELETE ALWAYS_INLINE std::optional<int32_t> NODELETE tryConvertToStrictInt32(double value)
 {
 #if HAVE(FJCVTZS_INSTRUCTION)
     int32_t result;

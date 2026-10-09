@@ -61,11 +61,10 @@ public:
         GlobalCoordinateSpace,
         LocalCoordinateSpace
     };
-    RenderSVGShape(Type, SVGGraphicsElement&, RenderStyle&&);
+    RenderSVGShape(Type, SVGGraphicsElement&, Style::ComputedStyle&&);
     virtual ~RenderSVGShape();
 
     inline SVGGraphicsElement& graphicsElement() const;
-    inline Ref<SVGGraphicsElement> protectedGraphicsElement() const;
 
     void setNeedsShapeUpdate() { m_needsShapeUpdate = true; }
 
@@ -80,7 +79,7 @@ public:
     FloatPoint getPointAtLength(float distance) const;
 
     bool hasPath() const { return m_path.get(); }
-    Path& path() const
+    Path& path() const LIFETIME_BOUND
     {
         ASSERT(m_path);
         return *m_path;
@@ -88,6 +87,9 @@ public:
     void clearPath() { m_path = nullptr; }
 
     ShapeType shapeType() const { return m_shapeType; }
+
+    bool fillRequiresClip() const { return m_fillRequiresClip; }
+    void setFillRequiresClip(bool fillRequiresClip) const { m_fillRequiresClip = fillRequiresClip; }
 
     FloatRect objectBoundingBox() const final { return m_fillBoundingBox; }
     FloatRect strokeBoundingBox() const final;
@@ -97,17 +99,17 @@ public:
 
     bool needsHasSVGTransformFlags() const final;
 
-    void applyTransform(TransformationMatrix&, const RenderStyle&, const FloatRect& boundingBox, OptionSet<Style::TransformResolverOption>) const final;
+    void applyTransform(TransformationMatrix&, const Style::ComputedStyle&, const FloatRect& boundingBox, OptionSet<Style::TransformResolverOption>) const final;
 
     AffineTransform nonScalingStrokeTransform() const;
 
 protected:
     void element() const = delete;
 
-    Path& ensurePath();
+    Path& ensurePath() LIFETIME_BOUND;
 
     virtual void updateShapeFromElement() = 0;
-    virtual bool isEmpty() const;
+    virtual bool NODELETE isEmpty() const;
     virtual bool shapeDependentStrokeContains(const FloatPoint&, PointCoordinateSpace = GlobalCoordinateSpace);
     virtual bool shapeDependentFillContains(const FloatPoint&, const WindRule) const;
     float strokeWidth() const;
@@ -138,12 +140,12 @@ private:
     
     std::unique_ptr<Path> createPath() const;
 
-    void fillShape(const RenderStyle&, GraphicsContext&);
-    void strokeShape(const RenderStyle&, GraphicsContext&);
+    void fillShape(const Style::ComputedStyle&, GraphicsContext&);
+    void strokeShape(const Style::ComputedStyle&, GraphicsContext&);
     void fillStrokeMarkers(PaintInfo&);
     virtual void drawMarkers(PaintInfo&) { }
 
-    void styleWillChange(Style::Difference, const RenderStyle& newStyle) override;
+    void styleWillChange(Style::Difference, const Style::ComputedStyle& newStyle) override;
 
     FloatRect calculateApproximateStrokeBoundingBox() const;
 
@@ -153,6 +155,7 @@ protected:
     mutable Markable<FloatRect> m_approximateStrokeBoundingBox;
 private:
     bool m_needsShapeUpdate { true };
+    mutable bool m_fillRequiresClip : 1 { true };
 protected:
     ShapeType m_shapeType : 3 { ShapeType::Empty };
 private:

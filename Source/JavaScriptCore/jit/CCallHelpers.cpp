@@ -28,6 +28,7 @@
 
 #if ENABLE(JIT)
 
+#include "JITOperations.h"
 #include "LinkBuffer.h"
 #include "MaxFrameExtentForSlowPathCall.h"
 #include "ShadowChicken.h"
@@ -51,7 +52,7 @@ void CCallHelpers::ensureShadowChickenPacket(VM& vm, GPRReg shadowPacket, GPRReg
 {
     ShadowChicken* shadowChicken = vm.shadowChicken();
     RELEASE_ASSERT(shadowChicken);
-    ASSERT(!RegisterSetBuilder::argumentGPRs().contains(scratch1NonArgGPR, IgnoreVectors));
+    ASSERT(!RegisterSet::argumentGPRs().contains(scratch1NonArgGPR, IgnoreVectors));
     move(TrustedImmPtr(shadowChicken->addressOfLogCursor()), scratch1NonArgGPR);
     loadPtr(Address(scratch1NonArgGPR), shadowPacket);
     Jump ok = branchPtr(Below, shadowPacket, TrustedImmPtr(shadowChicken->logEnd()));

@@ -25,9 +25,13 @@
 
 #pragma once
 
-#include <WebCore/GridTypeAliases.h>
-#include <WebCore/LayoutUnit.h>
+#include "AxisConstraint.h"
+#include "GridItemSizingFunctions.h"
+#include "GridTypeAliases.h"
+#include "LayoutUnit.h"
+#include "PlacedGridItem.h"
 #include <wtf/Function.h>
+#include <wtf/Range.h>
 
 namespace WebCore {
 
@@ -35,15 +39,24 @@ class StyleContentAlignmentData;
 
 namespace Layout {
 
-class TrackSizingAlgorithm {
-public:
-    static TrackSizes sizeTracks(const PlacedGridItems&, const TrackSizingFunctionsList&);
+class IntegrationUtils;
 
-private:
-
-    static UnsizedTracks initializeTrackSizes(const TrackSizingFunctionsList&);
+struct TrackSizingItem {
+    const PlacedGridItem& gridItem;
+    const ComputedSizes computedSizes;
+    const LayoutUnit borderAndPadding;
+    const WTF::Range<size_t> spannedLines;
+    const LayoutUnit oppositeAxisConstraint;
 };
 
-} // namespace WebCore
+class TrackSizingAlgorithm {
+public:
+    static TrackSizes sizeTracks(const TrackSizingItemList&, const TrackSizingFunctionsList&,
+        const AxisConstraint&, const GridItemSizingFunctions&,
+        LayoutUnit gapSize, const StyleContentAlignmentData& usedContentAlignment);
+
+};
+
 } // namespace Layout
+} // namespace WebCore
 

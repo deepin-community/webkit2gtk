@@ -35,9 +35,10 @@
 #include "LocalizedStrings.h"
 #include "NodeDocument.h"
 #include "PlatformLocale.h"
-#include "RenderStyle+SettersInlines.h"
+#include "PlatformRenderTheme.h"
 #include "RenderTheme.h"
 #include "ResolvedStyle.h"
+#include "StyleComputedStyle+SettersInlines.h"
 #include "StyleResolver.h"
 #include "Text.h"
 #include <wtf/TZoneMallocInlines.h>
@@ -52,12 +53,12 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(DateTimeFieldElement);
 DateTimeFieldElementFieldOwner::~DateTimeFieldElementFieldOwner() = default;
 
 DateTimeFieldElement::DateTimeFieldElement(Document& document, DateTimeFieldElementFieldOwner& fieldOwner)
-    : HTMLDivElement(divTag, document, TypeFlag::HasCustomStyleResolveCallbacks)
+    : HTMLDivElement(document, TypeFlag::HasCustomStyleResolveCallbacks)
     , m_fieldOwner(fieldOwner)
 {
 }
 
-std::optional<Style::UnadjustedStyle> DateTimeFieldElement::resolveCustomStyle(const Style::ResolutionContext& resolutionContext, const RenderStyle* shadowHostStyle)
+std::optional<Style::UnadjustedStyle> DateTimeFieldElement::resolveCustomStyle(const Style::ResolutionContext& resolutionContext, const Style::ComputedStyle* shadowHostStyle)
 {
     auto elementStyle = resolveStyle(resolutionContext);
 
@@ -176,7 +177,7 @@ void DateTimeFieldElement::handleBlurEvent(Event& event)
 
 Locale& DateTimeFieldElement::localeForOwner() const
 {
-    return protectedDocument()->getCachedLocale(localeIdentifier());
+    return protect(document())->getCachedLocale(localeIdentifier());
 }
 
 AtomString DateTimeFieldElement::localeIdentifier() const
@@ -194,12 +195,18 @@ String DateTimeFieldElement::visibleValue() const
 void DateTimeFieldElement::updateVisibleValue(EventBehavior eventBehavior)
 {
     if (!firstChild())
-        appendChild(Text::create(protectedDocument().get(), String { emptyString() }));
+        appendChild(Text::create(protect(document()).get(), String { emptyString() }));
 
     Ref textNode = downcast<Text>(*firstChild());
     String newVisibleValue = visibleValue();
     if (textNode->wholeText() != newVisibleValue)
         textNode->replaceWholeText(newVisibleValue);
+
+    auto hasValue = this->hasValue();
+    if (m_hadValueAtLastValueUpdate != hasValue) {
+        m_hadValueAtLastValueUpdate = hasValue;
+        invalidateStyle();
+    }
 
     if (eventBehavior == DispatchInputAndChangeEvents && m_fieldOwner)
         m_fieldOwner->fieldValueChanged();

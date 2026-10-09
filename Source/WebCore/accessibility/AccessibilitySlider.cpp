@@ -29,6 +29,7 @@
 #include "config.h"
 #include "AccessibilitySlider.h"
 
+#include "AccessibilityNodeObjectInlines.h"
 #include "AccessibilityObjectInlines.h"
 #include "AXLoggerBase.h"
 #include "AXObjectCache.h"
@@ -37,9 +38,9 @@
 #include "HTMLInputElement.h"
 #include "HTMLNames.h"
 #include "RenderSlider.h"
-#include "RenderStyle+GettersInlines.h"
 #include "SliderThumbElement.h"
 #include "StyleAppearance.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include <wtf/Scope.h>
 
 namespace WebCore {
@@ -103,20 +104,20 @@ void AccessibilitySlider::addChildren()
     else
         addChild(thumb.get());
 
-#ifndef NDEBUG
+#if ASSERT_ENABLED
     verifyChildrenIndexInParent();
 #endif
 }
 
-AccessibilityObject* AccessibilitySlider::elementAccessibilityHitTest(const IntPoint& point) const
+RefPtr<AccessibilityObject> AccessibilitySlider::elementAccessibilityHitTest(const IntPoint& point) const
 {
     if (m_children.size()) {
         AX_ASSERT(m_children.size() == 1);
         if (Ref { m_children[0] }->elementRect().contains(point))
-            return dynamicDowncast<AccessibilityObject>(m_children[0].get());
+            return downcast<AccessibilityObject>(m_children[0].get());
     }
 
-    return checkedAxObjectCache()->getOrCreate(checkedRenderer().get());
+    return protect(axObjectCache())->getOrCreate(protect(renderer()).get());
 }
 
 float AccessibilitySlider::valueForRange() const
@@ -172,10 +173,10 @@ LayoutRect AccessibilitySliderThumb::elementRect() const
     if (!m_parent)
         return LayoutRect();
 
-    auto* sliderRenderer = dynamicDowncast<RenderSlider>(m_parent->renderer());
+    CheckedPtr sliderRenderer = dynamicDowncast<RenderSlider>(protect(m_parent)->renderer());
     if (!sliderRenderer)
         return LayoutRect();
-    if (CheckedPtr thumbRenderer = sliderRenderer->protectedElement()->sliderThumbElement()->renderer())
+    if (CheckedPtr thumbRenderer = protect(sliderRenderer->element())->sliderThumbElement()->renderer())
         return thumbRenderer->absoluteBoundingBoxRect();
     return LayoutRect();
 }

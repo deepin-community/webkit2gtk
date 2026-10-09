@@ -544,10 +544,22 @@ ALWAYS_INLINE void JIT::load8FromMetadata(const Bytecode& bytecode, size_t offse
     load8(Address(GPRInfo::metadataTableRegister, m_profiledCodeBlock->metadataTable()->offsetInMetadataTable(bytecode) + offset), result);
 }
 
+template <typename Bytecode>
+ALWAYS_INLINE void JIT::load16FromMetadata(const Bytecode& bytecode, size_t offset, GPRReg result)
+{
+    load16(Address(GPRInfo::metadataTableRegister, m_profiledCodeBlock->metadataTable()->offsetInMetadataTable(bytecode) + offset), result);
+}
+
 template <typename ValueType, typename Bytecode>
 ALWAYS_INLINE void JIT::store8ToMetadata(ValueType value, const Bytecode& bytecode, size_t offset)
 {
     store8(value, Address(GPRInfo::metadataTableRegister, m_profiledCodeBlock->metadataTable()->offsetInMetadataTable(bytecode) + offset));
+}
+
+template <typename ValueType, typename Bytecode>
+ALWAYS_INLINE void JIT::store16ToMetadata(ValueType value, const Bytecode& bytecode, size_t offset)
+{
+    store16(value, Address(GPRInfo::metadataTableRegister, m_profiledCodeBlock->metadataTable()->offsetInMetadataTable(bytecode) + offset));
 }
 
 template <typename Bytecode>
@@ -588,14 +600,14 @@ ALWAYS_INLINE void JIT::loadGlobalObject(GPRReg result)
     loadGlobalObject(*this, result);
 }
 
-ALWAYS_INLINE void JIT::loadStructureStubInfo(CCallHelpers& jit, StructureStubInfoIndex index, GPRReg result)
+ALWAYS_INLINE void JIT::loadPropertyInlineCache(CCallHelpers& jit, PropertyInlineCacheIndex index, GPRReg result)
 {
-    jit.subPtr(GPRInfo::jitDataRegister, TrustedImm32(static_cast<uintptr_t>(index.m_index + 1) * sizeof(StructureStubInfo)), result);
+    jit.subPtr(GPRInfo::jitDataRegister, TrustedImm32(static_cast<uintptr_t>(index.m_index + 1) * sizeof(HandlerPropertyInlineCache)), result);
 }
 
-ALWAYS_INLINE void JIT::loadStructureStubInfo(StructureStubInfoIndex index, GPRReg result)
+ALWAYS_INLINE void JIT::loadPropertyInlineCache(PropertyInlineCacheIndex index, GPRReg result)
 {
-    loadStructureStubInfo(*this, index, result);
+    loadPropertyInlineCache(*this, index, result);
 }
 
 ALWAYS_INLINE static void loadAddrOfCodeBlockConstantBuffer(JIT &jit, GPRReg dst)

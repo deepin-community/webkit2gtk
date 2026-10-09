@@ -31,12 +31,9 @@
 
 #include <sys/file.h>
 #include <sys/stat.h>
-#include <sys/types.h>
-#include <sys/uio.h>
 #include <unistd.h>
 #include <wtf/CheckedArithmetic.h>
 #include <wtf/FileSystem.h>
-#include <wtf/MallocSpan.h>
 #include <wtf/MappedFileData.h>
 
 namespace WTF::FileSystemImpl {
@@ -140,9 +137,9 @@ bool FileHandle::lock(OptionSet<FileLockMode> lockMode)
     if (!m_handle)
         return false;
 
-    static_assert(LOCK_SH == WTF::enumToUnderlyingType(FileLockMode::Shared), "LockSharedEncoding is as expected");
-    static_assert(LOCK_EX == WTF::enumToUnderlyingType(FileLockMode::Exclusive), "LockExclusiveEncoding is as expected");
-    static_assert(LOCK_NB == WTF::enumToUnderlyingType(FileLockMode::Nonblocking), "LockNonblockingEncoding is as expected");
+    static_assert(LOCK_SH == std::to_underlying(FileLockMode::Shared), "LockSharedEncoding is as expected");
+    static_assert(LOCK_EX == std::to_underlying(FileLockMode::Exclusive), "LockExclusiveEncoding is as expected");
+    static_assert(LOCK_NB == std::to_underlying(FileLockMode::Nonblocking), "LockNonblockingEncoding is as expected");
 
     return flock(*m_handle, lockMode.toRaw()) != -1;
 }

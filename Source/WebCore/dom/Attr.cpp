@@ -32,7 +32,6 @@
 #include "Event.h"
 #include "HTMLNames.h"
 #include "MutableStyleProperties.h"
-#include "NodeInlines.h"
 #include "ScopedEventQueue.h"
 #include "SerializedNode.h"
 #include "StyledElement.h"
@@ -40,7 +39,6 @@
 #include "TreeScopeInlines.h"
 #include "TrustedType.h"
 #include "WebCoreOpaqueRootInlines.h"
-#include "XMLNSNames.h"
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/AtomString.h>
 
@@ -56,14 +54,14 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(Attr);
 using namespace HTMLNames;
 
 Attr::Attr(Element& element, const QualifiedName& name)
-    : Node(element.document(), ATTRIBUTE_NODE, { })
+    : Node(element.document(), NodeType::Attribute, { })
     , m_element(element)
     , m_name(name)
 {
 }
 
 Attr::Attr(Document& document, const QualifiedName& name, const AtomString& standaloneValue)
-    : Node(document, ATTRIBUTE_NODE, { })
+    : Node(document, NodeType::Attribute, { })
     , m_name(name)
     , m_standaloneValue(standaloneValue)
 {
@@ -88,33 +86,15 @@ Attr::~Attr()
     willBeDeletedFrom(document());
 }
 
-ExceptionOr<void> Attr::setPrefix(const AtomString& prefix)
-{
-    auto result = checkSetPrefix(prefix);
-    if (result.hasException())
-        return result.releaseException();
-
-    if ((prefix == xmlnsAtom() && namespaceURI() != XMLNSNames::xmlnsNamespaceURI) || qualifiedName() == xmlnsAtom())
-        return Exception { ExceptionCode::NamespaceError };
-
-    const AtomString& newPrefix = prefix.isEmpty() ? nullAtom() : prefix;
-    if (RefPtr element = m_element.get())
-        element->ensureUniqueElementData().findAttributeByName(qualifiedName())->setPrefix(newPrefix);
-
-    m_name.setPrefix(newPrefix);
-
-    return { };
-}
-
 ExceptionOr<void> Attr::setValue(const AtomString& value)
 {
     if (RefPtr element = m_element.get()) {
         auto verifiedValue = value;
-        if (document().contextDocument().requiresTrustedTypes()) {
+        if (protect(document())->contextDocument().requiresTrustedTypes()) {
             auto type = trustedTypeForAttribute(element->nodeName(), qualifiedName().localName(),
                 element->namespaceURI(), qualifiedName().namespaceURI());
             if (!type.attributeType.isNull()) {
-                auto compliantValue = trustedTypesCompliantAttributeValue(document().contextDocument(), type.attributeType, value,
+                auto compliantValue = trustedTypesCompliantAttributeValue(protect(protect(document())->contextDocument()), type.attributeType, value,
                     type.sink);
                 if (compliantValue.hasException())
                     return compliantValue.releaseException();
@@ -191,7 +171,7 @@ void Attr::attachToElement(Element& element)
         m_element = &element;
     }
     m_standaloneValue = nullAtom();
-    setTreeScopeRecursively(element.treeScope());
+    setTreeScopeRecursively(protect(element)->treeScope());
 }
 
 template<typename Visitor>

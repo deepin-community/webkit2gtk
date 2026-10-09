@@ -43,6 +43,8 @@ WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
 
 namespace WebCore {
 
+WTF_MAKE_TZONE_ALLOCATED_IMPL(PathSkia);
+
 Ref<PathSkia> PathSkia::create(std::span<const PathSegment> segments)
 {
     Ref pathSkia = adoptRef(*new PathSkia);
@@ -351,8 +353,8 @@ bool PathSkia::strokeContains(const FloatPoint& point, NOESCAPE const Function<v
 
     // FIXME: Compute stroke precision.
     SkPaint paint = graphicsContext.createStrokePaint();
-    SkPath strokePath;
-    skpathutils::FillPathWithPaint(*m_platformPath, paint, &strokePath, nullptr);
+    SkPathBuilder strokePath;
+    skpathutils::FillPathWithPaint(*m_platformPath, paint, &strokePath);
     return strokePath.contains(SkPoint::Make(SkScalar(point.x()), SkScalar(point.y())));
 }
 
@@ -378,9 +380,9 @@ FloatRect PathSkia::strokeBoundingRect(NOESCAPE const Function<void(GraphicsCont
     // Skia stroke resolution scale for reduced-precision requirements.
     constexpr float strokePrecision = 0.3f;
     SkPaint paint = graphicsContext.createStrokePaint();
-    SkPath strokePath;
-    skpathutils::FillPathWithPaint(*m_platformPath, paint, &strokePath, nullptr, strokePrecision);
-    return strokePath.computeTightBounds();
+    SkPathBuilder strokePath;
+    skpathutils::FillPathWithPaint(*m_platformPath, paint, &strokePath, nullptr, SkMatrix::Scale(strokePrecision, strokePrecision));
+    return strokePath.detach().computeTightBounds();
 }
 
 } // namespace WebCore

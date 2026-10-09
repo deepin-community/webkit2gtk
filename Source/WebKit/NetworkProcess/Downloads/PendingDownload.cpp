@@ -37,6 +37,10 @@
 #include <WebCore/LocalFrameLoaderClient.h>
 #include <wtf/TZoneMallocInlines.h>
 
+#if HAVE(BROWSERENGINEKIT_WEBCONTENTFILTER)
+#include "WebParentalControlsURLFilter.h"
+#endif
+
 namespace WebKit {
 using namespace WebCore;
 
@@ -52,7 +56,9 @@ PendingDownload::PendingDownload(IPC::Connection* parentProcessConnection, Netwo
     relaxAdoptionRequirement();
 
 #if ENABLE(CONTENT_FILTERING)
-    NetworkProcess::setSharedParentalControlsURLFilterIfNecessary();
+#if HAVE(BROWSERENGINEKIT_WEBCONTENTFILTER) && !HAVE(WEBCONTENTRESTRICTIONS_PATH_SPI)
+    WebParentalControlsURLFilter::setSharedParentalControlsURLFilterIfNecessary();
+#endif
 #endif
 
 #if HAVE(WEBCONTENTRESTRICTIONS)
@@ -75,7 +81,7 @@ PendingDownload::PendingDownload(IPC::Connection* parentProcessConnection, Netwo
     send(Messages::DownloadProxy::DidStart(m_networkLoad->currentRequest(), suggestedName));
 
 #if HAVE(WEBCONTENTRESTRICTIONS)
-    m_urlFilter->isURLAllowed(m_networkLoad->currentRequest().url(), [this, protectedThis = Ref { *this }, startNetworkLoad = WTF::move(startNetworkLoad)] (bool allowed, NSData *) mutable {
+    protect(m_urlFilter)->isURLAllowed(IsMainFrameLoad::Yes, mainDocumentURL(), m_networkLoad->currentRequest().url(), [this, protectedThis = Ref { *this }, startNetworkLoad = WTF::move(startNetworkLoad)] (bool allowed, NSData *) mutable {
         if (!allowed) {
             blockDueToContentFilter(ResourceResponse { m_networkLoad->currentRequest().url(), "application/octet-stream"_s, 0, ""_s }, nullptr);
             return;
@@ -92,6 +98,7 @@ PendingDownload::PendingDownload(IPC::Connection* parentProcessConnection, Ref<N
     : m_networkLoad(WTF::move(networkLoad))
     , m_downloadID(downloadID)
     , m_parentProcessConnection(parentProcessConnection)
+    , m_fromDownloadAttribute(FromDownloadAttribute::No)
 {
     m_isAllowedToAskUserForCredentials = m_networkLoad->isAllowedToAskUserForCredentials();
 
@@ -124,7 +131,7 @@ void PendingDownload::willSendRedirectedRequest(WebCore::ResourceRequest&&, WebC
         completionHandler(WebCore::ResourceRequest());
         m_networkLoad->cancel();
         if (m_webProcessID && !redirectRequest.url().protocolIsJavaScript() && m_networkLoad->webFrameID() && m_networkLoad->webPageID()) {
-            if (RefPtr webProcessConnection = m_networkLoad->networkProcess()->protectedWebProcessConnection(*m_webProcessID))
+            if (RefPtr webProcessConnection = m_networkLoad->networkProcess()->webProcessConnection(*m_webProcessID))
                 webProcessConnection->loadCancelledDownloadRedirectRequestInFrame(redirectRequest, *m_networkLoad->webFrameID(), *m_networkLoad->webPageID());
         }
         return;
@@ -132,7 +139,7 @@ void PendingDownload::willSendRedirectedRequest(WebCore::ResourceRequest&&, WebC
 
 #if HAVE(WEBCONTENTRESTRICTIONS)
     auto requestURL = redirectRequest.url();
-    m_urlFilter->isURLAllowed(requestURL, [this, protectedThis = Ref { *this }, completionHandler = WTF::move(completionHandler), redirectRequest = WTF::move(redirectRequest), redirectResponse = WTF::move(redirectResponse)] (bool allowed, NSData *) mutable {
+    protect(m_urlFilter)->isURLAllowed(IsMainFrameLoad::Yes, mainDocumentURL(), requestURL, [this, protectedThis = Ref { *this }, completionHandler = WTF::move(completionHandler), redirectRequest = WTF::move(redirectRequest), redirectResponse = WTF::move(redirectResponse)] (bool allowed, NSData *) mutable {
         if (allowed) {
             sendWithAsyncReply(Messages::DownloadProxy::WillSendRequest(WTF::move(redirectRequest), WTF::move(redirectResponse)), WTF::move(completionHandler));
             return;
@@ -206,6 +213,22 @@ void PendingDownload::didReceiveResponse(WebCore::ResourceResponse&& response, P
 uint64_t PendingDownload::messageSenderDestinationID() const
 {
     return m_downloadID.toUInt64();
+}
+
+URL PendingDownload::mainDocumentURL() const
+{
+    auto firstParty = m_networkLoad->currentRequest().firstPartyForCookies();
+    if (!firstParty.isEmpty())
+        return firstParty;
+
+    RefPtr topOrigin = m_networkLoad->parameters().topOrigin;
+    if (topOrigin)
+        return topOrigin->toURL();
+
+    if (m_networkLoad->parameters().mainResourceNavigationDataForAnyFrame)
+        return m_networkLoad->parameters().mainResourceNavigationDataForAnyFrame->request.url();
+
+    return { };
 }
 
 #if HAVE(WEBCONTENTRESTRICTIONS)

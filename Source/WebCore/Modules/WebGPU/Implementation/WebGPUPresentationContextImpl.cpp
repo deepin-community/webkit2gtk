@@ -32,7 +32,6 @@
 #include "WebGPUCanvasConfiguration.h"
 #include "WebGPUConvertToBackingContext.h"
 #include "WebGPUDeviceImpl.h"
-#include "WebGPUTextureDescriptor.h"
 #include "WebGPUTextureImpl.h"
 #include <WebGPU/WebGPUExt.h>
 
@@ -58,7 +57,7 @@ void PresentationContextImpl::setSize(uint32_t width, uint32_t height)
     m_height = height;
 }
 
-static WGPUToneMappingMode convertToToneMappingMode(WebCore::WebGPU::CanvasToneMappingMode toneMappingMode)
+static WGPUToneMappingMode NODELETE convertToToneMappingMode(WebCore::WebGPU::CanvasToneMappingMode toneMappingMode)
 {
     switch (toneMappingMode) {
     case WebCore::WebGPU::CanvasToneMappingMode::Standard:
@@ -71,7 +70,7 @@ static WGPUToneMappingMode convertToToneMappingMode(WebCore::WebGPU::CanvasToneM
     return WGPUToneMappingMode_Extended;
 }
 
-static WGPUCompositeAlphaMode convertToAlphaMode(WebCore::WebGPU::CanvasAlphaMode compositingAlphaMode)
+static WGPUCompositeAlphaMode NODELETE convertToAlphaMode(WebCore::WebGPU::CanvasAlphaMode compositingAlphaMode)
 {
     switch (compositingAlphaMode) {
     case WebCore::WebGPU::CanvasAlphaMode::Opaque:
@@ -82,6 +81,25 @@ static WGPUCompositeAlphaMode convertToAlphaMode(WebCore::WebGPU::CanvasAlphaMod
 
     ASSERT_NOT_REACHED();
     return WGPUCompositeAlphaMode_Premultiplied;
+}
+
+static WGPUColorSpace NODELETE convertToColorSpace(PredefinedColorSpace colorSpace)
+{
+    switch (colorSpace) {
+    case PredefinedColorSpace::SRGB:
+        return WGPUColorSpace::SRGB;
+    case PredefinedColorSpace::SRGBLinear:
+        return WGPUColorSpace::SRGBLinear;
+#if ENABLE(PREDEFINED_COLOR_SPACE_DISPLAY_P3)
+    case PredefinedColorSpace::DisplayP3:
+        return WGPUColorSpace::DisplayP3;
+    case PredefinedColorSpace::DisplayP3Linear:
+        return WGPUColorSpace::DisplayP3Linear;
+#endif
+    }
+
+    ASSERT_NOT_REACHED();
+    return WGPUColorSpace::SRGB;
 }
 
 bool PresentationContextImpl::configure(const CanvasConfiguration& canvasConfiguration)
@@ -102,13 +120,13 @@ bool PresentationContextImpl::configure(const CanvasConfiguration& canvasConfigu
         .viewFormats = canvasConfiguration.viewFormats.map([&](auto colorFormat) {
             return convertToBackingContext->convertToBacking(colorFormat);
         }),
-        .colorSpace = canvasConfiguration.colorSpace == WebCore::WebGPU::PredefinedColorSpace::SRGB ? WGPUColorSpace::SRGB : WGPUColorSpace::DisplayP3,
+        .colorSpace = convertToColorSpace(canvasConfiguration.colorSpace),
         .toneMappingMode = convertToToneMappingMode(canvasConfiguration.toneMappingMode),
         .compositeAlphaMode = convertToAlphaMode(canvasConfiguration.compositingAlphaMode),
         .reportValidationErrors = canvasConfiguration.reportValidationErrors
     };
 
-    m_swapChain = adoptWebGPU(wgpuDeviceCreateSwapChain(convertToBackingContext->convertToBacking(canvasConfiguration.protectedDevice().get()), m_backing.get(), &backingDescriptor));
+    m_swapChain = adoptWebGPU(wgpuDeviceCreateSwapChain(convertToBackingContext->convertToBacking(protect(canvasConfiguration.device)), m_backing.get(), &backingDescriptor));
     return true;
 }
 
@@ -118,11 +136,10 @@ void PresentationContextImpl::unconfigure()
         return;
 
     m_swapChain = nullptr;
-    
+
     m_format = TextureFormat::Bgra8unorm;
     m_width = 0;
     m_height = 0;
-    m_swapChain = nullptr;
     m_currentTexture = nullptr;
 }
 

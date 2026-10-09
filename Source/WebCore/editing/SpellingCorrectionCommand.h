@@ -27,6 +27,7 @@
 
 #include "CompositeEditCommand.h"
 #include "DocumentFragment.h"
+#include "SimpleRange.h"
 
 namespace WebCore {
 
@@ -43,8 +44,6 @@ private:
     String inputEventData() const final;
     Vector<Ref<StaticRange>> targetRanges() const final;
     RefPtr<DataTransfer> inputEventDataTransfer() const final;
-
-    RefPtr<DocumentFragment> protectedCorrectionFragment() const { return m_correctionFragment; }
 
     SimpleRange m_rangeToBeCorrected;
     VisibleSelection m_selectionToBeCorrected;

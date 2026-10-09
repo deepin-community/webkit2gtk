@@ -958,6 +958,18 @@ class Instruction
             emitARM64Add("add", operands, :quad)
         when 'addlshiftp'
             emitARM64AddShift("add", operands, :quad)
+        when 'addqs'
+            emitARM64Add("adds", operands, :quad)
+        when 'subqs'
+            emitARM64Sub("subs", operands, :quad)
+        when "adcq"
+            emitARM64TAC("adc", operands, :quad)
+        when "sbcq"
+            emitARM64TAC("sbc", operands, :quad)
+        when "smulhq"
+            emitARM64TAC("smulh", operands, :quad)
+        when "umulhq"
+            emitARM64TAC("umulh", operands, :quad)
         when "andi"
             emitARM64TAC("and", operands, :word)
         when "andp"
@@ -1416,7 +1428,20 @@ class Instruction
         when "bfiq"
             $asm.puts "bfi #{operands[3].arm64Operand(:quad)}, #{operands[0].arm64Operand(:quad)}, #{operands[1].value}, #{operands[2].value}"
         when "pcrtoaddr"
-            $asm.puts "adr #{operands[1].arm64Operand(:quad)}, #{operands[0].value}"
+            labelRef = operands[0]
+            register = operands[1].arm64Operand(:quad)
+            if labelRef.externOrGlobal?
+                $asm.putStr("#if OS(DARWIN)")
+                $asm.puts "adrp #{register}, #{labelRef.asmLabel}@PAGE"
+                $asm.puts "add #{register}, #{register}, #{labelRef.asmLabel}@PAGEOFF"
+                $asm.putStr("#else")
+                $asm.puts "adrp #{register}, #{labelRef.asmLabel}"
+                $asm.puts "add #{register}, #{register}, :lo12:#{labelRef.asmLabel}"
+                $asm.putStr("#endif")
+            else
+                $asm.puts "adr #{register}, #{labelRef.value}"
+            end
+
         when "globaladdr"
             uid = $asm.newUID
 
@@ -1442,6 +1467,12 @@ class Instruction
             $asm.putStr("#else")
             $asm.puts "ldr #{operands[1].arm64Operand(:quad)}, [#{operands[1].arm64Operand(:quad)}, :got_lo12:#{operands[0].asmLabel}]"
             $asm.putStr("#endif")
+
+            # On Windows, use COFF-style addressing.
+            $asm.putStr("#elif OS(WINDOWS)")
+
+            $asm.puts "adrp #{operands[1].arm64Operand(:quad)}, #{operands[0].asmLabel}"
+            $asm.puts "add #{operands[1].arm64Operand(:quad)}, #{operands[1].arm64Operand(:quad)}, :lo12:#{operands[0].asmLabel}"
 
             # Throw a compiler error everywhere else.
             $asm.putStr("#else")

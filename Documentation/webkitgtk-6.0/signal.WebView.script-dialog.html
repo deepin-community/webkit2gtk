@@ -62,7 +62,7 @@ SPDX-License-Identifier: BSD, LGPL-2.1
         <h3><a href="index.html">WebKit</a></h3>
         <p>API Version: 6.0</p>
         
-        <p>Library Version: 2.52.5</p>
+        <p>Library Version: 2.54.0</p>
         
       </div>
       
@@ -174,34 +174,26 @@ SPDX-License-Identifier: BSD, LGPL-2.1
         Description
         <a href="#description" class="anchor"></a>
         
-        <a class="srclink" title="go to source location" href="https://github.com/WebKit/WebKit/tree/main/Source/WebKit/UIProcess/API/glib/WebKitWebView.cpp#L2027">[src]</a>
+        <a class="srclink" title="go to source location" href="https://github.com/WebKit/WebKit/tree/main/Source/WebKit/UIProcess/API/glib/WebKitWebView.cpp#L2103">[src]</a>
         
       </h4>
 
       <div class="docblock">
-        <p>Emitted when JavaScript code calls <function>window.alert</function>,
-<function>window.confirm</function> or <function>window.prompt</function>,
-or when <function>onbeforeunload</function> event is fired.
+        <p>Emitted when JavaScript code calls <code>window.alert</code>,
+<code>window.confirm</code> or <code>window.prompt</code>,
+or when <code>onbeforeunload</code> event is fired.
 The <code>dialog</code> parameter should be used to build the dialog.
 If the signal is not handled a different dialog will be built and shown depending
-on the dialog type:
-<itemizedlist>
-<listitem><para>
- <code>WEBKIT_SCRIPT_DIALOG_ALERT</code>: message dialog with a single Close button.
-</para></listitem>
-<listitem><para>
- <code>WEBKIT_SCRIPT_DIALOG_CONFIRM</code>: message dialog with <span class="caps">OK</span> and Cancel buttons.
-</para></listitem>
-<listitem><para>
- <code>WEBKIT_SCRIPT_DIALOG_PROMPT</code>: message dialog with <span class="caps">OK</span> and Cancel buttons and
- a text entry with the default text.
-</para></listitem>
-<listitem><para>
- <code>WEBKIT_SCRIPT_DIALOG_BEFORE_UNLOAD_CONFIRM</code>: message dialog with Stay and Leave buttons.
-</para></listitem>
-</itemizedlist></p>
+on the dialog&nbsp;type:</p>
+<ul>
+<li><code>WEBKIT_SCRIPT_DIALOG_ALERT</code>: message dialog with a single Close&nbsp;button.</li>
+<li><code>WEBKIT_SCRIPT_DIALOG_CONFIRM</code>: message dialog with <span class="caps">OK</span> and Cancel&nbsp;buttons.</li>
+<li><code>WEBKIT_SCRIPT_DIALOG_PROMPT</code>: message dialog with <span class="caps">OK</span> and Cancel buttons and
+  a text entry with the default&nbsp;text.</li>
+<li><code>WEBKIT_SCRIPT_DIALOG_BEFORE_UNLOAD_CONFIRM</code>: message dialog with Stay and Leave&nbsp;buttons.</li>
+</ul>
 <p>It is possible to handle the script dialog request asynchronously, by simply
-caling <code>webkit_script_dialog_ref()</code> on the <code>dialog</code> argument and calling
+calling <code>webkit_script_dialog_ref()</code> on the <code>dialog</code> argument and calling
 <code>webkit_script_dialog_close()</code> when done.
 If the last reference is removed on a <code>WebKitScriptDialog</code> and the dialog has not been
 closed, <code>webkit_script_dialog_close()</code> will be&nbsp;called.</p>

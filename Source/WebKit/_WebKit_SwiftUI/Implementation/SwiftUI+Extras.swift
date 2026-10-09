@@ -23,8 +23,8 @@
 
 #if ENABLE_SWIFTUI
 
-public import SwiftUI
-@_spi(CrossImportOverlay) public import WebKit
+import SwiftUI
+@_spi(CrossImportOverlay) import WebKit
 
 extension EdgeInsets {
     #if canImport(UIKit)
@@ -37,6 +37,16 @@ extension EdgeInsets {
     }
     #endif
 }
+
+#if os(macOS)
+extension NSEdgeInsets {
+    init(_ edgeInsets: EdgeInsets, layoutDirection: LayoutDirection) {
+        let left = layoutDirection == .rightToLeft ? edgeInsets.trailing : edgeInsets.leading
+        let right = layoutDirection == .rightToLeft ? edgeInsets.leading : edgeInsets.trailing
+        self.init(top: edgeInsets.top, left: left, bottom: edgeInsets.bottom, right: right)
+    }
+}
+#endif
 
 extension ScrollGeometry {
     init(_ geometry: WKScrollGeometryAdapter) {

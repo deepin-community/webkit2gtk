@@ -25,7 +25,7 @@
 
 #pragma once
 
-#include <WebCore/LayoutElementBox.h>
+#include "LayoutElementBox.h"
 #include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
@@ -64,9 +64,9 @@ private:
     void buildTableStructure(const RenderTable& tableRenderer, ElementBox& tableWrapperBox);
     std::unique_ptr<Box> createLayoutBox(const ElementBox& parentContainer, const RenderObject& childRenderer);
 
-    std::unique_ptr<Box> createReplacedBox(Box::ElementAttributes, ElementBox::ReplacedAttributes&&, RenderStyle&&);
-    std::unique_ptr<Box> createTextBox(String text, bool isCombined, bool canUseSimplifiedTextMeasuring, bool canUseSimpleFontCodePath, bool hasPositionDependentContentWidth, bool hasStrongDirectionalityContent, RenderStyle&&);
-    std::unique_ptr<ElementBox> createContainer(Box::ElementAttributes, RenderStyle&&);
+    std::unique_ptr<Box> createReplacedBox(Box::ElementAttributes, ElementBox::ReplacedAttributes&&, Style::ComputedStyle&&);
+    std::unique_ptr<Box> createTextBox(String text, bool isCombined, bool canUseSimplifiedTextMeasuring, bool canUseSimpleFontCodePath, bool hasPositionDependentContentWidth, bool hasStrongDirectionalityContent, Style::ComputedStyle&&);
+    std::unique_ptr<ElementBox> createContainer(Box::ElementAttributes, Style::ComputedStyle&&);
 };
 
 #if ENABLE(TREE_DEBUGGING)

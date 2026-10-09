@@ -29,6 +29,7 @@
 #include "EventNames.h"
 #include "TaskSource.h"
 #include "ToggleEvent.h"
+#include "NodeInlines.h"
 
 namespace WebCore {
 
@@ -37,7 +38,7 @@ Ref<ToggleEventTask> ToggleEventTask::create(Element& element)
     return adoptRef(*new ToggleEventTask(element));
 }
 
-void ToggleEventTask::queue(ToggleState oldState, ToggleState newState)
+void ToggleEventTask::queue(ToggleState oldState, ToggleState newState, Element* source)
 {
     if (m_data)
         oldState = m_data->oldState;
@@ -46,8 +47,8 @@ void ToggleEventTask::queue(ToggleState oldState, ToggleState newState)
     if (!element)
         return;
 
-    m_data = { oldState, newState };
-    element->queueTaskKeepingThisNodeAlive(TaskSource::DOMManipulation, [task = Ref { *this }, element, newState] {
+    m_data = { oldState, newState, source };
+    Node::queueTaskKeepingNodeAlive(*element, TaskSource::DOMManipulation, [task = Ref { *this }, newState](auto& element) {
         if (!task->m_data || task->m_data->newState != newState)
             return;
 
@@ -56,7 +57,11 @@ void ToggleEventTask::queue(ToggleState oldState, ToggleState newState)
         };
 
         auto data = *std::exchange(task->m_data, std::nullopt);
-        element->dispatchEvent(ToggleEvent::create(eventNames().toggleEvent, { EventInit { }, stringForState(data.oldState), stringForState(data.newState) }, Event::IsCancelable::No));
+        ToggleEvent::Init init;
+        init.oldState = stringForState(data.oldState);
+        init.newState = stringForState(data.newState);
+        init.source = data.source;
+        element.dispatchEvent(ToggleEvent::create(eventNames().toggleEvent, init, Event::IsCancelable::No));
     });
 }
 

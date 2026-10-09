@@ -94,7 +94,7 @@ void WorkerOrWorkletThread::startRunningDebuggerTasks()
 
     MessageQueueWaitResult result;
     do {
-        result = downcast<WorkerDedicatedRunLoop>(m_runLoop.get()).runInDebuggerMode(*protectedGlobalScope());
+        result = downcast<WorkerDedicatedRunLoop>(m_runLoop.get()).runInDebuggerMode(*protect(globalScope()));
     } while (result != MessageQueueTerminated && m_pausedForDebugger);
 }
 
@@ -107,7 +107,7 @@ void WorkerOrWorkletThread::runEventLoop()
 {
     // Does not return until terminated.
     if (auto* runLoop = dynamicDowncast<WorkerDedicatedRunLoop>(m_runLoop.get()))
-        runLoop->run(protectedGlobalScope().get());
+        runLoop->run(protect(globalScope()).get());
 }
 
 void WorkerOrWorkletThread::workerOrWorkletThread()
@@ -119,7 +119,7 @@ void WorkerOrWorkletThread::workerOrWorkletThread()
         if (!m_globalScope)
             return;
 
-        downcast<WorkerMainRunLoop>(m_runLoop.get()).setGlobalScope(*protectedGlobalScope());
+        downcast<WorkerMainRunLoop>(m_runLoop.get()).setGlobalScope(*globalScope());
 
         String exceptionMessage;
         evaluateScriptIfNecessary(exceptionMessage);
@@ -358,16 +358,6 @@ void WorkerOrWorkletThread::removeChildThread(WorkerOrWorkletThread& childThread
     m_childThreads.remove(childThread);
     if (m_childThreads.isEmptyIgnoringNullReferences() && m_runWhenLastChildThreadIsGone)
         std::exchange(m_runWhenLastChildThreadIsGone, nullptr)();
-}
-
-CheckedPtr<WorkerLoaderProxy> WorkerOrWorkletThread::checkedWorkerLoaderProxy() const
-{
-    return workerLoaderProxy();
-}
-
-RefPtr<WorkerOrWorkletGlobalScope> WorkerOrWorkletThread::protectedGlobalScope() const
-{
-    return m_globalScope.get();
 }
 
 } // namespace WebCore

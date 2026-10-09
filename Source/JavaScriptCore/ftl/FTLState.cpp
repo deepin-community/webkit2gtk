@@ -36,6 +36,7 @@
 #include "FTLJITCode.h"
 #include "FTLJITFinalizer.h"
 #include "FTLPatchpointExceptionHandle.h"
+#include "Options.h"
 
 #include <wtf/RecursableLambda.h>
 
@@ -69,7 +70,9 @@ State::State(Graph& graph)
 
     proc = makeUniqueWithoutFastMallocCheck<Procedure>(/* usesSIMD = */ false);
 
-    if (graph.m_vm.shouldBuilderPCToCodeOriginMapping())
+    proc->setName(graph.m_codeBlock->inferredNameWithHash());
+
+    if (graph.m_vm.shouldBuilderPCToCodeOriginMapping() || Options::useIRDump() || Options::useSourceCodeDump())
         proc->setNeedsPCToOriginMap();
 
     proc->setOriginPrinter(
@@ -90,16 +93,16 @@ void State::dumpDisassembly(PrintStream& out, LinkBuffer& linkBuffer, const Scop
         out.print("Generated ", graph.m_plan.mode(), " code for ", CodeBlockWithJITType(graph.m_codeBlock, JITType::FTLJIT), ", instructions size = ", graph.m_codeBlock->instructionsSize(), ":\n");
 
         B3::Value* currentB3Value = nullptr;
-        Node* currentDFGNode = nullptr;
+        DFG::Node* currentDFGNode = nullptr;
 
         UncheckedKeyHashSet<B3::Value*> printedValues;
-        UncheckedKeyHashSet<Node*> printedNodes;
+        UncheckedKeyHashSet<DFG::Node*> printedNodes;
         const char* dfgPrefix = "DFG " "    ";
         const char* b3Prefix  = "b3  " "          ";
         const char* airPrefix = "Air " "              ";
         const char* asmPrefix = "asm " "                ";
 
-        auto printDFGNode = [&] (Node* node) {
+        auto printDFGNode = [&] (DFG::Node* node) {
             if (currentDFGNode == node)
                 return;
 
@@ -109,8 +112,8 @@ void State::dumpDisassembly(PrintStream& out, LinkBuffer& linkBuffer, const Scop
 
             perDFGNodeCallback(node);
 
-            UncheckedKeyHashSet<Node*> localPrintedNodes;
-            WTF::Function<void(Node*)> printNodeRecursive = [&] (Node* node) {
+            UncheckedKeyHashSet<DFG::Node*> localPrintedNodes;
+            WTF::Function<void(DFG::Node*)> printNodeRecursive = [&] (DFG::Node* node) {
                 if (printedNodes.contains(node) || localPrintedNodes.contains(node))
                     return;
 
@@ -166,12 +169,12 @@ void State::dumpDisassembly(PrintStream& out, LinkBuffer& linkBuffer, const Scop
 
 State::~State() = default;
 
-StructureStubInfo* State::addStructureStubInfo()
+PropertyInlineCache* State::addPropertyInlineCache()
 {
     ASSERT(!graph.m_plan.isUnlinked());
-    auto* stubInfo = jitCode->common.m_stubInfos.add();
-    stubInfo->useDataIC = Options::useDataICInFTL();
-    return stubInfo;
+    if (Options::useHandlerICInFTL())
+        return jitCode->common.m_handlerPropertyInlineCaches.add();
+    return jitCode->common.m_repatchingPropertyInlineCaches.add();
 }
 
 OptimizingCallLinkInfo* State::addCallLinkInfo(CodeOrigin codeOrigin)

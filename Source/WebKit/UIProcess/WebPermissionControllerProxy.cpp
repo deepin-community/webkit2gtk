@@ -71,8 +71,8 @@ void WebPermissionControllerProxy::deref() const
 void WebPermissionControllerProxy::query(const WebCore::ClientOrigin& clientOrigin, const WebCore::PermissionDescriptor& descriptor, std::optional<WebPageProxyIdentifier> identifier, WebCore::PermissionQuerySource source, CompletionHandler<void(std::optional<WebCore::PermissionState>)>&& completionHandler)
 {
     MESSAGE_CHECK_COMPLETION(identifier || (source == WebCore::PermissionQuerySource::SharedWorker || source == WebCore::PermissionQuerySource::ServiceWorker), completionHandler(std::nullopt));
-    auto webPageProxy = identifier ? RefPtr { m_process->webPage(identifier.value()) } : mostReasonableWebPageProxy(clientOrigin.topOrigin, source);
 
+    RefPtr webPageProxy = identifier ? RefPtr { m_process->webPage(identifier.value()) } : mostReasonableWebPageProxy(clientOrigin.topOrigin, source);
     if (!webPageProxy) {
         completionHandler(WebCore::PermissionState::Prompt);
         return;
@@ -125,3 +125,5 @@ std::optional<SharedPreferencesForWebProcess> WebPermissionControllerProxy::shar
 }
 
 } // namespace WebKit
+
+#undef MESSAGE_CHECK_COMPLETION

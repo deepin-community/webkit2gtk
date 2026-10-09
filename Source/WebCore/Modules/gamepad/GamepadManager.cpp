@@ -49,7 +49,7 @@ namespace WebCore {
 
 static NavigatorGamepad& navigatorGamepadFromDOMWindow(LocalDOMWindow& window)
 {
-    return NavigatorGamepad::from(window.protectedNavigator().get());
+    return NavigatorGamepad::from(protect(window.navigator()).get());
 }
 
 GamepadManager& GamepadManager::singleton()
@@ -135,7 +135,7 @@ void GamepadManager::platformGamepadDisconnected(PlatformGamepad& platformGamepa
         navigatorGamepad.gamepadDisconnected(platformGamepad);
         notifiedNavigators.add(navigator.get());
 
-        window->dispatchEvent(GamepadEvent::create(eventNames().gamepaddisconnectedEvent, WTF::move(gamepad)), window->protectedDocument().get());
+        window->dispatchEvent(GamepadEvent::create(eventNames().gamepaddisconnectedEvent, WTF::move(gamepad)), protect(window->document()).get());
     }
 
     // Notify all the Navigators that haven't already been notified.
@@ -187,7 +187,7 @@ void GamepadManager::makeGamepadVisible(PlatformGamepad& platformGamepad, WeakHa
 
         LOG(Gamepad, "(%u) GamepadManager::makeGamepadVisible - Dispatching gamepadconnected event for gamepad '%s'", (unsigned)getpid(), platformGamepad.id().utf8().data());
         UserGestureIndicator gestureIndicator(IsProcessingUserGesture::Yes, document.get());
-        window->dispatchEvent(GamepadEvent::create(eventNames().gamepadconnectedEvent, WTF::move(gamepad)), window->protectedDocument().get());
+        window->dispatchEvent(GamepadEvent::create(eventNames().gamepadconnectedEvent, WTF::move(gamepad)), protect(window->document()).get());
     }
 }
 
@@ -247,6 +247,11 @@ void GamepadManager::registerDOMWindow(LocalDOMWindow& window)
 
         maybeStartMonitoringGamepads();
     }
+
+#if PLATFORM(VISION)
+    if (RefPtr page = window.page())
+        page->gamepadsRecentlyAccessed();
+#endif
 }
 
 void GamepadManager::unregisterDOMWindow(LocalDOMWindow& window)

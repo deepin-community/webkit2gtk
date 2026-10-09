@@ -25,10 +25,10 @@
 
 #pragma once
 
-#include <WebCore/IDLTypes.h>
-#include <WebCore/JSDOMConvertBase.h>
-#include <WebCore/JSDOMPromise.h>
-#include <WebCore/WorkerGlobalScope.h>
+#include "IDLTypes.h"
+#include "JSDOMConvertBase.h"
+#include "JSDOMPromise.h"
+#include "WorkerGlobalScope.h"
 
 namespace WebCore {
 
@@ -40,9 +40,9 @@ template<typename T> struct Converter<IDLPromise<T>> : DefaultConverter<IDLPromi
     template<typename ExceptionThrower = DefaultExceptionThrower>
     static Result convert(JSC::JSGlobalObject& lexicalGlobalObject, JSC::JSValue value, ExceptionThrower&& exceptionThrower = ExceptionThrower())
     {
-        JSC::VM& vm = JSC::getVM(&lexicalGlobalObject);
+        auto& vm = lexicalGlobalObject.vm();
         auto scope = DECLARE_THROW_SCOPE(vm);
-        auto* globalObject = JSC::jsDynamicCast<JSDOMGlobalObject*>(&lexicalGlobalObject);
+        auto* globalObject = dynamicDowncast<JSDOMGlobalObject>(&lexicalGlobalObject);
         RELEASE_ASSERT(globalObject);
 
         // 1. Let resolve be the original value of %Promise%.resolve.

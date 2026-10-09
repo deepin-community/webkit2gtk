@@ -3,6 +3,7 @@
  * Copyright (C) 2007 Justin Haygood <jhaygood@reaktix.com>
  * Copyright (C) 2011 Research In Motion Limited. All rights reserved.
  * Copyright (C) 2017 Yusuke Suzuki <utatane.tea@gmail.com>
+ * Copyright (C) 2026 Igalia S.L.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -35,13 +36,14 @@
 #if USE(PTHREADS)
 
 #include <errno.h>
+#include <time.h>
+#include <wtf/Logging.h>
 #include <wtf/MonotonicTime.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/SafeStrerror.h>
 #include <wtf/StdLibExtras.h>
 #include <wtf/ThreadingPrimitives.h>
 #include <wtf/WTFConfig.h>
-#include <wtf/WordLock.h>
 
 #if OS(HAIKU)
 #include <OS.h>
@@ -265,7 +267,7 @@ dispatch_qos_class_t Thread::dispatchQOSClass(QOS qos)
 #endif
 
 #if HAVE(SCHEDULING_POLICIES) || OS(LINUX)
-static int schedPolicy(Thread::SchedulingPolicy schedulingPolicy)
+static int NODELETE schedPolicy(Thread::SchedulingPolicy schedulingPolicy)
 {
     switch (schedulingPolicy) {
     case Thread::SchedulingPolicy::FIFO:
@@ -303,7 +305,7 @@ static int schedPolicy(Thread::QOS qos, Thread::SchedulingPolicy schedulingPolic
 }
 #endif
 
-bool Thread::establishHandle(NewThreadContext& context, std::optional<size_t> stackSize, QOS qos, SchedulingPolicy schedulingPolicy)
+bool Thread::establishHandle(NewThreadContext& context, StackAllocationSpecification stackSpec, QOS qos, SchedulingPolicy schedulingPolicy)
 {
     pthread_t threadHandle;
     pthread_attr_t attr;
@@ -314,8 +316,24 @@ bool Thread::establishHandle(NewThreadContext& context, std::optional<size_t> st
 #if HAVE(SCHEDULING_POLICIES)
     pthread_attr_setschedpolicy(&attr, schedPolicy(schedulingPolicy));
 #endif
-    if (stackSize)
-        pthread_attr_setstacksize(&attr, stackSize.value());
+
+    switch (stackSpec.kind()) {
+    case StackAllocationSpecification::Kind::Default:
+        break;
+    case StackAllocationSpecification::Kind::SizeOnly:
+        pthread_attr_setstacksize(&attr, stackSpec.sizeBytes());
+        break;
+    case StackAllocationSpecification::Kind::SizeAndLocation: {
+        auto bounds = stackSpec.stackSpan();
+        int result = pthread_attr_setstack(&attr, bounds.data(), bounds.size_bytes());
+        if (result) {
+            LOG_ERROR("Failed to set custom stack at %p size %zu: %s",
+                bounds.data(), bounds.size_bytes(), safeStrerror(result).data());
+            pthread_attr_destroy(&attr);
+            return false;
+        } } break;
+    }
+
     int error = pthread_create(&threadHandle, &attr, wtfThreadEntryPoint, &context);
     pthread_attr_destroy(&attr);
     if (error) {
@@ -378,14 +396,14 @@ void Thread::changePriority(int delta)
 }
 
 #if HAVE(THREAD_TIME_CONSTRAINTS)
-void Thread::setThreadTimeConstraints(MonotonicTime period, MonotonicTime nominalComputation, MonotonicTime constraint, bool isPremptable)
+void Thread::setThreadTimeConstraints(MonotonicTime period, MonotonicTime nominalComputation, MonotonicTime constraint, bool isPreemptable)
 {
 #if OS(DARWIN)
     thread_time_constraint_policy policy { };
     policy.period = period.toMachAbsoluteTime();
     policy.computation = nominalComputation.toMachAbsoluteTime();
     policy.constraint = constraint.toMachAbsoluteTime();
-    policy.preemptible = isPremptable;
+    policy.preemptible = isPreemptable;
     if (auto error = thread_policy_set(machThread(), THREAD_TIME_CONSTRAINT_POLICY, (thread_policy_t)&policy, THREAD_TIME_CONSTRAINT_POLICY_COUNT)) {
         UNUSED_VARIABLE(error);
         LOG_ERROR("Thread %p failed to set time constraints with error %d", this, error);
@@ -437,7 +455,13 @@ Thread& Thread::initializeCurrentTLS()
 {
     // Not a WTF-created thread, Thread is not established yet.
     WTF::initialize();
+#if PLATFORM(COCOA)
+    Ref thread = adoptRef(*new Thread(SchedulingPolicy::Other, pthread_main_np() ? IsMain::Yes : IsMain::No));
+#elif OS(LINUX)
+    Ref thread = adoptRef(*new Thread(SchedulingPolicy::Other, getpid() == static_cast<pid_t>(syscall(SYS_gettid)) ? IsMain::Yes : IsMain::No));
+#else
     Ref thread = adoptRef(*new Thread(SchedulingPolicy::Other));
+#endif
     thread->establishPlatformSpecificHandle(pthread_self());
     thread->initializeInThread();
     initializeCurrentThreadEvenIfNonWTFCreated();
@@ -514,7 +538,7 @@ struct ThreadStateMetadata {
     thread_state_flavor_t flavor;
 };
 
-static ThreadStateMetadata threadStateMetadata()
+static ThreadStateMetadata NODELETE threadStateMetadata()
 {
 #if CPU(X86)
     unsigned userCount = sizeof(PlatformRegisters) / sizeof(int);
@@ -704,7 +728,9 @@ void Thread::yield()
     constexpr mach_msg_timeout_t timeoutInMS = 1;
     thread_switch(MACH_PORT_NULL, SWITCH_OPTION_DEPRESS, timeoutInMS);
 #else
-    sched_yield();
+    // A one nanosecond sleep costs a whole timer slack period, 50us by default on Linux (see PR_SET_TIMERSLACK)
+    struct timespec minimalSleep { 0, 1 };
+    nanosleep(&minimalSleep, nullptr);
 #endif
 }
 

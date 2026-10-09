@@ -345,7 +345,7 @@ void WebSWClientConnection::getNotifications(const URL& registrationURL, const S
     }
 #endif
 
-    WebProcess::singleton().protectedParentProcessConnection()->sendWithAsyncReply(Messages::WebProcessProxy::GetNotifications { registrationURL, tag }, WTF::move(callback));
+    protect(WebProcess::singleton().parentProcessConnection())->sendWithAsyncReply(Messages::WebProcessProxy::GetNotifications { registrationURL, tag }, WTF::move(callback));
 }
 #endif
 
@@ -428,14 +428,14 @@ void WebSWClientConnection::retrieveRecordResponseBody(BackgroundFetchRecordIden
 
 void WebSWClientConnection::notifyRecordResponseBodyChunk(RetrieveRecordResponseBodyCallbackIdentifier identifier, IPC::SharedBufferReference&& data)
 {
-    auto iterator = m_retrieveRecordResponseBodyCallbacks.find(identifier);
-    if (iterator == m_retrieveRecordResponseBodyCallbacks.end())
+    auto callback = m_retrieveRecordResponseBodyCallbacks.take(identifier);
+    if (!callback)
         return;
     auto buffer = data.unsafeBuffer();
     bool isDone = !buffer;
-    iterator->value(WTF::move(buffer));
-    if (isDone)
-        m_retrieveRecordResponseBodyCallbacks.remove(iterator);
+    callback(WTF::move(buffer));
+    if (!isDone)
+        m_retrieveRecordResponseBodyCallbacks.add(identifier, WTF::move(callback));
 }
 
 void WebSWClientConnection::notifyRecordResponseBodyEnd(RetrieveRecordResponseBodyCallbackIdentifier identifier, WebCore::ResourceError&& error)
@@ -446,10 +446,10 @@ void WebSWClientConnection::notifyRecordResponseBodyEnd(RetrieveRecordResponseBo
 
 static RefPtr<Page> pageFromScriptExecutionContextIdentifier(ScriptExecutionContextIdentifier clientIdentifier)
 {
-    RefPtr document = Document::allDocumentsMap().get(clientIdentifier);
+    auto* document = Document::allDocumentsMap().get(clientIdentifier);
     if (!document) {
-        RefPtr loader = DocumentLoader::fromScriptExecutionContextIdentifier(clientIdentifier);
-        RefPtr frame = loader ? loader->frame() : nullptr;
+        auto* loader = DocumentLoader::fromScriptExecutionContextIdentifier(clientIdentifier);
+        auto* frame = loader ? loader->frame() : nullptr;
         return frame ? frame->page() : nullptr;
     }
     return document->page();

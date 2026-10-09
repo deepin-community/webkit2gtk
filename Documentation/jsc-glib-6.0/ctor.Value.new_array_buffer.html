@@ -62,7 +62,7 @@ SPDX-License-Identifier: BSD, LGPL-2.1
         <h3><a href="index.html">JavaScriptCore</a></h3>
         <p>API Version: 6.0</p>
         
-        <p>Library Version: 2.52.5</p>
+        <p>Library Version: 2.54.0</p>
         
       </div>
       
@@ -159,7 +159,7 @@ SPDX-License-Identifier: BSD, LGPL-2.1
         Description
         <a href="#description" class="anchor"></a>
         
-        <a class="srclink" title="go to source location" href="https://github.com/WebKit/WebKit/tree/Source/JavaScriptCore/API/glib/JSCValue.cpp#L1468">[src]</a>
+        <a class="srclink" title="go to source location" href="https://github.com/WebKit/WebKit/tree/Source/JavaScriptCore/API/glib/JSCValue.cpp#L1469">[src]</a>
         
       </h4>
 
@@ -172,15 +172,16 @@ until the newly created object is released by <span class="caps">JSC</span>.</p>
 invoked with <code>user_data</code> as parameter when the %ArrayBuffer object is
 released. This is intended to be used for freeing resources related to
 the memory region which contains the&nbsp;data:</p>
-<p>|[!&lt;&#8212; language=&#8221;C&#8221; &#8212;&gt;
-GMappedFile <em>f = g_mapped_file_new (file_path, <span class="caps">TRUE</span>, <span class="caps">NULL</span>);
-JSCValue </em>value = jsc_value_new_array_buffer (context,
-    g_mapped_file_get_contents (f), g_mapped_file_get_length (f),
-    (GDestroyNotify) g_mapped_file_unref, f);&nbsp;]|</p>
+<div class="highlight"><pre><span></span><span class="n">GMappedFile</span><span class="w"> </span><span class="o">*</span><span class="n">f</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">g_mapped_file_new</span><span class="w"> </span><span class="p">(</span><span class="n">file_path</span><span class="p">,</span><span class="w"> </span><span class="n">TRUE</span><span class="p">,</span><span class="w"> </span><span class="nb">NULL</span><span class="p">);</span>
+<span class="n">JSCValue</span><span class="w"> </span><span class="o">*</span><span class="n">value</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">jsc_value_new_array_buffer</span><span class="w"> </span><span class="p">(</span><span class="n">context</span><span class="p">,</span>
+<span class="w">    </span><span class="n">g_mapped_file_get_contents</span><span class="w"> </span><span class="p">(</span><span class="n">f</span><span class="p">),</span><span class="w"> </span><span class="n">g_mapped_file_get_length</span><span class="w"> </span><span class="p">(</span><span class="n">f</span><span class="p">),</span>
+<span class="w">    </span><span class="p">(</span><span class="n">GDestroyNotify</span><span class="p">)</span><span class="w"> </span><span class="n">g_mapped_file_unref</span><span class="p">,</span><span class="w"> </span><span class="n">f</span><span class="p">);</span>
+</pre></div>
+
 <p>Note that the <code>user_data</code> can be the same value as <code>data</code>:</p>
-<p>|[!&lt;&#8212; language=&#8221;C&#8221; &#8212;&gt;
-void <em>bytes = g_malloc0 (100);
-JSCValue </em>value = jsc_value_new_array_buffer (context, bytes, 100, g_free, bytes);&nbsp;]|</p>
+<div class="highlight"><pre><span></span><span class="kt">void</span><span class="w"> </span><span class="o">*</span><span class="n">bytes</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">g_malloc0</span><span class="w"> </span><span class="p">(</span><span class="mi">100</span><span class="p">);</span>
+<span class="n">JSCValue</span><span class="w"> </span><span class="o">*</span><span class="n">value</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">jsc_value_new_array_buffer</span><span class="w"> </span><span class="p">(</span><span class="n">context</span><span class="p">,</span><span class="w"> </span><span class="n">bytes</span><span class="p">,</span><span class="w"> </span><span class="mi">100</span><span class="p">,</span><span class="w"> </span><span class="n">g_free</span><span class="p">,</span><span class="w"> </span><span class="n">bytes</span><span class="p">);</span>
+</pre></div>
       </div>
 
       <div class="docblock">

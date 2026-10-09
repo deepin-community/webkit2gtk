@@ -46,7 +46,7 @@
 
 namespace WebCore {
 
-static GraphicsContextGL::DataFormat getDataFormat(GCGLenum destinationFormat, GCGLenum destinationType)
+static GraphicsContextGL::DataFormat NODELETE getDataFormat(GCGLenum destinationFormat, GCGLenum destinationType)
 {
     switch (destinationType) {
     case GraphicsContextGL::BYTE:
@@ -376,11 +376,6 @@ GraphicsContextGL::GraphicsContextGL(GraphicsContextGLAttributes attrs)
 }
 
 GraphicsContextGL::~GraphicsContextGL() = default;
-
-std::tuple<GCGLenum, GCGLenum> GraphicsContextGL::externalImageTextureBindingPoint()
-{
-    return std::make_tuple(GraphicsContextGL::TEXTURE_2D, GraphicsContextGL::TEXTURE_BINDING_2D);
-}
 
 unsigned GraphicsContextGL::computeBytesPerGroup(GCGLenum format, GCGLenum type)
 {

@@ -35,9 +35,9 @@ class SVGAltGlyphElement final : public SVGTextPositioningElement, public SVGURI
 public:
     static Ref<SVGAltGlyphElement> create(const QualifiedName&, Document&);
 
-    const AtomString& glyphRef() const;
+    const AtomString& NODELETE glyphRef() const;
     ExceptionOr<void> setGlyphRef(const AtomString&);
-    const AtomString& format() const;
+    const AtomString& NODELETE format() const;
     ExceptionOr<void> setFormat(const AtomString&);
 
     bool hasValidGlyphElements(Vector<String>& glyphNames) const;
@@ -47,7 +47,7 @@ public:
 private:
     SVGAltGlyphElement(const QualifiedName&, Document&);
 
-    RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) override;
+    RenderPtr<RenderElement> createElementRenderer(Style::ComputedStyle&&, const RenderTreePosition&) override;
     bool childShouldCreateRenderer(const Node&) const override;
 };
 

@@ -49,6 +49,8 @@ namespace WebCore {
 GST_DEBUG_CATEGORY_STATIC(webkit_media_gst_registry_scanner_debug);
 #define GST_CAT_DEFAULT webkit_media_gst_registry_scanner_debug
 
+static bool parseAC4LevelAndProfile(const String& codec);
+
 struct VideoDecodingLimits {
     unsigned mediaMaxWidth = 0;
     unsigned mediaMaxHeight = 0;
@@ -305,7 +307,7 @@ static Vector<GRefPtr<GstElementFactory>> findCompatibleFactories(GList* list, c
             if (capsTemplate->direction != direction)
                 continue;
 
-            auto templateCaps = adoptGRef(gst_static_caps_get(&capsTemplate->static_caps));
+            GRefPtr templateCaps = adoptGRef(gst_static_caps_get(&capsTemplate->static_caps));
             if (gst_caps_is_any(templateCaps.get()) || !gst_caps_can_intersect(caps.get(), templateCaps.get()))
                 continue;
 
@@ -485,10 +487,17 @@ void GStreamerRegistryScanner::initializeDecoders(const GStreamerRegistryScanner
         m_decoderCodecMap.add("mp4a.40.05"_s, result); // MPEG-4 HE-AAC v1 (AAC LC + SBR)
         m_decoderCodecMap.add("mp4a.40.29"_s, result); // MPEG-4 HE-AAC v2 (AAC LC + SBR + PS)
         // As of writing, support for Extended HE-AAC (MPEG-D USAC) and xHE-AAC (MPEG-D USAC + MPEG-D DRC) -- which uses the
-        // USAC AOT, is not yet widely available enough to be enabled by default.
-        auto value = CStringView::unsafeFromUTF8(g_getenv("WEBKIT_GST_CAN_PLAY_USAC"));
-        bool canPlayUsac = value.isEmpty() ? false : (WTF::equalLettersIgnoringASCIICase(value.span(), "true"_s)
-            || WTF::equalLettersIgnoringASCIICase(value.span(), "1"_s));
+        // USAC AOT, is not yet widely available enough to be enabled by default except in platforms with a mechanism to autodetect it.
+        auto envCanPlayUsac = CStringView::unsafeFromUTF8(g_getenv("WEBKIT_GST_CAN_PLAY_USAC"));
+        bool canPlayUsac;
+        if (envCanPlayUsac.isEmpty()) {
+            // A few hardware platforms (Amlogic and MediaTek) explicitly report support for USAC via stream-format=usac.
+            // If an element supporting such caps exists, we can safely assume USAC to be supported. See: https://github.com/WebPlatformForEmbedded/WPEWebKit/pull/1654
+            canPlayUsac = factories.hasElementForMediaType(ElementFactories::Type::AudioDecoder, "audio/mpeg, mpegversion=(int)4, stream-format=(string)usac"_s).isSupported;
+        } else {
+            canPlayUsac = (WTF::equalLettersIgnoringASCIICase(envCanPlayUsac.span(), "true"_s)
+                || WTF::equalLettersIgnoringASCIICase(envCanPlayUsac.span(), "1"_s));
+        }
         if (canPlayUsac)
             m_decoderCodecMap.add("mp4a.40.42"_s, result); // MPEG-4 Extended HE-AAC and xHE-AAC (USAC AOT)
     }
@@ -608,6 +617,7 @@ void GStreamerRegistryScanner::initializeDecoders(const GStreamerRegistryScanner
     Vector<GstCapsWebKitMapping> mseCompatibleMapping = {
         { ElementFactories::Type::AudioDecoder, "audio/x-ac3"_s, { }, { "x-ac3"_s, "ac-3"_s, "ac3"_s, "mp4a.a5"_s, "mp4a.A5"_s } },
         { ElementFactories::Type::AudioDecoder, "audio/x-eac3"_s, { "audio/x-ac3"_s }, { "x-eac3"_s, "ec3"_s, "ec-3"_s, "eac3"_s, "mp4a.a6"_s, "mp4a.A6"_s } },
+        { ElementFactories::Type::AudioDecoder, "audio/x-ac4"_s, { }, { "x-ac4"_s, "ac-4*"_s, "ac4"_s, "mp4a.AE"_s, "mp4a.ae"_s, "mp4a.Ae"_s, "mp4a.aE"_s } },
         { ElementFactories::Type::AudioDecoder, "audio/x-flac"_s, { "audio/x-flac"_s, "audio/flac"_s }, { "x-flac"_s, "flac"_s, "fLaC"_s } },
     };
     fillMimeTypeSetFromCapsMapping(factories, mseCompatibleMapping);
@@ -809,7 +819,7 @@ void GStreamerRegistryScanner::initializeEncoders(const GStreamerRegistryScanner
 
 GStreamerRegistryScanner::CodecLookupResult GStreamerRegistryScanner::isHEVCCodecSupported(Configuration configuration, const String& codec, bool shouldCheckForHardwareUse) const
 {
-    auto h265Caps = adoptGRef(gst_caps_new_empty_simple("video/x-h265"));
+    GRefPtr h265Caps = adoptGRef(gst_caps_new_empty_simple("video/x-h265"));
     if (codec.find('.') == notFound) {
         GST_DEBUG("Codec has no profile/level, falling back to unconstrained caps");
         return areCapsSupported(configuration, h265Caps, shouldCheckForHardwareUse);
@@ -835,6 +845,8 @@ GStreamerRegistryScanner::CodecLookupResult GStreamerRegistryScanner::isCodecSup
         result = isAVC1CodecSupported(configuration, codecName, shouldCheckForHardwareUse);
     else if (codecName.startsWith("hev1"_s) || codecName.startsWith("hvc1"_s))
         result = isHEVCCodecSupported(configuration, codecName, shouldCheckForHardwareUse);
+    else if (codecName.startsWith("ac-4"_s) && !parseAC4LevelAndProfile(codecName))
+        result = { false, nullptr };
     else {
         auto& codecMap = configuration == Configuration::Decoding ? m_decoderCodecMap : m_encoderCodecMap;
         for (const auto& [codecId, lookupResult] : codecMap) {
@@ -930,14 +942,14 @@ MediaPlayerEnums::SupportsType GStreamerRegistryScanner::isContentTypeSupported(
                 else if (mimeCodec == "av1"_s)
                     mimeCodec = "av01"_s;
             }
-            auto codecCaps = adoptGRef(gst_codec_utils_caps_from_mime_codec(mimeCodec.ascii().data()));
+            GRefPtr codecCaps = adoptGRef(gst_codec_utils_caps_from_mime_codec(mimeCodec.ascii().data()));
             if (!codecCaps) {
                 GST_WARNING("Unable to convert codec %s to caps", mimeCodec.ascii().data());
                 continue;
             }
             auto structure = gst_caps_get_structure(codecCaps.get(), 0);
             auto name = gstStructureGetName(structure);
-            auto caps = adoptGRef(gst_caps_new_simple("application/x-webm-enc", "original-media-type", G_TYPE_STRING, name.utf8(), nullptr));
+            GRefPtr caps = adoptGRef(gst_caps_new_simple("application/x-webm-enc", "original-media-type", G_TYPE_STRING, name.utf8(), nullptr));
             if (!factories.hasElementForCaps(ElementFactories::Type::Decryptor, caps))
                 return SupportsType::IsNotSupported;
         }
@@ -1009,7 +1021,7 @@ GStreamerRegistryScanner::CodecLookupResult GStreamerRegistryScanner::areCapsSup
 
 GStreamerRegistryScanner::CodecLookupResult GStreamerRegistryScanner::isAVC1CodecSupported(Configuration configuration, const String& codec, bool shouldCheckForHardwareUse) const
 {
-    auto h264Caps = adoptGRef(gst_caps_new_empty_simple("video/x-h264"));
+    GRefPtr h264Caps = adoptGRef(gst_caps_new_empty_simple("video/x-h264"));
     if (codec.find('.') == notFound) {
         GST_DEBUG("Codec has no profile/level, falling back to unconstrained caps");
         return areCapsSupported(configuration, h264Caps, shouldCheckForHardwareUse);
@@ -1063,12 +1075,46 @@ ASCIILiteral GStreamerRegistryScanner::configurationNameForLogging(Configuration
     return ""_s;
 }
 
-GStreamerRegistryScanner::RegistryLookupResult GStreamerRegistryScanner::isConfigurationSupported(Configuration configuration, const MediaConfiguration& mediaConfiguration) const
+static bool parseAC4LevelAndProfile(const String& codec)
 {
-    bool isUsingHardware = false;
+    auto parts = codec.split('.');
+    // "ac-4" with no dots is valid (generic, unconstrained).
+    if (parts.size() == 1 && equalIgnoringASCIICase(parts[0], "ac-4"_s))
+        return true;
+    // Full format requires exactly 4 components: ["ac-4", bitstream_version, presentation_version, mdcompat].
+    // See ETSI TS 103 190-2 v1.3.1 Appendix E.13.
+    if (parts.size() != 4) {
+        GST_WARNING("AC-4 codec string has wrong number of components: %s", codec.utf8().data());
+        return false;
+    }
+
+    // The current available AC-4 decoders don't have an agreed upon API to query support in a fine-grained manner,
+    // so instead we make some conservative assumptions, matching the subset of AC-4 supported in CMAF.
+
+    // presentation_version must be 1 (stereo/5.1); value 2 denotes IMS which is assumed not supported.
+    auto presentationVersion = parseInteger<unsigned>(parts[2]);
+    if (!presentationVersion || *presentationVersion != 1) {
+        GST_DEBUG("AC-4 codec string has unsupported presentation_version: %s", codec.utf8().data());
+        return false;
+    }
+    // md_compat (level): only levels 0-3 are assumed supported.
+    // Levels 4-6 are reserved by the AC-4 spec. Level 7 (unlimited number of tracks) is assumed unsupported.
+    auto mdcompat = parseInteger<unsigned>(parts[3]);
+    if (!mdcompat || *mdcompat > 3) {
+        GST_DEBUG("AC-4 codec string has unsupported mdcompat level: %s", codec.utf8().data());
+        return false;
+    }
+    return true;
+}
+
+GStreamerRegistryScanner::RegistryLookupResult GStreamerRegistryScanner::isConfigurationSupported(Configuration configuration, const PlatformMediaConfiguration& mediaConfiguration) const
+{
 #ifndef GST_DISABLE_GST_DEBUG
     ASCIILiteral configLogString = configurationNameForLogging(configuration);
 #endif
+
+    Vector<String> allCodecs;
+    Vector<String> videoCodecs;
 
     if (mediaConfiguration.video) {
         auto& videoConfiguration = mediaConfiguration.video.value();
@@ -1095,7 +1141,7 @@ GStreamerRegistryScanner::RegistryLookupResult GStreamerRegistryScanner::isConfi
 
 #if ENABLE(WPE_PLATFORM)
         Ref platformScreen = PlatformScreen::singleton();
-        auto* scrData = platformScreen->screenData(PlatformScreen::singleton()->primaryScreenDisplayID());
+        auto* scrData = platformScreen->screenData(platformScreen->primaryScreenDisplayID());
         if (!scrData || !scrData->screenSupportsHighDynamicRange) {
             // Check HDR metadata field
             if (videoConfiguration.hdrMetadataType.has_value())
@@ -1104,7 +1150,7 @@ GStreamerRegistryScanner::RegistryLookupResult GStreamerRegistryScanner::isConfi
             if (videoConfiguration.transferFunction.has_value()) {
                 auto tf = videoConfiguration.transferFunction.value();
                 // compare to your enum values for PQ/HLG; adjust names if different
-                if (tf == TransferFunction::PQ || tf == TransferFunction::HLG)
+                if (tf == PlatformMediaCapabilitiesTransferFunction::PQ || tf == PlatformMediaCapabilitiesTransferFunction::HLG)
                     return { false, false, nullptr };
             }
         }
@@ -1115,11 +1161,8 @@ GStreamerRegistryScanner::RegistryLookupResult GStreamerRegistryScanner::isConfi
             return { false, false, nullptr };
 
         auto codecs = contentType.codecs();
-        if (!codecs.isEmpty()) {
-            if (!areAllCodecsSupported(configuration, codecs, false))
-                return { false, false, nullptr };
-            isUsingHardware = areAllCodecsSupported(configuration, codecs, true);
-        }
+        allCodecs.appendVector(codecs);
+        videoCodecs.appendVector(WTF::move(codecs));
     }
 
     if (mediaConfiguration.audio) {
@@ -1132,6 +1175,15 @@ GStreamerRegistryScanner::RegistryLookupResult GStreamerRegistryScanner::isConfi
         auto contentType = ContentType(audioConfiguration.contentType);
         if (!isContainerTypeSupported(configuration, contentType.containerType()))
             return { false, false, nullptr };
+
+        allCodecs.appendVector(contentType.codecs());
+    }
+
+    bool isUsingHardware = false;
+    if (!allCodecs.isEmpty()) {
+        if (!areAllCodecsSupported(configuration, allCodecs, false))
+            return { false, false, nullptr };
+        isUsingHardware = !videoCodecs.isEmpty() && areAllCodecsSupported(configuration, videoCodecs, true);
     }
 
     return { true, isUsingHardware, nullptr };
@@ -1156,7 +1208,7 @@ static inline Vector<RTCRtpCapabilities::HeaderExtensionCapability> probeRtpExte
 {
     Vector<RTCRtpCapabilities::HeaderExtensionCapability> extensions;
     for (const auto& uri : candidates) {
-        if (auto extension = adoptGRef(gst_rtp_header_extension_create_from_uri(uri.characters())))
+        if (GRefPtr extension = adoptGRef(gst_rtp_header_extension_create_from_uri(uri.characters())))
             extensions.append(String(byteCast<char8_t>(unsafeSpan(uri))));
     }
     return extensions;
@@ -1194,7 +1246,7 @@ void GStreamerRegistryScanner::fillAudioRtpCapabilities(Configuration configurat
 
     bool hasDtmfSupport = false;
     if (configuration == Configuration::Encoding) {
-        if (auto factory = adoptGRef(gst_element_factory_find("rtpdtmfsrc")))
+        if (GRefPtr factory = adoptGRef(gst_element_factory_find("rtpdtmfsrc")))
             hasDtmfSupport = true;
     } else
         hasDtmfSupport = factories.hasElementForMediaType(rtpElement, "audio/x-raw, format=(string)S16LE"_s);
@@ -1251,7 +1303,7 @@ void GStreamerRegistryScanner::fillVideoRtpCapabilities(Configuration configurat
                     sps[1] = (spsAsInteger >> 8) & 0xff;
                     sps[2] = spsAsInteger & 0xff;
 
-                    auto caps = adoptGRef(gst_caps_new_empty_simple("video/x-h264"));
+                    GRefPtr caps = adoptGRef(gst_caps_new_empty_simple("video/x-h264"));
                     gst_codec_utils_h264_caps_set_level_and_profile(caps.get(), sps.data(), 3);
                     if (!gst_element_factory_can_sink_any_caps(gst_element_get_factory(element.get()), caps.get()))
                         continue;

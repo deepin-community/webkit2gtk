@@ -91,6 +91,7 @@
 #endif
 
 #define MESSAGE_CHECK(assertion, message) MESSAGE_CHECK_WITH_MESSAGE_BASE(assertion, m_streamConnection, message);
+#define MESSAGE_CHECK_WITH_RETURN_VALUE(assertion, returnValue) MESSAGE_CHECK_WITH_RETURN_VALUE_BASE(assertion, m_streamConnection, returnValue)
 
 namespace WebKit {
 using namespace WebCore;
@@ -118,6 +119,7 @@ RemoteRenderingBackend::RemoteRenderingBackend(GPUConnectionToWebProcess& gpuCon
     , m_streamConnection(WTF::move(streamConnection))
     , m_gpuConnectionToWebProcess(gpuConnectionToWebProcess)
     , m_sharedResourceCache(gpuConnectionToWebProcess.sharedResourceCache())
+    , m_sharedPreferencesForWebProcess(gpuConnectionToWebProcess.sharedPreferencesForWebProcessValue())
     , m_renderingBackendIdentifier(identifier)
     , m_shapeDetectionObjectHeap(ShapeDetection::ObjectHeap::create())
 {
@@ -143,7 +145,7 @@ void RemoteRenderingBackend::stopListeningForIPC()
 
 std::optional<SharedPreferencesForWebProcess> RemoteRenderingBackend::sharedPreferencesForWebProcess() const
 {
-    return m_gpuConnectionToWebProcess->sharedPreferencesForWebProcess();
+    return m_sharedPreferencesForWebProcess;
 }
 
 void RemoteRenderingBackend::workQueueInitialize()
@@ -159,6 +161,8 @@ void RemoteRenderingBackend::workQueueUninitialize()
     assertIsCurrent(workQueue());
     m_remoteImageBuffers.clear();
     m_remoteImageBufferSets.clear();
+    m_remoteDisplayListRecorders.clear();
+    m_remoteSnapshotRecorders.clear();
     // Make sure we destroy the ResourceCache on the WorkQueue since it gets populated on the WorkQueue.
     m_remoteResourceCache.releaseAllResources();
 
@@ -169,7 +173,7 @@ void RemoteRenderingBackend::workQueueUninitialize()
 
 void RemoteRenderingBackend::didReceiveInvalidMessage(IPC::StreamServerConnection&, IPC::MessageName messageName, const Vector<uint32_t>&)
 {
-    RELEASE_LOG_FAULT_WITH_PAYLOAD(IPC, makeString("Received an invalid message '"_s, description(messageName), "' from WebContent process "_s, m_gpuConnectionToWebProcess->webProcessIdentifier().toUInt64(), ", requesting for it to be terminated."_s).utf8().data());
+    RELEASE_LOG_FAULT_WITH_PAYLOAD(IPC, "Received an invalid message %s from WebContent process %" PRIu64 ", requesting for it to be terminated.", description(messageName), m_gpuConnectionToWebProcess->webProcessIdentifier().toUInt64());
     callOnMainRunLoop([gpuConnectionToWebProcess = m_gpuConnectionToWebProcess] {
         gpuConnectionToWebProcess->terminateWebProcess();
     });
@@ -188,6 +192,8 @@ void RemoteRenderingBackend::moveToSerializedBuffer(RenderingResourceIdentifier 
     MESSAGE_CHECK(remoteImageBuffer, "Missing ImageBuffer");
     Ref imageBuffer = RemoteImageBuffer::sinkIntoImageBuffer(remoteImageBuffer.releaseNonNull());
     MESSAGE_CHECK(imageBuffer->hasOneRef(), "ImageBuffer in use");
+    // Avoid leaking cross-RemoteRenderingBackend state through context by releasing the context.
+    imageBuffer->releaseGraphicsContext();
     bool success = m_sharedResourceCache->addSerializedImageBuffer(serializedIdentifier, WTF::move(imageBuffer));
     MESSAGE_CHECK(success, "Duplicate SerializedImageBuffer");
 }
@@ -273,7 +279,7 @@ static RefPtr<ImageBuffer> allocateImageBufferInternal(const FloatSize& logicalS
     return imageBuffer;
 }
 
-static void adjustImageBufferRenderingMode(const RemoteSharedResourceCache& sharedResourceCache, RenderingPurpose purpose, RenderingMode& renderingMode)
+static void NODELETE adjustImageBufferRenderingMode(const RemoteSharedResourceCache& sharedResourceCache, RenderingPurpose purpose, RenderingMode& renderingMode)
 {
     if (renderingMode == RenderingMode::Accelerated && sharedResourceCache.reachedAcceleratedImageBufferLimit(purpose))
         renderingMode = RenderingMode::Unaccelerated;
@@ -285,13 +291,19 @@ RefPtr<ImageBuffer> RemoteRenderingBackend::allocateImageBuffer(const FloatSize&
     if (purpose == RenderingPurpose::Canvas && m_sharedResourceCache->reachedImageBufferForCanvasLimit())
         return nullptr;
 
+    // Verify DisplayList rendering mode is only used when RemoteSnapshotting is enabled
+    if (renderingMode == RenderingMode::DisplayList) {
+        auto prefs = sharedPreferencesForWebProcess();
+        MESSAGE_CHECK_WITH_RETURN_VALUE(prefs && prefs->remoteSnapshottingEnabled, nullptr);
+    }
+
     adjustImageBufferCreationContext(m_sharedResourceCache, creationContext);
     adjustImageBufferRenderingMode(m_sharedResourceCache, purpose, renderingMode);
 
     RefPtr<ImageBuffer> imageBuffer;
 
 #if ENABLE(RE_DYNAMIC_CONTENT_SCALING)
-    if (m_gpuConnectionToWebProcess->isDynamicContentScalingEnabled() && creationContext.dynamicContentScalingResourceCache)
+    if (m_sharedPreferencesForWebProcess.useCGDisplayListsForDOMRendering && creationContext.dynamicContentScalingResourceCache)
         imageBuffer = allocateImageBufferInternal<DynamicContentScalingBifurcatedImageBuffer>(logicalSize, renderingMode, purpose, resolutionScale, colorSpace, bufferFormat, creationContext);
 #endif
 
@@ -305,12 +317,6 @@ RefPtr<ImageBuffer> RemoteRenderingBackend::allocateImageBuffer(const FloatSize&
 void RemoteRenderingBackend::createImageBuffer(const FloatSize& logicalSize, RenderingMode renderingMode, RenderingPurpose purpose, float resolutionScale, const DestinationColorSpace& colorSpace, ImageBufferFormat pixelFormat, RenderingResourceIdentifier identifier, RemoteGraphicsContextIdentifier contextIdentifier)
 {
     assertIsCurrent(workQueue());
-
-    // Verify DisplayList rendering mode is only used when RemoteSnapshotting is enabled
-    if (renderingMode == RenderingMode::DisplayList) {
-        auto prefs = sharedPreferencesForWebProcess();
-        MESSAGE_CHECK(prefs && prefs->remoteSnapshottingEnabled, "RemoteSnapshotting is not enabled");
-    }
 
     RefPtr<ImageBuffer> imageBuffer = allocateImageBuffer(logicalSize, renderingMode, purpose, resolutionScale, colorSpace, pixelFormat, { });
     if (!imageBuffer) {
@@ -384,7 +390,7 @@ void RemoteRenderingBackend::nativeImageBitmap(RenderingResourceIdentifier image
 
 void RemoteRenderingBackend::cacheNativeImage(ShareableBitmap::Handle&& handle, RenderingResourceIdentifier imageIdentifier)
 {
-    ASSERT(!RunLoop::isMain());
+    assertIsCurrent(workQueue());
 
     auto bitmap = ShareableBitmap::create(WTF::move(handle));
     if (!bitmap)
@@ -416,7 +422,7 @@ void RemoteRenderingBackend::releaseNativeImage(RenderingResourceIdentifier iden
 
 void RemoteRenderingBackend::cacheFont(const Font::Attributes& fontAttributes, FontPlatformDataAttributes platformData, std::optional<RenderingResourceIdentifier> fontCustomPlatformDataIdentifier)
 {
-    ASSERT(!RunLoop::isMain());
+    assertIsCurrent(workQueue());
 
     RefPtr<FontCustomPlatformData> customPlatformData = nullptr;
     if (fontCustomPlatformDataIdentifier) {
@@ -428,7 +434,8 @@ void RemoteRenderingBackend::cacheFont(const Font::Attributes& fontAttributes, F
 
     Ref<Font> font = Font::create(platform, fontAttributes.origin, fontAttributes.isInterstitial, fontAttributes.visibility, fontAttributes.isTextOrientationFallback, fontAttributes.renderingResourceIdentifier);
 
-    m_remoteResourceCache.cacheFont(WTF::move(font));
+    bool success = m_remoteResourceCache.cacheFont(WTF::move(font));
+    MESSAGE_CHECK(success, "Font already cached.");
 }
 
 void RemoteRenderingBackend::releaseFont(WebCore::RenderingResourceIdentifier identifier)
@@ -440,12 +447,13 @@ void RemoteRenderingBackend::releaseFont(WebCore::RenderingResourceIdentifier id
 
 void RemoteRenderingBackend::cacheFontCustomPlatformData(WebCore::FontCustomPlatformSerializedData&& fontCustomPlatformSerializedData)
 {
-    ASSERT(!RunLoop::isMain());
+    assertIsCurrent(workQueue());
 
     auto customPlatformData = FontCustomPlatformData::tryMakeFromSerializationData(WTF::move(fontCustomPlatformSerializedData), shouldUseLockdownFontParser());
     MESSAGE_CHECK(customPlatformData.has_value(), "cacheFontCustomPlatformData couldn't deserialize FontCustomPlatformData");
 
-    m_remoteResourceCache.cacheFontCustomPlatformData(WTF::move(customPlatformData.value()));
+    bool success = m_remoteResourceCache.cacheFontCustomPlatformData(WTF::move(customPlatformData.value()));
+    MESSAGE_CHECK(success, "FontCustomPlatformData already cached.");
 }
 
 void RemoteRenderingBackend::releaseFontCustomPlatformData(WebCore::RenderingResourceIdentifier identifier)
@@ -453,6 +461,20 @@ void RemoteRenderingBackend::releaseFontCustomPlatformData(WebCore::RenderingRes
     assertIsCurrent(workQueue());
     bool success = m_remoteResourceCache.releaseFontCustomPlatformData(identifier);
     MESSAGE_CHECK(success, "FontCustomPlatformData released before being cached.");
+}
+
+void RemoteRenderingBackend::cachePathImpl(Ref<WebCore::PathImpl>&& path, RemotePathImplIdentifier identifier)
+{
+    assertIsCurrent(workQueue());
+    bool success = m_remoteResourceCache.cachePathImpl(identifier, WTF::move(path));
+    MESSAGE_CHECK(success, "Path already cached.");
+}
+
+void RemoteRenderingBackend::releasePathImpl(RemotePathImplIdentifier identifier)
+{
+    assertIsCurrent(workQueue());
+    bool success = m_remoteResourceCache.releasePathImpl(identifier);
+    MESSAGE_CHECK(success, "Path released before being cached.");
 }
 
 void RemoteRenderingBackend::cacheGradient(Ref<Gradient>&& gradient, RemoteGradientIdentifier identifier)
@@ -472,11 +494,10 @@ void RemoteRenderingBackend::releaseGradient(RemoteGradientIdentifier identifier
 
 void RemoteRenderingBackend::cacheFilter(Ref<Filter>&& filter)
 {
-    ASSERT(!RunLoop::isMain());
-    if (filter->hasValidRenderingResourceIdentifier())
-        m_remoteResourceCache.cacheFilter(WTF::move(filter));
-    else
-        LOG_WITH_STREAM(DisplayLists, stream << "Received a Filter without a valid resource identifier");
+    assertIsCurrent(workQueue());
+    MESSAGE_CHECK(filter->hasValidRenderingResourceIdentifier(), "Received a Filter without a valid resource identifier.");
+    bool success = m_remoteResourceCache.cacheFilter(WTF::move(filter));
+    MESSAGE_CHECK(success, "Filter already cached.");
 }
 
 void RemoteRenderingBackend::releaseFilter(RenderingResourceIdentifier identifier)
@@ -512,7 +533,7 @@ void RemoteRenderingBackend::releaseDisplayList(RemoteDisplayListIdentifier iden
 
 void RemoteRenderingBackend::releaseMemory()
 {
-    ASSERT(!RunLoop::isMain());
+    assertIsCurrent(workQueue());
     m_remoteResourceCache.releaseMemory();
 }
 
@@ -689,7 +710,7 @@ RefPtr<ImageBuffer> RemoteRenderingBackend::imageBuffer(RenderingResourceIdentif
 bool RemoteRenderingBackend::shouldUseLockdownFontParser() const
 {
 #if HAVE(CTFONTMANAGER_CREATEMEMORYSAFEFONTDESCRIPTORFROMDATA)
-    return (m_gpuConnectionToWebProcess->isLockdownSafeFontParserEnabled() && m_gpuConnectionToWebProcess->isLockdownModeEnabled()) || (m_gpuConnectionToWebProcess->isForceLockdownSafeFontParserEnabled());
+    return (m_sharedPreferencesForWebProcess.lockdownFontParserEnabled && m_gpuConnectionToWebProcess->isLockdownModeEnabled()) || m_sharedPreferencesForWebProcess.forceLockdownFontParserEnabled;
 #else
     return false;
 #endif
@@ -709,5 +730,6 @@ void RemoteRenderingBackend::getImageBufferResourceLimitsForTesting(CompletionHa
 } // namespace WebKit
 
 #undef MESSAGE_CHECK
+#undef MESSAGE_CHECK_WITH_RETURN_VALUE
 
 #endif // ENABLE(GPU_PROCESS)

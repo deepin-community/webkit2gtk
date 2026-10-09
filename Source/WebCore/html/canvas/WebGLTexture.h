@@ -27,12 +27,12 @@
 
 #if ENABLE(WEBGL)
 
-#include "WebGLObject.h"
+#include <WebCore/WebGLObject.h>
 #include <wtf/Vector.h>
 
 namespace WebCore {
 
-class WebGLTexture final : public WebGLObject {
+class WebGLTexture : public WebGLObject {
 public:
 
     virtual ~WebGLTexture();
@@ -40,7 +40,7 @@ public:
     static Ref<WebGLTexture> createLost();
     static Ref<WebGLTexture> create(WebGLRenderingContextBase&);
 
-    void didBind(GCGLenum);
+    void NODELETE didBind(GCGLenum);
     GCGLenum getTarget() const { return m_target; }
 
     static GCGLint computeLevelCount(GCGLsizei width, GCGLsizei height);
@@ -48,7 +48,7 @@ public:
     bool isUsable() const { return object() && !isDeleted(); }
     bool isInitialized() const { return m_target; }
 
-private:
+protected:
     WebGLTexture(WebGLRenderingContextBase&, PlatformGLObject);
     WebGLTexture();
 

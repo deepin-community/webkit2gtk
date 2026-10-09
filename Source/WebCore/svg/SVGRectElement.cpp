@@ -60,7 +60,7 @@ Ref<SVGRectElement> SVGRectElement::create(const QualifiedName& tagName, Documen
     return adoptRef(*new SVGRectElement(tagName, document));
 }
 
-SVGAnimatedProperty* SVGRectElement::propertyForAttribute(const QualifiedName& name) const
+SVGAnimatedPropertyBase* SVGRectElement::propertyForAttribute(const QualifiedName& name) const
 {
     if (name == SVGNames::xAttr)
         return m_x.ptr();
@@ -119,7 +119,7 @@ void SVGRectElement::svgAttributeChanged(const QualifiedName& attrName)
     SVGGeometryElement::svgAttributeChanged(attrName);
 }
 
-RenderPtr<RenderElement> SVGRectElement::createElementRenderer(RenderStyle&& style, const RenderTreePosition&)
+RenderPtr<RenderElement> SVGRectElement::createElementRenderer(Style::ComputedStyle&& style, const RenderTreePosition&)
 {
     if (document().settings().layerBasedSVGEngineEnabled())
         return createRenderer<RenderSVGRect>(*this, WTF::move(style));

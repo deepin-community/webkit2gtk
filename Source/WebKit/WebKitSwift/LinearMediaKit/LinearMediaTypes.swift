@@ -25,27 +25,31 @@
 
 #if canImport(AVKit, _version: 1270)
 #if USE_APPLE_INTERNAL_SDK
-@_spi(LinearMediaKit) @_spi(LinearMediaKit_WebKitOnly) import AVKit
+@_spi(LinearMediaKit) @_spi(LinearMediaKit_WebKitOnly) public import AVKit
 #else
-import AVKit_SPI
+public import AVKit_SPI
 #endif
 #else
-@_spi(WebKitOnly) import LinearMediaKit
+@_spi(WebKitOnly) public import LinearMediaKit
 #endif
 
 // MARK: Objective-C Implementations
 
-@objc @implementation extension WKSLinearMediaContentMetadata {
+@objc
+@implementation
+extension WKSLinearMediaContentMetadata {
     let title: String?
     let subtitle: String?
-    
+
     init(title: String?, subtitle: String?) {
         self.title = title
         self.subtitle = subtitle
     }
 }
 
-@objc @implementation extension WKSLinearMediaTimeRange {
+@objc
+@implementation
+extension WKSLinearMediaTimeRange {
     let lowerBound: TimeInterval
     let upperBound: TimeInterval
 
@@ -55,7 +59,9 @@ import AVKit_SPI
     }
 }
 
-@objc @implementation extension WKSLinearMediaTrack {
+@objc
+@implementation
+extension WKSLinearMediaTrack {
     let localizedDisplayName: String
 
     init(localizedDisplayName: String) {
@@ -63,7 +69,9 @@ import AVKit_SPI
     }
 }
 
-@objc @implementation extension WKSLinearMediaSpatialVideoMetadata {
+@objc
+@implementation
+extension WKSLinearMediaSpatialVideoMetadata {
     let width: Int32
     let height: Int32
     let horizontalFieldOfView: Int32
@@ -79,8 +87,11 @@ import AVKit_SPI
     }
 }
 
-@objc @implementation extension WKSPlayableViewControllerHost {
-    @nonobjc private let base = PlayableViewController()
+@objc
+@implementation
+extension WKSPlayableViewControllerHost {
+    @nonobjc
+    private let base = PlayableViewController()
 
     var viewController: UIViewController {
         base
@@ -126,7 +137,6 @@ import AVKit_SPI
         set {
             base.playable = newValue
         }
-
     }
 }
 
@@ -198,20 +208,22 @@ extension WKSLinearMediaContentType {
 }
 
 extension WKSLinearMediaPresentationState: CustomStringConvertible {
+    // FIXME: Objective-C interface type WKSLinearMediaPresentationState should not itself conform to a Swift protocol.
+    // swift-format-ignore: AllPublicDeclarationsHaveDocumentation
     public var description: String {
         switch self {
         case .inline:
-            return "inline"
+            "inline"
         case .enteringFullscreen:
-            return "enteringFullscreen"
+            "enteringFullscreen"
         case .fullscreen:
-            return "fullscreen"
+            "fullscreen"
         case .exitingFullscreen:
-            return "exitingFullscreen"
+            "exitingFullscreen"
         case .enteringExternal:
-            return "enteringExternal"
+            "enteringExternal"
         case .external:
-            return "external"
+            "external"
         @unknown default:
             fatalError()
         }
@@ -235,7 +247,7 @@ extension WKSLinearMediaViewingMode: CustomStringConvertible {
             fatalError()
         }
     }
-    
+
     var viewingMode: ViewingMode? {
         switch self {
         case .none:
@@ -253,18 +265,20 @@ extension WKSLinearMediaViewingMode: CustomStringConvertible {
         }
     }
 
+    // FIXME: Objective-C interface type WKSLinearMediaViewingMode should not itself conform to a Swift protocol.
+    // swift-format-ignore: AllPublicDeclarationsHaveDocumentation
     public var description: String {
         switch self {
         case .none:
-            return "none"
+            "none"
         case .mono:
-            return "mono"
+            "mono"
         case .stereo:
-            return "stereo"
+            "stereo"
         case .immersive:
-            return "immersive"
+            "immersive"
         case .spatial:
-            return "spatial"
+            "spatial"
         @unknown default:
             fatalError()
         }
@@ -283,15 +297,16 @@ extension WKSLinearMediaFullscreenBehaviors {
 
 extension WKSLinearMediaTimeRange {
     var closedRange: ClosedRange<TimeInterval> {
-        return lowerBound...upperBound
+        lowerBound...upperBound
     }
 
     var range: Range<TimeInterval> {
-        return lowerBound..<upperBound
+        lowerBound..<upperBound
     }
 }
 
-@_spi(Internal) extension WKSLinearMediaTrack: Track {
+@_spi(Internal)
+extension WKSLinearMediaTrack: Track {
 }
 
 extension WKSLinearMediaSpatialVideoMetadata {

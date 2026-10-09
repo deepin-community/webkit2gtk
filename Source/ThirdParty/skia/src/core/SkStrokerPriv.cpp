@@ -8,7 +8,7 @@
 
 #include "include/core/SkMatrix.h"
 #include "include/core/SkPathBuilder.h"
-#include "include/private/base/SkAssert.h"
+#include "include/private/SkAssert.h"
 #include "src/core/SkGeometry.h"
 #include "src/core/SkPointPriv.h"
 
@@ -36,12 +36,12 @@ static void SquareCapper(SkPathBuilder* sink, const SkPoint& pivot, const SkVect
     SkPointPriv::RotateCW(normal, &parallel);
 
     if (extendLastPt) {
-        sink->setLastPt(pivot.fX + normal.fX + parallel.fX, pivot.fY + normal.fY + parallel.fY);
-        sink->lineTo(pivot.fX - normal.fX + parallel.fX, pivot.fY - normal.fY + parallel.fY);
+        sink->setLastPoint(pivot + normal + parallel);
+        sink->lineTo(pivot - normal + parallel);
     } else {
-        sink->lineTo(pivot.fX + normal.fX + parallel.fX, pivot.fY + normal.fY + parallel.fY);
-        sink->lineTo(pivot.fX - normal.fX + parallel.fX, pivot.fY - normal.fY + parallel.fY);
-        sink->lineTo(stop.fX, stop.fY);
+        sink->lineTo(pivot + normal + parallel);
+        sink->lineTo(pivot - normal + parallel);
+        sink->lineTo(stop);
     }
 }
 
@@ -149,7 +149,7 @@ static void MiterJoiner(SkPathBuilder* outer, SkPathBuilder* inner,
     SkVector    before = beforeUnitNormal;
     SkVector    after = afterUnitNormal;
     SkVector    mid;
-    SkScalar    sinHalfAngle;
+    float       sinHalfAngle;
     bool        ccw;
 
     if (angleType == kNearlyLine_AngleType) {
@@ -187,7 +187,7 @@ static void MiterJoiner(SkPathBuilder* outer, SkPathBuilder* inner,
         My dotProd is opposite sign, since it is built from normals and not tangents
         hence 1 + dot instead of 1 - dot in the formula
     */
-    sinHalfAngle = SkScalarSqrt(SkScalarHalf(SK_Scalar1 + dotProd));
+    sinHalfAngle = std::sqrt((SK_Scalar1 + dotProd) / 2.f);
     if (sinHalfAngle < invMiterLimit) {
         currIsLine = false;
         goto DO_BLUNT;
@@ -200,15 +200,15 @@ static void MiterJoiner(SkPathBuilder* outer, SkPathBuilder* inner,
             mid.negate();
         }
     } else {
-        mid.set(before.fX + after.fX, before.fY + after.fY);
+        mid = before + after;
     }
 
     mid.setLength(radius / sinHalfAngle);
 DO_MITER:
     if (prevIsLine) {
-        outer->setLastPt(pivot.fX + mid.fX, pivot.fY + mid.fY);
+        outer->setLastPoint(pivot + mid);
     } else {
-        outer->lineTo(pivot.fX + mid.fX, pivot.fY + mid.fY);
+        outer->lineTo(pivot + mid);
     }
 
 DO_BLUNT:

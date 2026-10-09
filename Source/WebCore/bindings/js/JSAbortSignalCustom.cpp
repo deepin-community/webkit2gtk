@@ -26,13 +26,14 @@
 #include "config.h"
 #include "JSAbortSignal.h"
 
+#include "JSValueInWrappedObjectInlines.h"
 #include "WebCoreOpaqueRootInlines.h"
 
 namespace WebCore {
 
 bool JSAbortSignalOwner::isReachableFromOpaqueRoots(JSC::Handle<JSC::Unknown> handle, void*, JSC::AbstractSlotVisitor& visitor, ASCIILiteral* reason)
 {
-    auto& abortSignal = JSC::jsCast<JSAbortSignal*>(handle.slot()->asCell())->wrapped();
+    auto& abortSignal = downcast<JSAbortSignal>(handle.slot()->asCell())->wrapped();
     if (abortSignal.aborted())
         return false;
 
@@ -66,11 +67,11 @@ bool JSAbortSignalOwner::isReachableFromOpaqueRoots(JSC::Handle<JSC::Unknown> ha
 }
 
 template<typename Visitor>
-void JSAbortSignal::visitAdditionalChildren(Visitor& visitor)
+void JSAbortSignal::visitAdditionalChildrenInGCThread(Visitor& visitor)
 {
-    wrapped().reason().visit(visitor);
+    wrapped().reason().visitInGCThread(visitor);
 }
 
-DEFINE_VISIT_ADDITIONAL_CHILDREN(JSAbortSignal);
+DEFINE_VISIT_ADDITIONAL_CHILDREN_IN_GC_THREAD(JSAbortSignal);
 
 } // namespace WebCore

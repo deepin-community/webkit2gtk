@@ -536,7 +536,8 @@ private:
             if (m_state == ClassSetConstructionState::CachedCharacter) {
                 m_delegate.atomCharacterClassAtom(m_character);
                 m_state = ClassSetConstructionState::Empty;
-            }
+            } else if (m_state == ClassSetConstructionState::CachedCharacterHyphen || m_state == ClassSetConstructionState::AfterCharacterClassHyphen)
+                m_errorCode = ErrorCode::InvalidClassSetCharacter;
         }
 
         void afterSetOperand()
@@ -756,10 +757,7 @@ private:
         {
             if (m_state == ClassSetConstructionState::CachedCharacter)
                 m_delegate.atomCharacterClassAtom(m_character);
-            else if (m_state == ClassSetConstructionState::CachedCharacterHyphen) {
-                m_delegate.atomCharacterClassAtom(m_character);
-                m_delegate.atomCharacterClassAtom('-');
-            } else if (m_state == ClassSetConstructionState::AfterSetOperator)
+            else if (m_state == ClassSetConstructionState::CachedCharacterHyphen || m_state == ClassSetConstructionState::AfterCharacterClassHyphen || m_state == ClassSetConstructionState::AfterSetOperator)
                 m_errorCode = ErrorCode::InvalidClassSetCharacter;
 
             if (isInverted() && m_mayContainStrings)
@@ -857,8 +855,6 @@ private:
         Vector<char32_t> m_stringInProgress;
         Vector<Vector<char32_t>> m_strings;
     };
-
-    enum class ParenthesesType : uint8_t { Subpattern, Assertion, LookbehindAssertion };
 
     // The handling of IdentityEscapes is different depending on which unicode flag if any is active.
     // For both Unicode and UnicodeSet patterns, IdentityEscapes only include SyntaxCharacters or '/'.
@@ -1520,6 +1516,7 @@ private:
         consume();
 
         auto type = ParenthesesType::Subpattern;
+        bool isNonCapturingGroup = false;
 
         if (tryConsume('?')) {
             if (atEndOfPattern()) {
@@ -1531,6 +1528,7 @@ private:
             case ':':
                 consume();
                 m_delegate.atomParenthesesSubpatternBegin(false);
+                isNonCapturingGroup = true;
                 break;
             
             case '=':
@@ -1594,6 +1592,7 @@ private:
                 OptionSet<Flags> set;
                 OptionSet<Flags> unset;
                 bool hasHitNegation = false;
+                isNonCapturingGroup = true;
                 char32_t c;
                 while (!atEndOfPattern() && (c = consume()) != ':') {
                     switch (c) {
@@ -1650,7 +1649,7 @@ private:
             countCaptures();
         }
 
-        if (type == ParenthesesType::Subpattern)
+        if (type == ParenthesesType::Subpattern && !isNonCapturingGroup)
             ++m_numSubpatterns;
 
         m_parenthesesStack.append(type);
@@ -2201,6 +2200,8 @@ private:
     bool isUnicodeCompilation() const { return m_compileMode == CompileMode::Unicode; }
     bool isUnicodeSetsCompilation() const { return m_compileMode == CompileMode::UnicodeSets; }
     bool isEitherUnicodeCompilation() const { return isUnicodeCompilation() || isUnicodeSetsCompilation(); }
+
+    enum class ParenthesesType : uint8_t { Subpattern, Assertion, LookbehindAssertion };
 
     Delegate& m_delegate;
     ErrorCode m_errorCode { ErrorCode::NoError };

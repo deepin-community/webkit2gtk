@@ -6,11 +6,8 @@
 
 // SwapChain11.cpp: Implements a back-end specific class for the D3D11 swap chain.
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
-
 #include "libANGLE/renderer/d3d/d3d11/SwapChain11.h"
+#include "common/unsafe_buffers.h"
 
 #include <EGL/eglext.h>
 
@@ -654,10 +651,7 @@ EGLint SwapChain11::reset(DisplayD3D *displayD3D,
             }
         }
 
-        if (mRenderer->getRenderer11DeviceCaps().supportsDXGI1_2)
-        {
-            mSwapChain1 = d3d11::DynamicCastComObject<IDXGISwapChain1>(mSwapChain);
-        }
+        mSwapChain1 = d3d11::DynamicCastComObject<IDXGISwapChain1>(mSwapChain);
 
         ID3D11Texture2D *backbufferTex = nullptr;
         hr                             = mSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D),
@@ -805,14 +799,7 @@ EGLint SwapChain11::swapRect(DisplayD3D *displayD3D,
     }
 
     EGLint result = present(displayD3D, x, y, width, height);
-    if (result != EGL_SUCCESS)
-    {
-        return result;
-    }
-
-    mRenderer->onSwap();
-
-    return EGL_SUCCESS;
+    return result;
 }
 
 EGLint SwapChain11::copyOffscreenToBackbuffer(DisplayD3D *displayD3D,
@@ -867,9 +854,9 @@ EGLint SwapChain11::copyOffscreenToBackbuffer(DisplayD3D *displayD3D,
     }
 
     d3d11::SetPositionTexCoordVertex(&vertices[0], x1, y1, u1, v1);
-    d3d11::SetPositionTexCoordVertex(&vertices[1], x1, y2, u1, v2);
-    d3d11::SetPositionTexCoordVertex(&vertices[2], x2, y1, u2, v1);
-    d3d11::SetPositionTexCoordVertex(&vertices[3], x2, y2, u2, v2);
+    d3d11::SetPositionTexCoordVertex(&ANGLE_UNSAFE_TODO(vertices[1]), x1, y2, u1, v2);
+    d3d11::SetPositionTexCoordVertex(&ANGLE_UNSAFE_TODO(vertices[2]), x2, y1, u2, v1);
+    d3d11::SetPositionTexCoordVertex(&ANGLE_UNSAFE_TODO(vertices[3]), x2, y2, u2, v2);
 
     deviceContext->Unmap(mQuadVB.get(), 0);
 

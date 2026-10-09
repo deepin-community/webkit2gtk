@@ -29,7 +29,6 @@
 #include "CacheStorageDiskStore.h"
 #include "CacheStorageManager.h"
 #include "CacheStorageMemoryStore.h"
-#include "Connection.h"
 #include "Logging.h"
 #include <WebCore/CacheQueryOptions.h>
 #include <WebCore/CrossOriginAccessControl.h>
@@ -41,22 +40,16 @@
 #include <wtf/Scope.h>
 #include <wtf/TZoneMallocInlines.h>
 
-#define MESSAGE_CHECK_COMPLETION(assertion, connection, completion) MESSAGE_CHECK_COMPLETION_BASE(assertion, connection, completion)
-
 namespace WebKit {
 
-std::optional<String> CacheStorageCache::computeKeyURL(const URL& url)
+String CacheStorageCache::computeKeyURL(const URL& url)
 {
-    ASSERT(url.isValid());
-    ASSERT(!url.isEmpty());
-    if (!url.isValid() || url.isEmpty())
-        return std::nullopt;
+    RELEASE_ASSERT(url.isValid());
+    RELEASE_ASSERT(!url.isEmpty());
     URL keyURL { url };
     keyURL.removeQueryAndFragmentIdentifier();
     auto keyURLString = keyURL.string();
-    ASSERT(RecordsMap::isValidKey(keyURLString));
-    if (!RecordsMap::isValidKey(keyURLString))
-        return std::nullopt;
+    RELEASE_ASSERT(RecordsMap::isValidKey(keyURLString));
     return keyURLString;
 }
 
@@ -104,6 +97,13 @@ CacheStorageManager* CacheStorageCache::manager()
     return m_manager.get();
 }
 
+std::optional<WebCore::ClientOrigin> CacheStorageCache::origin() const
+{
+    if (RefPtr manager = m_manager.get())
+        return manager->origin();
+    return std::nullopt;
+}
+
 void CacheStorageCache::getSize(CompletionHandler<void(uint64_t)>&& callback)
 {
     assertIsOnCorrectQueue();
@@ -148,7 +148,7 @@ void CacheStorageCache::open(WebCore::DOMCacheEngine::CacheIdentifierCallback&& 
 
         for (auto&& recordInfo : recordInfos) {
             recordInfo.setIdentifier(nextRecordIdentifier());
-            protectedThis->m_records.ensure(*computeKeyURL(recordInfo.url()), [] {
+            protectedThis->m_records.ensure(computeKeyURL(recordInfo.url()), [] {
                 return Vector<CacheStorageRecordInformation> { };
             }).iterator->value.append(WTF::move(recordInfo));
         }
@@ -169,11 +169,8 @@ static CacheStorageRecord toCacheStorageRecord(WebCore::DOMCacheEngine::CrossThr
     return CacheStorageRecord { WTF::move(recordInfo), record.requestHeadersGuard, WTF::move(record.request), record.options, WTF::move(record.referrer), record.responseHeadersGuard, WTF::move(record.response), record.responseBodySize, WTF::move(record.responseBody) };
 }
 
-void CacheStorageCache::retrieveRecords(IPC::Connection& connection, WebCore::RetrieveRecordsOptions&& options, WebCore::DOMCacheEngine::CrossThreadRecordsCallback&& callback)
+void CacheStorageCache::retrieveRecords(WebCore::RetrieveRecordsOptions&& options, WebCore::DOMCacheEngine::CrossThreadRecordsCallback&& callback)
 {
-    if (!options.request.url().isNull())
-        MESSAGE_CHECK_COMPLETION(computeKeyURL(options.request.url()), connection, callback(makeUnexpected(WebCore::DOMCacheEngine::Error::Internal)));
-
     auto targetRecordInfos = findRecords(options);
     retrieveRecords(targetRecordInfos, WTF::move(options), WTF::move(callback));
 }
@@ -196,11 +193,7 @@ Vector<CacheStorageRecordInformation> CacheStorageCache::findRecords(const WebCo
         if (!options.ignoreMethod && options.request.httpMethod() != "GET"_s)
             return { };
 
-        auto keyURL = computeKeyURL(url);
-        if (!keyURL)
-            return { };
-
-        auto iterator = m_records.find(*keyURL);
+        auto iterator = m_records.find(computeKeyURL(url));
         if (iterator == m_records.end())
             return { };
 
@@ -248,18 +241,15 @@ void CacheStorageCache::retrieveRecords(const Vector<CacheStorageRecordInformati
     });
 }
 
-void CacheStorageCache::removeRecords(IPC::Connection& connection, WebCore::ResourceRequest&& request, WebCore::CacheQueryOptions&& options, WebCore::DOMCacheEngine::RecordIdentifiersCallback&& callback)
+void CacheStorageCache::removeRecords(WebCore::ResourceRequest&& request, WebCore::CacheQueryOptions&& options, WebCore::DOMCacheEngine::RecordIdentifiersCallback&& callback)
 {
     ASSERT(m_isInitialized);
     assertIsOnCorrectQueue();
-
+    
     if (!options.ignoreMethod && request.httpMethod() != "GET"_s)
         return callback({ });
 
-    auto keyURL = computeKeyURL(request.url());
-    MESSAGE_CHECK_COMPLETION(keyURL, connection, callback(makeUnexpected(WebCore::DOMCacheEngine::Error::Internal)));
-
-    auto iterator = m_records.find(*keyURL);
+    auto iterator = m_records.find(computeKeyURL(request.url()));
     if (iterator == m_records.end())
         return callback({ });
 
@@ -289,15 +279,11 @@ void CacheStorageCache::removeRecords(IPC::Connection& connection, WebCore::Reso
     });
 }
 
-Expected<CacheStorageRecordInformation*, WebCore::DOMCacheEngine::Error> CacheStorageCache::findExistingRecord(const WebCore::ResourceRequest& request, std::optional<uint64_t> identifier)
+CacheStorageRecordInformation* CacheStorageCache::findExistingRecord(const WebCore::ResourceRequest& request, std::optional<uint64_t> identifier)
 {
     assertIsOnCorrectQueue();
 
-    auto keyURL = computeKeyURL(request.url());
-    if (!keyURL)
-        return makeUnexpected(WebCore::DOMCacheEngine::Error::Internal);
-
-    auto iterator = m_records.find(*keyURL);
+    auto iterator = m_records.find(computeKeyURL(request.url()));
     if (iterator == m_records.end())
         return nullptr;
 
@@ -312,7 +298,7 @@ Expected<CacheStorageRecordInformation*, WebCore::DOMCacheEngine::Error> CacheSt
     return &iterator->value[index];
 }
 
-void CacheStorageCache::putRecords(IPC::Connection& connection, Vector<WebCore::DOMCacheEngine::CrossThreadRecord>&& records, WebCore::DOMCacheEngine::RecordIdentifiersCallback&& callback)
+void CacheStorageCache::putRecords(Vector<WebCore::DOMCacheEngine::CrossThreadRecord>&& records, WebCore::DOMCacheEngine::RecordIdentifiersCallback&& callback)
 {
     ASSERT(m_isInitialized);
     assertIsOnCorrectQueue();
@@ -324,20 +310,11 @@ void CacheStorageCache::putRecords(IPC::Connection& connection, Vector<WebCore::
     CheckedUint64 spaceRequested = 0;
     CheckedUint64 spaceAvailable = 0;
     bool isSpaceRequestedValid = true;
-    std::optional<WebCore::DOMCacheEngine::Error> encounteredError;
-    auto cacheStorageRecords = WTF::compactMap(WTF::move(records), [&](WebCore::DOMCacheEngine::CrossThreadRecord&& record) -> std::optional<CacheStorageRecord> {
-        if (encounteredError)
-            return std::nullopt;
-
+    auto cacheStorageRecords = WTF::map(WTF::move(records), [&](WebCore::DOMCacheEngine::CrossThreadRecord&& record) {
         if (isSpaceRequestedValid) {
             spaceRequested += record.responseBodySize;
-            auto existingRecord = findExistingRecord(record.request);
-            if (!existingRecord.has_value()) {
-                encounteredError = existingRecord.error();
-                return std::nullopt;
-            }
-            if (*existingRecord)
-                spaceAvailable += (*existingRecord)->size();
+            if (auto* existingRecord = findExistingRecord(record.request))
+                spaceAvailable += existingRecord->size();
             if (spaceRequested.hasOverflowed() || spaceAvailable.hasOverflowed())
                 isSpaceRequestedValid = false;
             else {
@@ -349,13 +326,11 @@ void CacheStorageCache::putRecords(IPC::Connection& connection, Vector<WebCore::
         return toCacheStorageRecord(WTF::move(record), manager->salt(), m_uniqueName);
     });
 
-    MESSAGE_CHECK_COMPLETION(!encounteredError, connection, callback(makeUnexpected(*encounteredError)));
-
     // The request still needs to go through quota check to keep ordering.
     if (!isSpaceRequestedValid)
         spaceRequested = 0;
 
-    manager->requestSpace(spaceRequested, [weakThis = WeakPtr { *this }, connection = Ref { connection }, records = WTF::move(cacheStorageRecords), callback = WTF::move(callback), isSpaceRequestedValid](bool granted) mutable {
+    manager->requestSpace(spaceRequested, [weakThis = WeakPtr { *this }, records = WTF::move(cacheStorageRecords), callback = WTF::move(callback), isSpaceRequestedValid](bool granted) mutable {
         RefPtr protectedThis = weakThis.get();
         if (!protectedThis)
             return callback(makeUnexpected(WebCore::DOMCacheEngine::Error::Internal));
@@ -368,37 +343,35 @@ void CacheStorageCache::putRecords(IPC::Connection& connection, Vector<WebCore::
         if (!granted)
             return callback(makeUnexpected(WebCore::DOMCacheEngine::Error::QuotaExceeded));
 
-        protectedThis->putRecordsAfterQuotaCheck(connection, WTF::move(records), WTF::move(callback));
+        protectedThis->putRecordsAfterQuotaCheck(WTF::move(records), WTF::move(callback));
     });
 }
 
-void CacheStorageCache::putRecordsAfterQuotaCheck(IPC::Connection& connection, Vector<CacheStorageRecord>&& records, WebCore::DOMCacheEngine::RecordIdentifiersCallback&& callback)
+void CacheStorageCache::putRecordsAfterQuotaCheck(Vector<CacheStorageRecord>&& records, WebCore::DOMCacheEngine::RecordIdentifiersCallback&& callback)
 {
     ASSERT(m_isInitialized);
     assertIsOnCorrectQueue();
 
     Vector<CacheStorageRecordInformation> targetRecordInfos;
     for (auto& record : records) {
-        auto existingRecord = findExistingRecord(record.request);
-        MESSAGE_CHECK_COMPLETION(existingRecord.has_value(), connection, callback(makeUnexpected(existingRecord.error())));
-        if (*existingRecord) {
-            record.info.setIdentifier((*existingRecord)->identifier());
-            targetRecordInfos.append(**existingRecord);
+        if (auto* existingRecord = findExistingRecord(record.request)) {
+            record.info.setIdentifier(existingRecord->identifier());
+            targetRecordInfos.append(*existingRecord);
         }
     }
 
-    auto readRecordsCallback = [weakThis = WeakPtr { *this }, connection = Ref { connection }, records = WTF::move(records), callback = WTF::move(callback)](auto existingCacheStorageRecords) mutable {
+    auto readRecordsCallback = [weakThis = WeakPtr { *this }, records = WTF::move(records), callback = WTF::move(callback)](auto existingCacheStorageRecords) mutable {
         RefPtr protectedThis = weakThis.get();
         if (!protectedThis)
             return callback(makeUnexpected(WebCore::DOMCacheEngine::Error::Internal));
 
-        protectedThis->putRecordsInStore(connection, WTF::move(records), WTF::move(existingCacheStorageRecords), WTF::move(callback));
+        protectedThis->putRecordsInStore(WTF::move(records), WTF::move(existingCacheStorageRecords), WTF::move(callback));
     };
 
     m_store->readRecords(targetRecordInfos, WTF::move(readRecordsCallback));
 }
 
-void CacheStorageCache::putRecordsInStore(IPC::Connection& connection, Vector<CacheStorageRecord>&& records, Vector<std::optional<CacheStorageRecord>>&& existingRecords, WebCore::DOMCacheEngine::RecordIdentifiersCallback&& callback)
+void CacheStorageCache::putRecordsInStore(Vector<CacheStorageRecord>&& records, Vector<std::optional<CacheStorageRecord>>&& existingRecords, WebCore::DOMCacheEngine::RecordIdentifiersCallback&& callback)
 {
     assertIsOnCorrectQueue();
 
@@ -408,9 +381,7 @@ void CacheStorageCache::putRecordsInStore(IPC::Connection& connection, Vector<Ca
         if (!record.info.identifier()) {
             record.info.setIdentifier(nextRecordIdentifier());
             sizeIncreased += record.info.size();
-            auto keyURL = computeKeyURL(record.info.url());
-            MESSAGE_CHECK_COMPLETION(keyURL, connection, callback(makeUnexpected(WebCore::DOMCacheEngine::Error::Internal)));
-            m_records.ensure(*keyURL, [] {
+            m_records.ensure(computeKeyURL(record.info.url()), [] {
                 return Vector<CacheStorageRecordInformation> { };
             }).iterator->value.append(record.info);
         } else {
@@ -425,9 +396,7 @@ void CacheStorageCache::putRecordsInStore(IPC::Connection& connection, Vector<Ca
 
             auto& existingRecord = existingRecords[index];
             // Ensure identifier still exists.
-            auto existingRecordInfoOrError = findExistingRecord(record.request, record.info.identifier());
-            MESSAGE_CHECK_COMPLETION(existingRecordInfoOrError.has_value(), connection, callback(makeUnexpected(existingRecordInfoOrError.error())));
-            auto* existingRecordInfo = *existingRecordInfoOrError;
+            auto* existingRecordInfo = findExistingRecord(record.request, record.info.identifier());
             if (!existingRecordInfo) {
                 record.info.setIdentifier(0);
                 continue;

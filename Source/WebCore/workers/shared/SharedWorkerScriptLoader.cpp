@@ -61,7 +61,7 @@ void SharedWorkerScriptLoader::load(CompletionHandler<void(WorkerFetchResult&&, 
     m_completionHandler = WTF::move(completionHandler);
 
     auto source = m_options.type == WorkerType::Module ? WorkerScriptLoader::Source::ModuleScript : WorkerScriptLoader::Source::ClassicWorkerScript;
-    m_loader->loadAsynchronously(*m_worker->protectedScriptExecutionContext(), ResourceRequest(URL { m_url }), source, m_worker->workerFetchOptions(m_options, FetchOptions::Destination::Sharedworker), ContentSecurityPolicyEnforcement::EnforceWorkerSrcDirective, ServiceWorkersMode::All, *this, WorkerRunLoop::defaultMode(), ScriptExecutionContextIdentifier::generate());
+    m_loader->loadAsynchronously(*protect(m_worker->scriptExecutionContext()), ResourceRequest(URL { m_url }), source, m_worker->workerFetchOptions(m_options, FetchOptions::Destination::Sharedworker), ContentSecurityPolicyEnforcement::EnforceWorkerSrcDirective, ServiceWorkersMode::All, *this, WorkerRunLoop::defaultMode(), ScriptExecutionContextIdentifier::generate());
 }
 
 void SharedWorkerScriptLoader::didReceiveResponse(ScriptExecutionContextIdentifier mainContextIdentifier, std::optional<ResourceLoaderIdentifier> identifier, const ResourceResponse&)
@@ -91,8 +91,10 @@ void SharedWorkerScriptLoader::notifyFinished(std::optional<ScriptExecutionConte
     // CSP, matching Worker::didReceiveResponse().
     if (scriptExecutionContext) {
         const auto& responseURL = fetchResult.responseURL;
-        if (responseURL.protocolIsBlob() || responseURL.protocolIsFile() || SecurityOrigin::create(responseURL)->isOpaque())
-            fetchResult.contentSecurityPolicy = scriptExecutionContext->checkedContentSecurityPolicy()->responseHeaders();
+        if (responseURL.protocolIsBlob() || responseURL.protocolIsFile() || SecurityOrigin::create(responseURL)->isOpaque()) {
+            if (CheckedPtr contentSecurityPolicy = scriptExecutionContext->contentSecurityPolicy())
+                fetchResult.contentSecurityPolicy = contentSecurityPolicy->responseHeaders();
+        }
     }
 
     if (fetchResult.referrerPolicy.isNull() && scriptExecutionContext)

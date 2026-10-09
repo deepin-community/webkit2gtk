@@ -31,16 +31,16 @@
 #include "RenderObjectNode.h"
 
 #include "RenderSVGShapeInlines.h"
-#include "RenderStyle+GettersInlines.h"
 #include "SVGElementTypeHelpers.h"
 #include "SVGRectElement.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(RenderSVGRect);
 
-RenderSVGRect::RenderSVGRect(SVGRectElement& element, RenderStyle&& style)
+RenderSVGRect::RenderSVGRect(SVGRectElement& element, Style::ComputedStyle&& style)
     : RenderSVGShape(Type::SVGRect, element, WTF::move(style))
 {
 }
@@ -72,8 +72,8 @@ void RenderSVGRect::updateShapeFromElement()
     if (boundingBoxSize.isEmpty())
         return;
 
-    if (lengthContext.valueForLength(style->rx(), Style::ZoomNeeded { }, SVGLengthMode::Width) > 0
-        || lengthContext.valueForLength(style->ry(), Style::ZoomNeeded { }, SVGLengthMode::Height) > 0)
+    if (lengthContext.valueForLength(style->rx(), usedZoom, SVGLengthMode::Width) > 0
+        || lengthContext.valueForLength(style->ry(), usedZoom, SVGLengthMode::Height) > 0)
         m_shapeType = ShapeType::RoundedRectangle;
     else
         m_shapeType = ShapeType::Rectangle;
@@ -84,12 +84,11 @@ void RenderSVGRect::updateShapeFromElement()
         return;
     }
 
-    m_fillBoundingBox = FloatRect(FloatPoint(lengthContext.valueForLength(style->x(), Style::ZoomNeeded { }, SVGLengthMode::Width),
-        lengthContext.valueForLength(style->y(), Style::ZoomNeeded { }, SVGLengthMode::Height)),
-        boundingBoxSize);
+    m_fillBoundingBox = FloatRect(FloatPoint(lengthContext.valueForLength(style->x(), usedZoom, SVGLengthMode::Width),
+        lengthContext.valueForLength(style->y(), usedZoom, SVGLengthMode::Height)), boundingBoxSize);
 
     auto strokeBoundingBox = m_fillBoundingBox;
-    if (style->hasStroke())
+    if (!style->stroke().isNone())
         strokeBoundingBox.inflate(this->strokeWidth() / 2);
 
 #if USE(CG)
@@ -121,7 +120,8 @@ void RenderSVGRect::fillShape(GraphicsContext& context) const
     }
 #endif
 
-    context.fillRect(m_fillBoundingBox);
+    context.fillRect(m_fillBoundingBox, fillRequiresClip() ? GraphicsContext::RequiresClipToRect::Yes : GraphicsContext::RequiresClipToRect::No);
+    setFillRequiresClip(true);
 }
 
 bool RenderSVGRect::canUseStrokeHitTestFastPath() const
@@ -161,7 +161,7 @@ bool RenderSVGRect::definitelyHasSimpleStroke() const
 
 void RenderSVGRect::strokeShape(GraphicsContext& context) const
 {
-    if (!style().hasStroke() || !style().strokeWidth().isPossiblyPositive())
+    if (style().stroke().isNone() || !style().strokeWidth().isPossiblyPositive())
         return;
 
     if (hasPath()) {

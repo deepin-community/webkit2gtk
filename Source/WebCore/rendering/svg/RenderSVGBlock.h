@@ -31,28 +31,27 @@ class RenderSVGBlock : public RenderBlockFlow {
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderSVGBlock);
 public:
     inline SVGGraphicsElement& graphicsElement() const;
-    inline Ref<SVGGraphicsElement> protectedGraphicsElement() const;
+
+    LayoutPoint currentSVGLayoutLocation() const final { return location(); }
+    void setCurrentSVGLayoutLocation(const LayoutPoint& location) final { setLocation(location); }
 
 protected:
-    RenderSVGBlock(Type, SVGGraphicsElement&, RenderStyle&&);
+    RenderSVGBlock(Type, SVGGraphicsElement&, Style::ComputedStyle&&);
     virtual ~RenderSVGBlock();
 
     void willBeDestroyed() override;
 
-    void computeOverflow(LayoutRect contentArea, OptionSet<ComputeOverflowOptions>) override;
+    void computeInFlowOverflow(LayoutRect contentArea, OptionSet<ComputeOverflowOptions>) override;
 
     void updateFromStyle() override;
     bool needsHasSVGTransformFlags() const override;
-    void styleDidChange(Style::Difference, const RenderStyle* oldStyle) override;
+    void styleDidChange(Style::Difference, const Style::ComputedStyle* oldStyle) override;
 
 private:
     void element() const = delete;
 
     void boundingRects(Vector<LayoutRect>&, const LayoutPoint& accumulatedOffset) const override;
     void absoluteQuads(Vector<FloatQuad>&, bool* wasFixed) const override;
-
-    LayoutPoint currentSVGLayoutLocation() const final { return location(); }
-    void setCurrentSVGLayoutLocation(const LayoutPoint& location) final { setLocation(location); }
 
     FloatRect referenceBoxRect(CSSBoxType) const final;
 

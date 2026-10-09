@@ -30,8 +30,6 @@
 #include <wtf/text/MakeString.h>
 #endif
 
-#include <wtf/text/StringView.h>
-
 namespace JSC {
 
 GigacageAlignedMemoryAllocator::GigacageAlignedMemoryAllocator(Gigacage::Kind kind)
@@ -58,7 +56,7 @@ void GigacageAlignedMemoryAllocator::freeAlignedMemory(void* basePtr)
 #if ENABLE(MALLOC_HEAP_BREAKDOWN)
     return m_heap.free(basePtr);
 #else
-    Gigacage::alignedFree(m_kind, basePtr);
+    Gigacage::free(m_kind, basePtr);
 #endif
 }
 

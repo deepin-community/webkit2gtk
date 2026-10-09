@@ -138,6 +138,11 @@ IntSize BitmapImageDescriptor::sourceSize(ImageOrientation orientation) const
     return orientation.usesWidthAsHeight() ? size.transposedSize() : size;
 }
 
+FloatSize BitmapImageDescriptor::density() const
+{
+    return primaryImageFrameMetadata(m_density, CachedFlag::Density, &ImageFrame::density);
+}
+
 std::optional<IntSize> BitmapImageDescriptor::densityCorrectedSize() const
 {
     return primaryImageFrameMetadata(m_densityCorrectedSize, CachedFlag::DensityCorrectedSize, &ImageFrame::densityCorrectedSize, SubsamplingLevel::Default);
@@ -275,10 +280,10 @@ SubsamplingLevel BitmapImageDescriptor::subsamplingLevelForScaleFactor(GraphicsC
 }
 
 #if ENABLE(QUICKLOOK_FULLSCREEN)
-bool BitmapImageDescriptor::shouldUseQuickLookForFullscreen() const
+bool BitmapImageDescriptor::isPanorama() const
 {
     if (auto decoder = m_source->decoderIfExists())
-        return decoder->shouldUseQuickLookForFullscreen();
+        return decoder->isPanorama();
     return false;
 }
 #endif

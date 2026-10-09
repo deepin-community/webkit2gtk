@@ -51,8 +51,8 @@
 #include "RenderElement.h"
 #include "RenderLayer.h"
 #include "RenderObject.h"
-#include "RenderStyle+GettersInlines.h"
 #include "RenderText.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include "TextIterator.h"
 #include "TextPaintStyle.h"
 #include "FrameDestructionObserverInlines.h"
@@ -65,12 +65,19 @@ namespace WebCore {
 
 static bool initializeIndicator(TextIndicatorData&, LocalFrame&, const SimpleRange&, FloatSize margin, bool indicatesCurrentSelection);
 
+TextIndicator::TextIndicator() = default;
+
 TextIndicator::TextIndicator(const TextIndicatorData& data)
     : m_data(data)
 {
 }
 
 TextIndicator::~TextIndicator() = default;
+
+Ref<TextIndicator> TextIndicator::create()
+{
+    return adoptRef(*new TextIndicator());
+}
 
 Ref<TextIndicator> TextIndicator::create(const TextIndicatorData& data)
 {
@@ -85,7 +92,7 @@ RefPtr<TextIndicator> TextIndicator::createWithRange(const SimpleRange& range, O
             Ref indicatorNode = commonAncestor.releaseNonNull();
 
             for (Ref ancestorElement : ancestorsOfType<Element>(indicatorNode)) {
-                if (CheckedPtr renderer = ancestorElement->renderer(); renderer && renderer->checkedStyle()->usedUserSelect() == UserSelect::All)
+                if (CheckedPtr renderer = ancestorElement->renderer(); renderer && renderer->style().usedUserSelect() == UserSelect::All)
                     indicatorNode = ancestorElement;
             }
 
@@ -104,7 +111,7 @@ RefPtr<TextIndicator> TextIndicator::createWithRange(const SimpleRange& range, O
     auto rangeIndicatesCurrentSelection = [document](const SimpleRange& range) {
         auto selectionRange = document->selection().selection().toNormalizedRange();
         auto normalizedRange = VisibleSelection(range).toNormalizedRange();
-        return selectionRange && selectionRange == normalizedRange;
+        return selectionRange && !selectionRange->collapsed() && selectionRange == normalizedRange;
     };
 
     bool indicatesCurrentSelection = rangeIndicatesCurrentSelection(rangeToUse);
@@ -212,6 +219,9 @@ static SnapshotOptions snapshotOptionsForTextIndicatorOptions(OptionSet<TextIndi
     if (options.contains(TextIndicatorOption::SnapshotContentAt3xBaseScale))
         snapshotOptions.flags.add(SnapshotFlags::PaintWith3xBaseScale);
 
+    if (options.contains(TextIndicatorOption::IncludeDocumentMarkers))
+        snapshotOptions.flags.add(SnapshotFlags::IncludeDocumentMarkers);
+
     return snapshotOptions;
 }
 
@@ -246,9 +256,9 @@ static bool takeSnapshots(TextIndicatorData& data, LocalFrame& frame, IntRect sn
             snapshotOptions.flags.add(SnapshotFlags::PaintWith3xBaseScale);
 
         float snapshotScaleFactor;
-        auto visibleContentRect = frame.protectedView()->visibleContentRect();
+        auto visibleContentRect = protect(frame.view())->visibleContentRect();
         data.contentImageWithoutSelection = takeSnapshot(frame, visibleContentRect, WTF::move(snapshotOptions), snapshotScaleFactor, { });
-        data.contentImageWithoutSelectionRectInRootViewCoordinates = frame.protectedView()->contentsToRootView(visibleContentRect);
+        data.contentImageWithoutSelectionRectInRootViewCoordinates = protect(frame.view())->contentsToRootView(visibleContentRect);
     }
     
     return true;
@@ -262,7 +272,7 @@ static HashSet<Color> estimatedTextColorsForRange(const SimpleRange& range)
         if (!node)
             continue;
         if (CheckedPtr renderText = dynamicDowncast<RenderText>(node->renderer()))
-            colors.add(renderText->checkedStyle()->color());
+            colors.add(protect(renderText->style())->color());
     }
     return colors;
 }
@@ -393,7 +403,7 @@ static bool initializeIndicator(TextIndicatorData& data, LocalFrame& frame, cons
         textRectInDocumentCoordinatesIncludingMargin.inflateY(margin.height());
         textBoundingRectInDocumentCoordinates.unite(textRectInDocumentCoordinatesIncludingMargin);
 
-        FloatRect textRectInRootViewCoordinates = frame.protectedView()->contentsToRootView(enclosingIntRect(textRectInDocumentCoordinatesIncludingMargin));
+        FloatRect textRectInRootViewCoordinates = protect(frame.view())->contentsToRootView(enclosingIntRect(textRectInDocumentCoordinatesIncludingMargin));
         textRectsInRootViewCoordinates.append(textRectInRootViewCoordinates);
         textBoundingRectInRootViewCoordinates.unite(textRectInRootViewCoordinates);
     }
@@ -407,7 +417,7 @@ static bool initializeIndicator(TextIndicatorData& data, LocalFrame& frame, cons
 
     // Store the selection rect in window coordinates, to be used subsequently
     // to determine if the indicator and selection still precisely overlap.
-    data.selectionRectInRootViewCoordinates = frame.protectedView()->contentsToRootView(enclosingIntRect(frame.checkedSelection()->selectionBounds(FrameSelection::ClipToVisibleContent::No)));
+    data.selectionRectInRootViewCoordinates = protect(frame.view())->contentsToRootView(enclosingIntRect(protect(frame.selection())->selectionBounds(FrameSelection::ClipToVisibleContent::No)));
     data.textBoundingRectInRootViewCoordinates = textBoundingRectInRootViewCoordinates;
     data.textRectsInBoundingRectCoordinates = WTF::move(textRectsInBoundingRectCoordinates);
 

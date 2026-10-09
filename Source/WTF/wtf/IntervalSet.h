@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include <numeric>
 #include <wtf/CommaPrinter.h>
 #include <wtf/DataLog.h>
 #include <wtf/FastMalloc.h>
@@ -47,6 +48,7 @@ namespace WTF {
 template<typename T, typename Value, size_t cacheLinesPerNode = 1>
     requires std::is_trivially_destructible_v<T> && std::is_trivially_destructible_v<Value>
 class IntervalSet {
+    WTF_MAKE_NONCOPYABLE(IntervalSet);
 public:
     using Interval = Range<T>;
 
@@ -74,6 +76,42 @@ public:
     static_assert(innerOrder >= 2, "cacheLinesPerNode parameter too small: InnerNode order must be at least 2 for a valid B+ tree");
 
     IntervalSet() = default;
+
+    IntervalSet(IntervalSet&& other)
+        : m_root(other.m_root)
+        , m_rootInterval(other.m_rootInterval)
+        , m_height(other.m_height)
+#if ASSERT_ENABLED
+        , assertOnlyNumNodes(other.assertOnlyNumNodes)
+#endif
+    {
+        other.m_root = { };
+        other.m_rootInterval = { };
+        other.m_height = 0;
+#if ASSERT_ENABLED
+        other.assertOnlyNumNodes = 0;
+#endif
+    }
+
+    IntervalSet& operator=(IntervalSet&& other)
+    {
+        if (this != &other) {
+            freeAllNodes();
+            m_root = other.m_root;
+            m_rootInterval = other.m_rootInterval;
+            m_height = other.m_height;
+#if ASSERT_ENABLED
+            assertOnlyNumNodes = other.assertOnlyNumNodes;
+#endif
+            other.m_root = { };
+            other.m_rootInterval = { };
+            other.m_height = 0;
+#if ASSERT_ENABLED
+            other.assertOnlyNumNodes = 0;
+#endif
+        }
+        return *this;
+    }
 
     ~IntervalSet()
     {
@@ -743,7 +781,7 @@ private:
             return false;
 
         auto leftNode = leftNodeRef->template as<NodeType>();
-        size_t newSize = (leftNodeSize + nodeSize) / 2;
+        size_t newSize = std::midpoint(leftNodeSize, nodeSize);
         ASSERT(newSize < NodeType::capacity);
         size_t numToMove = nodeSize - newSize;
         leftNode->shiftLeftFrom(leftNodeSize, node, nodeSize, numToMove);
@@ -788,7 +826,7 @@ private:
         }
         // Now, we know that insertionINdex < capacity, so if there's only one empty slot between both nodes,
         // we should put it in the left node and the insertion point will still always be in the left node.
-        size_t newSize = (rightNodeSize + nodeSize) / 2;
+        size_t newSize = std::midpoint(rightNodeSize, nodeSize);
         ASSERT(newSize < NodeType::capacity);
         size_t numToMove = nodeSize - newSize;
         node->shiftRightTo(nodeSize, rightNode, rightNodeSize, numToMove);
@@ -866,7 +904,7 @@ private:
     void freeNode(NodeType* node)
     {
         ASSERT(assertOnlyNumNodes--);
-        fastAlignedFree(node);
+        fastFree(node);
     }
 
     void freeAllNodes()

@@ -59,7 +59,7 @@ void AudioSession::setShouldManageAudioSessionCategory(bool flag)
     s_shouldManageAudioSessionCategory.store(flag);
 }
 
-static RefPtr<AudioSession>& sharedAudioSession()
+static RefPtr<AudioSession>& NODELETE sharedAudioSession()
 {
     static NeverDestroyed<RefPtr<AudioSession>> session;
     return session.get();
@@ -71,7 +71,7 @@ static Ref<AudioSession>& dummyAudioSession()
     return dummySession.get();
 }
 
-static WeakHashSet<AudioSession::ChangedObserver>& audioSessionChangedObservers()
+static WeakHashSet<AudioSession::ChangedObserver>& NODELETE audioSessionChangedObservers()
 {
     static NeverDestroyed<WeakHashSet<AudioSession::ChangedObserver>> observers;
     return observers;
@@ -135,10 +135,10 @@ bool AudioSession::tryToSetActive(bool active)
     if (!tryToSetActiveInternal(active))
         return false;
 
-    ALWAYS_LOG(LOGIDENTIFIER, "is active = ", m_active, ", previousIsActive = ", previousIsActive);
+    ALWAYS_LOG(LOGIDENTIFIER, "is active = ", active, ", previousIsActive = ", previousIsActive);
 
-    bool hasActiveChanged = previousIsActive != isActive();
-    m_active = active;
+    bool hasActiveChanged = previousIsActive != active;
+    setActive(active);
     if (m_isInterrupted && m_active) {
         callOnMainThread([hasActiveChanged] {
             if (singleton().m_isInterrupted && singleton().m_active)
@@ -152,7 +152,12 @@ bool AudioSession::tryToSetActive(bool active)
     return true;
 }
 
-static WeakHashSet<AudioSessionInterruptionObserver>& audioSessionInterruptionObserversSingleton()
+void AudioSession::setActive(bool active)
+{
+    m_active = active;
+}
+
+static WeakHashSet<AudioSessionInterruptionObserver>& NODELETE audioSessionInterruptionObserversSingleton()
 {
     static NeverDestroyed<WeakHashSet<AudioSessionInterruptionObserver>> audioSessionInterruptionObservers;
     return audioSessionInterruptionObservers.get();
@@ -213,7 +218,7 @@ void AudioSession::setCategoryOverride(CategoryType category)
 
     m_categoryOverride = category;
     if (category != CategoryType::None)
-        setCategory(category, Mode::Default, RouteSharingPolicy::Default);
+        setCategory(category, category == AudioSessionCategory::PlayAndRecord ? Mode::VideoChat : Mode::Default, RouteSharingPolicy::Default);
 }
 
 AudioSession::CategoryType AudioSession::categoryOverride() const

@@ -26,29 +26,15 @@
 #include "config.h"
 #include "PageClient.h"
 
-#if ENABLE(FULLSCREEN_API)
-#include "WebFullScreenManagerProxy.h"
-#endif
-
-#if ENABLE(WIRELESS_PLAYBACK_TARGET) && !PLATFORM(IOS_FAMILY)
-#import <WebCore/WebMediaSessionManager.h>
+#if ENABLE(VIDEO)
+#include <WebCore/ExceptionData.h>
 #endif
 
 namespace WebKit {
 
-#if ENABLE(FULLSCREEN_API)
-CheckedRef<WebFullScreenManagerProxyClient> PageClient::checkedFullScreenManagerProxyClient()
+PageClient::PageClient(ClangVTableWorkaroundTag)
 {
-    return fullScreenManagerProxyClient();
 }
-#endif
-
-#if ENABLE(WIRELESS_PLAYBACK_TARGET) && !PLATFORM(IOS_FAMILY)
-CheckedRef<WebCore::WebMediaSessionManager> PageClient::checkedMediaSessionManager()
-{
-    return mediaSessionManager();
-}
-#endif
 
 #if ENABLE(VIDEO)
 void PageClient::showCaptionDisplaySettings(WebCore::HTMLMediaElementIdentifier, const WebCore::ResolvedCaptionDisplaySettingsOptions&, CompletionHandler<void(Expected<void, WebCore::ExceptionData>&&)>&& completionHandler)

@@ -40,7 +40,6 @@
 #include <wtf/OptionSet.h>
 #include <wtf/SHA1.h>
 #include <wtf/StdLibExtras.h>
-#include <wtf/Unexpected.h>
 #include <wtf/Variant.h>
 #include <wtf/WallTime.h>
 
@@ -48,7 +47,6 @@
 #include "ArgumentCodersAndroid.h"
 #endif
 #if USE(GLIB)
-#include "ArgumentCodersGlib.h"
 #include "RendererBufferFormat.h"
 #endif
 #if USE(UNIX_DOMAIN_SOCKETS)
@@ -484,7 +482,7 @@ template<typename T, size_t inlineCapacity, typename OverflowHandler, size_t min
                 auto element = decoder.template decode<T>();
                 if (!element)
                     return std::nullopt;
-                vector.append(WTF::move(*element));
+                SUPPRESS_UNCHECKED_ARG vector.append(WTF::move(*element));
             }
             return vector;
         }
@@ -601,6 +599,10 @@ template<typename KeyArg, typename MappedArg, typename HashArg, typename KeyTrai
             return std::nullopt;
 
         HashMapType hashMap;
+        // Calls to reserveInitialCapacity with untrusted large sizes can cause allocator crashes.
+        // Limit allocations from untrusted sources to 1MB.
+        if (*hashMapSize < 1024 * 1024 / (sizeof(KeyArg) + sizeof(MappedArg))) [[likely]]
+            hashMap.reserveInitialCapacity(*hashMapSize);
         for (unsigned i = 0; i < *hashMapSize; ++i) {
             auto key = decoder.template decode<KeyArg>();
             if (!key) [[unlikely]]
@@ -630,8 +632,8 @@ template<typename KeyArg, typename HashArg, typename KeyTraitsArg, typename Hash
     static void encode(Encoder& encoder, const HashSetType& hashSet)
     {
         encoder << static_cast<unsigned>(hashSet.size());
-        for (typename HashSetType::const_iterator it = hashSet.begin(), end = hashSet.end(); it != end; ++it)
-            encoder << *it;
+        for (auto& entry : hashSet)
+            encoder << entry;
     }
 
     template<typename Decoder>
@@ -642,6 +644,10 @@ template<typename KeyArg, typename HashArg, typename KeyTraitsArg, typename Hash
             return std::nullopt;
 
         HashSetType hashSet;
+        // Calls to reserveInitialCapacity with untrusted large sizes can cause allocator crashes.
+        // Limit allocations from untrusted sources to 1MB.
+        if (*hashSetSize < 1024 * 1024 / sizeof(KeyArg)) [[likely]]
+            hashSet.reserveInitialCapacity(*hashSetSize);
         for (unsigned i = 0; i < *hashSetSize; ++i) {
             auto key = decoder.template decode<KeyArg>();
             if (!key)
@@ -704,28 +710,18 @@ template<typename KeyArg, typename HashArg, typename KeyTraitsArg> struct Argume
 };
 
 template<typename ValueType, typename ErrorType> struct ArgumentCoder<Expected<ValueType, ErrorType>> {
-    template<typename Encoder>
-    static void encode(Encoder& encoder, const Expected<ValueType, ErrorType>& expected)
+    template<typename Encoder, typename T>
+    static void encode(Encoder& encoder, T&& expected)
     {
-        if (!expected.has_value()) {
-            encoder << false;
-            encoder << expected.error();
-            return;
-        }
-        encoder << true;
-        encoder << expected.value();
-    }
+        static_assert(std::is_same_v<std::remove_cvref_t<T>, Expected<ValueType, ErrorType>>);
 
-    template<typename Encoder>
-    static void encode(Encoder& encoder, Expected<ValueType, ErrorType>&& expected)
-    {
         if (!expected.has_value()) {
             encoder << false;
-            encoder << WTF::move(expected.error());
+            encoder << std::forward<T>(expected).error();
             return;
         }
         encoder << true;
-        encoder << WTF::move(expected.value());
+        encoder << std::forward<T>(expected).value();
     }
 
     template<typename Decoder>

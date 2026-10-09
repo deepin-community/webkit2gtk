@@ -43,18 +43,18 @@ HTMLFormElement* FormController::ownerForm(const FormListedElement& control)
     // Assume controls with form attribute have no owners because we restore
     // state during parsing and form owners of such controls might be
     // indeterminate.
-    return control.asProtectedHTMLElement()->hasAttributeWithoutSynchronization(HTMLNames::formAttr) ? nullptr : control.form();
+    return control.asHTMLElement().hasAttributeWithoutSynchronization(HTMLNames::formAttr) ? nullptr : control.form();
 }
 
 struct AtomStringVectorReader {
     const Vector<AtomString>& vector;
     size_t index { 0 };
 
-    const AtomString& consumeString();
+    const AtomString& NODELETE consumeString();
     Vector<AtomString> consumeSubvector(size_t subvectorSize);
 };
 
-const AtomString& AtomStringVectorReader::consumeString()
+const AtomString& NODELETE AtomStringVectorReader::consumeString()
 {
     if (index == vector.size())
         return nullAtom();
@@ -104,7 +104,7 @@ class FormController::SavedFormState {
 public:
     static SavedFormState consumeSerializedState(AtomStringVectorReader&);
 
-    bool isEmpty() const { return m_map.isEmpty(); }
+    bool NODELETE isEmpty() const { return m_map.isEmpty(); }
 
     using FormElementKey = std::pair<AtomString, AtomString>;
     FormControlState takeControlState(const FormElementKey&);

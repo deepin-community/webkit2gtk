@@ -176,21 +176,11 @@ AudioNodeInput* AudioNode::input(unsigned i)
     return nullptr;
 }
 
-CheckedPtr<AudioNodeInput> AudioNode::checkedInput(unsigned i)
-{
-    return input(i);
-}
-
 AudioNodeOutput* AudioNode::output(unsigned i)
 {
     if (i < m_outputs.size())
         return m_outputs[i].get();
     return nullptr;
-}
-
-CheckedPtr<AudioNodeOutput> AudioNode::checkedOutput(unsigned i)
-{
-    return output(i);
 }
 
 ExceptionOr<void> AudioNode::connect(AudioNode& destination, unsigned outputIndex, unsigned inputIndex)
@@ -673,10 +663,8 @@ void AudioNode::ref() const
 {
     ++m_normalRefCount;
 
-    {
-        Locker locker { context().graphLock() };
+    if (auto locker = context().isAudioThread() ? Locker<RecursiveLock>::tryLock(context().graphLock()) : Locker { context().graphLock() })
         const_cast<AudioNode*>(this)->unmarkNodeForDeletionIfNecessary();
-    }
 
 #if DEBUG_AUDIONODE_REFERENCES
     fprintf(stderr, "%p: %d: AudioNode::ref() %d %d\n", this, nodeType(), m_normalRefCount.load(), m_connectionRefCount.load());
@@ -685,12 +673,14 @@ void AudioNode::ref() const
 
 void AudioNode::deref() const
 {
-    ASSERT(!context().isAudioThread());
-
-    {
-        Locker locker { context().graphLock() };
-        // This is where the real deref work happens.
+    // The actual work for deref happens completely within the audio context's graph lock.
+    // In the case of the audio thread, we must use a tryLock to avoid glitches.
+    if (auto locker = context().isAudioThread() ? Locker<RecursiveLock>::tryLock(context().graphLock()) : Locker { context().graphLock() })
         derefWithLock();
+    else {
+        // We were unable to get the lock, so put this in a list to finish up later.
+        ASSERT(context().isAudioThread());
+        const_cast<BaseAudioContext&>(context()).addDeferredDeref(this);
     }
 
     // Once AudioContext::uninitialize() is called there's no more chances for deleteMarkedNodes() to get called, so we call here.

@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2011-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2026 Samuel Weinig <sam@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,8 +26,9 @@
 
 #pragma once
 
-#include <WebCore/Color.h>
 #include <WebCore/CompositeOperation.h>
+#include <WebCore/FloatPoint.h>
+#include <WebCore/FloatSize.h>
 #include <WebCore/IntPoint.h>
 #include <WebCore/IterationCompositeOperation.h>
 #include <WebCore/LayoutPoint.h>
@@ -40,17 +42,13 @@ struct BlendingContext {
     CompositeOperation compositeOperation { CompositeOperation::Replace };
     IterationCompositeOperation iterationCompositeOperation { IterationCompositeOperation::Replace };
     double currentIteration { 0 };
-    Color fromCurrentColor { };
-    Color toCurrentColor { };
 
-    BlendingContext(double progress = 0, bool isDiscrete = false, CompositeOperation compositeOperation = CompositeOperation::Replace, IterationCompositeOperation iterationCompositeOperation = IterationCompositeOperation::Replace, double currentIteration = 0, Color fromCurrentColor = { }, Color toCurrentColor = { })
+    BlendingContext(double progress = 0, bool isDiscrete = false, CompositeOperation compositeOperation = CompositeOperation::Replace, IterationCompositeOperation iterationCompositeOperation = IterationCompositeOperation::Replace, double currentIteration = 0)
         : progress(progress)
         , isDiscrete(isDiscrete)
         , compositeOperation(compositeOperation)
         , iterationCompositeOperation(iterationCompositeOperation)
         , currentIteration(currentIteration)
-        , fromCurrentColor(fromCurrentColor)
-        , toCurrentColor(toCurrentColor)
     {
     }
 
@@ -136,6 +134,11 @@ inline IntPoint blend(const IntPoint& from, const IntPoint& to, const BlendingCo
 inline FloatPoint blend(const FloatPoint& from, const FloatPoint& to, const BlendingContext& context)
 {
     return FloatPoint(blend(from.x(), to.x(), context), blend(from.y(), to.y(), context));
+}
+
+inline FloatSize blend(const FloatSize& from, const FloatSize& to, const BlendingContext& context)
+{
+    return FloatSize(blend(from.width(), to.width(), context), blend(from.height(), to.height(), context));
 }
 
 inline LayoutPoint blend(const LayoutPoint& from, const LayoutPoint& to, const BlendingContext& context)

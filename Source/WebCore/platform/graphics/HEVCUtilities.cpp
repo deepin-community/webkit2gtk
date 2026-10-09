@@ -291,7 +291,7 @@ std::optional<HEVCParameters> parseHEVCDecoderConfigurationRecord(FourCC codecCo
 
 static std::optional<DoViParameters::Codec> parseDoViCodecType(StringView string)
 {
-    static constexpr SortedArrayMap typesMap { std::to_array<std::pair<PackedLettersLiteral<uint32_t>, DoViParameters::Codec>>({
+    static constexpr SortedArrayMap typesMap { WTF::toArray<std::pair<PackedLettersLiteral<uint32_t>, DoViParameters::Codec>>({
         { "dva1"_s, DoViParameters::Codec::AVC1 },
         { "dvav"_s, DoViParameters::Codec::AVC3 },
         { "dvh1"_s, DoViParameters::Codec::HVC1 },
@@ -303,7 +303,7 @@ static std::optional<DoViParameters::Codec> parseDoViCodecType(StringView string
 static std::optional<uint16_t> profileIDForAlphabeticDoViProfile(StringView profile)
 {
     // See Table 7 of "Dolby Vision Profiles and Levels Version 1.3.2"
-    static constexpr SortedArrayMap profilesMap { std::to_array<std::pair<PackedLettersLiteral<uint64_t>, uint16_t>>({
+    static constexpr SortedArrayMap profilesMap { WTF::toArray<std::pair<PackedLettersLiteral<uint64_t>, uint16_t>>({
         { "dvav.se"_s, 9 },
         { "dvhe.dtb"_s, 7 },
         { "dvhe.dtr"_s, 4 },
@@ -313,7 +313,7 @@ static std::optional<uint16_t> profileIDForAlphabeticDoViProfile(StringView prof
     return makeOptionalFromPointer(profilesMap.tryGet(profile));
 }
 
-static bool isValidDoViProfileID(uint16_t profileID)
+static bool NODELETE isValidDoViProfileID(uint16_t profileID)
 {
     switch (profileID) {
     case 4:
@@ -327,7 +327,7 @@ static bool isValidDoViProfileID(uint16_t profileID)
     }
 }
 
-static std::optional<uint16_t> maximumLevelIDForDoViProfileID(uint16_t profileID)
+static std::optional<uint16_t> NODELETE maximumLevelIDForDoViProfileID(uint16_t profileID)
 {
     // See Section 4.1 of "Dolby Vision Profiles and Levels Version 1.3.2"
     switch (profileID) {
@@ -340,7 +340,7 @@ static std::optional<uint16_t> maximumLevelIDForDoViProfileID(uint16_t profileID
     }
 }
 
-static bool isValidProfileIDForCodec(uint16_t profileID, DoViParameters::Codec codec)
+static bool NODELETE isValidProfileIDForCodec(uint16_t profileID, DoViParameters::Codec codec)
 {
     if (profileID == 9)
         return codec == DoViParameters::Codec::AVC1 || codec == DoViParameters::Codec::AVC3;

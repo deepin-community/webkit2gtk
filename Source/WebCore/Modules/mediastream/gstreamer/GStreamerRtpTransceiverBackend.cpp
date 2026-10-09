@@ -26,7 +26,7 @@
 #include "GStreamerRtpReceiverBackend.h"
 #include "GStreamerRtpSenderBackend.h"
 #include "GStreamerWebRTCUtils.h"
-#include "RTCRtpCodecCapability.h"
+#include "RTCRtpCodec.h"
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/glib/GMallocString.h>
 #include <wtf/glib/GUniquePtr.h>
@@ -62,9 +62,9 @@ GStreamerRtpTransceiverBackend::GStreamerRtpTransceiverBackend(GRefPtr<GstWebRTC
     g_object_set(m_rtcTransceiver.get(), "do-nack", TRUE, nullptr);
 }
 
-std::unique_ptr<GStreamerRtpReceiverBackend> GStreamerRtpTransceiverBackend::createReceiverBackend()
+UniqueRef<GStreamerRtpReceiverBackend> GStreamerRtpTransceiverBackend::createReceiverBackend()
 {
-    return WTF::makeUnique<GStreamerRtpReceiverBackend>(GRefPtr(m_rtcTransceiver));
+    return WTF::makeUniqueRef<GStreamerRtpReceiverBackend>(GRefPtr(m_rtcTransceiver));
 }
 
 Ref<GStreamerRtpSenderBackend> GStreamerRtpTransceiverBackend::createSenderBackend(WeakPtr<GStreamerPeerConnectionBackend>&& backend, GStreamerRtpSenderBackend::Source&& source, GUniquePtr<GstStructure>&& initData)
@@ -86,7 +86,8 @@ std::optional<RTCRtpTransceiverDirection> GStreamerRtpTransceiverBackend::curren
     GstWebRTCRTPTransceiverDirection gstDirection;
     g_object_get(m_rtcTransceiver.get(), "current-direction", &gstDirection, nullptr);
     if (!gstDirection)
-        return RTCRtpTransceiverDirection::Inactive;
+        return { };
+
     return toRTCRtpTransceiverDirection(gstDirection);
 }
 
@@ -119,17 +120,17 @@ bool GStreamerRtpTransceiverBackend::stopped() const
     return m_isStopped;
 }
 
-[[nodiscard]] static inline ExceptionOr<GRefPtr<GstCaps>> toRtpCodecCapability(const RTCRtpCodecCapability& codec, int& dynamicPayloadType, const String& msid)
+[[nodiscard]] static inline ExceptionOr<GRefPtr<GstCaps>> toRtpCodecCapability(const RTCRtpCodec& codec, int& dynamicPayloadType, const String& msid)
 {
     if (!codec.mimeType.startsWith("video/"_s) && !codec.mimeType.startsWith("audio/"_s))
-        return Exception { ExceptionCode::InvalidModificationError, "RTCRtpCodecCapability bad mimeType"_s };
+        return Exception { ExceptionCode::InvalidModificationError, "RTCRtpCodec bad mimeType"_s };
 
     auto components = codec.mimeType.split('/');
     const auto mediaType = components[0];
     const auto codecName = components[1];
 
     int payloadType = payloadTypeForEncodingName(codecName).value_or(dynamicPayloadType++);
-    auto caps = adoptGRef(gst_caps_new_simple("application/x-rtp", "media", G_TYPE_STRING, mediaType.ascii().data(), "encoding-name", G_TYPE_STRING, codecName.ascii().data(), "clock-rate", G_TYPE_INT, codec.clockRate, "payload", G_TYPE_INT, payloadType, nullptr));
+    GRefPtr caps = adoptGRef(gst_caps_new_simple("application/x-rtp", "media", G_TYPE_STRING, mediaType.ascii().data(), "encoding-name", G_TYPE_STRING, codecName.ascii().data(), "clock-rate", G_TYPE_INT, codec.clockRate, "payload", G_TYPE_INT, payloadType, nullptr));
     if (codec.channels)
         gst_caps_set_simple(caps.get(), "channels", G_TYPE_INT, *codec.channels, nullptr);
 
@@ -139,7 +140,11 @@ bool GStreamerRtpTransceiverBackend::stopped() const
         // VP9 profile 2 requires a 10bit pixel input format, so a conversion might be needed just
         // before encoding. This is taken care of in the webkitvideoencoder itself.
         for (auto& attribute : codec.sdpFmtpLine.split(';')) {
+            if (!attribute.contains('='))
+                continue;
             auto components = attribute.split('=');
+            if (components.size() < 2) [[unlikely]]
+                continue;
             gst_caps_set_simple(caps.get(), components[0].ascii().data(), G_TYPE_STRING, components[1].ascii().data(), nullptr);
         }
     }
@@ -151,7 +156,7 @@ bool GStreamerRtpTransceiverBackend::stopped() const
     return caps;
 }
 
-ExceptionOr<void> GStreamerRtpTransceiverBackend::setCodecPreferences(const Vector<RTCRtpCodecCapability>& codecs)
+ExceptionOr<void> GStreamerRtpTransceiverBackend::setCodecPreferences(const Vector<RTCRtpCodec>& codecs)
 {
     GRefPtr<GstCaps> currentCaps;
     g_object_get(m_rtcTransceiver.get(), "codec-preferences", &currentCaps.outPtr(), nullptr);
@@ -173,7 +178,7 @@ ExceptionOr<void> GStreamerRtpTransceiverBackend::setCodecPreferences(const Vect
         });
     }
 
-    auto gstCodecs = adoptGRef(gst_caps_new_empty());
+    GRefPtr gstCodecs = adoptGRef(gst_caps_new_empty());
     int dynamicPayloadType = 96;
     for (auto& codec : codecs) {
         auto result = toRtpCodecCapability(codec, dynamicPayloadType, msid);

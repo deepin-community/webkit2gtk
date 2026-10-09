@@ -90,7 +90,7 @@ public:
     void handleIncomingPush(const WebCore::PushSubscriptionSetIdentifier&, WebKit::WebPushMessage&&);
 
 #if PLATFORM(IOS)
-    WebClipCache& ensureWebClipCache();
+    WebClipCache& ensureWebClipCache() LIFETIME_BOUND;
 #endif
 
     // Message handlers
@@ -106,6 +106,7 @@ public:
     void incrementSilentPushCount(PushClientConnection&, const WebCore::SecurityOriginData&, CompletionHandler<void(unsigned)>&&);
     void removeAllPushSubscriptions(PushClientConnection&, CompletionHandler<void(unsigned)>&&);
     void removePushSubscriptionsForOrigin(PushClientConnection&, const WebCore::SecurityOriginData&, CompletionHandler<void(unsigned)>&&);
+    void getAllPushSubscriptionOrigins(PushClientConnection&, CompletionHandler<void(Vector<WebCore::SecurityOriginData>&&)>&&);
     void setPublicTokenForTesting(PushClientConnection&, const String& publicToken, CompletionHandler<void()>&&);
 
 #if HAVE(FULL_FEATURED_USER_NOTIFICATIONS)
@@ -138,7 +139,7 @@ private:
     void releaseIncomingPushTransaction();
     void incomingPushTransactionTimerFired();
 
-    Seconds silentPushTimeout() const;
+    Seconds NODELETE silentPushTimeout() const;
     void rescheduleSilentPushTimer();
     void silentPushTimerFired();
     void didShowNotification(const WebCore::PushSubscriptionSetIdentifier&, const String& scope);
@@ -148,8 +149,8 @@ private:
 #endif
 
     PushClientConnection* toPushClientConnection(xpc_connection_t);
-    HashSet<XPCObjectPtr<xpc_connection_t>> m_pendingConnectionSet;
-    HashMap<XPCObjectPtr<xpc_connection_t>, Ref<PushClientConnection>> m_connectionMap;
+    HashSet<OSObjectPtr<xpc_connection_t>> m_pendingConnectionSet;
+    HashMap<OSObjectPtr<xpc_connection_t>, Ref<PushClientConnection>> m_connectionMap;
 
     const RefPtr<PushService> m_pushService;
     bool m_usingMockPushService { false };

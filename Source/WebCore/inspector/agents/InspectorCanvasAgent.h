@@ -35,6 +35,7 @@
 #include <JavaScriptCore/InspectorFrontendDispatchers.h>
 #include <initializer_list>
 #include <wtf/CheckedPtr.h>
+#include <wtf/CheckedRef.h>
 #include <wtf/Forward.h>
 #include <wtf/RobinHoodHashMap.h>
 #include <wtf/RobinHoodHashSet.h>
@@ -111,7 +112,7 @@ public:
     void recordAction(CanvasRenderingContext&, String&&, InspectorCanvasProcessedArguments&& = { });
 
     RefPtr<InspectorCanvas> assertInspectorCanvas(Inspector::Protocol::ErrorString&, const String& canvasId);
-    RefPtr<InspectorCanvas> findInspectorCanvas(const CanvasRenderingContext&);
+    RefPtr<InspectorCanvas> NODELETE findInspectorCanvas(const CanvasRenderingContext&);
 
 protected:
     InspectorCanvasAgent(WebAgentContext&);
@@ -146,12 +147,12 @@ private:
 #if ENABLE(WEBGL)
     void unbindProgram(InspectorShaderProgram&);
     RefPtr<InspectorShaderProgram> assertInspectorProgram(Inspector::Protocol::ErrorString&, const String& programId);
-    RefPtr<InspectorShaderProgram> findInspectorProgram(WebGLProgram&);
+    RefPtr<InspectorShaderProgram> NODELETE findInspectorProgram(WebGLProgram&);
 #endif // ENABLE(WEBGL)
 
     const Ref<Inspector::CanvasBackendDispatcher> m_backendDispatcher;
 
-    Inspector::InjectedScriptManager& m_injectedScriptManager;
+    const CheckedRef<Inspector::InjectedScriptManager> m_injectedScriptManager;
 
     Vector<String> m_removedCanvasIdentifiers;
     Timer m_canvasDestroyedTimer;

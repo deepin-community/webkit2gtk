@@ -38,6 +38,13 @@
 namespace WebCore {
 namespace IDBServer {
 
+static ClientOrigin clientOrigin(UniqueIDBDatabaseConnection& databaseConnection)
+{
+    if (CheckedPtr database = databaseConnection.database())
+        return database->identifier().origin();
+    return { };
+}
+
 Ref<UniqueIDBDatabaseTransaction> UniqueIDBDatabaseTransaction::create(UniqueIDBDatabaseConnection& connection, const IDBTransactionInfo& info)
 {
     return adoptRef(*new UniqueIDBDatabaseTransaction(connection, info));
@@ -50,7 +57,7 @@ UniqueIDBDatabaseTransaction::UniqueIDBDatabaseTransaction(UniqueIDBDatabaseConn
     ASSERT(database());
 
     if (m_transactionInfo.mode() == IDBTransactionMode::Versionchange)
-        m_originalDatabaseInfo = makeUnique<IDBDatabaseInfo>(checkedDatabase()->info());
+        m_originalDatabaseInfo = makeUnique<IDBDatabaseInfo>(database()->info());
 
     RefPtr databaseConnection = m_databaseConnection.get();
     if (!databaseConnection)
@@ -113,11 +120,6 @@ void UniqueIDBDatabaseTransaction::abortWithoutCallback()
 UniqueIDBDatabase* UniqueIDBDatabaseTransaction::database() const
 {
     return m_databaseConnection ? m_databaseConnection->database() : nullptr;
-}
-
-CheckedPtr<UniqueIDBDatabase> UniqueIDBDatabaseTransaction::checkedDatabase() const
-{
-    return database();
 }
 
 bool UniqueIDBDatabaseTransaction::isVersionChange() const
@@ -348,11 +350,11 @@ void UniqueIDBDatabaseTransaction::putOrAdd(const IDBRequestData& requestData, c
 
     ASSERT(!isReadOnly());
     ASSERT(m_transactionInfo.identifier() == requestData.transactionIdentifier());
-    
+
     CheckedPtr database = this->database();
     if (!database)
         return;
-    
+
     database->putOrAdd(requestData, keyData, value, indexKeys, overwriteMode, [weakThis = WeakPtr { *this }, requestData](auto& error, const IDBKeyData& key) {
         LOG(IndexedDB, "UniqueIDBDatabaseTransaction::putOrAdd (callback)");
 
@@ -367,9 +369,9 @@ void UniqueIDBDatabaseTransaction::putOrAdd(const IDBRequestData& requestData, c
         protectedThis->m_requestResults.append(error);
 
         if (error.isNull())
-            databaseConnection->protectedConnectionToClient()->didPutOrAdd(IDBResultData::putOrAddSuccess(requestData.requestIdentifier(), key));
+            protect(databaseConnection->connectionToClient())->didPutOrAdd(IDBResultData::putOrAddSuccess(requestData.requestIdentifier(), key));
         else
-            databaseConnection->protectedConnectionToClient()->didPutOrAdd(IDBResultData::error(requestData.requestIdentifier(), error));
+            protect(databaseConnection->connectionToClient())->didPutOrAdd(IDBResultData::error(requestData.requestIdentifier(), error));
     });
 }
 
@@ -397,9 +399,9 @@ void UniqueIDBDatabaseTransaction::getRecord(const IDBRequestData& requestData, 
         protectedThis->m_requestResults.append(error);
 
         if (error.isNull())
-            databaseConnection->protectedConnectionToClient()->didGetRecord(IDBResultData::getRecordSuccess(requestData.requestIdentifier(), result));
+            protect(databaseConnection->connectionToClient())->didGetRecord(IDBResultData::getRecordSuccess(requestData.requestIdentifier(), result, clientOrigin(*databaseConnection)));
         else
-            databaseConnection->protectedConnectionToClient()->didGetRecord(IDBResultData::error(requestData.requestIdentifier(), error));
+            protect(databaseConnection->connectionToClient())->didGetRecord(IDBResultData::error(requestData.requestIdentifier(), error));
     });
 }
 
@@ -427,9 +429,9 @@ void UniqueIDBDatabaseTransaction::getAllRecords(const IDBRequestData& requestDa
         protectedThis->m_requestResults.append(error);
 
         if (error.isNull())
-            databaseConnection->protectedConnectionToClient()->didGetAllRecords(IDBResultData::getAllRecordsSuccess(requestData.requestIdentifier(), result));
+            protect(databaseConnection->connectionToClient())->didGetAllRecords(IDBResultData::getAllRecordsSuccess(requestData.requestIdentifier(), result, clientOrigin(*databaseConnection)));
         else
-            databaseConnection->protectedConnectionToClient()->didGetAllRecords(IDBResultData::error(requestData.requestIdentifier(), error));
+            protect(databaseConnection->connectionToClient())->didGetAllRecords(IDBResultData::error(requestData.requestIdentifier(), error));
     });
 }
 
@@ -457,9 +459,9 @@ void UniqueIDBDatabaseTransaction::getCount(const IDBRequestData& requestData, c
         protectedThis->m_requestResults.append(error);
 
         if (error.isNull())
-            databaseConnection->protectedConnectionToClient()->didGetCount(IDBResultData::getCountSuccess(requestData.requestIdentifier(), count));
+            protect(databaseConnection->connectionToClient())->didGetCount(IDBResultData::getCountSuccess(requestData.requestIdentifier(), count));
         else
-            databaseConnection->protectedConnectionToClient()->didGetCount(IDBResultData::error(requestData.requestIdentifier(), error));
+            protect(databaseConnection->connectionToClient())->didGetCount(IDBResultData::error(requestData.requestIdentifier(), error));
     });
 }
 
@@ -487,9 +489,9 @@ void UniqueIDBDatabaseTransaction::deleteRecord(const IDBRequestData& requestDat
         protectedThis->m_requestResults.append(error);
 
         if (error.isNull())
-            databaseConnection->protectedConnectionToClient()->didDeleteRecord(IDBResultData::deleteRecordSuccess(requestData.requestIdentifier()));
+            protect(databaseConnection->connectionToClient())->didDeleteRecord(IDBResultData::deleteRecordSuccess(requestData.requestIdentifier()));
         else
-            databaseConnection->protectedConnectionToClient()->didDeleteRecord(IDBResultData::error(requestData.requestIdentifier(), error));
+            protect(databaseConnection->connectionToClient())->didDeleteRecord(IDBResultData::error(requestData.requestIdentifier(), error));
     });
 }
 
@@ -517,9 +519,9 @@ void UniqueIDBDatabaseTransaction::openCursor(const IDBRequestData& requestData,
         protectedThis->m_requestResults.append(error);
 
         if (error.isNull())
-            databaseConnection->protectedConnectionToClient()->didOpenCursor(IDBResultData::openCursorSuccess(requestData.requestIdentifier(), result));
+            protect(databaseConnection->connectionToClient())->didOpenCursor(IDBResultData::openCursorSuccess(requestData.requestIdentifier(), result, clientOrigin(*databaseConnection)));
         else
-            databaseConnection->protectedConnectionToClient()->didOpenCursor(IDBResultData::error(requestData.requestIdentifier(), error));
+            protect(databaseConnection->connectionToClient())->didOpenCursor(IDBResultData::error(requestData.requestIdentifier(), error));
     });
 }
 
@@ -550,9 +552,9 @@ void UniqueIDBDatabaseTransaction::iterateCursor(const IDBRequestData& requestDa
         protectedThis->m_requestResults.append(error);
 
         if (error.isNull())
-            databaseConnection->protectedConnectionToClient()->didIterateCursor(IDBResultData::iterateCursorSuccess(requestData.requestIdentifier(), result));
+            protect(databaseConnection->connectionToClient())->didIterateCursor(IDBResultData::iterateCursorSuccess(requestData.requestIdentifier(), result, clientOrigin(*databaseConnection)));
         else
-            databaseConnection->protectedConnectionToClient()->didIterateCursor(IDBResultData::error(requestData.requestIdentifier(), error));
+            protect(databaseConnection->connectionToClient())->didIterateCursor(IDBResultData::error(requestData.requestIdentifier(), error));
     });
 }
 
@@ -584,7 +586,7 @@ void UniqueIDBDatabaseTransaction::didActivateInBackingStore(const IDBError& err
     LOG(IndexedDB, "UniqueIDBDatabaseTransaction::didActivateInBackingStore");
 
     if (RefPtr connection = m_databaseConnection.get())
-        connection->protectedConnectionToClient()->didStartTransaction(m_transactionInfo.identifier(), error);
+        protect(connection->connectionToClient())->didStartTransaction(m_transactionInfo.identifier(), error);
 }
 
 void UniqueIDBDatabaseTransaction::createIndex(const IDBRequestData& requestData, const IDBIndexInfo& indexInfo)
@@ -629,7 +631,7 @@ bool UniqueIDBDatabaseTransaction::generateIndexKeyForRecord(const IDBIndexInfo&
         return false;
 
     ++m_pendingGenerateIndexKeyRequests;
-    databaseConnection->protectedConnectionToClient()->generateIndexKeyForRecord(m_createIndexRequestIdentifier, indexInfo, keyPath, key, value, recordID);
+    protect(databaseConnection->connectionToClient())->generateIndexKeyForRecord(m_createIndexRequestIdentifier, indexInfo, keyPath, key, value, recordID);
     return true;
 }
 

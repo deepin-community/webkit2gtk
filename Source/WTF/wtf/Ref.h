@@ -46,6 +46,8 @@ namespace WTF {
 inline void adopted(const void*) { }
 
 template<typename T> struct DefaultRefDerefTraits {
+    static constexpr bool isDefaultImplementation = true;
+
     static ALWAYS_INLINE T* refIfNotNull(T* ptr)
     {
         if (ptr) [[likely]]
@@ -66,9 +68,17 @@ template<typename T> struct DefaultRefDerefTraits {
     }
 };
 
+template<typename T>
+concept CanUseDefaultRefDerefTraits = HasRefPtrMemberFunctions<T>::value || !DefaultRefDerefTraits<T>::isDefaultImplementation;
+
 template<typename T, typename PtrTraits, typename RefDerefTraits> class Ref;
 template<typename T, typename PtrTraits = RawPtrTraits<T>, typename RefDerefTraits = DefaultRefDerefTraits<T>> Ref<T, PtrTraits, RefDerefTraits> adoptRef(T&);
 
+/**
+ * @brief Ref is the non-nullable variant of RefPtr.
+ *
+ * See RefPtr for full documentation on intrusive reference counting.
+ */
 template<typename T, typename _PtrTraits, typename RefDerefTraits>
 class Ref {
     WTF_FORBID_HEAP_ALLOCATION_ALLOWING_PLACEMENT_NEW;
@@ -120,6 +130,18 @@ public:
     {
     }
 
+    template<typename X, typename Y>
+    Ref(const CheckedRef<X, Y>& other) requires std::is_convertible_v<X*, T*>
+        : m_ptr(&RefDerefTraits::ref(other.get()))
+    {
+    }
+
+    template<typename X, typename Y>
+    Ref(const ThreadSafeWeakRef<X, Y>& other) requires std::is_convertible_v<X*, T*>
+        : m_ptr(&RefDerefTraits::ref(other.get()))
+    {
+    }
+
     Ref& operator=(T&);
     Ref& operator=(Ref&&);
     template<typename X, typename Y, typename Z> Ref& operator=(Ref<X, Y, Z>&&);
@@ -150,8 +172,9 @@ public:
 
     template<typename X, typename Y, typename Z> [[nodiscard]] Ref<T, PtrTraits, RefDerefTraits> replace(Ref<X, Y, Z>&&);
 
-    // The following function is deprecated.
+    // copyRef() on a r-value reference is never needed.
     Ref copyRef() && = delete;
+
     [[nodiscard]] Ref copyRef() const & { return Ref(*m_ptr); }
 
     [[nodiscard]] T& leakRef()
@@ -184,6 +207,10 @@ private:
 // Template deduction guide.
 template<typename X, typename Y> Ref(const WeakRef<X, Y>&) -> Ref<X, RawPtrTraits<X>, DefaultRefDerefTraits<X>>;
 template<typename X, typename Y> Ref(WeakRef<X, Y>&) -> Ref<X, RawPtrTraits<X>, DefaultRefDerefTraits<X>>;
+template<typename X, typename Y> Ref(const CheckedRef<X, Y>&) -> Ref<X, RawPtrTraits<X>, DefaultRefDerefTraits<X>>;
+template<typename X, typename Y> Ref(CheckedRef<X, Y>&) -> Ref<X, RawPtrTraits<X>, DefaultRefDerefTraits<X>>;
+template<typename X, typename Y> Ref(const ThreadSafeWeakRef<X, Y>&) -> Ref<X, RawPtrTraits<X>, DefaultRefDerefTraits<X>>;
+template<typename X, typename Y> Ref(ThreadSafeWeakRef<X, Y>&) -> Ref<X, RawPtrTraits<X>, DefaultRefDerefTraits<X>>;
 
 template<typename T, typename _PtrTraits, typename RefDerefTraits> Ref<T, _PtrTraits, RefDerefTraits> adoptRef(T&);
 
@@ -331,7 +358,7 @@ inline Ref<T, _PtrTraits, RefDerefTraits> adoptRef(T& reference)
 }
 
 template<typename T, typename PtrTraits = RawPtrTraits<T>, typename RefDerefTraits = DefaultRefDerefTraits<T>>
-    requires HasRefPtrMemberFunctions<T>::value
+    requires CanUseDefaultRefDerefTraits<T>
 ALWAYS_INLINE CLANG_POINTER_CONVERSION Ref<T, PtrTraits, RefDerefTraits> protect(T& reference)
 {
     return Ref<T, PtrTraits, RefDerefTraits>(reference);
@@ -343,10 +370,22 @@ ALWAYS_INLINE CLANG_POINTER_CONVERSION Ref<T, PtrTraits, RefDerefTraits> protect
     return reference.copyRef();
 }
 
+template<typename T, typename PtrTraits, typename RefDerefTraits>
+Ref<T, PtrTraits, RefDerefTraits> protect(Ref<T, PtrTraits, RefDerefTraits>&&)
+{
+    static_assert(WTF::unreachableForType<T>, "Calling protect() on an rvalue is unnecessary; the caller already owns the value.");
+}
+
 template<typename ExpectedType, typename ArgType, typename PtrTraits, typename RefDerefTraits>
 inline bool is(const Ref<ArgType, PtrTraits, RefDerefTraits>& source)
 {
     return is<ExpectedType>(source.get());
+}
+
+template<typename... ExpectedTypes, typename ArgType, typename PtrTraits, typename RefDerefTraits>
+inline bool isAnyOf(const Ref<ArgType, PtrTraits, RefDerefTraits>& source)
+{
+    return isAnyOf<ExpectedTypes...>(source.get());
 }
 
 template<typename Target, typename Source, typename PtrTraits, typename RefDerefTraits>

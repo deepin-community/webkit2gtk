@@ -44,8 +44,8 @@ private:
     bool isPlaceholder() const final { return true; }
     std::optional<ModelPlayerAnimationState> currentAnimationState() const final;
     std::optional<std::unique_ptr<ModelPlayerTransformState>> currentTransformState() const final;
-    void load(Model&, LayoutSize) final;
-    void reload(Model&, LayoutSize, ModelPlayerAnimationState&, std::unique_ptr<ModelPlayerTransformState>&&) final;
+    void NODELETE load(Model&, LayoutSize, bool) final;
+    void NODELETE reload(Model&, LayoutSize, ModelPlayerAnimationState&, std::unique_ptr<ModelPlayerTransformState>&&) final;
 
 #if ENABLE(MODEL_ELEMENT_BOUNDING_BOX)
     std::optional<FloatPoint3D> boundingBoxCenter() const final;
@@ -83,12 +83,13 @@ private:
 #endif
 
     // Empty implementation
-    void configureGraphicsLayer(GraphicsLayer&, ModelPlayerGraphicsLayerConfiguration&&) final;
-    void sizeDidChange(LayoutSize) final;
-    void enterFullscreen() final;
-    void handleMouseDown(const LayoutPoint&, MonotonicTime) final;
-    void handleMouseMove(const LayoutPoint&, MonotonicTime) final;
-    void handleMouseUp(const LayoutPoint&, MonotonicTime) final;
+    void NODELETE configureGraphicsLayer(GraphicsLayer&, ModelPlayerGraphicsLayerConfiguration&&) final;
+    void NODELETE sizeDidChange(LayoutSize) final;
+    void NODELETE enterFullscreen() final;
+    void NODELETE handleMouseDown(const LayoutPoint&, MonotonicTime) final;
+    void NODELETE handleMouseMove(const LayoutPoint&, MonotonicTime) final;
+    void NODELETE handleMouseUp(const LayoutPoint&, MonotonicTime) final;
+
     void getCamera(CompletionHandler<void(std::optional<WebCore::HTMLModelElementCamera>&&)>&&) final;
     void setCamera(WebCore::HTMLModelElementCamera, CompletionHandler<void(bool success)>&&) final;
     void isPlayingAnimation(CompletionHandler<void(std::optional<bool>&&)>&&) final;
@@ -98,9 +99,6 @@ private:
     void animationDuration(CompletionHandler<void(std::optional<Seconds>&&)>&&) final;
     void animationCurrentTime(CompletionHandler<void(std::optional<Seconds>&&)>&&) final;
     void setAnimationCurrentTime(Seconds, CompletionHandler<void(bool success)>&&) final;
-    void hasAudio(CompletionHandler<void(std::optional<bool>&&)>&&) final;
-    void isMuted(CompletionHandler<void(std::optional<bool>&&)>&&) final;
-    void setIsMuted(bool, CompletionHandler<void(bool success)>&&) final;
 #if ENABLE(MODEL_ELEMENT_ACCESSIBILITY)
     ModelPlayerAccessibilityChildren accessibilityChildren() final;
 #endif

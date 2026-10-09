@@ -27,6 +27,7 @@
 #include "ReadableStreamBYOBReader.h"
 
 #include "JSDOMConvertAny.h"
+#include "JSDOMGlobalObject.h"
 #include "JSDOMPromise.h"
 #include "JSDOMPromiseDeferred.h"
 #include "JSReadableStreamBYOBReader.h"
@@ -34,9 +35,9 @@
 #include "ReadableStream.h"
 #include "ReadableStreamReadRequest.h"
 #include "WebCoreOpaqueRootInlines.h"
-#include <wtf/TZoneMallocInlines.h>
 #include <JavaScriptCore/ArrayBuffer.h>
 #include <JavaScriptCore/ArrayBufferView.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
@@ -173,7 +174,7 @@ void ReadableStreamBYOBReader::initialize(JSDOMGlobalObject& globalObject, Reada
 }
 
 // https://streams.spec.whatwg.org/#readable-stream-byob-reader-read
-void ReadableStreamBYOBReader::read(JSDOMGlobalObject& globalObject, JSC::ArrayBufferView& view, size_t optionMin, Ref<ReadableStreamReadIntoRequest>&& readRequest)
+void ReadableStreamBYOBReader::read(JSDOMGlobalObject& globalObject, JSC::ArrayBufferView& view, uint64_t optionMin, Ref<ReadableStreamReadIntoRequest>&& readRequest)
 {
     RefPtr<ReadableStream> stream;
     {
@@ -211,7 +212,7 @@ void ReadableStreamBYOBReader::genericRelease(JSDOMGlobalObject& globalObject)
         m_closedPromise = WTF::move(promise);
     }
 
-    if (RefPtr controller = stream->controller())
+    if (auto* controller = stream->controller())
         controller->runReleaseSteps();
 
     stream->setByobReader(nullptr);
@@ -309,7 +310,7 @@ WebCoreOpaqueRoot root(ReadableStreamBYOBReader* reader)
 
 bool JSReadableStreamBYOBReaderOwner::isReachableFromOpaqueRoots(JSC::Handle<JSC::Unknown> handle, void*, AbstractSlotVisitor& visitor, ASCIILiteral* reason)
 {
-    auto* jsReader = jsCast<JSReadableStreamBYOBReader*>(handle.slot()->asCell());
+    auto* jsReader = downcast<JSReadableStreamBYOBReader>(handle.slot()->asCell());
     SUPPRESS_UNCOUNTED_LOCAL auto& reader = jsReader->wrapped();
     SUPPRESS_UNCOUNTED_LOCAL if (reader.isReachableFromOpaqueRoots()) {
         if (reason) [[unlikely]]
@@ -321,20 +322,20 @@ bool JSReadableStreamBYOBReaderOwner::isReachableFromOpaqueRoots(JSC::Handle<JSC
 }
 
 template<typename Visitor>
-void ReadableStreamBYOBReader::visitAdditionalChildren(Visitor& visitor)
+void ReadableStreamBYOBReader::visitAdditionalChildrenInGCThread(Visitor& visitor)
 {
     Locker locker { m_streamLock };
     if (m_stream)
-        SUPPRESS_UNCOUNTED_ARG m_stream->visitAdditionalChildren(visitor);
+        SUPPRESS_UNCOUNTED_ARG m_stream->visitAdditionalChildrenInGCThread(visitor);
 }
 
 template<typename Visitor>
-void JSReadableStreamBYOBReader::visitAdditionalChildren(Visitor& visitor)
+void JSReadableStreamBYOBReader::visitAdditionalChildrenInGCThread(Visitor& visitor)
 {
-    // Do not ref `wrapped()` here since this function may get called on the GC thread.
-    SUPPRESS_UNCOUNTED_ARG wrapped().visitAdditionalChildren(visitor);
+    // Do not ref `wrapped()` here since this function may get called on a GC thread.
+    SUPPRESS_UNCOUNTED_ARG wrapped().visitAdditionalChildrenInGCThread(visitor);
 }
 
-DEFINE_VISIT_ADDITIONAL_CHILDREN(JSReadableStreamBYOBReader);
+DEFINE_VISIT_ADDITIONAL_CHILDREN_IN_GC_THREAD(JSReadableStreamBYOBReader);
 
 } // namespace WebCore

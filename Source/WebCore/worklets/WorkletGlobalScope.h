@@ -63,12 +63,12 @@ public:
     virtual bool isAudioWorkletGlobalScope() const { return false; }
 #endif
 
-    WEBCORE_EXPORT static unsigned numberOfWorkletGlobalScopes();
+    WEBCORE_EXPORT static unsigned NODELETE numberOfWorkletGlobalScopes();
 
     MessagePortChannelProvider& messagePortChannelProvider();
 
-    const URL& url() const final { return m_url; }
-    const URL& cookieURL() const final { return url(); }
+    const URL& url() const LIFETIME_BOUND final { return m_url; }
+    const URL& cookieURL() const LIFETIME_BOUND final { return url(); }
 
     void evaluate();
 
@@ -79,6 +79,8 @@ public:
     SocketProvider* socketProvider() final { return nullptr; }
 
     bool isSecureContext() const final { return false; }
+
+    String agentClusterID() const final { return m_agentClusterID; }
 
     JSC::RuntimeFlags jsRuntimeFlags() const { return m_jsRuntimeFlags; }
 
@@ -109,9 +111,9 @@ private:
 
     std::optional<Vector<uint8_t>> serializeAndWrapCryptoKey(CryptoKeyData&&) final { RELEASE_ASSERT_NOT_REACHED(); return std::nullopt; }
     std::optional<Vector<uint8_t>> unwrapCryptoKey(const Vector<uint8_t>&) final { RELEASE_ASSERT_NOT_REACHED(); return std::nullopt; }
-    URL completeURL(const String&, ForceUTF8 = ForceUTF8::No) const final;
+    URL parseURL(const String&) const final;
     String userAgent(const URL&) const final;
-    const SettingsValues& settingsValues() const final { return m_settingsValues; }
+    const SettingsValues& settingsValues() const LIFETIME_BOUND final { return m_settingsValues; }
 
     WeakPtr<Document, WeakPtrImplWithEventTargetData> m_document;
 
@@ -124,6 +126,7 @@ private:
     const RefPtr<WorkerMessagePortChannelProvider> m_messagePortChannelProvider;
 
     SettingsValues m_settingsValues;
+    String m_agentClusterID;
 };
 
 } // namespace WebCore

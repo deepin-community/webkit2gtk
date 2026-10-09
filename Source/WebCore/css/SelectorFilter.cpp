@@ -41,7 +41,7 @@ namespace WebCore {
 // Salt to separate otherwise identical string hashes so a class-selector like .article won't match <article> elements.
 enum { TagNameSalt = 13, IdSalt = 17, ClassSalt = 19, AttributeSalt = 23 };
 
-static bool isExcludedAttribute(const AtomString& name)
+static bool NODELETE isExcludedAttribute(const AtomString& name)
 {
     return name == HTMLNames::classAttr->localName() || name == HTMLNames::idAttr->localName() || name == HTMLNames::styleAttr->localName();
 }
@@ -72,7 +72,7 @@ void SelectorFilter::collectElementIdentifierHashes(const Element& element, Vect
 
 bool SelectorFilter::parentStackIsConsistent(const ContainerNode* parentNode) const
 {
-    if (!parentNode || is<Document>(parentNode) || is<ShadowRoot>(parentNode))
+    if (!parentNode || isAnyOf<Document, ShadowRoot>(*parentNode))
         return m_parentStack.isEmpty();
 
     return !m_parentStack.isEmpty() && m_parentStack.last().element == parentNode;
@@ -81,11 +81,11 @@ bool SelectorFilter::parentStackIsConsistent(const ContainerNode* parentNode) co
 void SelectorFilter::initializeParentStack(Element& parent)
 {
     Vector<Element*, 20> ancestors;
-    for (auto* ancestor = &parent; ancestor; ancestor = ancestor->parentElement())
-        ancestors.append(ancestor);
-    m_parentStack.reserveCapacity(m_parentStack.capacity() + ancestors.size());
+    for (CheckedPtr ancestor = &parent; ancestor; ancestor = ancestor->parentElement())
+        ancestors.append(ancestor.get());
+    m_parentStack.reserveCapacity(ancestors.size());
     for (unsigned i = ancestors.size(); i--;)
-        pushParent(ancestors[i]);
+        pushParent(protect(ancestors[i]));
 }
 
 void SelectorFilter::pushParent(Element* parent)

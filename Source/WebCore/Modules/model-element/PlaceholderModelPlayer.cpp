@@ -79,7 +79,7 @@ std::optional<std::unique_ptr<ModelPlayerTransformState>> PlaceholderModelPlayer
     return m_transformState->clone();
 }
 
-void PlaceholderModelPlayer::load(Model&, LayoutSize)
+void PlaceholderModelPlayer::load(Model&, LayoutSize, bool)
 {
     RELEASE_ASSERT_NOT_REACHED();
 }
@@ -141,7 +141,7 @@ void PlaceholderModelPlayer::setLoop(bool loop)
 void PlaceholderModelPlayer::setPlaybackRate(double playbackRate, CompletionHandler<void(double effectivePlaybackRate)>&& completionHandler)
 {
     if (m_animationState.effectivePlaybackRate() == playbackRate)
-        return;
+        return completionHandler(playbackRate);
 
     m_animationState.setCurrentTime(m_animationState.currentTime(), MonotonicTime::now());
     m_animationState.setPlaybackRate(playbackRate);
@@ -162,7 +162,7 @@ bool PlaceholderModelPlayer::paused() const
 void PlaceholderModelPlayer::setPaused(bool paused, CompletionHandler<void(bool succeeded)>&& completionHandler)
 {
     if (m_animationState.paused() == paused)
-        return;
+        return completionHandler(true);
 
     m_animationState.setCurrentTime(m_animationState.currentTime(), MonotonicTime::now());
     m_animationState.setPaused(paused);
@@ -229,52 +229,49 @@ void PlaceholderModelPlayer::handleMouseUp(const LayoutPoint&, MonotonicTime)
 {
 }
 
-void PlaceholderModelPlayer::getCamera(CompletionHandler<void(std::optional<WebCore::HTMLModelElementCamera>&&)>&&)
+void PlaceholderModelPlayer::getCamera(CompletionHandler<void(std::optional<WebCore::HTMLModelElementCamera>&&)>&& completionHandler)
 {
+    completionHandler(std::nullopt);
 }
 
-void PlaceholderModelPlayer::setCamera(WebCore::HTMLModelElementCamera, CompletionHandler<void(bool success)>&&)
+void PlaceholderModelPlayer::setCamera(WebCore::HTMLModelElementCamera, CompletionHandler<void(bool success)>&& completionHandler)
 {
+    completionHandler(false);
 }
 
-void PlaceholderModelPlayer::isPlayingAnimation(CompletionHandler<void(std::optional<bool>&&)>&&)
+void PlaceholderModelPlayer::isPlayingAnimation(CompletionHandler<void(std::optional<bool>&&)>&& completionHandler)
 {
+    completionHandler(std::nullopt);
 }
 
-void PlaceholderModelPlayer::setAnimationIsPlaying(bool, CompletionHandler<void(bool success)>&&)
+void PlaceholderModelPlayer::setAnimationIsPlaying(bool, CompletionHandler<void(bool success)>&& completionHandler)
 {
+    completionHandler(false);
 }
 
-void PlaceholderModelPlayer::isLoopingAnimation(CompletionHandler<void(std::optional<bool>&&)>&&)
+void PlaceholderModelPlayer::isLoopingAnimation(CompletionHandler<void(std::optional<bool>&&)>&& completionHandler)
 {
+    completionHandler(std::nullopt);
 }
 
-void PlaceholderModelPlayer::setIsLoopingAnimation(bool, CompletionHandler<void(bool success)>&&)
+void PlaceholderModelPlayer::setIsLoopingAnimation(bool, CompletionHandler<void(bool success)>&& completionHandler)
 {
+    completionHandler(false);
 }
 
-void PlaceholderModelPlayer::animationDuration(CompletionHandler<void(std::optional<Seconds>&&)>&&)
+void PlaceholderModelPlayer::animationDuration(CompletionHandler<void(std::optional<Seconds>&&)>&& completionHandler)
 {
+    completionHandler(std::nullopt);
 }
 
-void PlaceholderModelPlayer::animationCurrentTime(CompletionHandler<void(std::optional<Seconds>&&)>&&)
+void PlaceholderModelPlayer::animationCurrentTime(CompletionHandler<void(std::optional<Seconds>&&)>&& completionHandler)
 {
+    completionHandler(std::nullopt);
 }
 
-void PlaceholderModelPlayer::setAnimationCurrentTime(Seconds, CompletionHandler<void(bool success)>&&)
+void PlaceholderModelPlayer::setAnimationCurrentTime(Seconds, CompletionHandler<void(bool success)>&& completionHandler)
 {
-}
-
-void PlaceholderModelPlayer::hasAudio(CompletionHandler<void(std::optional<bool>&&)>&&)
-{
-}
-
-void PlaceholderModelPlayer::isMuted(CompletionHandler<void(std::optional<bool>&&)>&&)
-{
-}
-
-void PlaceholderModelPlayer::setIsMuted(bool, CompletionHandler<void(bool success)>&&)
-{
+    completionHandler(false);
 }
 
 #if ENABLE(MODEL_ELEMENT_ACCESSIBILITY)

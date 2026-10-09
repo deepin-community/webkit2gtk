@@ -62,7 +62,7 @@ SPDX-License-Identifier: BSD, LGPL-2.1
         <h3><a href="index.html">WebKit</a></h3>
         <p>API Version: 6.0</p>
         
-        <p>Library Version: 2.52.5</p>
+        <p>Library Version: 2.54.0</p>
         
       </div>
       
@@ -137,7 +137,8 @@ SPDX-License-Identifier: BSD, LGPL-2.1
 
       <div class="docblock">
         <p>Reply to a script message with a&nbsp;value.</p>
-<p>This function can be called twice for passing the reply value&nbsp;in.</p>
+<p>This function can only be called once. Further calls to it or to
+<code>webkit_script_message_reply_return_error_message()</code> emit a critical warning and are&nbsp;ignored.</p>
       </div>
 
       <div class="docblock">

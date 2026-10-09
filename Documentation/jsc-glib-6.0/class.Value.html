@@ -62,7 +62,7 @@ SPDX-License-Identifier: BSD, LGPL-2.1
         <h3><a href="index.html">JavaScriptCore</a></h3>
         <p>API Version: 6.0</p>
         
-        <p>Library Version: 2.52.5</p>
+        <p>Library Version: 2.54.0</p>
         
       </div>
       
@@ -264,7 +264,7 @@ SPDX-License-Identifier: BSD, LGPL-2.1
           Description
           <a href="#description" class="anchor"></a>
           
-          <a class="srclink" title="go to source location" href="https://github.com/WebKit/WebKit/tree/Source/JavaScriptCore/API/glib/JSCValue.cpp#L44">[src]</a>
+          <a class="srclink" title="go to source location" href="https://github.com/WebKit/WebKit/tree/Source/JavaScriptCore/API/glib/JSCValue.cpp#L45">[src]</a>
           
         </h4>
 
@@ -403,7 +403,7 @@ pointers to a <code>JSCValue</code>.</p>
         <div class="">
           <h6><a href="ctor.Value.new_array_from_strv.html">jsc_value_new_array_from_strv</a></h6>
           <div class="docblock">
-            <p>Create a new <code>JSCValue</code> referencing an array of strings with the items from <code>strv</code>. If <code>array</code>
+            <p>Create a new <code>JSCValue</code> referencing an array of strings with the items from <code>strv</code>. If <code>strv</code>
 is <code>NULL</code> or empty a new empty array will be&nbsp;created.</p>
           </div>
           <div class="docblock">
@@ -449,7 +449,7 @@ cleared in <code>context</code>, <code>destroy_notify</code> is called with <cod
           <div class="docblock">
             <p>Create a function in <code>context</code>. If <code>name</code> is <code>NULL</code> an anonymous function will be created.
 When the function is called by JavaScript or jsc_value_function_call(), <code>callback</code> is called
-receiving an <code>GPtrArray</code> of <code>JSCValue</code><!-- -->s with the arguments and then <code>user_data</code> as last parameter.
+receiving a <code>GPtrArray</code> of <code>JSCValue</code> objects with the arguments and then <code>user_data</code> as last parameter.
 When the function is cleared in <code>context</code>, <code>destroy_notify</code> is called with <code>user_data</code> as&nbsp;parameter.</p>
           </div>
           <div class="docblock">
@@ -473,7 +473,7 @@ cleared in <code>context</code>, <code>destroy_notify</code> is called with <cod
         <div class="">
           <h6><a href="ctor.Value.new_null.html">jsc_value_new_null</a></h6>
           <div class="docblock">
-            <p>Create a new <code>JSCValue</code> referencing <function>null</function> in <code>context</code>.</p>
+            <p>Create a new <code>JSCValue</code> referencing <code>null</code> in <code>context</code>.</p>
           </div>
           <div class="docblock">
             <p></p>
@@ -506,7 +506,7 @@ When <code>instance</code> is provided, <code>jsc_class</code> must be provided 
           <h6><a href="ctor.Value.new_promise.html">jsc_value_new_promise</a></h6>
           <div class="docblock">
             <p>Creates a new Promise. <code>executor</code> will be invoked during promise initialization
-and it receives the <code>resolve</code> and <code>reject</code> objects than can be called to resolve
+and it receives the <code>resolve</code> and <code>reject</code> objects that can be called to resolve
 or reject the promise. It is called like a JavaScript function, so exceptions raised
 during the executor invocation will not be propagated to the context, but
 handled by the promise causing a&nbsp;rejection.</p>
@@ -550,7 +550,7 @@ string containing null characters, use <code>jsc_value_new_string_from_bytes()</
         <div class="">
           <h6><a href="ctor.Value.new_undefined.html">jsc_value_new_undefined</a></h6>
           <div class="docblock">
-            <p>Create a new <code>JSCValue</code> referencing <function>undefined</function> in <code>context</code>.</p>
+            <p>Create a new <code>JSCValue</code> referencing <code>undefined</code> in <code>context</code>.</p>
           </div>
           <div class="docblock">
             <p></p>
@@ -595,7 +595,7 @@ string containing null characters, use <code>jsc_value_new_string_from_bytes()</
         <div class="">
           <h6><a href="method.Value.constructor_call.html">jsc_value_constructor_call</a></h6>
           <div class="docblock">
-            <p>Invoke <function>new</function> with constructor referenced by <code>value</code>. If <code>first_parameter_type</code>
+            <p>Invoke <code>new</code> with constructor referenced by <code>value</code>. If <code>first_parameter_type</code>
 is <code>G_TYPE_NONE</code> no parameters will be passed to the&nbsp;constructor.</p>
           </div>
           <div class="docblock">
@@ -606,7 +606,7 @@ is <code>G_TYPE_NONE</code> no parameters will be passed to the&nbsp;constructor
         <div class="">
           <h6><a href="method.Value.constructor_callv.html">jsc_value_constructor_callv</a></h6>
           <div class="docblock">
-            <p>Invoke <function>new</function> with constructor referenced by <code>value</code>. If <code>n_parameters</code>
+            <p>Invoke <code>new</code> with constructor referenced by <code>value</code>. If <code>n_parameters</code>
 is 0 no parameters will be passed to the&nbsp;constructor.</p>
           </div>
           <div class="docblock">
@@ -699,7 +699,7 @@ is 0 no parameters will be passed to the&nbsp;function.</p>
         <div class="">
           <h6><a href="method.Value.is_null.html">jsc_value_is_null</a></h6>
           <div class="docblock">
-            <p>Get whether the value referenced by <code>value</code> is <function>null</function>.</p>
+            <p>Get whether the value referenced by <code>value</code> is <code>null</code>.</p>
           </div>
           <div class="docblock">
             <p></p>
@@ -749,7 +749,7 @@ is 0 no parameters will be passed to the&nbsp;function.</p>
         <div class="">
           <h6><a href="method.Value.is_undefined.html">jsc_value_is_undefined</a></h6>
           <div class="docblock">
-            <p>Get whether the value referenced by <code>value</code> is <function>undefined</function>.</p>
+            <p>Get whether the value referenced by <code>value</code> is <code>undefined</code>.</p>
           </div>
           <div class="docblock">
             <p></p>
@@ -772,7 +772,7 @@ is 0 no parameters will be passed to the&nbsp;function.</p>
             <p>Define or modify a property with <code>property_name</code> in object referenced by <code>value</code>. When the
 property value is read or set, <code>getter</code> and <code>setter</code> callbacks will be called.
 When the property is cleared in the <code>JSCClass</code> context, <code>destroy_notify</code> is called with
-<code>user_data</code> as parameter. This is equivalent to JavaScript <function>Object.defineProperty()</function>
+<code>user_data</code> as parameter. This is equivalent to JavaScript <code>Object.defineProperty()</code>
 when used with an accessor&nbsp;descriptor.</p>
           </div>
           <div class="docblock">
@@ -784,7 +784,7 @@ when used with an accessor&nbsp;descriptor.</p>
           <h6><a href="method.Value.object_define_property_data.html">jsc_value_object_define_property_data</a></h6>
           <div class="docblock">
             <p>Define or modify a property with <code>property_name</code> in object referenced by <code>value</code>. This is equivalent to
-JavaScript <function>Object.defineProperty()</function> when used with a data&nbsp;descriptor.</p>
+JavaScript <code>Object.defineProperty()</code> when used with a data&nbsp;descriptor.</p>
           </div>
           <div class="docblock">
             <p></p>
@@ -980,7 +980,7 @@ to handle strings with null&nbsp;characters.</p>
             <p>Obtains a pointer to the memory region that holds the elements of the typed
 array; modifications done to them will be visible to JavaScript code. If
 <code>length</code> is not <code>NULL</code>, the number of elements contained in the typed array
-are also stored in the pointed&nbsp;location.</p>
+is also stored in the pointed&nbsp;location.</p>
           </div>
           <div class="docblock">
             <p><span class="emblem available">since: 2.38</span></p>

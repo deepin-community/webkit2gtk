@@ -162,6 +162,8 @@ enum TracePointCode {
     SyntheticMomentumEvent,
     RemoteLayerTreeScheduleRenderingUpdate,
     DisplayLinkUpdate,
+    ProcessInitializeStart,
+    ProcessInitializeEnd,
 
     UIProcessRange = 14000,
     CommitLayerTreeStart,
@@ -178,6 +180,8 @@ enum TracePointCode {
     WebXRCPFrameEndSubmissionEnd,
     TextExtractionStart,
     TextExtractionEnd,
+    RemoteLayerTreeAnimationsUpdateStart,
+    RemoteLayerTreeAnimationsUpdateEnd,
 
     GPUProcessRange = 16000,
     WakeUpAndApplyDisplayListStart,
@@ -294,6 +298,7 @@ WTF_EXTERN_C_END
     M(NetworkCacheMiss) \
     M(PLTSubresourceLoading) \
     M(EvaluateJavaScript) \
+    M(EvaluateJavaScriptFromBuffer) \
 
 #define DECLARE_WTF_SIGNPOST_NAME_ENUM(name) WTFOSSignpostName ## name,
 
@@ -403,11 +408,13 @@ enum WTFOSSignpostType {
         RetainPtr<os_log_t> wtfHandle = WTFSignpostLogHandle(); \
         const void* wtfPointer = (const void *)(pointer); \
         os_signpost_id_t wtfSignpostID = wtfPointer ? os_signpost_id_make_with_pointer(wtfHandle.get(), wtfPointer) : OS_SIGNPOST_ID_EXCLUSIVE; \
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN \
         emitMacro(wtfHandle.get(), wtfSignpostID, #name, format, ##__VA_ARGS__); \
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END \
     } while (0)
 
 #define WTFEmitSignpostIndirectlyWithType(type, pointer, name, specificTime, format, ...) \
-    SUPPRESS_UNCOUNTED_LOCAL os_log(WTFSignpostLogHandle(), "type=%d name=%d p=%" PRIuPTR " ts=%llu " format, type, WTFOSSignpostName ## name, reinterpret_cast<uintptr_t>(pointer), specificTime, ##__VA_ARGS__)
+    WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN SUPPRESS_UNCOUNTED_LOCAL os_log(WTFSignpostLogHandle(), "type=%d name=%d p=%" PRIuPTR " ts=%llu " format, type, WTFOSSignpostName ## name, reinterpret_cast<uintptr_t>(pointer), specificTime, ##__VA_ARGS__) WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 #define WTFSetCounter(name, value) do { } while (0)
 

@@ -42,19 +42,14 @@
 #include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
-namespace IDBServer {
-class UniqueIDBDatabase;
-}
-}
 
-namespace WebCore {
-
-struct ClientOrigin;
 class IDBError;
 class IDBGetAllResult;
-struct IDBGetRecordData;
 class IDBRequestData;
 class IDBTransactionInfo;
+
+struct ClientOrigin;
+struct IDBGetRecordData;
 
 enum class IDBGetRecordDataType : bool;
 
@@ -65,6 +60,7 @@ enum class IndexRecordType : bool;
 namespace IDBServer {
 
 class IDBConnectionToClient;
+class UniqueIDBDatabase;
 class UniqueIDBDatabaseConnection;
 class UniqueIDBDatabaseManager;
 
@@ -84,16 +80,15 @@ public:
 
     WEBCORE_EXPORT void openDatabaseConnection(IDBConnectionToClient&, const IDBOpenRequestData&);
 
-    const IDBDatabaseInfo& info() const;
-    UniqueIDBDatabaseManager* manager();
-    const IDBDatabaseIdentifier& identifier() const { return m_identifier; }
+    const IDBDatabaseInfo& NODELETE info() const;
+    UniqueIDBDatabaseManager* NODELETE manager();
+    const IDBDatabaseIdentifier& identifier() const LIFETIME_BOUND { return m_identifier; }
 
     enum class SpaceCheckResult : uint8_t {
         Unknown,
         Pass,
         Fail
     };
-    enum class DidCreateIndexInBackingStore : bool { No, Yes };
     void createObjectStore(UniqueIDBDatabaseTransaction&, const IDBObjectStoreInfo&, ErrorCallback&&, SpaceCheckResult = SpaceCheckResult::Unknown);
     void deleteObjectStore(UniqueIDBDatabaseTransaction&, const String& objectStoreName, ErrorCallback&&, SpaceCheckResult = SpaceCheckResult::Unknown);
     void renameObjectStore(UniqueIDBDatabaseTransaction&, IDBObjectStoreIdentifier, const String& newName, ErrorCallback&&, SpaceCheckResult = SpaceCheckResult::Unknown);
@@ -124,12 +119,13 @@ public:
     WEBCORE_EXPORT void handleDelete(IDBConnectionToClient&, const IDBOpenRequestData&);
     WEBCORE_EXPORT void immediateClose();
 
-    bool hasActiveTransactions() const;
+    bool NODELETE hasActiveTransactions() const;
     WEBCORE_EXPORT void abortActiveTransactions();
+    void abortInProgressTransactionsBlockedOnSuspendedClients();
     WEBCORE_EXPORT bool tryClose();
 
     WEBCORE_EXPORT String filePath() const;
-    WEBCORE_EXPORT std::optional<IDBDatabaseNameAndVersion> nameAndVersion() const;
+    WEBCORE_EXPORT std::optional<IDBDatabaseNameAndVersion> NODELETE nameAndVersion() const;
     WEBCORE_EXPORT bool hasDataInMemory() const;
     WEBCORE_EXPORT void handleLowMemoryWarning();
 
@@ -143,8 +139,8 @@ private:
     void performCurrentDeleteOperation();
     RefPtr<ServerOpenDBRequest> takeNextRunnableRequest();
     void addOpenDatabaseConnection(Ref<UniqueIDBDatabaseConnection>&&);
-    bool hasAnyOpenConnections() const;
-    bool allConnectionsAreClosedOrClosing() const;
+    bool NODELETE hasAnyOpenConnections() const;
+    bool NODELETE allConnectionsAreClosedOrClosing() const;
 
     void startVersionChangeTransaction();
     void maybeNotifyConnectionsOfVersionChange();
@@ -152,6 +148,7 @@ private:
 
     void handleTransactions();
     RefPtr<UniqueIDBDatabaseTransaction> takeNextRunnableTransaction(bool& hadDeferredTransactions);
+    bool transactionBlocksPendingTransactions(UniqueIDBDatabaseTransaction&);
 
     void activateTransactionInBackingStore(UniqueIDBDatabaseTransaction&);
     void transactionCompleted(RefPtr<UniqueIDBDatabaseTransaction>&&);
@@ -164,9 +161,8 @@ private:
     void clearStalePendingOpenDBRequests();
     void clearTransactionsOnConnection(UniqueIDBDatabaseConnection&);
     void createIndexAsyncAfterQuotaCheck(UniqueIDBDatabaseTransaction&, const IDBIndexInfo&, SpaceCheckResult);
+    enum class DidCreateIndexInBackingStore : bool { No, Yes };
     void didCreateIndexAsyncForTransaction(UniqueIDBDatabaseTransaction&, const IDBIndexInfo&, const IDBError&, DidCreateIndexInBackingStore = DidCreateIndexInBackingStore::Yes);
-
-    CheckedPtr<IDBBackingStore> checkedBackingStore() const;
 
     WeakPtr<UniqueIDBDatabaseManager> m_manager;
     IDBDatabaseIdentifier m_identifier;

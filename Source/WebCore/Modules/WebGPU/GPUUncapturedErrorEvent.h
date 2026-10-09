@@ -28,7 +28,6 @@
 #include "Event.h"
 #include "GPUError.h"
 #include "GPUUncapturedErrorEventInit.h"
-#include "JSDOMConvertNullable.h"
 #include "WebGPUUncapturedErrorEvent.h"
 #include <wtf/Ref.h>
 #include <wtf/RefCounted.h>

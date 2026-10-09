@@ -31,6 +31,7 @@
 #pragma once
 
 #include <mutex>
+#include <optional>
 #include <stdint.h>
 #include <wtf/Atomics.h>
 #include <wtf/Compiler.h>
@@ -43,12 +44,14 @@
 #include <wtf/PlatformRegisters.h>
 #include <wtf/Ref.h>
 #include <wtf/RefPtr.h>
+#include <wtf/StackAllocation.h>
 #include <wtf/StackBounds.h>
 #include <wtf/StackStats.h>
 #include <wtf/ThreadAssertions.h>
 #include <wtf/ThreadSafeRefCounted.h>
 #include <wtf/ThreadSafeWeakHashSet.h>
 #include <wtf/ThreadSafeWeakPtr.h>
+#include <wtf/ThreadingEnums.h>
 #include <wtf/Vector.h>
 #include <wtf/WordLock.h>
 #include <wtf/text/AtomStringTable.h>
@@ -83,22 +86,6 @@ class PrintStream;
 
 WTF_EXPORT_PRIVATE void initialize();
 
-enum class GCThreadType : uint8_t {
-    None = 0,
-    Main,
-    Helper,
-};
-
-enum class ThreadType : uint8_t {
-    Unknown = 0,
-    JavaScript,
-    Compiler,
-    GarbageCollection,
-    Network,
-    Graphics,
-    Audio,
-};
-
 class ThreadSuspendLocker {
     WTF_MAKE_NONCOPYABLE(ThreadSuspendLocker);
 public:
@@ -129,19 +116,13 @@ public:
 
     WTF_EXPORT_PRIVATE ~Thread();
 
-    enum class QOS {
-        UserInteractive,
-        UserInitiated,
-        Default,
-        Utility,
-        Background
-    };
+    using QOS = ThreadQOS;
+    using SchedulingPolicy = ThreadSchedulingPolicy;
 
-    enum class SchedulingPolicy : uint8_t {
-        Other = 0,
-        FIFO,
-        Realtime,
-    };
+    // These are not necessarily the system defaults, but they are what WebKit
+    // chooses to be the default for newly created WTF::Threads
+    static constexpr QOS defaultQOS = QOS::UserInitiated;
+    static constexpr SchedulingPolicy defaultSchedulingPolicy = SchedulingPolicy::Other;
 
 #if HAVE(QOS_CLASSES)
     static dispatch_qos_class_t dispatchQOSClass(QOS);
@@ -149,13 +130,13 @@ public:
 
     // Returns nullptr if thread creation failed.
     // The thread name must be a literal since on some platforms it's passed in to the thread.
-    WTF_EXPORT_PRIVATE static Ref<Thread> create(ASCIILiteral threadName, Function<void()>&&, ThreadType = ThreadType::Unknown, QOS = QOS::UserInitiated, SchedulingPolicy = SchedulingPolicy::Other);
+    WTF_EXPORT_PRIVATE static Ref<Thread> create(ASCIILiteral threadName, Function<void()>&&, ThreadType = ThreadType::Unknown, QOS = defaultQOS, SchedulingPolicy = defaultSchedulingPolicy, StackAllocationSpecification = { });
 
     // Returns Thread object.
     static Thread& currentSingleton();
 
     // Set of all WTF::Thread created threads.
-    WTF_EXPORT_PRIVATE static ThreadSafeWeakHashSet<Thread>& allThreads();
+    WTF_EXPORT_PRIVATE static ThreadSafeWeakHashSet<Thread>& NODELETE allThreads();
 
     WTF_EXPORT_PRIVATE unsigned numberOfThreadGroups();
 
@@ -185,7 +166,7 @@ public:
         std::array<void*, s_maxKeys> m_slots { };
     };
 
-    SpecificStorage& specificStorage() { return m_specificStorage; };
+    SpecificStorage& specificStorage() LIFETIME_BOUND { return m_specificStorage; };
 
     struct ThreadHolder;
 #endif
@@ -229,13 +210,13 @@ public:
 #if HAVE(THREAD_TIME_CONSTRAINTS)
     // Set thread timing constraints, which allows the scheduler to demote
     // threads which exceed their own reported constraints.
-    WTF_EXPORT_PRIVATE void setThreadTimeConstraints(MonotonicTime period, MonotonicTime nominalComputation, MonotonicTime constraint, bool isPremptable);
+    WTF_EXPORT_PRIVATE void setThreadTimeConstraints(MonotonicTime period, MonotonicTime nominalComputation, MonotonicTime constraint, bool isPreemptable);
 #endif
 
     // Called in the thread during initialization.
     // Helpful for platforms where the thread name must be set from within the thread.
     static void initializeCurrentThreadInternal(const char* threadName);
-    static void initializeCurrentThreadEvenIfNonWTFCreated();
+    static void NODELETE initializeCurrentThreadEvenIfNonWTFCreated();
     
     WTF_EXPORT_PRIVATE static void yield();
 
@@ -243,7 +224,7 @@ public:
     WTF_EXPORT_PRIVATE static void registerGCThread(GCThreadType);
     WTF_EXPORT_PRIVATE static bool mayBeGCThread();
 
-    WTF_EXPORT_PRIVATE static void registerJSThread(Thread&);
+    WTF_EXPORT_PRIVATE static void NODELETE registerJSThread(Thread&);
 
     WTF_EXPORT_PRIVATE void dump(PrintStream& out) const;
 
@@ -313,15 +294,18 @@ public:
 #endif
 
 protected:
-    explicit Thread(SchedulingPolicy schedulingPolicy)
+    enum class IsMain : uint8_t { No, Yes, Unknown };
+
+    explicit Thread(SchedulingPolicy schedulingPolicy, IsMain isMain = IsMain::Unknown)
         : m_isRealtime(schedulingPolicy == SchedulingPolicy::Realtime)
+        , m_uid(isMain == IsMain::Yes ? 1 : ++s_uid)
     {
     }
 
     void initializeInThread();
 
     // Internal platform-specific Thread establishment implementation.
-    bool establishHandle(NewThreadContext&, std::optional<size_t> stackSize, QOS, SchedulingPolicy);
+    bool establishHandle(NewThreadContext&, StackAllocationSpecification, QOS, SchedulingPolicy);
 
 #if USE(PTHREADS)
     void establishPlatformSpecificHandle(PlatformThreadHandle);
@@ -337,7 +321,7 @@ protected:
     static qos_class_t adjustedQOSClass(qos_class_t);
 #endif
 
-    static const char* normalizeThreadName(const char* threadName);
+    static const char* NODELETE normalizeThreadName(const char* threadName);
 
     enum JoinableState : uint8_t {
         // The default thread state. The thread can be joined on.
@@ -398,7 +382,7 @@ protected:
     StackBounds m_stack { StackBounds::emptyBounds() };
     ThreadSafeWeakHashSet<ThreadGroup> m_threadGroups;
     PlatformThreadHandle m_handle;
-    uint32_t m_uid { ++s_uid };
+    const uint32_t m_uid;
 #if OS(WINDOWS)
     ThreadIdentifier m_id { 0 };
 #elif OS(DARWIN)

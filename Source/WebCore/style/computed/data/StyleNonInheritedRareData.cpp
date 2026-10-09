@@ -24,7 +24,7 @@
 
 #include "StyleComputedStyle+DifferenceLogging.h"
 #include "StyleComputedStyle+InitialInlines.h"
-#include "StylePrimitiveKeyword+Logging.h"
+#include "StyleKeyword+Logging.h"
 #include "StylePrimitiveNumericTypes+Logging.h"
 
 namespace WebCore {
@@ -73,23 +73,21 @@ NonInheritedRareData::NonInheritedRareData()
     , viewTransitionName(ComputedStyle::initialViewTransitionName())
     , columnGap(ComputedStyle::initialColumnGap())
     , rowGap(ComputedStyle::initialRowGap())
-    , flowTolerance(ComputedStyle::initialFlowTolerance())
     , offsetPath(ComputedStyle::initialOffsetPath())
     , offsetDistance(ComputedStyle::initialOffsetDistance())
     , offsetPosition(ComputedStyle::initialOffsetPosition())
     , offsetAnchor(ComputedStyle::initialOffsetAnchor())
     , offsetRotate(ComputedStyle::initialOffsetRotate())
     , textDecorationColor(ComputedStyle::initialTextDecorationColor())
+    , textDecorationInset(ComputedStyle::initialTextDecorationInset())
     , textDecorationThickness(ComputedStyle::initialTextDecorationThickness())
-    // scrollTimelines
-    , scrollTimelineAxes(ComputedStyle::initialScrollTimelineAxes())
-    , scrollTimelineNames(ComputedStyle::initialScrollTimelineNames())
-    // viewTimelines
-    , viewTimelineInsets(ComputedStyle::initialViewTimelineInsets())
-    , viewTimelineAxes(ComputedStyle::initialViewTimelineAxes())
-    , viewTimelineNames(ComputedStyle::initialViewTimelineNames())
+    , scrollTimelines { CSS::Keyword::None { } }
+    , viewTimelines { CSS::Keyword::None { } }
     , timelineScope(ComputedStyle::initialTimelineScope())
+    , triggerScope(ComputedStyle::initialTriggerScope())
+    , timelineTriggers { CSS::Keyword::None { } }
     , scrollbarGutter(ComputedStyle::initialScrollbarGutter())
+    , containerType(ComputedStyle::initialContainerType())
     , scrollSnapType(ComputedStyle::initialScrollSnapType())
     , scrollSnapAlign(ComputedStyle::initialScrollSnapAlign())
     , pseudoElementNameArgument(nullAtom())
@@ -99,10 +97,12 @@ NonInheritedRareData::NonInheritedRareData()
     , positionArea(ComputedStyle::initialPositionArea())
     , positionTryFallbacks(ComputedStyle::initialPositionTryFallbacks())
     , usedPositionOptionIndex()
+    , overflowClipMargin(ComputedStyle::initialOverflowClipMargin())
     , blockStepSize(ComputedStyle::initialBlockStepSize())
     , blockStepAlign(static_cast<unsigned>(ComputedStyle::initialBlockStepAlign()))
     , blockStepInsert(static_cast<unsigned>(ComputedStyle::initialBlockStepInsert()))
     , blockStepRound(static_cast<unsigned>(ComputedStyle::initialBlockStepRound()))
+    , spatial(static_cast<unsigned>(SpatialType::None))
     , overscrollBehaviorX(static_cast<unsigned>(ComputedStyle::initialOverscrollBehaviorX()))
     , overscrollBehaviorY(static_cast<unsigned>(ComputedStyle::initialOverscrollBehaviorY()))
     , transformStyle3D(static_cast<unsigned>(ComputedStyle::initialTransformStyle3D()))
@@ -122,12 +122,12 @@ NonInheritedRareData::NonInheritedRareData()
     , breakBefore(static_cast<unsigned>(ComputedStyle::initialBreakBefore()))
     , breakAfter(static_cast<unsigned>(ComputedStyle::initialBreakAfter()))
     , breakInside(static_cast<unsigned>(ComputedStyle::initialBreakInside()))
-    , containerType(static_cast<unsigned>(ComputedStyle::initialContainerType()))
     , textBoxTrim(static_cast<unsigned>(ComputedStyle::initialTextBoxTrim()))
     , overflowAnchor(static_cast<unsigned>(ComputedStyle::initialOverflowAnchor()))
     , positionTryOrder(static_cast<unsigned>(ComputedStyle::initialPositionTryOrder()))
     , positionVisibility(ComputedStyle::initialPositionVisibility().toRaw())
     , fieldSizing(static_cast<unsigned>(ComputedStyle::initialFieldSizing()))
+    , wrapInside(static_cast<unsigned>(ComputedStyle::initialWrapInside()))
     , nativeAppearanceDisabled(static_cast<unsigned>(false))
 #if HAVE(CORE_MATERIAL)
     , appleVisualEffect(static_cast<unsigned>(ComputedStyle::initialAppleVisualEffect()))
@@ -141,6 +141,7 @@ NonInheritedRareData::NonInheritedRareData()
     , contain(ComputedStyle::initialContain().toRaw())
     , overflowContinue(static_cast<unsigned>(ComputedStyle::initialOverflowContinue()))
     , scrollSnapStop(static_cast<unsigned>(ComputedStyle::initialScrollSnapStop()))
+    , whiteSpaceTrim(ComputedStyle::initialWhiteSpaceTrim().toRaw())
 {
 }
 
@@ -184,23 +185,21 @@ inline NonInheritedRareData::NonInheritedRareData(const NonInheritedRareData& o)
     , viewTransitionName(o.viewTransitionName)
     , columnGap(o.columnGap)
     , rowGap(o.rowGap)
-    , flowTolerance(o.flowTolerance)
     , offsetPath(o.offsetPath)
     , offsetDistance(o.offsetDistance)
     , offsetPosition(o.offsetPosition)
     , offsetAnchor(o.offsetAnchor)
     , offsetRotate(o.offsetRotate)
     , textDecorationColor(o.textDecorationColor)
+    , textDecorationInset(o.textDecorationInset)
     , textDecorationThickness(o.textDecorationThickness)
     , scrollTimelines(o.scrollTimelines)
-    , scrollTimelineAxes(o.scrollTimelineAxes)
-    , scrollTimelineNames(o.scrollTimelineNames)
     , viewTimelines(o.viewTimelines)
-    , viewTimelineInsets(o.viewTimelineInsets)
-    , viewTimelineAxes(o.viewTimelineAxes)
-    , viewTimelineNames(o.viewTimelineNames)
     , timelineScope(o.timelineScope)
+    , triggerScope(o.triggerScope)
+    , timelineTriggers(o.timelineTriggers)
     , scrollbarGutter(o.scrollbarGutter)
+    , containerType(o.containerType)
     , scrollSnapType(o.scrollSnapType)
     , scrollSnapAlign(o.scrollSnapAlign)
     , pseudoElementNameArgument(o.pseudoElementNameArgument)
@@ -210,10 +209,12 @@ inline NonInheritedRareData::NonInheritedRareData(const NonInheritedRareData& o)
     , positionArea(o.positionArea)
     , positionTryFallbacks(o.positionTryFallbacks)
     , usedPositionOptionIndex(o.usedPositionOptionIndex)
+    , overflowClipMargin(o.overflowClipMargin)
     , blockStepSize(o.blockStepSize)
     , blockStepAlign(o.blockStepAlign)
     , blockStepInsert(o.blockStepInsert)
     , blockStepRound(o.blockStepRound)
+    , spatial(o.spatial)
     , overscrollBehaviorX(o.overscrollBehaviorX)
     , overscrollBehaviorY(o.overscrollBehaviorY)
     , transformStyle3D(o.transformStyle3D)
@@ -233,12 +234,12 @@ inline NonInheritedRareData::NonInheritedRareData(const NonInheritedRareData& o)
     , breakBefore(o.breakBefore)
     , breakAfter(o.breakAfter)
     , breakInside(o.breakInside)
-    , containerType(o.containerType)
     , textBoxTrim(o.textBoxTrim)
     , overflowAnchor(o.overflowAnchor)
     , positionTryOrder(o.positionTryOrder)
     , positionVisibility(o.positionVisibility)
     , fieldSizing(o.fieldSizing)
+    , wrapInside(o.wrapInside)
     , nativeAppearanceDisabled(o.nativeAppearanceDisabled)
 #if HAVE(CORE_MATERIAL)
     , appleVisualEffect(o.appleVisualEffect)
@@ -252,6 +253,7 @@ inline NonInheritedRareData::NonInheritedRareData(const NonInheritedRareData& o)
     , contain(o.contain)
     , overflowContinue(o.overflowContinue)
     , scrollSnapStop(o.scrollSnapStop)
+    , whiteSpaceTrim(o.whiteSpaceTrim)
 {
 }
 
@@ -301,22 +303,20 @@ bool NonInheritedRareData::operator==(const NonInheritedRareData& o) const
         && containerNames == o.containerNames
         && columnGap == o.columnGap
         && rowGap == o.rowGap
-        && flowTolerance == o.flowTolerance
         && offsetPath == o.offsetPath
         && offsetDistance == o.offsetDistance
         && offsetPosition == o.offsetPosition
         && offsetAnchor == o.offsetAnchor
         && offsetRotate == o.offsetRotate
         && textDecorationThickness == o.textDecorationThickness
+        && textDecorationInset == o.textDecorationInset
         && scrollTimelines == o.scrollTimelines
-        && scrollTimelineAxes == o.scrollTimelineAxes
-        && scrollTimelineNames == o.scrollTimelineNames
         && viewTimelines == o.viewTimelines
-        && viewTimelineInsets == o.viewTimelineInsets
-        && viewTimelineAxes == o.viewTimelineAxes
-        && viewTimelineNames == o.viewTimelineNames
         && timelineScope == o.timelineScope
+        && triggerScope == o.triggerScope
+        && timelineTriggers == o.timelineTriggers
         && scrollbarGutter == o.scrollbarGutter
+        && containerType == o.containerType
         && scrollSnapType == o.scrollSnapType
         && scrollSnapAlign == o.scrollSnapAlign
         && pseudoElementNameArgument == o.pseudoElementNameArgument
@@ -326,10 +326,12 @@ bool NonInheritedRareData::operator==(const NonInheritedRareData& o) const
         && positionArea == o.positionArea
         && positionTryFallbacks == o.positionTryFallbacks
         && usedPositionOptionIndex == o.usedPositionOptionIndex
+        && overflowClipMargin == o.overflowClipMargin
         && blockStepSize == o.blockStepSize
         && blockStepAlign == o.blockStepAlign
         && blockStepInsert == o.blockStepInsert
         && blockStepRound == o.blockStepRound
+        && spatial == o.spatial
         && overscrollBehaviorX == o.overscrollBehaviorX
         && overscrollBehaviorY == o.overscrollBehaviorY
         && transformStyle3D == o.transformStyle3D
@@ -349,7 +351,6 @@ bool NonInheritedRareData::operator==(const NonInheritedRareData& o) const
         && breakAfter == o.breakAfter
         && breakBefore == o.breakBefore
         && breakInside == o.breakInside
-        && containerType == o.containerType
         && textBoxTrim == o.textBoxTrim
         && overflowAnchor == o.overflowAnchor
         && viewTransitionClasses == o.viewTransitionClasses
@@ -357,6 +358,7 @@ bool NonInheritedRareData::operator==(const NonInheritedRareData& o) const
         && positionTryOrder == o.positionTryOrder
         && positionVisibility == o.positionVisibility
         && fieldSizing == o.fieldSizing
+        && wrapInside == o.wrapInside
         && nativeAppearanceDisabled == o.nativeAppearanceDisabled
 #if HAVE(CORE_MATERIAL)
         && appleVisualEffect == o.appleVisualEffect
@@ -369,23 +371,18 @@ bool NonInheritedRareData::operator==(const NonInheritedRareData& o) const
         && marginTrim == o.marginTrim
         && contain == o.contain
         && overflowContinue == o.overflowContinue
-        && scrollSnapStop == o.scrollSnapStop;
+        && scrollSnapStop == o.scrollSnapStop
+        && whiteSpaceTrim == o.whiteSpaceTrim;
 }
 
 Contain NonInheritedRareData::usedContain() const
 {
     auto result = Contain::fromRaw(contain);
 
-    switch (static_cast<ContainerType>(containerType)) {
-    case ContainerType::Normal:
-        break;
-    case ContainerType::Size:
+    if (containerType.hasSize())
         result.add({ ContainValue::Style, ContainValue::Size });
-        break;
-    case ContainerType::InlineSize:
+    else if (containerType.hasInlineSize())
         result.add({ ContainValue::Style, ContainValue::InlineSize });
-        break;
-    };
 
     return result;
 }
@@ -451,7 +448,6 @@ void NonInheritedRareData::dumpDifferences(TextStream& ts, const NonInheritedRar
 
     LOG_IF_DIFFERENT(columnGap);
     LOG_IF_DIFFERENT(rowGap);
-    LOG_IF_DIFFERENT(flowTolerance);
 
     LOG_IF_DIFFERENT(offsetPath);
     LOG_IF_DIFFERENT(offsetDistance);
@@ -460,19 +456,17 @@ void NonInheritedRareData::dumpDifferences(TextStream& ts, const NonInheritedRar
     LOG_IF_DIFFERENT(offsetRotate);
 
     LOG_IF_DIFFERENT(textDecorationThickness);
+    LOG_IF_DIFFERENT(textDecorationInset);
 
     LOG_IF_DIFFERENT(scrollTimelines);
-    LOG_IF_DIFFERENT(scrollTimelineAxes);
-    LOG_IF_DIFFERENT(scrollTimelineNames);
-
     LOG_IF_DIFFERENT(viewTimelines);
-    LOG_IF_DIFFERENT(viewTimelineInsets);
-    LOG_IF_DIFFERENT(viewTimelineAxes);
-    LOG_IF_DIFFERENT(viewTimelineNames);
 
     LOG_IF_DIFFERENT(timelineScope);
+    LOG_IF_DIFFERENT(triggerScope);
+    LOG_IF_DIFFERENT(timelineTriggers);
 
     LOG_IF_DIFFERENT(scrollbarGutter);
+    LOG_IF_DIFFERENT(containerType);
 
     LOG_IF_DIFFERENT(scrollSnapType);
     LOG_IF_DIFFERENT(scrollSnapAlign);
@@ -487,11 +481,14 @@ void NonInheritedRareData::dumpDifferences(TextStream& ts, const NonInheritedRar
     LOG_IF_DIFFERENT(usedPositionOptionIndex);
     LOG_IF_DIFFERENT(positionVisibility);
 
+    LOG_IF_DIFFERENT(overflowClipMargin);
+
     LOG_IF_DIFFERENT(blockStepSize);
 
     LOG_IF_DIFFERENT_WITH_CAST(BlockStepAlign, blockStepAlign);
     LOG_IF_DIFFERENT_WITH_CAST(BlockStepInsert, blockStepInsert);
     LOG_IF_DIFFERENT_WITH_CAST(BlockStepRound, blockStepRound);
+    LOG_IF_DIFFERENT_WITH_CAST(SpatialType, spatial);
 
     LOG_IF_DIFFERENT_WITH_CAST(OverscrollBehavior, overscrollBehaviorX);
     LOG_IF_DIFFERENT_WITH_CAST(OverscrollBehavior, overscrollBehaviorY);
@@ -520,11 +517,11 @@ void NonInheritedRareData::dumpDifferences(TextStream& ts, const NonInheritedRar
     LOG_IF_DIFFERENT_WITH_CAST(BreakBetween, breakAfter);
     LOG_IF_DIFFERENT_WITH_CAST(BreakInside, breakInside);
 
-    LOG_IF_DIFFERENT_WITH_CAST(ContainerType, containerType);
     LOG_IF_DIFFERENT_WITH_CAST(TextBoxTrim, textBoxTrim);
     LOG_IF_DIFFERENT_WITH_CAST(OverflowAnchor, overflowAnchor);
     LOG_IF_DIFFERENT_WITH_CAST(PositionTryOrder, positionTryOrder);
     LOG_IF_DIFFERENT_WITH_CAST(FieldSizing, fieldSizing);
+    LOG_IF_DIFFERENT_WITH_CAST(WrapInside, wrapInside);
 
     LOG_IF_DIFFERENT_WITH_CAST(bool, nativeAppearanceDisabled);
 
@@ -544,6 +541,7 @@ void NonInheritedRareData::dumpDifferences(TextStream& ts, const NonInheritedRar
 
     LOG_IF_DIFFERENT_WITH_CAST(OverflowContinue, overflowContinue);
     LOG_IF_DIFFERENT_WITH_CAST(ScrollSnapStop, scrollSnapStop);
+    LOG_IF_DIFFERENT_WITH_FROM_RAW(WhiteSpaceTrim, whiteSpaceTrim);
 }
 #endif // !LOG_DISABLED
 

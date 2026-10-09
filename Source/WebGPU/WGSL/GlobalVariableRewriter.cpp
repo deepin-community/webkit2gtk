@@ -68,21 +68,13 @@ public:
     void visit(AST::Expression&) override;
 
 private:
-    struct Global {
-        struct Resource {
-            unsigned group;
-            unsigned binding;
-        };
-
-        std::optional<Resource> resource;
-        AST::Variable* declaration;
-    };
+    using Global = CallGraph::Global;
 
     template<typename Value>
     using IndexMap = HashMap<uint64_t, Value, WTF::IntHash<uint64_t>, WTF::UnsignedWithZeroKeyHashTraits<uint64_t>>;
 
-    using UsedResources = IndexMap<IndexMap<Global*>>;
-    using UsedPrivateGlobals = Vector<Global*>;
+    using UsedResources = IndexMap<IndexMap<const Global*>>;
+    using UsedPrivateGlobals = Vector<const Global*>;
 
     struct UsedGlobals {
         UsedResources resources;
@@ -104,9 +96,10 @@ private:
     std::optional<Error> collectGlobals();
     std::optional<Error> visitEntryPoint(const CallGraph::EntryPoint&);
     void visitCallee(const CallGraph::Callee&);
-    Result<UsedGlobals> determineUsedGlobals(const AST::Function&);
+    Result<UsedGlobals> determineUsedGlobals(const CallGraph::EntryPoint&);
     void collectDynamicOffsetGlobals(const PipelineLayout&);
     void usesOverride(AST::Variable&);
+    void validateUsedGlobals(const UsedGlobals&) const;
     Vector<unsigned> insertStructs(const UsedResources&);
     Result<Vector<unsigned>> insertStructs(PipelineLayout&, const UsedResources&);
     AST::StructureMember& createArgumentBufferEntry(unsigned binding, AST::Variable&);
@@ -178,6 +171,8 @@ private:
     HashMap<std::pair<unsigned, unsigned>, unsigned> m_globalsUsingDynamicOffset;
     HashSet<AST::Expression*> m_doNotUnpack;
     CheckedUint32 m_combinedFunctionVariablesSize;
+    bool m_isTopLevelExpression { true };
+    bool m_suppressOverrideValidation { false };
 };
 
 std::optional<Error> RewriteGlobalVariables::run()
@@ -251,6 +246,7 @@ void RewriteGlobalVariables::visitCallee(const CallGraph::Callee& callee)
 
     const auto& updateCallSites = [&] {
         for (auto& read : m_reads) {
+            dataLogLnIf(shouldLogGlobalVariableRewriting, ">> Updating call site to pass global read: ", read);
             for (auto& [_, call] : callee.callSites) {
                 auto it = m_globals.find(read);
                 RELEASE_ASSERT(it != m_globals.end());
@@ -269,6 +265,7 @@ void RewriteGlobalVariables::visitCallee(const CallGraph::Callee& callee)
             auto& lengthType = m_shaderModule.astBuilder().construct<AST::IdentifierExpression>(SourceSpan::empty(), AST::Identifier::make("u32"_s));
             lengthType.m_inferredType = m_shaderModule.types().u32Type();
 
+            Vector<std::pair<AST::Function*, String>> pendingLengthParameters;
             for (auto& lengthParameter : it->value) {
                 auto lengthName = makeString("__"_s, lengthParameter, "_ArrayLength"_s);
                 if (m_reads.contains(lengthName))
@@ -281,13 +278,13 @@ void RewriteGlobalVariables::visitCallee(const CallGraph::Callee& callee)
                     ++index;
                 }
                 for (auto& [caller, call] : callee.callSites) {
+                    dataLogLnIf(shouldLogGlobalVariableRewriting, ">> Updating call site ("_s, caller->name(), ") to pass array length: ", lengthName);
                     auto& argument = call->arguments()[index];
                     unsigned arrayOffset = 0;
                     auto& base = getBase(argument, arrayOffset);
                     auto& identifier = base.identifier();
 
-                    auto result = m_lengthParameters.add(caller, ListHashSet<String> { });
-                    result.iterator->value.add(identifier);
+                    pendingLengthParameters.append({ caller, identifier });
 
                     auto lengthName = makeString("__"_s, identifier, "_ArrayLength"_s);
                     auto& length = m_shaderModule.astBuilder().construct<AST::IdentifierExpression>(
@@ -313,14 +310,21 @@ void RewriteGlobalVariables::visitCallee(const CallGraph::Callee& callee)
                     m_shaderModule.append(call->arguments(), *lhs);
                 }
             }
+
+            for (auto&  [caller, lengthParameter] : pendingLengthParameters) {
+                auto result = m_lengthParameters.add(caller, ListHashSet<String> { });
+                result.iterator->value.add(lengthParameter);
+            }
         }
     };
 
+    dataLogLnIf(shouldLogGlobalVariableRewriting, "ENTER: ", callee.target->name());
     auto it = m_visitedFunctions.find(callee.target);
     if (it != m_visitedFunctions.end()) {
         dataLogLnIf(shouldLogGlobalVariableRewriting, "> Already visited callee: ", callee.target->name());
         m_reads = it->value;
         updateCallSites();
+        dataLogLnIf(shouldLogGlobalVariableRewriting, "EXIT: ", callee.target->name());
         return;
     }
 
@@ -331,6 +335,7 @@ void RewriteGlobalVariables::visitCallee(const CallGraph::Callee& callee)
     updateCallSites();
 
     m_visitedFunctions.add(callee.target, m_reads);
+    dataLogLnIf(shouldLogGlobalVariableRewriting, "EXIT: ", callee.target->name());
 }
 
 void RewriteGlobalVariables::visit(AST::Function& function)
@@ -399,8 +404,13 @@ void RewriteGlobalVariables::visit(AST::AssignmentStatement& statement)
 {
     Packing lhsPacking = pack(Packing::Either, statement.lhs());
     ASSERT(lhsPacking != Packing::Either);
-    if (lhsPacking == Packing::PackedVec3)
-        lhsPacking = Packing::Either;
+    if (lhsPacking == Packing::PackedVec3) {
+        auto* lhsType = statement.lhs().inferredType();
+        if (auto* ref = std::get_if<Types::Reference>(lhsType))
+            lhsType = ref->element;
+        if (std::holds_alternative<Types::Vector>(*lhsType))
+            lhsPacking = Packing::Either;
+    }
     pack(lhsPacking, statement.rhs());
 }
 
@@ -424,6 +434,17 @@ void RewriteGlobalVariables::visit(AST::Expression& expression)
 
 Packing RewriteGlobalVariables::pack(Packing expectedPacking, AST::Expression& expression)
 {
+    if (m_isTopLevelExpression && expression.maybeEvaluation().value_or(Evaluation::Runtime) == Evaluation::Override) {
+        m_shaderModule.addOverrideValidation([&shaderModule = m_shaderModule, &expression](auto& overrideValues) -> std::optional<Error> {
+            auto maybeValue = shaderModule.ensureOverrideValue(expression, overrideValues);
+            if (!maybeValue)
+                return maybeValue.error();
+            return std::nullopt;
+        });
+    }
+
+    SetForScope topLevelExpression(m_isTopLevelExpression, false);
+
     if (m_doNotUnpack.contains(&expression))
         return expectedPacking;
 
@@ -470,6 +491,7 @@ Packing RewriteGlobalVariables::pack(Packing expectedPacking, AST::Expression& e
             AST::Expression::List { argument }
         );
         call.m_inferredType = argument.inferredType();
+        call.m_resolvedTarget = operation;
         m_shaderModule.replace(expression, call);
         return static_cast<Packing>(Packing::Either ^ packing);
     };
@@ -572,6 +594,8 @@ Packing RewriteGlobalVariables::getPacking(AST::IndexAccessExpression& expressio
         baseType = pointerType->element;
     if (std::holds_alternative<Types::Vector>(*baseType))
         return Packing::Unpacked;
+    if (std::holds_alternative<Types::Matrix>(*baseType))
+        return Packing::Unpacked;
     ASSERT(std::holds_alternative<Types::Array>(*baseType));
     auto& arrayType = std::get<Types::Array>(*baseType);
     return packingForType(arrayType.element);
@@ -580,7 +604,47 @@ Packing RewriteGlobalVariables::getPacking(AST::IndexAccessExpression& expressio
 Packing RewriteGlobalVariables::getPacking(AST::BinaryExpression& expression)
 {
     pack(Packing::Unpacked, expression.leftExpression());
+
+    if (expression.operation() == AST::BinaryOperation::ShortCircuitAnd || expression.operation() == AST::BinaryOperation::ShortCircuitOr) {
+        auto leftEval = expression.leftExpression().maybeEvaluation().value_or(Evaluation::Runtime);
+        if (leftEval == Evaluation::Override) {
+            SetForScope suppressScope(m_suppressOverrideValidation, true);
+            pack(Packing::Unpacked, expression.rightExpression());
+            return Packing::Unpacked;
+        }
+    }
+
     pack(Packing::Unpacked, expression.rightExpression());
+
+    if (m_suppressOverrideValidation)
+        return Packing::Unpacked;
+
+    auto operation = toASCIILiteral(expression.operation());
+    if (auto* overload = m_shaderModule.lookupOverload(operation)) {
+        if (auto validate = overload->validationFunction) {
+            auto leftEval = expression.leftExpression().maybeEvaluation().value_or(Evaluation::Runtime);
+            auto rightEval = expression.rightExpression().maybeEvaluation().value_or(Evaluation::Runtime);
+            if (leftEval == Evaluation::Override || rightEval == Evaluation::Override) {
+                m_shaderModule.addOverrideValidation([&shaderModule = m_shaderModule, &expression, validate](auto& overrideValues) -> std::optional<Error> {
+                    FixedVector<std::optional<ConstantValue>> validationArguments(2);
+                    if (auto value = evaluate(shaderModule, expression.leftExpression(), overrideValues))
+                        validationArguments[0] = { *value };
+                    if (auto value = evaluate(shaderModule, expression.rightExpression(), overrideValues))
+                        validationArguments[1] = { *value };
+
+                    FixedVector<const Type*> paramTypes(2);
+                    paramTypes[0] = expression.leftExpression().inferredType();
+                    paramTypes[1] = expression.rightExpression().inferredType();
+
+                    if (auto error = validate(WTF::move(validationArguments), paramTypes))
+                        return Error(*error, expression.span());
+
+                    return std::nullopt;
+                });
+            }
+        }
+    }
+
     return Packing::Unpacked;
 }
 
@@ -679,6 +743,29 @@ Packing RewriteGlobalVariables::getPacking(AST::CallExpression& call)
 
     for (auto& argument : call.arguments())
         pack(Packing::Unpacked, argument);
+
+    if (!m_suppressOverrideValidation) {
+        if (auto validate = call.validationFunction()) {
+            m_shaderModule.addOverrideValidation([&shaderModule = m_shaderModule, &call, validate](auto& overrideValues) -> std::optional<Error> {
+                unsigned argumentCount = call.arguments().size();
+                FixedVector<std::optional<ConstantValue>> validationArguments(argumentCount);
+                for (unsigned i = 0; i < argumentCount; ++i) {
+                    if (auto value = evaluate(shaderModule, call.arguments()[i], overrideValues))
+                        validationArguments[i] = { *value };
+                }
+
+                FixedVector<const Type*> paramTypes(argumentCount);
+                for (unsigned i = 0; i < argumentCount; ++i)
+                    paramTypes[i] = call.arguments()[i].inferredType();
+
+                if (auto error = validate(WTF::move(validationArguments), paramTypes))
+                    return Error(*error, call.span());
+
+                return std::nullopt;
+            });
+        }
+    }
+
     return Packing::Unpacked;
 }
 
@@ -711,7 +798,7 @@ AST::IdentifierExpression& RewriteGlobalVariables::getBase(AST::Expression& expr
     RELEASE_ASSERT_NOT_REACHED();
 }
 
-static unsigned buffersForStage(const Configuration& configuration, ShaderStage stage)
+static unsigned NODELETE buffersForStage(const Configuration& configuration, ShaderStage stage)
 {
     switch (stage) {
     case ShaderStage::Compute:
@@ -838,6 +925,16 @@ void RewriteGlobalVariables::packResource(AST::Variable& global)
         packStructResource(global, structType);
         return;
     }
+
+    if (auto* matrixType = std::get_if<Types::Matrix>(resolvedType)) {
+        if (matrixType->rows == 3) {
+            m_shaderModule.setUsesPackedVec3();
+            m_shaderModule.setUsesPackVector();
+            m_shaderModule.setUsesUnpackVector();
+            m_shaderModule.replace(&global.role(), AST::VariableRole::PackedResource);
+        }
+        return;
+    }
 }
 
 void RewriteGlobalVariables::packStructResource(AST::Variable& global, const Types::Struct* structType)
@@ -914,6 +1011,14 @@ const Type* RewriteGlobalVariables::packType(const Type* type)
             return type;
         }
     }
+    if (auto* matrixType = std::get_if<Types::Matrix>(type)) {
+        if (matrixType->rows == 3) {
+            m_shaderModule.setUsesPackedVec3();
+            m_shaderModule.setUsesPackVector();
+            m_shaderModule.setUsesUnpackVector();
+            return type;
+        }
+    }
     return nullptr;
 }
 
@@ -940,7 +1045,6 @@ const Type* RewriteGlobalVariables::packStructType(const Types::Struct* structTy
         SourceSpan::empty(),
         AST::Identifier::make(packedStructName),
         AST::StructureMember::List(structType->structure.members()),
-        AST::Attribute::List { },
         AST::StructureRole::PackedResource,
         &structType->structure
     );
@@ -1057,7 +1161,7 @@ std::optional<Error> RewriteGlobalVariables::visitEntryPoint(const CallGraph::En
         return std::nullopt;
     }
 
-    auto maybeUsedGlobals = determineUsedGlobals(entryPoint.function);
+    auto maybeUsedGlobals = determineUsedGlobals(entryPoint);
     if (!maybeUsedGlobals) {
         insertDynamicOffsetsBufferIfNeeded(entryPoint.function);
         return maybeUsedGlobals.error();
@@ -1071,6 +1175,7 @@ std::optional<Error> RewriteGlobalVariables::visitEntryPoint(const CallGraph::En
     insertParameters(entryPoint.function, *maybeGroups);
     insertMaterializations(entryPoint.function, usedGlobals.resources);
     insertLocalDefinitions(entryPoint.function, usedGlobals.privateGlobals);
+    validateUsedGlobals(usedGlobals);
 
     for (auto* global : usedGlobals.privateGlobals) {
         if (!global || !global->declaration)
@@ -1080,6 +1185,31 @@ std::optional<Error> RewriteGlobalVariables::visitEntryPoint(const CallGraph::En
             m_entryPointInformation->sizeForWorkgroupVariables += getRoundedSize(*variable);
     }
     return std::nullopt;
+}
+
+void RewriteGlobalVariables::validateUsedGlobals(const UsedGlobals& usedGlobals) const
+{
+    const auto& validateGlobal = [&](const Global* global) {
+        auto* variable = global->declaration;
+        if (auto* initializer = variable->maybeInitializer()) {
+            if (initializer->constantValue())
+                return;
+            m_shaderModule.addOverrideValidation([&shaderModule = m_shaderModule, initializer](auto& overrideValues) -> std::optional<Error> {
+                auto maybeValue = shaderModule.ensureOverrideValue(*initializer, overrideValues);
+                if (!maybeValue)
+                    return maybeValue.error();
+                return std::nullopt;
+            });
+        }
+    };
+
+    for (const auto* global : usedGlobals.privateGlobals)
+        validateGlobal(global);
+
+    for (const auto& [_, bindings] : usedGlobals.resources) {
+        for (const auto& [_, global] : bindings)
+            validateGlobal(global);
+    }
 }
 
 void RewriteGlobalVariables::collectDynamicOffsetGlobals(const PipelineLayout& pipelineLayout)
@@ -1110,7 +1240,7 @@ void RewriteGlobalVariables::collectDynamicOffsetGlobals(const PipelineLayout& p
     }
 }
 
-static WGSL::StorageTextureAccess convertAccess(const AccessMode accessMode)
+static WGSL::StorageTextureAccess NODELETE convertAccess(const AccessMode accessMode)
 {
     switch (accessMode) {
     case AccessMode::Read:
@@ -1301,15 +1431,17 @@ static BindGroupLayoutEntry::BindingMember bindingMemberForGlobal(auto& global)
     });
 }
 
-auto RewriteGlobalVariables::determineUsedGlobals(const AST::Function& function) -> Result<UsedGlobals>
+auto RewriteGlobalVariables::determineUsedGlobals(const CallGraph::EntryPoint& entryPoint) -> Result<UsedGlobals>
 {
     UsedGlobals usedGlobals;
+    const auto& function = entryPoint.function;
 
     // https://www.w3.org/TR/WGSL/#limits
     constexpr unsigned maximumCombinedPrivateVariablesSize = 8192;
     unsigned maximumCombinedWorkgroupVariablesSize = m_shaderModule.configuration().maximumCombinedWorkgroupVariablesSize;
     Vector<const Type*, 16> workgroupVariables;
     Vector<const Type*, 16> privateVariables;
+
 
     for (const auto& globalName : m_reads) {
         auto it = m_globals.find(globalName);
@@ -1337,15 +1469,12 @@ auto RewriteGlobalVariables::determineUsedGlobals(const AST::Function& function)
 
         auto group = global.resource->group;
         auto binding = global.resource->binding;
-        auto groupResult = usedGlobals.resources.add(group, IndexMap<Global*>());
+        auto groupResult = usedGlobals.resources.add(group, IndexMap<const Global*>());
         auto bindingResult = groupResult.iterator->value.add(binding, &global);
-
-        // FIXME: <rdar://150368198> this check needs to occur during WGSL::staticCheck
-        if (!bindingResult.isNewEntry)
-            return makeUnexpected(Error(makeString("entry point '"_s, m_entryPointInformation->originalName, "' uses variables '"_s, bindingResult.iterator->value->declaration->originalName(), "' and '"_s, variable.originalName(), "', both which use the same resource binding: @group("_s, group, ") @binding("_s, binding, ')'), variable.span()));
+        ASSERT_UNUSED(bindingResult, bindingResult.isNewEntry);
     }
 
-    m_shaderModule.addOverrideValidation([span = function.span(), variables = WTF::move(workgroupVariables), maximumCombinedWorkgroupVariablesSize] -> std::optional<Error> {
+    m_shaderModule.addOverrideValidation([span = function.span(), variables = WTF::move(workgroupVariables), maximumCombinedWorkgroupVariablesSize](auto&) -> std::optional<Error> {
         CheckedUint32 combinedWorkgroupVariablesSize = 0;
         for (const Type* type : variables)
             combinedWorkgroupVariablesSize += type->size();
@@ -1353,7 +1482,7 @@ auto RewriteGlobalVariables::determineUsedGlobals(const AST::Function& function)
             return { Error(makeString("The combined byte size of all variables in the workgroup address space exceeds "_s, String::number(maximumCombinedWorkgroupVariablesSize), " bytes"_s), span) };
         return std::nullopt;
     });
-    m_shaderModule.addOverrideValidation([span = function.span(), variables = WTF::move(privateVariables)] -> std::optional<Error> {
+    m_shaderModule.addOverrideValidation([span = function.span(), variables = WTF::move(privateVariables)](auto&) -> std::optional<Error> {
         CheckedUint32 combinedPrivateVariablesSize = 0;
         for (const Type* type : variables)
             combinedPrivateVariablesSize += type->size();
@@ -1419,7 +1548,7 @@ enum class BindingType {
     TextureExternal,
 };
 
-static BindingType bindingTypeForPrimitive(const Types::Primitive& primitive)
+static BindingType NODELETE bindingTypeForPrimitive(const Types::Primitive& primitive)
 {
     switch (primitive.kind) {
     case Types::Primitive::AbstractInt:
@@ -1517,7 +1646,7 @@ Vector<unsigned> RewriteGlobalVariables::insertStructs(const UsedResources& used
             continue;
 
         auto& bindingGlobalMap = groupBinding.value;
-        const IndexMap<Global*>& usedBindings = usedResource->value;
+        const IndexMap<const Global*>& usedBindings = usedResource->value;
 
         Vector<std::pair<unsigned, AST::StructureMember*>> entries;
         unsigned metalId = 0;
@@ -1633,7 +1762,6 @@ void RewriteGlobalVariables::finalizeArgumentBufferStruct(unsigned group, Vector
         SourceSpan::empty(),
         argumentBufferStructName(group),
         WTF::move(structMembers),
-        AST::Attribute::List { },
         AST::StructureRole::BindGroup
     );
     argumentBufferStruct.m_inferredType = m_shaderModule.types().structType(argumentBufferStruct);
@@ -1701,7 +1829,7 @@ static bool isSampler(const AST::Variable& variable, SamplerBindingType bindingT
     }
 }
 
-static bool textureKindEqualsViewDimension(Types::Texture::Kind kind, TextureViewDimension viewDimension, bool isMultisampled, TextureSampleType sampleType)
+static bool NODELETE textureKindEqualsViewDimension(Types::Texture::Kind kind, TextureViewDimension viewDimension, bool isMultisampled, TextureSampleType sampleType)
 {
     if (isMultisampled)
         return kind == Types::Texture::Kind::TextureMultisampled2d && viewDimension == TextureViewDimension::TwoDimensional;
@@ -1724,7 +1852,7 @@ static bool textureKindEqualsViewDimension(Types::Texture::Kind kind, TextureVie
     return false;
 }
 
-static bool depthTextureKindEqualsViewDimension(Types::TextureDepth::Kind kind, TextureViewDimension viewDimension, bool isMultisampled)
+static bool NODELETE depthTextureKindEqualsViewDimension(Types::TextureDepth::Kind kind, TextureViewDimension viewDimension, bool isMultisampled)
 {
     if (isMultisampled)
         return kind == Types::TextureDepth::Kind::TextureDepthMultisampled2d && viewDimension == TextureViewDimension::TwoDimensional;
@@ -1941,7 +2069,7 @@ static String errorValidatingTexture(const AST::Variable& variable, const Textur
     return emptyString();
 }
 
-static bool storageTextureKindEqualsViewDimension(Types::TextureStorage::Kind kind, TextureViewDimension viewDimension)
+static bool NODELETE storageTextureKindEqualsViewDimension(Types::TextureStorage::Kind kind, TextureViewDimension viewDimension)
 {
     switch (viewDimension) {
     case TextureViewDimension::OneDimensional:
@@ -2450,29 +2578,23 @@ AST::Statement::List RewriteGlobalVariables::storeInitialValue(const UsedPrivate
 void RewriteGlobalVariables::storeInitialValue(AST::Expression& target, AST::Statement::List& statements, unsigned arrayDepth)
 {
     const auto& zeroInitialize = [&]() {
-        // This piece of code generation relies on 2 implementation details from the metal serializer:
-        // - The callee's name won't be used if the call is set to constructor
-        // - There's a special case to handle the case where the left-hand side
-        //   of the assignment doesn't have a type, so we can erase it
-        auto& callee = m_shaderModule.astBuilder().construct<AST::IdentifierExpression>(SourceSpan::empty(), AST::Identifier::make("__initialize"_s));
-        callee.m_inferredType = target.inferredType();
+        m_shaderModule.setUsesZeroWorkgroupVar();
+
+        auto& callee = m_shaderModule.astBuilder().construct<AST::IdentifierExpression>(SourceSpan::empty(), AST::Identifier::make("__wgslZeroWorkgroupVar"_s));
+        callee.m_inferredType = m_shaderModule.types().voidType();
 
         auto& call = m_shaderModule.astBuilder().construct<AST::CallExpression>(
             SourceSpan::empty(),
             callee,
-            AST::Expression::List { }
+            AST::Expression::List { target }
         );
-        call.m_inferredType = target.inferredType();
-        call.m_isConstructor = true;
+        call.m_inferredType = m_shaderModule.types().voidType();
 
-        target.m_inferredType = nullptr;
-
-        auto& assignmentStatement = m_shaderModule.astBuilder().construct<AST::AssignmentStatement>(
+        auto& callStatement = m_shaderModule.astBuilder().construct<AST::CallStatement>(
             SourceSpan::empty(),
-            target,
             call
         );
-        statements.append(AST::Statement::Ref(assignmentStatement));
+        statements.append(AST::Statement::Ref(callStatement));
     };
 
     auto* type = target.inferredType();
@@ -2557,6 +2679,7 @@ void RewriteGlobalVariables::storeInitialValue(AST::Expression& target, AST::Sta
 
         auto& forStatement = m_shaderModule.astBuilder().construct<AST::ForStatement>(
             SourceSpan::empty(),
+            AST::Attribute::List { },
             &forInitializer,
             &forTest,
             &forUpdate,

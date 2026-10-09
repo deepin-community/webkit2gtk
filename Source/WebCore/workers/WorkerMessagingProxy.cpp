@@ -40,7 +40,9 @@
 #include "ErrorEvent.h"
 #include "EventNames.h"
 #include "FetchRequestCredentials.h"
+#include "FileSystemStorageConnection.h"
 #include "IDBConnectionProxy.h"
+#include "JSDOMGlobalObject.h"
 #include "LoaderStrategy.h"
 #include "LocalDOMWindow.h"
 #include "MessageEvent.h"
@@ -49,6 +51,7 @@
 #include "ScriptExecutionContext.h"
 #include "Settings.h"
 #include "SocketProvider.h"
+#include "StorageConnection.h"
 #include "UserGestureIndicator.h"
 #include "WebRTCProvider.h"
 #include "Worker.h"
@@ -56,6 +59,7 @@
 #include "WorkerInspectorProxy.h"
 #include <JavaScriptCore/ConsoleTypes.h>
 #include <JavaScriptCore/ScriptCallStack.h>
+#include <JavaScriptCore/TopExceptionScope.h>
 #include <wtf/MainThread.h>
 #include <wtf/RunLoop.h>
 #include <wtf/TZoneMallocInlines.h>
@@ -73,7 +77,7 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(WorkerMessagingProxy);
 // vice versa.
 class WorkerUserGestureForwarder : public ThreadSafeRefCounted<WorkerUserGestureForwarder, WTF::DestructionThread::Main> {
 public:
-    static Ref<WorkerUserGestureForwarder> create(RefPtr<UserGestureToken>&& token) { return *new WorkerUserGestureForwarder(WTF::move(token)); }
+    static Ref<WorkerUserGestureForwarder> NODELETE create(RefPtr<UserGestureToken>&& token) { return *new WorkerUserGestureForwarder(WTF::move(token)); }
 
     ~WorkerUserGestureForwarder()
     {
@@ -115,7 +119,7 @@ static ScriptExecutionContextIdentifier loaderContextIdentifierFromContext(const
 WorkerMessagingProxy::WorkerMessagingProxy(Worker& workerObject)
     : m_scriptExecutionContext(workerObject.scriptExecutionContext())
     , m_scriptExecutionContextIdentifier(m_scriptExecutionContext ? std::optional { m_scriptExecutionContext->identifier() } : std::nullopt)
-    , m_loaderContextIdentifier(loaderContextIdentifierFromContext(*workerObject.protectedScriptExecutionContext()))
+    , m_loaderContextIdentifier(loaderContextIdentifierFromContext(*protect(workerObject.scriptExecutionContext())))
     , m_inspectorProxy(WorkerInspectorProxy::create(workerObject.identifier()))
     , m_workerObject(&workerObject)
 {
@@ -157,15 +161,18 @@ void WorkerMessagingProxy::startWorkerGlobalScope(const URL& scriptURL, PAL::Ses
 
     bool isOnline = parentWorkerGlobalScope ? parentWorkerGlobalScope->isOnline() : platformStrategies()->loaderStrategy()->isOnLine();
 
+    auto agentClusterID = scriptExecutionContext->agentClusterID();
+
     m_scriptURL = scriptURL;
 
     WorkerParameters params { scriptURL, scriptExecutionContext->url(), name, identifier, WTF::move(initializationData.userAgent), isOnline, contentSecurityPolicyResponseHeaders, shouldBypassMainWorldContentSecurityPolicy, crossOriginEmbedderPolicy, timeOrigin, referrerPolicy, workerType, credentials, scriptExecutionContext->settingsValues(), WorkerThreadMode::CreateNewThread, sessionID,
         WTF::move(initializationData.serviceWorkerData),
         initializationData.clientIdentifier,
         scriptExecutionContext->advancedPrivacyProtections(),
-        scriptExecutionContext->noiseInjectionHashSalt()
+        scriptExecutionContext->noiseInjectionHashSalt(),
+        WTF::move(agentClusterID)
     };
-    auto thread = DedicatedWorkerThread::create(params, sourceCode, *this, *this, *this, *this, startMode, scriptExecutionContext->protectedTopOrigin(), proxy.get(), socketProvider.get(), runtimeFlags);
+    auto thread = DedicatedWorkerThread::create(params, sourceCode, *this, *this, *this, *this, startMode, protect(scriptExecutionContext->topOrigin()), proxy.get(), socketProvider.get(), runtimeFlags);
 
     if (parentWorkerGlobalScope) {
         parentWorkerGlobalScope->thread()->addChildThread(thread);
@@ -207,7 +214,7 @@ void WorkerMessagingProxy::postMessageToWorkerObject(MessageWithMessagePorts&& m
                 return;
 
             auto& vm = globalObject->vm();
-            auto scope = DECLARE_CATCH_SCOPE(vm);
+            auto scope = DECLARE_TOP_EXCEPTION_SCOPE(vm);
             UserGestureIndicator userGestureIndicator(userGestureForwarder ? userGestureForwarder->userGestureToForward() : nullptr);
             auto event = MessageEvent::create(*globalObject, message.message.releaseNonNull(), { }, { }, { }, WTF::move(ports));
             if (scope.exception()) [[unlikely]] {
@@ -246,7 +253,7 @@ void WorkerMessagingProxy::postMessageToWorkerGlobalScope(MessageWithMessagePort
             return;
 
         auto& vm = globalObject->vm();
-        auto scope = DECLARE_CATCH_SCOPE(vm);
+        auto scope = DECLARE_TOP_EXCEPTION_SCOPE(vm);
 
         // Setting m_userGestureForwarder here, before dispatching the MessageEvent, will allow all calls to
         // worker.postMessage() made during the handling of that MessageEvent to inherit the UserGestureToken
@@ -335,6 +342,23 @@ RefPtr<RTCDataChannelRemoteHandlerConnection> WorkerMessagingProxy::createRTCDat
     return document->page()->webRTCProvider().createRTCDataChannelRemoteHandlerConnection();
 }
 
+RefPtr<IDBClient::IDBConnectionProxy> WorkerMessagingProxy::createIDBConnectionProxy()
+{
+    ASSERT(isMainThread());
+    RefPtr document = dynamicDowncast<Document>(*m_scriptExecutionContext);
+    if (!document)
+        document = Document::allDocumentsMap().get(m_loaderContextIdentifier);
+
+    if (!document)
+        return nullptr;
+
+    RefPtr page = document->page();
+    if (!page)
+        return nullptr;
+
+    return &page->idbConnection().proxy();
+}
+
 void WorkerMessagingProxy::postExceptionToWorkerObject(const String& errorMessage, int lineNumber, int columnNumber, const String& sourceURL)
 {
     if (!m_scriptExecutionContextIdentifier)
@@ -347,7 +371,7 @@ void WorkerMessagingProxy::postExceptionToWorkerObject(const String& errorMessag
 
         // We don't bother checking the askedToTerminate() flag here, because exceptions should *always* be reported even if the thread is terminated.
         // This is intentionally different than the behavior in MessageWorkerTask, because terminated workers no longer deliver messages (section 4.6 of the WebWorker spec), but they do report exceptions.
-        ActiveDOMObject::queueTaskToDispatchEvent(*workerObject, TaskSource::DOMManipulation, ErrorEvent::create(errorMessage, sourceURL, lineNumber, columnNumber, { }));
+        ActiveDOMObject::queueTaskToDispatchEvent(*workerObject, TaskSource::DOMManipulation, ErrorEvent::create(errorMessage, sourceURL, lineNumber, columnNumber));
     });
 }
 
@@ -512,6 +536,23 @@ void WorkerMessagingProxy::setAppBadge(std::optional<uint64_t> badge)
 
         document->page()->badgeClient().setAppBadge(nullptr, SecurityOriginData::fromURL(m_scriptURL), badge);
     });
+}
+
+RefPtr<FileSystemStorageConnection> WorkerMessagingProxy::createFileSystemStorageConnection()
+{
+    ASSERT(isMainThread());
+    if (!m_scriptExecutionContext)
+        return nullptr;
+
+    RefPtr document = dynamicDowncast<Document>(*m_scriptExecutionContext);
+    if (!document)
+        document = Document::allDocumentsMap().get(m_loaderContextIdentifier);
+
+    if (!document)
+        return nullptr;
+    if (RefPtr storageConnection = document->storageConnection())
+        return storageConnection->fileSystemStorageConnection();
+    return nullptr;
 }
 
 } // namespace WebCore

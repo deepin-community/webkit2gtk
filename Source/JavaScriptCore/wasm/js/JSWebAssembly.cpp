@@ -29,12 +29,10 @@
 #if ENABLE(WEBASSEMBLY)
 
 #include "AuxiliaryBarrierInlines.h"
-#include "CatchScope.h"
 #include "DeferredWorkTimer.h"
 #include "Exception.h"
 #include "GlobalObjectMethodTable.h"
 #include "JSArrayBufferViewInlines.h"
-#include "JSCBuiltins.h"
 #include "JSGlobalObjectInlines.h"
 #include "JSModuleNamespaceObject.h"
 #include "JSObjectInlines.h"
@@ -43,14 +41,17 @@
 #include "JSWebAssemblyHelpers.h"
 #include "JSWebAssemblyInstance.h"
 #include "JSWebAssemblyModule.h"
+#include "JSWebAssemblyStreamingContextInlines.h"
 #include "JSWebAssemblyTag.h"
 #include "ObjectConstructor.h"
 #include "Options.h"
 #include "StrongInlines.h"
-#include "StructureInlines.h"
+#include "StructureCreateInlines.h"
 #include "ThrowScope.h"
+#include "TopExceptionScope.h"
 #include "WebAssemblyCompileOptions.h"
 #include "WebAssemblyModuleRecord.h"
+#include "WebAssemblyPromising.h"
 
 namespace JSC {
 
@@ -60,8 +61,8 @@ STATIC_ASSERT_IS_TRIVIALLY_DESTRUCTIBLE(JSWebAssembly);
 #define DEFINE_CALLBACK_FOR_CONSTRUCTOR(capitalName, lowerName, properName, instanceType, jsName, prototypeBase, featureFlag) \
 static UNUSED_FUNCTION JSValue create##capitalName(VM&, JSObject* object) \
 { \
-    JSWebAssembly* webAssembly = jsCast<JSWebAssembly*>(object); \
-    JSGlobalObject* globalObject = webAssembly->globalObject(); \
+    JSWebAssembly* webAssembly = uncheckedDowncast<JSWebAssembly>(object); \
+    JSGlobalObject* globalObject = webAssembly->realm(); \
     return globalObject->properName##Constructor(); \
 }
 
@@ -70,7 +71,10 @@ FOR_EACH_WEBASSEMBLY_CONSTRUCTOR_TYPE(DEFINE_CALLBACK_FOR_CONSTRUCTOR)
 #undef DEFINE_CALLBACK_FOR_CONSTRUCTOR
 
 static JSC_DECLARE_HOST_FUNCTION(webAssemblyCompileFunc);
+static JSC_DECLARE_HOST_FUNCTION(webAssemblyCompileStreamingFunc);
 static JSC_DECLARE_HOST_FUNCTION(webAssemblyInstantiateFunc);
+static JSC_DECLARE_HOST_FUNCTION(webAssemblyInstantiateStreamingFunc);
+static JSC_DECLARE_HOST_FUNCTION(webAssemblyPromisingFunc);
 static JSC_DECLARE_HOST_FUNCTION(webAssemblyValidateFunc);
 static JSC_DECLARE_HOST_FUNCTION(webAssemblyGetterJSTag);
 
@@ -118,10 +122,12 @@ void JSWebAssembly::finishCreation(VM& vm, JSGlobalObject* globalObject)
     ASSERT(inherits(info()));
     JSC_TO_STRING_TAG_WITHOUT_TRANSITION();
     if (globalObject->globalObjectMethodTable()->compileStreaming)
-        JSC_BUILTIN_FUNCTION_WITHOUT_TRANSITION("compileStreaming"_s, webAssemblyCompileStreamingCodeGenerator, static_cast<unsigned>(0));
+        JSC_NATIVE_FUNCTION_WITHOUT_TRANSITION("compileStreaming"_s, webAssemblyCompileStreamingFunc, static_cast<unsigned>(PropertyAttribute::None), 1, ImplementationVisibility::Public);
     if (globalObject->globalObjectMethodTable()->instantiateStreaming)
-        JSC_BUILTIN_FUNCTION_WITHOUT_TRANSITION("instantiateStreaming"_s, webAssemblyInstantiateStreamingCodeGenerator, static_cast<unsigned>(0));
+        JSC_NATIVE_FUNCTION_WITHOUT_TRANSITION("instantiateStreaming"_s, webAssemblyInstantiateStreamingFunc, static_cast<unsigned>(PropertyAttribute::None), 1, ImplementationVisibility::Public);
     JSC_NATIVE_GETTER_WITHOUT_TRANSITION("JSTag"_s, webAssemblyGetterJSTag, PropertyAttribute::ReadOnly);
+    if (Options::useJSPI())
+        JSC_NATIVE_FUNCTION_WITHOUT_TRANSITION("promising"_s, webAssemblyPromisingFunc, static_cast<unsigned>(PropertyAttribute::None), 0, ImplementationVisibility::Public);
 }
 
 JSWebAssembly::JSWebAssembly(VM& vm, Structure* structure)
@@ -129,23 +135,21 @@ JSWebAssembly::JSWebAssembly(VM& vm, Structure* structure)
 {
 }
 
-/**
- * namespace WebAssembly {
- *     Promise<Module> compile(BufferSource bytes, optional WebAssemblyCompileOptions options);
- * }
- *
- * See https://webassembly.github.io/js-string-builtins/js-api/#dom-webassembly-compile
- */
 JSC_DEFINE_HOST_FUNCTION(webAssemblyCompileFunc, (JSGlobalObject* globalObject, CallFrame* callFrame))
 {
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
 
+    if (!globalObject->webAssemblyEnabled()) [[unlikely]] {
+        auto error = createJSWebAssemblyCompileError(globalObject, vm, globalObject->webAssemblyDisabledErrorMessage());
+        RELEASE_AND_RETURN(scope, JSValue::encode(JSPromise::rejectedPromise(globalObject, error)));
+    }
+
     auto* promise = JSPromise::create(vm, globalObject->promiseStructure());
     RETURN_IF_EXCEPTION(scope, { });
 
     Vector<uint8_t> source = createSourceBufferFromValue(vm, globalObject, callFrame->argument(0));
-    RETURN_IF_EXCEPTION(scope, JSValue::encode(promise->rejectWithCaughtException(globalObject, scope)));
+    RETURN_IF_EXCEPTION(scope, JSValue::encode(promise->rejectWithCaughtException(vm, scope)));
 
     JSObject* compileOptionsObject = nullptr;
     if (Options::useWasmJSStringBuiltins()) {
@@ -174,20 +178,20 @@ void JSWebAssembly::webAssemblyModuleValidateAsync(JSGlobalObject* globalObject,
     auto weakTicket = vm.deferredWorkTimer->addPendingWork(DeferredWorkTimer::WorkType::ImminentlyScheduled, vm, promise, WTF::move(dependencies));
     Wasm::Module::validateAsync(vm, WTF::move(source), createSharedTask<Wasm::Module::CallbackType>([weakTicket = WTF::move(weakTicket), compileOptions = WTF::move(compileOptions), &vm] (Wasm::Module::ValidationResult&& result) mutable {
         vm.deferredWorkTimer->scheduleWorkSoonIfActive(weakTicket, [result = WTF::move(result), compileOptions = WTF::move(compileOptions), &vm](DeferredWorkTimer::Ticket& ticket) mutable {
-            auto* promise = jsCast<JSPromise*>(ticket.target());
-            auto* globalObject = jsCast<JSGlobalObject*>(ticket.dependencies()[0]);
+            auto* promise = uncheckedDowncast<JSPromise>(ticket.target());
+            auto* globalObject = uncheckedDowncast<JSGlobalObject>(ticket.dependencies()[0]);
             auto scope = DECLARE_THROW_SCOPE(vm);
 
             if (!result.has_value()) [[unlikely]] {
                 throwException(globalObject, scope, createJSWebAssemblyCompileError(globalObject, vm, result.error()));
-                promise->rejectWithCaughtException(globalObject, scope);
+                promise->rejectWithCaughtException(vm, scope);
                 return;
             }
             if (compileOptions) {
                 auto errorMessage = compileOptions->validateBuiltinsAndImportedStrings(result.value());
                 if (errorMessage.has_value()) {
                     throwException(globalObject, scope, createJSWebAssemblyCompileError(globalObject, vm, errorMessage.value()));
-                    promise->rejectWithCaughtException(globalObject, scope);
+                    promise->rejectWithCaughtException(vm, scope);
                     return;
                 }
                 result.value()->applyCompileOptions(compileOptions.value());
@@ -196,7 +200,7 @@ void JSWebAssembly::webAssemblyModuleValidateAsync(JSGlobalObject* globalObject,
             JSValue module = JSWebAssemblyModule::create(vm, globalObject->webAssemblyModuleStructure(), WTF::move(result.value()));
 
             scope.release();
-            promise->resolve(globalObject, module);
+            promise->resolve(globalObject, vm, module);
         });
     }));
 }
@@ -209,13 +213,13 @@ static void instantiate(VM& vm, JSGlobalObject* globalObject, JSPromise* promise
     // When called via the module loader, the memory is not available yet at this step, so we skip initializing the memory here.
     JSWebAssemblyInstance* instance = JSWebAssemblyInstance::tryCreate(vm, globalObject->webAssemblyInstanceStructure(), globalObject, moduleKey, module, importObject, creationMode, WTF::move(provider));
     if (scope.exception()) [[unlikely]] {
-        promise->rejectWithCaughtException(globalObject, scope);
+        promise->rejectWithCaughtException(vm, scope);
         return;
     }
 
     instance->initializeImports(globalObject, importObject, creationMode);
     if (scope.exception()) [[unlikely]] {
-        promise->rejectWithCaughtException(globalObject, scope);
+        promise->rejectWithCaughtException(vm, scope);
         return;
     }
 
@@ -226,36 +230,36 @@ static void instantiate(VM& vm, JSGlobalObject* globalObject, JSPromise* promise
     scope.release();
     auto weakTicket = vm.deferredWorkTimer->addPendingWork(DeferredWorkTimer::WorkType::ImminentlyScheduled, vm, instance, WTF::move(dependencies));
     // Note: This completion task may or may not get called immediately.
-    module->module().compileAsync(vm, instance->memoryMode(), createSharedTask<Wasm::CalleeGroup::CallbackType>([weakTicket = WTF::move(weakTicket), module, resolveKind, creationMode, &vm, alwaysAsync] (Ref<Wasm::CalleeGroup>&& calleeGroup, bool isAsync) mutable {
+    module->module().compileAsync(vm, instance->memory0Mode(), createSharedTask<Wasm::CalleeGroup::CallbackType>([weakTicket = WTF::move(weakTicket), module, resolveKind, creationMode, &vm, alwaysAsync] (Ref<Wasm::CalleeGroup>&& calleeGroup, bool isAsync) mutable {
         auto callback = [module, resolveKind, creationMode, &vm, calleeGroup = WTF::move(calleeGroup)](DeferredWorkTimer::Ticket& ticket) mutable {
-            auto* instance = jsCast<JSWebAssemblyInstance*>(ticket.target());
-            auto* promise = jsCast<JSPromise*>(ticket.dependencies()[0]);
+            auto* instance = uncheckedDowncast<JSWebAssemblyInstance>(ticket.target());
+            auto* promise = uncheckedDowncast<JSPromise>(ticket.dependencies()[0]);
             auto scope = DECLARE_THROW_SCOPE(vm);
-            JSGlobalObject* globalObject = instance->globalObject();
+            JSGlobalObject* globalObject = instance->realm();
             instance->finalizeCreation(vm, globalObject, WTF::move(calleeGroup), creationMode);
             if (scope.exception()) [[unlikely]] {
-                promise->rejectWithCaughtException(globalObject, scope);
+                promise->rejectWithCaughtException(vm, scope);
                 return;
             }
 
             scope.release();
             switch (resolveKind) {
             case Resolve::WithInstance: {
-                promise->resolve(globalObject, instance);
+                promise->resolve(globalObject, vm, instance);
                 break;
             }
             case Resolve::WithModuleRecord: {
                 auto* moduleRecord = instance->moduleRecord();
                 if (Options::dumpModuleRecord()) [[unlikely]]
                     moduleRecord->dump();
-                promise->resolve(globalObject, moduleRecord);
+                promise->resolve(globalObject, vm, moduleRecord);
                 break;
             }
             case Resolve::WithModuleAndInstance: {
                 JSObject* result = constructEmptyObject(globalObject);
                 result->putDirect(vm, Identifier::fromString(vm, "module"_s), module);
                 result->putDirect(vm, Identifier::fromString(vm, "instance"_s), instance);
-                promise->resolve(globalObject, result);
+                promise->resolve(globalObject, vm, result);
                 break;
             }
             }
@@ -281,7 +285,7 @@ static void compileAndInstantiate(VM& vm, JSGlobalObject* globalObject, JSPromis
 
     Vector<uint8_t> source = createSourceBufferFromValue(vm, globalObject, buffer);
     if (scope.exception()) [[unlikely]] {
-        promise->rejectWithCaughtException(globalObject, scope);
+        promise->rejectWithCaughtException(vm, scope);
         return;
     }
 
@@ -293,22 +297,22 @@ static void compileAndInstantiate(VM& vm, JSGlobalObject* globalObject, JSPromis
     auto weakTicket = vm.deferredWorkTimer->addPendingWork(DeferredWorkTimer::WorkType::ImminentlyScheduled, vm, promise, WTF::move(dependencies));
     Wasm::Module::validateAsync(vm, WTF::move(source), createSharedTask<Wasm::Module::CallbackType>([weakTicket = WTF::move(weakTicket), importObject, sourceProvider = WTF::move(sourceProvider), compileOptions = WTF::move(compileOptions), resolveKind, creationMode, &vm] (Wasm::Module::ValidationResult&& result) mutable {
         vm.deferredWorkTimer->scheduleWorkSoonIfActive(weakTicket, [importObject, sourceProvider = WTF::move(sourceProvider), compileOptions = WTF::move(compileOptions), result = WTF::move(result), resolveKind, creationMode, &vm](DeferredWorkTimer::Ticket& ticket) mutable {
-            auto* promise = jsCast<JSPromise*>(ticket.target());
+            auto* promise = uncheckedDowncast<JSPromise>(ticket.target());
             auto& deps = ticket.dependencies();
             JSCell* moduleKeyCell = deps[deps.size() - 2];
-            auto* globalObject = promise->globalObject();
+            auto* globalObject = promise->realm();
             auto scope = DECLARE_THROW_SCOPE(vm);
 
             if (!result.has_value()) [[unlikely]] {
                 throwException(globalObject, scope, createJSWebAssemblyCompileError(globalObject, vm, result.error()));
-                promise->rejectWithCaughtException(globalObject, scope);
+                promise->rejectWithCaughtException(vm, scope);
                 return;
             }
             if (compileOptions) {
                 auto errorMessage = compileOptions->validateBuiltinsAndImportedStrings(result.value());
                 if (errorMessage.has_value()) {
                     throwException(globalObject, scope, createJSWebAssemblyCompileError(globalObject, vm, errorMessage.value()));
-                    promise->rejectWithCaughtException(globalObject, scope);
+                    promise->rejectWithCaughtException(vm, scope);
                     return;
                 }
                 result.value()->applyCompileOptions(compileOptions.value());
@@ -318,13 +322,13 @@ static void compileAndInstantiate(VM& vm, JSGlobalObject* globalObject, JSPromis
 
             const Identifier moduleKey = JSValue(moduleKeyCell).toPropertyKey(globalObject);
             if (scope.exception()) [[unlikely]] {
-                promise->rejectWithCaughtException(globalObject, scope);
+                promise->rejectWithCaughtException(vm, scope);
                 return;
             }
 
             instantiate(vm, globalObject, promise, module, importObject, WTF::move(sourceProvider), moduleKey, resolveKind, creationMode, /* alwaysAsync */ false);
             if (scope.exception()) [[unlikely]] {
-                promise->rejectWithCaughtException(globalObject, scope);
+                promise->rejectWithCaughtException(vm, scope);
                 return;
             }
         });
@@ -343,22 +347,15 @@ void JSWebAssembly::instantiateForStreaming(VM& vm, JSGlobalObject* globalObject
     JSC::instantiate(vm, globalObject, promise, module, importObject, WTF::move(sourceProvider), JSWebAssemblyInstance::createPrivateModuleKey(), Resolve::WithModuleAndInstance, Wasm::CreationMode::FromJS, /* alwaysAsync */ true);
 }
 
-/**
- * This implements two standard APIs:
- *
- * namespace WebAssembly {
- *     Promise<WebAssemblyInstantiatedSource> instantiate(BufferSource bytes, optional object importObject, optional WebAssemblyCompileOptions options);
- *     Promise<Instance> instantiate(Module moduleObject, optional object importObject);
- * }
- *
- * See:
- *   - https://webassembly.github.io/js-string-builtins/js-api/#dom-webassembly-instantiate
- *   - https://webassembly.github.io/js-string-builtins/js-api/#dom-webassembly-instantiate-moduleobject-importobject
- */
 JSC_DEFINE_HOST_FUNCTION(webAssemblyInstantiateFunc, (JSGlobalObject* globalObject, CallFrame* callFrame))
 {
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
+
+    if (!globalObject->webAssemblyEnabled()) [[unlikely]] {
+        auto error = createJSWebAssemblyCompileError(globalObject, vm, globalObject->webAssemblyDisabledErrorMessage());
+        RELEASE_AND_RETURN(scope, JSValue::encode(JSPromise::rejectedPromise(globalObject, error)));
+    }
 
     auto [taintedness, url] = sourceTaintedOriginFromStack(vm, callFrame);
     RefPtr<SourceProvider> provider = StringSourceProvider::create("[wasm code]"_s, SourceOrigin(url), String(), taintedness, TextPosition(), SourceProviderSourceType::Program);
@@ -381,13 +378,28 @@ JSC_DEFINE_HOST_FUNCTION(webAssemblyInstantiateFunc, (JSGlobalObject* globalObje
 
     JSValue firstArgument = callFrame->argument(0);
     if (firstArgument.inherits<JSWebAssemblyModule>())
-        instantiate(vm, globalObject, promise, jsCast<JSWebAssemblyModule*>(firstArgument), importObject, WTF::move(provider), JSWebAssemblyInstance::createPrivateModuleKey(), Resolve::WithInstance, Wasm::CreationMode::FromJS, /* alwaysAsync */ true);
+        instantiate(vm, globalObject, promise, uncheckedDowncast<JSWebAssemblyModule>(firstArgument), importObject, WTF::move(provider), JSWebAssemblyInstance::createPrivateModuleKey(), Resolve::WithInstance, Wasm::CreationMode::FromJS, /* alwaysAsync */ true);
     else {
         auto compileOptions = WebAssemblyCompileOptions::tryCreate(globalObject, compileOptionsObject);
         RETURN_IF_EXCEPTION(scope, { });
         compileAndInstantiate(vm, globalObject, promise, JSWebAssemblyInstance::createPrivateModuleKey(), firstArgument, importObject, WTF::move(provider), WTF::move(compileOptions), Resolve::WithModuleAndInstance, Wasm::CreationMode::FromJS);
     }
     RELEASE_AND_RETURN(scope, JSValue::encode(promise));
+}
+
+JSC_DEFINE_HOST_FUNCTION(webAssemblyPromisingFunc, (JSGlobalObject* globalObject, CallFrame* callFrame))
+{
+    VM& vm = globalObject->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
+    JSValue arg = callFrame->argument(0);
+
+    auto* wrapped = dynamicDowncast<WebAssemblyFunctionBase>(arg);
+    if (!wrapped) [[unlikely]]
+        return JSValue::encode(throwTypeError(globalObject, scope, "Argument 0 must be a WebAssembly exported function"_s));
+
+    auto* wrapper = createWebAssemblyPromisingFunction(vm, globalObject, wrapped);
+    RELEASE_AND_RETURN(scope, JSValue::encode(wrapper));
 }
 
 /**
@@ -431,22 +443,95 @@ JSC_DEFINE_HOST_FUNCTION(webAssemblyValidateFunc, (JSGlobalObject* globalObject,
     return JSValue::encode(jsBoolean(success));
 }
 
-JSC_DEFINE_HOST_FUNCTION(webAssemblyCompileStreamingInternal, (JSGlobalObject* globalObject, CallFrame* callFrame))
+/**
+ * namespace WebAssembly {
+ *     Promise<Module> compileStreaming(Response source, optional WebAssemblyCompileOptions options);
+ *     Promise<Module> compileStreaming(Promise<Response> source, optional WebAssemblyCompileOptions options);
+ * }
+ *
+ * See https://webassembly.github.io/spec/web-api/index.html#dom-webassembly-compilestreaming
+ */
+JSC_DEFINE_HOST_FUNCTION(webAssemblyCompileStreamingFunc, (JSGlobalObject* globalObject, CallFrame* callFrame))
 {
-    ASSERT(globalObject->globalObjectMethodTable()->compileStreaming);
-    return JSValue::encode(globalObject->globalObjectMethodTable()->compileStreaming(globalObject, callFrame->argument(0)));
+    VM& vm = globalObject->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
+    if (!globalObject->webAssemblyEnabled()) [[unlikely]] {
+        auto error = createJSWebAssemblyCompileError(globalObject, vm, globalObject->webAssemblyDisabledErrorMessage());
+        RELEASE_AND_RETURN(scope, JSValue::encode(JSPromise::rejectedPromise(globalObject, error)));
+    }
+
+    auto* promise = JSPromise::create(vm, globalObject->promiseStructure());
+
+    std::optional<WebAssemblyCompileOptions> compileOptions;
+    if (Options::useWasmJSStringBuiltins()) {
+        JSValue compileOptionsArgument = callFrame->argument(1);
+        JSObject* compileOptionsObject = compileOptionsArgument.getObject();
+        if (!compileOptionsArgument.isUndefined() && !compileOptionsObject) [[unlikely]] {
+            promise->reject(vm, createTypeError(globalObject, "second argument to WebAssembly.compileStreaming must be undefined or an Object"_s, defaultSourceAppender, runtimeTypeForValue(compileOptionsArgument)));
+            RELEASE_AND_RETURN(scope, JSValue::encode(promise));
+        }
+        compileOptions = WebAssemblyCompileOptions::tryCreate(globalObject, compileOptionsObject);
+        if (scope.exception()) [[unlikely]]
+            RELEASE_AND_RETURN(scope, JSValue::encode(promise->rejectWithCaughtException(vm, scope)));
+    }
+
+    auto* context = JSWebAssemblyStreamingContext::create(vm, promise, nullptr, WTF::move(compileOptions));
+
+    JSPromise* sourcePromise = JSPromise::resolvedPromise(globalObject, callFrame->argument(0));
+    RETURN_IF_EXCEPTION(scope, JSValue::encode(promise->rejectWithCaughtException(vm, scope)));
+
+    sourcePromise->performPromiseThenWithInternalMicrotask(vm, InternalMicrotask::WebAssemblyCompileStreaming, nullptr, context);
+    return JSValue::encode(promise);
 }
 
-JSC_DEFINE_HOST_FUNCTION(webAssemblyInstantiateStreamingInternal, (JSGlobalObject* globalObject, CallFrame* callFrame))
+/**
+ * namespace WebAssembly {
+ *     Promise<WebAssemblyInstantiatedSource> instantiateStreaming(Response source, optional object importObject, optional WebAssemblyCompileOptions options);
+ *     Promise<WebAssemblyInstantiatedSource> instantiateStreaming(Promise<Response> source, optional object importObject, optional WebAssemblyCompileOptions options);
+ * }
+ *
+ * See https://webassembly.github.io/spec/web-api/index.html#dom-webassembly-instantiatestreaming
+ */
+JSC_DEFINE_HOST_FUNCTION(webAssemblyInstantiateStreamingFunc, (JSGlobalObject* globalObject, CallFrame* callFrame))
 {
+    VM& vm = globalObject->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
+    if (!globalObject->webAssemblyEnabled()) [[unlikely]] {
+        auto error = createJSWebAssemblyCompileError(globalObject, vm, globalObject->webAssemblyDisabledErrorMessage());
+        RELEASE_AND_RETURN(scope, JSValue::encode(JSPromise::rejectedPromise(globalObject, error)));
+    }
+
+    auto* promise = JSPromise::create(vm, globalObject->promiseStructure());
+
     JSValue importArgument = callFrame->argument(1);
     JSObject* importObject = importArgument.getObject();
-    if (!importArgument.isUndefined() && !importObject) [[unlikely]]
-        return JSValue::encode(JSPromise::rejectedPromise(globalObject, createTypeError(globalObject, "second argument to WebAssembly.instantiateStreaming must be undefined or an Object"_s, defaultSourceAppender, runtimeTypeForValue(importArgument))));
+    if (!importArgument.isUndefined() && !importObject) [[unlikely]] {
+        promise->reject(vm, createTypeError(globalObject, "second argument to WebAssembly.instantiateStreaming must be undefined or an Object"_s, defaultSourceAppender, runtimeTypeForValue(importArgument)));
+        RELEASE_AND_RETURN(scope, JSValue::encode(promise));
+    }
 
-    ASSERT(globalObject->globalObjectMethodTable()->instantiateStreaming);
-    // FIXME: <http://webkit.org/b/184888> if there's an importObject and it contains a Memory, then we can compile the module with the right memory type (fast or not) by looking at the memory's type.
-    return JSValue::encode(globalObject->globalObjectMethodTable()->instantiateStreaming(globalObject, callFrame->argument(0), importObject));
+    std::optional<WebAssemblyCompileOptions> compileOptions;
+    if (Options::useWasmJSStringBuiltins()) {
+        JSValue compileOptionsArgument = callFrame->argument(2);
+        JSObject* compileOptionsObject = compileOptionsArgument.getObject();
+        if (!compileOptionsArgument.isUndefined() && !compileOptionsObject) [[unlikely]] {
+            promise->reject(vm, createTypeError(globalObject, "third argument to WebAssembly.instantiateStreaming must be undefined or an Object"_s, defaultSourceAppender, runtimeTypeForValue(compileOptionsArgument)));
+            RELEASE_AND_RETURN(scope, JSValue::encode(promise));
+        }
+        compileOptions = WebAssemblyCompileOptions::tryCreate(globalObject, compileOptionsObject);
+        if (scope.exception()) [[unlikely]]
+            RELEASE_AND_RETURN(scope, JSValue::encode(promise->rejectWithCaughtException(vm, scope)));
+    }
+
+    auto* context = JSWebAssemblyStreamingContext::create(vm, promise, importObject, WTF::move(compileOptions));
+
+    JSPromise* sourcePromise = JSPromise::resolvedPromise(globalObject, callFrame->argument(0));
+    RETURN_IF_EXCEPTION(scope, JSValue::encode(promise->rejectWithCaughtException(vm, scope)));
+
+    sourcePromise->performPromiseThenWithInternalMicrotask(vm, InternalMicrotask::WebAssemblyInstantiateStreaming, nullptr, context);
+    return JSValue::encode(promise);
 }
 
 JSC_DEFINE_HOST_FUNCTION(webAssemblyGetterJSTag, (JSGlobalObject* globalObject, CallFrame*))

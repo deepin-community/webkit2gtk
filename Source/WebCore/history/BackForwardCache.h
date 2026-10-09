@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include <WebCore/BackForwardFrameItemIdentifier.h>
 #include <WebCore/BackForwardItemIdentifier.h>
 #include <WebCore/HistoryItem.h>
 #include <wtf/Forward.h>
@@ -56,14 +57,18 @@ public:
 
     WEBCORE_EXPORT std::unique_ptr<CachedPage> suspendPage(Page&);
     WEBCORE_EXPORT bool addIfCacheable(HistoryItem&, Page*); // Prunes if maxSize() is exceeded.
-    WEBCORE_EXPORT void remove(BackForwardItemIdentifier);
+    WEBCORE_EXPORT bool addIfCacheable(BackForwardFrameItemIdentifier, Page&, std::optional<BackForwardItemIdentifier> = std::nullopt);
+    enum class ShouldNotifyClient : bool { No, Yes };
+    WEBCORE_EXPORT void remove(BackForwardFrameItemIdentifier, ShouldNotifyClient = ShouldNotifyClient::Yes);
     WEBCORE_EXPORT void remove(HistoryItem&);
     CachedPage* get(HistoryItem&, Page*);
+    WEBCORE_EXPORT CachedPage* get(BackForwardFrameItemIdentifier);
     std::unique_ptr<CachedPage> take(HistoryItem&, Page*);
+    WEBCORE_EXPORT std::unique_ptr<CachedPage> take(BackForwardFrameItemIdentifier, Page*);
 
-    void removeAllItemsForPage(Page&);
+    WEBCORE_EXPORT void removeAllItemsForPage(Page&);
 
-    WEBCORE_EXPORT void clearEntriesForOrigins(const HashSet<RefPtr<SecurityOrigin>>&);
+    WEBCORE_EXPORT void clearEntriesForOrigins(const HashSet<Ref<SecurityOrigin>>&);
 
     unsigned pageCount() const { return m_items.size(); }
     WEBCORE_EXPORT unsigned frameCount() const;
@@ -74,22 +79,20 @@ public:
     void markPagesForCaptionPreferencesChanged();
 #endif
 
-    bool isInBackForwardCache(BackForwardItemIdentifier) const;
-    bool hasCachedPageExpired(BackForwardItemIdentifier) const;
+    WEBCORE_EXPORT bool NODELETE isInBackForwardCache(BackForwardFrameItemIdentifier) const;
+    bool hasCachedPageExpired(BackForwardFrameItemIdentifier) const;
 
 private:
     BackForwardCache();
     ~BackForwardCache() = delete; // Make sure nobody accidentally calls delete -- WebCore does not delete singletons.
-
-    static bool canCachePageContainingThisFrame(LocalFrame&);
 
     enum class ForceSuspension : bool { No, Yes };
     std::unique_ptr<CachedPage> trySuspendPage(Page&, ForceSuspension);
     void prune(PruningReason);
     void dump() const;
 
-    HashMap<BackForwardItemIdentifier, Variant<PruningReason, UniqueRef<CachedPage>>> m_cachedPageMap;
-    ListHashSet<BackForwardItemIdentifier> m_items;
+    HashMap<BackForwardFrameItemIdentifier, Variant<PruningReason, UniqueRef<CachedPage>>> m_cachedPageMap;
+    ListHashSet<BackForwardFrameItemIdentifier> m_items;
     unsigned m_maxSize {0};
 
 #if ASSERT_ENABLED

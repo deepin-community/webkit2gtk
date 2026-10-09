@@ -39,7 +39,7 @@ using namespace SVGNames;
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(RenderSVGGradientStop);
 
-RenderSVGGradientStop::RenderSVGGradientStop(SVGStopElement& element, RenderStyle&& style)
+RenderSVGGradientStop::RenderSVGGradientStop(SVGStopElement& element, Style::ComputedStyle&& style)
     : RenderElement(Type::SVGGradientStop, element, WTF::move(style), { }, { })
 {
     ASSERT(isRenderSVGGradientStop());
@@ -47,7 +47,7 @@ RenderSVGGradientStop::RenderSVGGradientStop(SVGStopElement& element, RenderStyl
 
 RenderSVGGradientStop::~RenderSVGGradientStop() = default;
 
-void RenderSVGGradientStop::styleDidChange(Style::Difference diff, const RenderStyle* oldStyle)
+void RenderSVGGradientStop::styleDidChange(Style::Difference diff, const Style::ComputedStyle* oldStyle)
 {
     RenderElement::styleDidChange(diff, oldStyle);
     if (diff == Style::DifferenceResult::Equal)
@@ -63,7 +63,7 @@ void RenderSVGGradientStop::styleDidChange(Style::Difference diff, const RenderS
     if (!renderer)
         return;
 
-    if (auto* gradientRenderer = dynamicDowncast<RenderSVGResourceGradient>(renderer.get())) {
+    if (CheckedPtr gradientRenderer = dynamicDowncast<RenderSVGResourceGradient>(renderer.get())) {
         gradientRenderer->invalidateGradient();
         return;
     }
@@ -79,7 +79,7 @@ void RenderSVGGradientStop::layout()
 
 SVGGradientElement* RenderSVGGradientStop::gradientElement()
 {
-    return dynamicDowncast<SVGGradientElement>(element().protectedParentElement().get());
+    return dynamicDowncast<SVGGradientElement>(element().parentElement());
 }
 
 }

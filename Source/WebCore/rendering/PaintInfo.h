@@ -25,7 +25,6 @@
 
 #pragma once
 
-#include <WebCore/AccessibilityRegionContext.h>
 #include <WebCore/AffineTransform.h>
 #include <WebCore/EventRegion.h>
 #include <WebCore/GraphicsContext.h>
@@ -39,6 +38,7 @@
 
 namespace WebCore {
 
+class AccessibilityRegionContext;
 class OverlapTestRequestClient;
 class RenderInline;
 class RenderLayer;
@@ -69,7 +69,7 @@ struct PaintInfo {
     {
     }
 
-    GraphicsContext& context() const
+    GraphicsContext& context() const LIFETIME_BOUND
     {
         ASSERT(m_context);
         return *m_context;
@@ -123,17 +123,17 @@ struct PaintInfo {
     }
 
     EventRegionContext* eventRegionContext() { return dynamicDowncast<EventRegionContext>(regionContext); }
-    AccessibilityRegionContext* accessibilityRegionContext() { return dynamicDowncast<AccessibilityRegionContext>(regionContext); }
+    inline AccessibilityRegionContext* accessibilityRegionContext();
 
     LayoutRect rect;
     PaintPhase phase;
     OptionSet<PaintBehavior> paintBehavior;
-    RenderObject* subtreePaintRoot; // used to draw just one element and its visual children
+    SUPPRESS_FORWARD_DECL_MEMBER RenderObject* subtreePaintRoot; // used to draw just one element and its visual children
     SingleThreadWeakListHashSet<RenderInline>* outlineObjects; // used to list outlines that should be painted by a block with inline children
     OverlapTestRequestMap* overlapTestRequests;
-    const RenderLayerModelObject* paintContainer; // the layer object that originates the current painting
+    SUPPRESS_FORWARD_DECL_MEMBER const RenderLayerModelObject* paintContainer; // the layer object that originates the current painting
     bool requireSecurityOriginAccessForWidgets { false };
-    const RenderLayer* m_enclosingSelfPaintingLayer { nullptr };
+    SUPPRESS_FORWARD_DECL_MEMBER const RenderLayer* m_enclosingSelfPaintingLayer { nullptr };
     RegionContext* regionContext { nullptr }; // For PaintPhase::EventRegion and PaintPhase::Accessibility.
 
 private:

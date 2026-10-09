@@ -27,7 +27,7 @@
 
 #if ENABLE(CONTENT_EXTENSIONS)
 
-#include "Utilities.h"
+#include "Helpers/Utilities.h"
 #include <JavaScriptCore/InitializeThreading.h>
 #include <WebCore/CSSParserContext.h>
 #include <WebCore/CombinedURLFilters.h>
@@ -872,8 +872,8 @@ TEST_F(ContentExtensionTest, MultipleExtensions)
     testRequest(backend, mainDocumentRequest("http://webkit.org"_s), { }, 2);
     testRequest(backend, mainDocumentRequest("http://webkit.org/block_load.html"_s), { variantIndex<ContentExtensions::BlockLoadAction> }, 2);
     testRequest(backend, mainDocumentRequest("http://webkit.org/block_cookies.html"_s), { variantIndex<ContentExtensions::BlockCookiesAction> }, 2);
-    testRequest(backend, mainDocumentRequest("http://webkit.org/block_load/block_cookies.html"_s), { variantIndex<ContentExtensions::BlockCookiesAction>, variantIndex<ContentExtensions::BlockLoadAction> }, 2);
-    testRequest(backend, mainDocumentRequest("http://webkit.org/block_cookies/block_load.html"_s), { variantIndex<ContentExtensions::BlockCookiesAction>, variantIndex<ContentExtensions::BlockLoadAction> }, 2);
+    testRequest(backend, mainDocumentRequest("http://webkit.org/block_load/block_cookies.html"_s), { variantIndex<ContentExtensions::BlockLoadAction>, variantIndex<ContentExtensions::BlockCookiesAction> }, 2);
+    testRequest(backend, mainDocumentRequest("http://webkit.org/block_cookies/block_load.html"_s), { variantIndex<ContentExtensions::BlockLoadAction>, variantIndex<ContentExtensions::BlockCookiesAction> }, 2);
     
     auto ignoreExtension1 = InMemoryCompiledContentExtension::create("[{\"action\":{\"type\":\"block\"},\"trigger\":{\"url-filter\":\"block_load\"}},"
         "{\"action\":{\"type\":\"ignore-previous-rules\"},\"trigger\":{\"url-filter\":\"ignore1\"}}]"_s);
@@ -971,7 +971,7 @@ static int sequenceInstances(const Vector<T> vector, ASCIILiteral sequence)
     size_t instances = 0;
     for (size_t i = 0; i <= vector.size() - sequenceLength; ++i) {
         for (size_t j = 0; j < sequenceLength; j++) {
-            if (vector[i + j] != sequence.characterAt(j))
+            if (vector[i + j] != sequence.codeUnitAt(j))
                 break;
             if (j == sequenceLength - 1)
                 instances++;

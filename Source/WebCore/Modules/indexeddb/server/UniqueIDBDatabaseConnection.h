@@ -51,19 +51,18 @@ public:
 
     WEBCORE_EXPORT ~UniqueIDBDatabaseConnection();
 
-    const IDBResourceIdentifier& openRequestIdentifier() { return m_openRequestIdentifier; }
-    IDBConnectionToClient& connectionToClient() { return m_connectionToClient; }
+    const IDBResourceIdentifier& openRequestIdentifier() LIFETIME_BOUND { return m_openRequestIdentifier; }
     UniqueIDBDatabase* database() { return m_database.get(); }
     WEBCORE_EXPORT CheckedPtr<UniqueIDBDatabase> checkedDatabase();
-    UniqueIDBDatabaseManager* manager();
-    Ref<IDBConnectionToClient> protectedConnectionToClient();
+    UniqueIDBDatabaseManager* NODELETE manager();
+    IDBConnectionToClient& connectionToClient() { return m_connectionToClient; }
 
-    WEBCORE_EXPORT void connectionPendingCloseFromClient();
+    WEBCORE_EXPORT void NODELETE connectionPendingCloseFromClient();
     WEBCORE_EXPORT void connectionClosedFromClient();
 
     bool closePending() const { return m_closePending; }
 
-    bool hasNonFinishedTransactions() const;
+    bool NODELETE hasNonFinishedTransactions() const;
 
     void fireVersionChangeEvent(const IDBResourceIdentifier& requestIdentifier, uint64_t requestedVersion);
     Ref<UniqueIDBDatabaseTransaction> createVersionChangeTransaction(uint64_t newVersion);
@@ -83,9 +82,10 @@ public:
 
     void abortTransactionWithoutCallback(UniqueIDBDatabaseTransaction&);
 
-    bool connectionIsClosing() const;
+    bool NODELETE connectionIsClosing() const;
 
     void deleteTransaction(UniqueIDBDatabaseTransaction&);
+    void deleteTransactionsAbortedForClientSuspension();
 
 private:
     UniqueIDBDatabaseConnection(UniqueIDBDatabase&, ServerOpenDBRequest&);

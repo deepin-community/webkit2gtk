@@ -109,7 +109,7 @@ static Ref<CSSVariableData> variableDataForPositivePixelLength(float lengthInPx)
     ASSERT(lengthInPx >= 0);
 
     CSSParserToken token(lengthInPx, NumberValueType, NoSign, { });
-    token.convertToDimensionWithUnit("px"_s);
+    token.convertToDimensionWithUnit(CSSUnitType::CSS_PX);
 
     Vector<CSSParserToken> tokens { token };
     CSSParserTokenRange tokenRange(tokens);
@@ -121,16 +121,11 @@ static Ref<CSSVariableData> variableDataForPositiveDuration(Seconds durationInSe
     ASSERT(durationInSeconds >= 0_s);
 
     CSSParserToken token(durationInSeconds.value(), NumberValueType, NoSign, { });
-    token.convertToDimensionWithUnit("s"_s);
+    token.convertToDimensionWithUnit(CSSUnitType::CSS_S);
 
     Vector<CSSParserToken> tokens { token };
     CSSParserTokenRange tokenRange(tokens);
     return CSSVariableData::create(tokenRange);
-}
-
-Ref<Document> ConstantPropertyMap::protectedDocument() const
-{
-    return m_document.get();
 }
 
 void ConstantPropertyMap::updateConstantsForSafeAreaInsets()
@@ -146,7 +141,7 @@ void ConstantPropertyMap::updateConstantsForSafeAreaInsets()
 void ConstantPropertyMap::didChangeSafeAreaInsets()
 {
     updateConstantsForSafeAreaInsets();
-    protectedDocument()->invalidateMatchedPropertiesCacheAndForceStyleRecalc();
+    protect(m_document)->invalidateMatchedPropertiesCacheAndForceStyleRecalc();
 }
 
 void ConstantPropertyMap::updateConstantsForFullscreen()
@@ -165,13 +160,13 @@ void ConstantPropertyMap::updateConstantsForFullscreen()
 void ConstantPropertyMap::didChangeFullscreenInsets()
 {
     updateConstantsForFullscreen();
-    protectedDocument()->invalidateMatchedPropertiesCacheAndForceStyleRecalc();
+    protect(m_document)->invalidateMatchedPropertiesCacheAndForceStyleRecalc();
 }
 
 void ConstantPropertyMap::setFullscreenAutoHideDuration(Seconds duration)
 {
     setValueForProperty(ConstantProperty::FullscreenAutoHideDuration, variableDataForPositiveDuration(duration));
-    protectedDocument()->invalidateMatchedPropertiesCacheAndForceStyleRecalc();
+    protect(m_document)->invalidateMatchedPropertiesCacheAndForceStyleRecalc();
 }
 
 }

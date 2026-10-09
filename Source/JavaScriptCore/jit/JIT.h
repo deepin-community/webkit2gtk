@@ -59,7 +59,7 @@ namespace JSC {
     class BlockDirectory;
     class Register;
     class StructureChain;
-    class StructureStubInfo;
+    class PropertyInlineCache;
 
     namespace LOL {
         class LOLJIT;
@@ -184,13 +184,13 @@ namespace JSC {
         
         static CompilationResult compileSync(VM&, CodeBlock*, JITCompilationEffort);
 
-        static unsigned frameRegisterCountFor(UnlinkedCodeBlock*);
+        static unsigned NODELETE frameRegisterCountFor(UnlinkedCodeBlock*);
         static unsigned frameRegisterCountFor(CodeBlock*);
-        static int stackPointerOffsetFor(UnlinkedCodeBlock*);
+        static int NODELETE stackPointerOffsetFor(UnlinkedCodeBlock*);
         static int stackPointerOffsetFor(CodeBlock*);
 
         JS_EXPORT_PRIVATE static UncheckedKeyHashMap<CString, Seconds> compileTimeStats();
-        JS_EXPORT_PRIVATE static Seconds totalCompileTime();
+        JS_EXPORT_PRIVATE static Seconds NODELETE totalCompileTime();
 
     private:
         void privateCompileMainPass();
@@ -221,10 +221,16 @@ namespace JSC {
         void load32FromMetadata(const Bytecode&, size_t offset, GPRReg);
 
         template <typename Bytecode>
+        void load16FromMetadata(const Bytecode&, size_t offset, GPRReg);
+
+        template <typename Bytecode>
         void load8FromMetadata(const Bytecode&, size_t offset, GPRReg);
 
         template <typename ValueType, typename Bytecode>
         void store8ToMetadata(ValueType, const Bytecode&, size_t offset);
+
+        template <typename ValueType, typename Bytecode>
+        void store16ToMetadata(ValueType, const Bytecode&, size_t offset);
 
         template <typename Bytecode>
         void store32ToMetadata(GPRReg, const Bytecode&, size_t offset);
@@ -237,7 +243,7 @@ namespace JSC {
 
     public:
         void loadConstant(unsigned constantIndex, GPRReg);
-        void loadStructureStubInfo(StructureStubInfoIndex, GPRReg);
+        void loadPropertyInlineCache(PropertyInlineCacheIndex, GPRReg);
         static void emitMaterializeMetadataAndConstantPoolRegisters(CCallHelpers&);
     private:
         void loadGlobalObject(GPRReg);
@@ -245,13 +251,13 @@ namespace JSC {
         // Assuming GPRInfo::jitDataRegister is available.
         static void loadGlobalObject(CCallHelpers&, GPRReg);
         static void loadConstant(CCallHelpers&, unsigned constantIndex, GPRReg);
-        static void loadStructureStubInfo(CCallHelpers&, StructureStubInfoIndex, GPRReg);
+        static void loadPropertyInlineCache(CCallHelpers&, PropertyInlineCacheIndex, GPRReg);
 
         void loadCodeBlockConstant(VirtualRegister, JSValueRegs);
         void loadCodeBlockConstantPayload(VirtualRegister, RegisterID);
-    #if USE(JSVALUE32_64)
+#if USE(JSVALUE32_64)
         void loadCodeBlockConstantTag(VirtualRegister, RegisterID);
-    #endif
+#endif
 
         void exceptionCheck(Jump jumpToHandler);
         void exceptionCheck();
@@ -282,25 +288,25 @@ namespace JSC {
         template<typename Op>
         void emitPutCallResult(const Op&);
 
-    #if USE(JSVALUE64)
+#if USE(JSVALUE64)
         template<typename Op> void compileOpStrictEq(const JSInstruction*);
         template<typename Op> void compileOpStrictEqJump(const JSInstruction*);
-    #elif USE(JSVALUE32_64)
+#elif USE(JSVALUE32_64)
         void compileOpEqCommon(VirtualRegister src1, VirtualRegister src2);
         void compileOpEqSlowCommon(Vector<SlowCaseEntry>::iterator&);
         void compileOpStrictEqCommon(VirtualRegister src1,  VirtualRegister src2);
-    #endif
+#endif
 
         enum class WriteBarrierMode { UnconditionalWriteBarrier, ShouldFilterBase, ShouldFilterValue, ShouldFilterBaseAndValue };
-    #if COMPILER(GCC) && GCC_VERSION < 120300
+#if COMPILER(GCC) && GCC_VERSION < 120300
         // Workaround for GCC < 12.3.0 ICE with using-enum in templates: https://gcc.gnu.org/bugzilla/show_bug.cgi?id=103081
         static constexpr auto UnconditionalWriteBarrier = WriteBarrierMode::UnconditionalWriteBarrier;
         static constexpr auto ShouldFilterBase = WriteBarrierMode::ShouldFilterBase;
         static constexpr auto ShouldFilterValue = WriteBarrierMode::ShouldFilterValue;
         static constexpr auto ShouldFilterBaseAndValue = WriteBarrierMode::ShouldFilterBaseAndValue;
-    #else
+#else
         using enum WriteBarrierMode;
-    #endif
+#endif
         // value register in write barrier is used before any scratch registers
         // so may safely be the same as either of the scratch registers.
         void emitWriteBarrier(JSValueRegs owner, WriteBarrierMode);
@@ -338,9 +344,9 @@ namespace JSC {
         void emitGetVirtualRegisterPayload(VirtualRegister src, RegisterID dst);
         void emitPutVirtualRegister(VirtualRegister dst, JSValueRegs src);
 
-    #if USE(JSVALUE32_64)
+#if USE(JSVALUE32_64)
         void emitGetVirtualRegisterTag(VirtualRegister src, RegisterID dst);
-    #elif USE(JSVALUE64)
+#elif USE(JSVALUE64)
         // Machine register variants purely for convenience
         void emitGetVirtualRegister(VirtualRegister src, RegisterID dst);
         void emitPutVirtualRegister(VirtualRegister dst, RegisterID from);
@@ -348,7 +354,7 @@ namespace JSC {
         Jump emitJumpIfNotInt(RegisterID, RegisterID, RegisterID scratch);
         void emitJumpSlowCaseIfNotInt(RegisterID, RegisterID, RegisterID scratch);
         void emitJumpSlowCaseIfNotInt(RegisterID);
-    #endif
+#endif
 
         void emitJumpSlowCaseIfNotInt(JSValueRegs, JSValueRegs, RegisterID scratch);
         void emitJumpSlowCaseIfNotInt(JSValueRegs);
@@ -386,7 +392,6 @@ namespace JSC {
         void emit_op_call_direct_eval(const JSInstruction*);
         void emit_op_call_varargs(const JSInstruction*);
         void emit_op_tail_call_varargs(const JSInstruction*);
-        void emit_op_tail_call_forward_arguments(const JSInstruction*);
         void emit_op_construct_varargs(const JSInstruction*);
         void emit_op_super_construct_varargs(const JSInstruction*);
         void emit_op_catch(const JSInstruction*);
@@ -396,23 +401,20 @@ namespace JSC {
         void emit_op_to_this(const JSInstruction*);
         void emit_op_get_argument(const JSInstruction*);
         void emit_op_argument_count(const JSInstruction*);
-        void emit_op_get_rest_length(const JSInstruction*);
         void emit_op_check_tdz(const JSInstruction*);
-        void emit_op_identity_with_profile(const JSInstruction*);
+        void NODELETE emit_op_identity_with_profile(const JSInstruction*);
         void emit_op_debug(const JSInstruction*);
         void emit_op_del_by_id(const JSInstruction*);
         void emitSlow_op_del_by_id(const JSInstruction*, Vector<SlowCaseEntry>::iterator&);
         void emit_op_del_by_val(const JSInstruction*);
         void emitSlow_op_del_by_val(const JSInstruction*, Vector<SlowCaseEntry>::iterator&);
         void emit_op_div(const JSInstruction*);
-        void emit_op_end(const JSInstruction*);
         void emit_op_enter(const JSInstruction*);
         void emit_op_get_scope(const JSInstruction*);
         void emit_op_eq(const JSInstruction*);
         void emit_op_eq_null(const JSInstruction*);
         void emit_op_below(const JSInstruction*);
         void emit_op_beloweq(const JSInstruction*);
-        void emit_op_try_get_by_id(const JSInstruction*);
         void emit_op_get_by_id(const JSInstruction*);
         void emit_op_get_length(const JSInstruction*);
         void emit_op_get_by_id_with_this(const JSInstruction*);
@@ -429,7 +431,6 @@ namespace JSC {
         void emit_op_has_private_name(const JSInstruction*);
         void emit_op_has_private_brand(const JSInstruction*);
         void emit_op_init_lazy_reg(const JSInstruction*);
-        void emit_op_overrides_has_instance(const JSInstruction*);
         void emit_op_instanceof(const JSInstruction*);
         void emit_op_is_empty(const JSInstruction*);
         void emit_op_typeof_is_undefined(const JSInstruction*);
@@ -437,11 +438,11 @@ namespace JSC {
         void emit_op_is_undefined_or_null(const JSInstruction*);
         void emit_op_is_boolean(const JSInstruction*);
         void emit_op_is_number(const JSInstruction*);
-    #if USE(BIGINT32)
+#if USE(BIGINT32)
         void emit_op_is_big_int(const JSInstruction*);
-    #else
-        [[noreturn]] void emit_op_is_big_int(const JSInstruction*);
-    #endif
+#else
+        [[noreturn]] void NODELETE emit_op_is_big_int(const JSInstruction*);
+#endif
         void emit_op_is_object(const JSInstruction*);
         void emit_op_is_cell_with_type(const JSInstruction*);
         void emit_op_has_structure_with_flags(const JSInstruction*);
@@ -474,7 +475,7 @@ namespace JSC {
         void emit_op_jtrue(const JSInstruction*);
         void emit_op_loop_hint(const JSInstruction*);
         void emit_op_check_traps(const JSInstruction*);
-        void emit_op_nop(const JSInstruction*);
+        void NODELETE emit_op_nop(const JSInstruction*);
         void emit_op_super_sampler_begin(const JSInstruction*);
         void emit_op_super_sampler_end(const JSInstruction*);
         void emit_op_lshift(const JSInstruction*);
@@ -521,6 +522,8 @@ namespace JSC {
         void emit_op_ret(const JSInstruction*);
         void emit_op_rshift(const JSInstruction*);
         void emit_op_set_function_name(const JSInstruction*);
+        void emit_op_async_iterator_open(const JSInstruction*);
+        void emitSlow_op_async_iterator_open(const JSInstruction*, Vector<SlowCaseEntry>::iterator&);
         void emit_op_stricteq(const JSInstruction*);
         void emit_op_sub(const JSInstruction*);
         void emit_op_switch_char(const JSInstruction*);
@@ -565,7 +568,6 @@ namespace JSC {
         void emitSlow_op_call_direct_eval(const JSInstruction*, Vector<SlowCaseEntry>::iterator&);
         void emitSlow_op_eq(const JSInstruction*, Vector<SlowCaseEntry>::iterator&);
         void emitSlow_op_get_callee(const JSInstruction*, Vector<SlowCaseEntry>::iterator&);
-        void emitSlow_op_try_get_by_id(const JSInstruction*, Vector<SlowCaseEntry>::iterator&);
         void emitSlow_op_get_by_id(const JSInstruction*, Vector<SlowCaseEntry>::iterator&);
         void emitSlow_op_get_length(const JSInstruction*, Vector<SlowCaseEntry>::iterator&);
         void emitSlow_op_get_by_id_with_this(const JSInstruction*, Vector<SlowCaseEntry>::iterator&);
@@ -625,8 +627,11 @@ namespace JSC {
 
         void emit_op_iterator_open(const JSInstruction*);
         void emitSlow_op_iterator_open(const JSInstruction*, Vector<SlowCaseEntry>::iterator&);
+        template<typename Op> void emitIteratorOpenGeneric(const JSInstruction*);
+        template<typename Op> void emitSlowIteratorOpenGeneric(const JSInstruction*, Vector<SlowCaseEntry>::iterator&);
         void emit_op_iterator_next(const JSInstruction*);
         void emitSlow_op_iterator_next(const JSInstruction*, Vector<SlowCaseEntry>::iterator&);
+        void emit_op_async_iterator_next(const JSInstruction*);
 
         void emitHasPrivate(VirtualRegister dst, VirtualRegister base, VirtualRegister propertyOrBrand, AccessType);
         void emitHasPrivateSlow(AccessType, Vector<SlowCaseEntry>::iterator&);
@@ -645,10 +650,10 @@ namespace JSC {
 
         JSValue getConstantOperand(VirtualRegister);
 
-    #if USE(JSVALUE64)
+#if USE(JSVALUE64)
         bool isOperandConstantDouble(VirtualRegister);
         double getOperandConstantDouble(VirtualRegister src);
-    #endif
+#endif
         bool isOperandConstantInt(VirtualRegister);
         int32_t getOperandConstantInt(VirtualRegister src);
         bool isOperandConstantChar(VirtualRegister);
@@ -816,38 +821,38 @@ namespace JSC {
 
         int jumpTarget(const JSInstruction*, int target);
 
-    #ifndef NDEBUG
+#ifndef NDEBUG
         void printBytecodeOperandTypes(VirtualRegister src1, VirtualRegister src2);
-    #endif
+#endif
 
-    #if ENABLE(SAMPLING_FLAGS)
+#if ENABLE(SAMPLING_FLAGS)
         void setSamplingFlag(int32_t);
         void clearSamplingFlag(int32_t);
-    #endif
+#endif
 
-    #if ENABLE(SAMPLING_COUNTERS)
+#if ENABLE(SAMPLING_COUNTERS)
         void emitCount(AbstractSamplingCounter&, int32_t = 1);
-    #endif
+#endif
 
-    #if ENABLE(DFG_JIT)
+#if ENABLE(DFG_JIT)
         bool canBeOptimized() { return m_canBeOptimized; }
         bool shouldEmitProfiling() { return m_shouldEmitProfiling; }
-    #else
+#else
         bool canBeOptimized() { return false; }
         // Enables use of value profiler with tiered compilation turned off,
         // in which case all code gets profiled.
         bool shouldEmitProfiling() { return false; }
-    #endif
+#endif
 
         void emitMaterializeMetadataAndConstantPoolRegisters();
 
         void emitSaveCalleeSaves();
         void emitRestoreCalleeSaves();
 
-    #if ASSERT_ENABLED
+#if ASSERT_ENABLED
         static MacroAssemblerCodeRef<JITThunkPtrTag> consistencyCheckGenerator(VM&);
         void emitConsistencyCheck();
-    #endif
+#endif
 
         static bool reportCompileTimes();
         static bool computeCompileTimes();
@@ -855,7 +860,7 @@ namespace JSC {
         void resetSP();
 
         JITConstantPool::Constant addToConstantPool(JITConstantPool::Type, void* payload = nullptr);
-        std::tuple<BaselineUnlinkedStructureStubInfo*, StructureStubInfoIndex> addUnlinkedStructureStubInfo();
+        std::tuple<BaselineUnlinkedPropertyInlineCache*, PropertyInlineCacheIndex> addUnlinkedPropertyInlineCache();
         BaselineUnlinkedCallLinkInfo* addUnlinkedCallLinkInfo();
 
         BaselineJITPlan& m_plan;
@@ -882,10 +887,10 @@ namespace JSC {
         Vector<SlowCaseEntry> m_slowCases;
         Vector<SwitchRecord> m_switches;
 
-    #if ASSERT_ENABLED
+#if ASSERT_ENABLED
         Label m_consistencyCheckLabel;
         Vector<Call> m_consistencyCheckCalls;
-    #endif
+#endif
 
         unsigned m_getByIdIndex { UINT_MAX };
         unsigned m_getByValIndex { UINT_MAX };
@@ -921,7 +926,7 @@ namespace JSC {
 
         Vector<JITConstantPool::Value> m_constantPool;
         SaSegmentedVector<BaselineUnlinkedCallLinkInfo> m_unlinkedCalls;
-        SaSegmentedVector<BaselineUnlinkedStructureStubInfo> m_unlinkedStubInfos;
+        SaSegmentedVector<BaselineUnlinkedPropertyInlineCache> m_unlinkedPropertyInlineCaches;
         FixedVector<SimpleJumpTable> m_switchJumpTables;
         FixedVector<StringJumpTable> m_stringSwitchJumpTables;
 

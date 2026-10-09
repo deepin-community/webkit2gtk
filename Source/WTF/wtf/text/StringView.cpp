@@ -36,28 +36,27 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <wtf/ZippedRange.h>
 #include <wtf/text/AdaptiveStringSearcher.h>
 #include <wtf/text/MakeString.h>
-#include <wtf/text/StringToIntegerConversion.h>
 #include <wtf/text/TextBreakIterator.h>
 #include <wtf/unicode/icu/ICUHelpers.h>
 
 namespace WTF {
 
-bool StringView::containsIgnoringASCIICase(StringView matchString) const
+SUPPRESS_NODELETE bool StringView::containsIgnoringASCIICase(StringView matchString) const
 {
     return findIgnoringASCIICase(matchString) != notFound;
 }
 
-bool StringView::containsIgnoringASCIICase(StringView matchString, unsigned startOffset) const
+SUPPRESS_NODELETE bool StringView::containsIgnoringASCIICase(StringView matchString, unsigned startOffset) const
 {
     return findIgnoringASCIICase(matchString, startOffset) != notFound;
 }
 
-size_t StringView::findIgnoringASCIICase(StringView matchString) const
+SUPPRESS_NODELETE size_t StringView::findIgnoringASCIICase(StringView matchString) const
 {
     return ::WTF::findIgnoringASCIICase(*this, matchString, 0);
 }
 
-size_t StringView::findIgnoringASCIICase(StringView matchString, unsigned startOffset) const
+SUPPRESS_NODELETE size_t StringView::findIgnoringASCIICase(StringView matchString, unsigned startOffset) const
 {
     return ::WTF::findIgnoringASCIICase(*this, matchString, startOffset);
 }
@@ -128,7 +127,7 @@ size_t StringView::find(StringView matchString, unsigned start) const
     return findCommon(*this, matchString, start);
 }
 
-size_t StringView::find(AdaptiveStringSearcherTables& tables, StringView matchString, unsigned start) const
+SUPPRESS_NODELETE size_t StringView::find(AdaptiveStringSearcherTables& tables, StringView matchString, unsigned start) const
 {
     unsigned subjectLength = length();
     unsigned matchLength = matchString.length();
@@ -169,7 +168,7 @@ size_t StringView::find(std::span<const Latin1Character> match, unsigned start) 
     return findInner(span16().subspan(start), match, start);
 }
 
-size_t StringView::reverseFind(std::span<const Latin1Character> match, unsigned start) const
+SUPPRESS_NODELETE size_t StringView::reverseFind(std::span<const Latin1Character> match, unsigned start) const
 {
     ASSERT(!match.empty());
     if (match.size() > length())
@@ -418,7 +417,7 @@ bool equalRespectingNullity(StringView a, StringView b)
     return equalCommon(a, b);
 }
 
-size_t StringView::reverseFind(StringView matchString, unsigned start) const
+SUPPRESS_NODELETE size_t StringView::reverseFind(StringView matchString, unsigned start) const
 {
     if (isNull() || matchString.isNull())
         return notFound;
@@ -473,7 +472,7 @@ String makeStringByReplacingAll(StringView string, char16_t target, char16_t rep
     return StringImpl::createByReplacingInCharacters(characters, target, replacement, i);
 }
 
-std::strong_ordering codePointCompare(StringView lhs, StringView rhs)
+SUPPRESS_NODELETE std::strong_ordering codePointCompare(StringView lhs, StringView rhs)
 {
     bool lhsIs8Bit = lhs.is8Bit();
     bool rhsIs8Bit = rhs.is8Bit();

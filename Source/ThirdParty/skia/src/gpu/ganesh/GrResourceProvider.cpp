@@ -15,9 +15,9 @@
 #include "include/gpu/GpuTypes.h"
 #include "include/gpu/ganesh/GrBackendSurface.h"
 #include "include/gpu/ganesh/GrTypes.h"
-#include "include/private/base/SingleOwner.h"
-#include "include/private/base/SkTemplates.h"
-#include "src/base/SkMathPriv.h"
+#include "include/private/SingleOwner.h"
+#include "include/private/SkTemplates.h"
+#include "src/core/SkMathPriv.h"
 #include "src/core/SkMipmap.h"
 #include "src/gpu/BufferWriter.h"
 #include "src/gpu/ResourceKey.h"
@@ -336,7 +336,7 @@ sk_sp<GrTexture> GrResourceProvider::findAndRefScratchTexture(const skgpu::Scrat
     if (GrGpuResource* resource = fCache->findAndRefScratchResource(key)) {
         fGpu->stats()->incNumScratchTexturesReused();
         GrSurface* surface = static_cast<GrSurface*>(resource);
-        resource->setLabel(std::move(label));
+        resource->setLabel(label);
         return sk_sp<GrTexture>(surface->asTexture());
     }
     return nullptr;
@@ -822,7 +822,7 @@ sk_sp<GrAttachment> GrResourceProvider::refScratchMSAAAttachment(SkISize dimensi
     if (resource) {
         fGpu->stats()->incNumScratchMSAAAttachmentsReused();
         GrAttachment* attachment = static_cast<GrAttachment*>(resource);
-        resource->setLabel(std::move(label));
+        resource->setLabel(label);
         return sk_sp<GrAttachment>(attachment);
     }
 
@@ -922,11 +922,13 @@ sk_sp<GrTexture> GrResourceProvider::writePixels(sk_sp<GrTexture> texture,
     if (tempColorType == GrColorType::kUnknown) {
         return nullptr;
     }
-    SkAssertResult(fGpu->writePixels(texture.get(),
-                                     SkIRect::MakeSize(baseSize),
-                                     colorType,
-                                     tempColorType,
-                                     tmpTexels.get(),
-                                     mipLevelCount));
+    if (!fGpu->writePixels(texture.get(),
+                           SkIRect::MakeSize(baseSize),
+                           colorType,
+                           tempColorType,
+                           tmpTexels.get(),
+                           mipLevelCount)) {
+        return nullptr;
+    }
     return texture;
 }

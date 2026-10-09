@@ -305,7 +305,7 @@ public:
         {
         }
 
-#if OS(WINDOWS)
+#if OS(WINDOWS) && CPU(X86_64)
         template<typename ReturnType, typename... Arguments>
         explicit TrustedImmPtr(ReturnType(SYSV_ABI *value)(Arguments...))
             : m_value(reinterpret_cast<void*>(value))
@@ -854,7 +854,7 @@ public:
             m_jumps.shrink(size);
         }
 
-        const JumpVector& jumps() const { return m_jumps; }
+        const JumpVector& jumps() const LIFETIME_BOUND { return m_jumps; }
 
     private:
         JumpVector m_jumps;

@@ -106,6 +106,7 @@ EditingBehaviorType:
 
 FixedBackgroundsPaintRelativeToDocument:
   type: bool
+  inspectorOverride: true
   defaultValue:
     WebCore:
       PLATFORM(IOS_FAMILY): true
@@ -272,6 +273,12 @@ MaximumSourceBufferSize:
     WebCore:
       default: SettingsBase::defaultMaximumSourceBufferSize()
 
+MaximumXMLParserEntityExpansionCount:
+  type: uint32_t
+  defaultValue:
+    WebCore:
+      default: SettingsBase::defaultMaximumXMLParserEntityExpansionCount
+
 MediaKeysStorageDirectory:
   type: String
   defaultValue:
@@ -381,12 +388,6 @@ ShouldIgnoreFontLoadCompletions:
       default: false
 
 ShouldInjectUserScriptsInInitialEmptyDocument:
-  type: bool
-  defaultValue:
-    WebCore:
-      default: false
-
-StorageAccessAPIPerPageScopeEnabled:
   type: bool
   defaultValue:
     WebCore:

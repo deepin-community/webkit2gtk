@@ -47,7 +47,7 @@ public:
     const RefPtr<MediaStreamTrackPrivate>& track() const { return m_track; }
 
     void setMediaStreamID(const String& mediaStreamId) { m_mediaStreamId = mediaStreamId; }
-    const String& mediaStreamID() const { return m_mediaStreamId; }
+    const String& mediaStreamID() const LIFETIME_BOUND { return m_mediaStreamId; }
     const GRefPtr<GstCaps>& allowedCaps() const;
     [[nodiscard]] GRefPtr<GstCaps> rtpCaps() const;
 
@@ -107,7 +107,6 @@ protected:
     bool m_muted { false };
     bool m_isStopped { true };
     RefPtr<MediaStreamTrackPrivate> m_track;
-    std::optional<RealtimeMediaSourceSettings> m_initialSettings;
     GRefPtr<GstElement> m_bin;
     GRefPtr<GstElement> m_inputSelector;
     GRefPtr<GstElement> m_fallbackSource;

@@ -134,7 +134,7 @@ class CLKernelVk : public CLKernelImpl
 
     std::vector<uint8_t> &getPodArgumentPushConstantsData() { return mPodArgumentPushConstants; }
 
-    cl::MemoryPtr getPodBuffer() { return mPodBuffer; }
+    cl::BufferPtr getPodBuffer() { return mPodBuffer; }
 
     bool usesPrintf() const;
     bool usesPrintfBufferPointerPushConstant() const;
@@ -147,6 +147,10 @@ class CLKernelVk : public CLKernelImpl
     // Initialize the descriptor pools for this kernel resources
     angle::Result initializeDescriptorPools();
 
+    cl_ulong getLocalMemSizeUsed(const cl::Device &device) const override;
+    cl_ulong getAllArgLocalMemSize() const override;
+    cl_ulong getCompiledLocalMemSize(const cl::Device &device) const override;
+
   private:
     CLProgramVk *mProgram;
     CLContextVk *mContext;
@@ -155,7 +159,7 @@ class CLKernelVk : public CLKernelImpl
     CLKernelArguments mArgs;
 
     std::vector<uint8_t> mPodArgumentPushConstants;
-    cl::MemoryPtr mPodBuffer;
+    cl::BufferPtr mPodBuffer;
 
     vk::ShaderProgramHelper mShaderProgramHelper;
     ComputePipelineCache mComputePipelineCache;
@@ -170,6 +174,8 @@ class CLKernelVk : public CLKernelImpl
 
     vk::DescriptorSetArray<vk::DescriptorSetLayoutDesc> mDescriptorSetLayoutDescs;
     vk::PipelineLayoutDesc mPipelineLayoutDesc;
+
+    std::vector<size_t> mLocalMemoryArgSizes;
 };
 
 }  // namespace rx

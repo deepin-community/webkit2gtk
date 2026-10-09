@@ -62,7 +62,7 @@ SPDX-License-Identifier: BSD, LGPL-2.1
         <h3><a href="index.html">WebKit</a></h3>
         <p>API Version: 6.0</p>
         
-        <p>Library Version: 2.52.5</p>
+        <p>Library Version: 2.54.0</p>
         
       </div>
       
@@ -364,15 +364,15 @@ SPDX-License-Identifier: BSD, LGPL-2.1
         Description
         <a class="anchor" href="#description"></a>
         
-        <a class="srclink" title="go to source location" href="https://github.com/WebKit/WebKit/tree/main/Source/WebKit/UIProcess/API/glib/WebKitSettings.cpp#L3332">[src]</a>
+        <a class="srclink" title="go to source location" href="https://github.com/WebKit/WebKit/tree/main/Source/WebKit/UIProcess/API/glib/WebKitSettings.cpp#L3328">[src]</a>
         
       </h4>
 
       <div class="docblock">
         <p>Set the <code>WebKitSettings:user-agent</code> property by appending the application&nbsp;details.</p>
 <p>Set the <code>WebKitSettings:user-agent</code> property by appending the application details to the default user
-agent. If no application name or version is given, the default user agent used will be used. If only
-the version is given, the default engine version is used with the given application&nbsp;name.</p>
+agent. If no application name is given, the default user agent will be used and <code>application_version</code>
+is ignored. If only the name is given, the default engine version is used with the given application&nbsp;name.</p>
       </div>
 
       <div class="docblock">
@@ -417,7 +417,7 @@ the version is given, the default engine version is used with the given applicat
           <dt class="arg-name"><code>application_version</code></dt>
           <dd class="arg-description">
             <p><em>Type:</em>&nbsp;<code>const gchar*</code></p>
-            <p>The application version for the user agent or <code>NULL</code> to user the default&nbsp;version.</p>
+            <p>The application version for the user agent or <code>NULL</code> to use the default&nbsp;version.</p>
             <table>
             
             <tr><td>The argument can be <code>NULL</code>.</td></tr>

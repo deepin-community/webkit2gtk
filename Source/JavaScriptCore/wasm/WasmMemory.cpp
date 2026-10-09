@@ -35,19 +35,13 @@
 #include "WeakGCSetInlines.h"
 #include <wtf/CheckedArithmetic.h>
 #include <wtf/DataLog.h>
-#include <wtf/Gigacage.h>
+#include <wtf/FastMalloc.h>
 #include <wtf/Lock.h>
 #include <wtf/Platform.h>
 #include <wtf/PrintStream.h>
-#include <wtf/RAMSize.h>
-#include <wtf/SafeStrerror.h>
-#include <wtf/StdSet.h>
 #include <wtf/TZoneMallocInlines.h>
-#include <wtf/Vector.h>
 
 #include <cstring>
-#include <limits>
-#include <mutex>
 
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
@@ -98,9 +92,10 @@ Memory::Memory()
 {
 }
 
-Memory::Memory(PageCount initial, PageCount maximum, MemorySharingMode sharingMode, WTF::Function<void(GrowSuccess, PageCount, PageCount)>&& growSuccessCallback)
+Memory::Memory(PageCount initial, PageCount maximum, MemorySharingMode sharingMode, AddressType addressType, WTF::Function<void(GrowSuccess, PageCount, PageCount)>&& growSuccessCallback)
     : m_handle(adoptRef(*new BufferMemoryHandle(BufferMemoryHandle::nullBasePointer(), 0, 0, initial, maximum, sharingMode, MemoryMode::BoundsChecking)))
     , m_growSuccessCallback(WTF::move(growSuccessCallback))
+    , m_addressType(addressType)
 {
     ASSERT(!initial.bytes());
     ASSERT(mode() == MemoryMode::BoundsChecking);
@@ -108,17 +103,19 @@ Memory::Memory(PageCount initial, PageCount maximum, MemorySharingMode sharingMo
     ASSERT(basePointer());
 }
 
-Memory::Memory(Ref<BufferMemoryHandle>&& handle, WTF::Function<void(GrowSuccess, PageCount, PageCount)>&& growSuccessCallback)
+Memory::Memory(Ref<BufferMemoryHandle>&& handle, AddressType addressType, WTF::Function<void(GrowSuccess, PageCount, PageCount)>&& growSuccessCallback)
     : m_handle(WTF::move(handle))
     , m_growSuccessCallback(WTF::move(growSuccessCallback))
+    , m_addressType(addressType)
 {
     dataLogLnIf(verbose, "Memory::Memory allocating ", *this);
 }
 
-Memory::Memory(Ref<BufferMemoryHandle>&& handle, Ref<SharedArrayBufferContents>&& shared, WTF::Function<void(GrowSuccess, PageCount, PageCount)>&& growSuccessCallback)
+Memory::Memory(Ref<BufferMemoryHandle>&& handle, Ref<SharedArrayBufferContents>&& shared, AddressType addressType, WTF::Function<void(GrowSuccess, PageCount, PageCount)>&& growSuccessCallback)
     : m_handle(WTF::move(handle))
     , m_shared(WTF::move(shared))
     , m_growSuccessCallback(WTF::move(growSuccessCallback))
+    , m_addressType(addressType)
 {
     dataLogLnIf(verbose, "Memory::Memory allocating ", *this);
 }
@@ -128,24 +125,24 @@ Ref<Memory> Memory::create()
     return adoptRef(*new Memory());
 }
 
-Ref<Memory> Memory::create(Ref<BufferMemoryHandle>&& handle, WTF::Function<void(GrowSuccess, PageCount, PageCount)>&& growSuccessCallback)
+Ref<Memory> Memory::create(Ref<BufferMemoryHandle>&& handle, AddressType addressType, WTF::Function<void(GrowSuccess, PageCount, PageCount)>&& growSuccessCallback)
 {
-    return adoptRef(*new Memory(WTF::move(handle), WTF::move(growSuccessCallback)));
+    return adoptRef(*new Memory(WTF::move(handle), addressType, WTF::move(growSuccessCallback)));
 }
 
-Ref<Memory> Memory::create(Ref<SharedArrayBufferContents>&& shared, WTF::Function<void(GrowSuccess, PageCount, PageCount)>&& growSuccessCallback)
+Ref<Memory> Memory::create(Ref<SharedArrayBufferContents>&& shared, AddressType addressType, WTF::Function<void(GrowSuccess, PageCount, PageCount)>&& growSuccessCallback)
 {
     RefPtr<BufferMemoryHandle> handle = shared->memoryHandle();
     ASSERT(handle);
-    return adoptRef(*new Memory(handle.releaseNonNull(), WTF::move(shared), WTF::move(growSuccessCallback)));
+    return adoptRef(*new Memory(handle.releaseNonNull(), WTF::move(shared), addressType, WTF::move(growSuccessCallback)));
 }
 
-Ref<Memory> Memory::createZeroSized(MemorySharingMode sharingMode, WTF::Function<void(GrowSuccess, PageCount, PageCount)>&& growSuccessCallback)
+Ref<Memory> Memory::createZeroSized(MemorySharingMode sharingMode, AddressType addressType, WTF::Function<void(GrowSuccess, PageCount, PageCount)>&& growSuccessCallback)
 {
-    return adoptRef(*new Memory(PageCount(0), PageCount(0), sharingMode, WTF::move(growSuccessCallback)));
+    return adoptRef(*new Memory(PageCount(0), PageCount(0), sharingMode, addressType, WTF::move(growSuccessCallback)));
 }
 
-RefPtr<Memory> Memory::tryCreate(VM& vm, PageCount initial, PageCount maximum, MemorySharingMode sharingMode, std::optional<MemoryMode> desiredMemoryMode, WTF::Function<void(GrowSuccess, PageCount, PageCount)>&& growSuccessCallback)
+RefPtr<Memory> Memory::tryCreate(VM& vm, PageCount initial, PageCount maximum, MemorySharingMode sharingMode, AddressType addressType, std::optional<MemoryMode> desiredMemoryMode, WTF::Function<void(GrowSuccess, PageCount, PageCount)>&& growSuccessCallback)
 {
     ASSERT(initial);
     RELEASE_ASSERT(!maximum || maximum >= initial); // This should be guaranteed by our caller.
@@ -159,7 +156,7 @@ RefPtr<Memory> Memory::tryCreate(VM& vm, PageCount initial, PageCount maximum, M
     if (maximum && !maximumBytes) {
         // User specified a zero maximum, initial size must also be zero.
         RELEASE_ASSERT(!initialBytes);
-        return createZeroSized(sharingMode, WTF::move(growSuccessCallback));
+        return createZeroSized(sharingMode, addressType, WTF::move(growSuccessCallback));
     }
     
     bool done = tryAllocate(vm,
@@ -170,7 +167,7 @@ RefPtr<Memory> Memory::tryCreate(VM& vm, PageCount initial, PageCount maximum, M
         return nullptr;
         
     char* fastMemory = nullptr;
-    if (Options::useWasmFastMemory() && desiredMemoryMode.value_or(MemoryMode::Signaling) == MemoryMode::Signaling) {
+    if (Options::useWasmFastMemory() && desiredMemoryMode.value_or(MemoryMode::Signaling) == MemoryMode::Signaling && !addressType.is64Bit()) {
 #if CPU(ADDRESS32)
         RELEASE_ASSERT_NOT_REACHED_WITH_MESSAGE("32-bit platforms don't support fast memory.");
 #endif
@@ -188,13 +185,13 @@ RefPtr<Memory> Memory::tryCreate(VM& vm, PageCount initial, PageCount maximum, M
         OSAllocator::protect(fastMemory + initialBytes, BufferMemoryHandle::fastMappedBytes() - initialBytes, readable, writable);
         switch (sharingMode) {
         case MemorySharingMode::Default: {
-            return Memory::create(adoptRef(*new BufferMemoryHandle(fastMemory, initialBytes, BufferMemoryHandle::fastMappedBytes(), initial, maximum, MemorySharingMode::Default, MemoryMode::Signaling)), WTF::move(growSuccessCallback));
+            return Memory::create(adoptRef(*new BufferMemoryHandle(fastMemory, initialBytes, BufferMemoryHandle::fastMappedBytes(), initial, maximum, MemorySharingMode::Default, MemoryMode::Signaling)), addressType, WTF::move(growSuccessCallback));
         }
         case MemorySharingMode::Shared: {
             auto handle = adoptRef(*new BufferMemoryHandle(fastMemory, initialBytes, BufferMemoryHandle::fastMappedBytes(), initial, maximum, MemorySharingMode::Shared, MemoryMode::Signaling));
             auto span = handle->mutableSpan();
             auto content = SharedArrayBufferContents::create(span, maximumBytes, WTF::move(handle), nullptr, SharedArrayBufferContents::Mode::WebAssembly);
-            return Memory::create(WTF::move(content), WTF::move(growSuccessCallback));
+            return Memory::create(WTF::move(content), addressType, WTF::move(growSuccessCallback));
         }
         }
         RELEASE_ASSERT_NOT_REACHED();
@@ -210,14 +207,14 @@ RefPtr<Memory> Memory::tryCreate(VM& vm, PageCount initial, PageCount maximum, M
     switch (sharingMode) {
     case MemorySharingMode::Default: {
         if (!initialBytes)
-            return adoptRef(*new Memory(initial, maximum, MemorySharingMode::Default, WTF::move(growSuccessCallback)));
+            return adoptRef(new Memory(initial, maximum, MemorySharingMode::Default, addressType, WTF::move(growSuccessCallback)));
 
         void* slowMemory = Gigacage::tryAllocateZeroedVirtualPages(Gigacage::Primitive, initialBytes);
         if (!slowMemory) {
             BufferMemoryManager::singleton().freePhysicalBytes(initialBytes);
             return nullptr;
         }
-        return Memory::create(adoptRef(*new BufferMemoryHandle(slowMemory, initialBytes, initialBytes, initial, maximum, MemorySharingMode::Default, MemoryMode::BoundsChecking)), WTF::move(growSuccessCallback));
+        return Memory::create(adoptRef(*new BufferMemoryHandle(slowMemory, initialBytes, initialBytes, initial, maximum, MemorySharingMode::Default, MemoryMode::BoundsChecking)), addressType, WTF::move(growSuccessCallback));
     }
     case MemorySharingMode::Shared: {
         char* slowMemory = nullptr;
@@ -239,7 +236,7 @@ RefPtr<Memory> Memory::tryCreate(VM& vm, PageCount initial, PageCount maximum, M
         auto handle = adoptRef(*new BufferMemoryHandle(slowMemory, initialBytes, maximumBytes, initial, maximum, MemorySharingMode::Shared, MemoryMode::BoundsChecking));
         auto span = handle->mutableSpan();
         auto content = SharedArrayBufferContents::create(span, maximumBytes, WTF::move(handle), nullptr, SharedArrayBufferContents::Mode::WebAssembly);
-        return Memory::create(WTF::move(content), WTF::move(growSuccessCallback));
+        return Memory::create(WTF::move(content), addressType, WTF::move(growSuccessCallback));
     }
     }
     RELEASE_ASSERT_NOT_REACHED();
@@ -258,7 +255,6 @@ Expected<PageCount, GrowFailReason> Memory::growShared(VM& vm, PageCount delta)
     PageCount oldPageCount;
     PageCount newPageCount;
     Expected<int64_t, GrowFailReason> result;
-
     {
         std::optional<Locker<Lock>> locker;
         // m_shared may not be exist, if this is zero byte memory with zero byte maximum size.
@@ -318,7 +314,7 @@ Expected<PageCount, GrowFailReason> Memory::grow(VM& vm, PageCount delta)
             for (Ref anchor : m_handle->anchors(locker)) {
                 Locker locker { anchor->m_lock };
                 if (JSWebAssemblyInstance* instance = anchor->instance())
-                    instance->updateCachedMemory();
+                    instance->updateCachedMemories();
             }
         }
         m_growSuccessCallback(GrowSuccessTag, oldPageCount, newPageCount);
@@ -389,9 +385,13 @@ Expected<PageCount, GrowFailReason> Memory::grow(VM& vm, PageCount delta)
     return oldPageCount;
 }
 
-bool Memory::fill(uint32_t offset, uint8_t targetValue, uint32_t count)
+bool Memory::fill(uint64_t offset, uint8_t targetValue, uint64_t count)
 {
-    if (sumOverflows<uint32_t>(offset, count))
+    bool offsetAndCountOverflows = addressType().is64Bit()
+        ? sumOverflows<uint64_t>(offset, count)
+        : sumOverflows<uint32_t>(offset, count);
+
+    if (offsetAndCountOverflows)
         return false;
 
     if (offset + count > m_handle->size())
@@ -401,13 +401,19 @@ bool Memory::fill(uint32_t offset, uint8_t targetValue, uint32_t count)
     return true;
 }
 
-bool Memory::copy(uint32_t dstAddress, uint32_t srcAddress, uint32_t count)
+bool Memory::copy(uint64_t dstAddress, uint64_t srcAddress, uint64_t count)
 {
-    if (sumOverflows<uint32_t>(dstAddress, count) || sumOverflows<uint32_t>(srcAddress, count))
+    bool dstAndCountOverflows = addressType().is64Bit()
+        ? sumOverflows<uint64_t>(dstAddress, count)
+        : sumOverflows<uint32_t>(dstAddress, count);
+    bool srcAndCountOverflows = addressType().is64Bit()
+        ? sumOverflows<uint64_t>(srcAddress, count)
+        : sumOverflows<uint32_t>(srcAddress, count);
+    if (dstAndCountOverflows || srcAndCountOverflows)
         return false;
 
-    const uint32_t lastDstAddress = dstAddress + count;
-    const uint32_t lastSrcAddress = srcAddress + count;
+    const uint64_t lastDstAddress = dstAddress + count;
+    const uint64_t lastSrcAddress = srcAddress + count;
 
     if (lastDstAddress > size() || lastSrcAddress > size())
         return false;

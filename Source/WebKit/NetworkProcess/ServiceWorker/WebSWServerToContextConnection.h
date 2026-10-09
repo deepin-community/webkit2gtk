@@ -63,7 +63,7 @@ class WebSWServerToContextConnection final: public WebCore::SWServerToContextCon
 public:
     USING_CAN_MAKE_WEAKPTR(WebCore::SWServerToContextConnection);
 
-    static Ref<WebSWServerToContextConnection> create(NetworkConnectionToWebProcess&, WebPageProxyIdentifier, WebCore::Site&&, std::optional<WebCore::ScriptExecutionContextIdentifier>, WebCore::SWServer&);
+    static Ref<WebSWServerToContextConnection> create(NetworkConnectionToWebProcess&, WebPageProxyIdentifier, WebCore::Site&&, std::optional<WebCore::ScriptExecutionContextIdentifier>, WebCore::SWServer&, WebCore::CrossOriginEmbedderPolicyValue);
     ~WebSWServerToContextConnection();
 
     void ref() const final { WebCore::SWServerToContextConnection::ref(); }
@@ -71,8 +71,7 @@ public:
 
     void stop();
 
-    RefPtr<IPC::Connection> protectedIPCConnection() const;
-    IPC::Connection* ipcConnection() const;
+    IPC::Connection* NODELETE ipcConnection() const;
 
     // IPC::MessageReceiver
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) final;
@@ -91,8 +90,7 @@ public:
     void unregisterDownload(ServiceWorkerDownloadTask&);
 
     WebCore::ProcessIdentifier webProcessIdentifier() const final { return m_webProcessIdentifier; }
-    NetworkProcess* networkProcess();
-    RefPtr<NetworkProcess> protectedNetworkProcess();
+    NetworkProcess* NODELETE networkProcess();
 
     void didFinishInstall(const std::optional<WebCore::ServiceWorkerJobDataIdentifier>&, WebCore::ServiceWorkerIdentifier, bool wasSuccessful);
     void didFinishActivation(WebCore::ServiceWorkerIdentifier);
@@ -103,11 +101,9 @@ public:
     void reportNetworkUsageToWorkerClient(const WebCore::ScriptExecutionContextIdentifier, uint64_t bytesTransferredOverNetworkDelta) final;
 #endif
 
-    std::optional<SharedPreferencesForWebProcess> sharedPreferencesForWebProcess() const;
+    std::optional<SharedPreferencesForWebProcess> NODELETE sharedPreferencesForWebProcess() const;
 private:
     WebSWServerToContextConnection(NetworkConnectionToWebProcess&, WebPageProxyIdentifier, WebCore::Site&&, std::optional<WebCore::ScriptExecutionContextIdentifier>, WebCore::SWServer&);
-
-    RefPtr<NetworkConnectionToWebProcess> protectedConnection() const;
 
     template<typename T> void sendToParentProcess(T&&);
     template<typename T, typename C> void sendWithAsyncReplyToParentProcess(T&&, C&&);

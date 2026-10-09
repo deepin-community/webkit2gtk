@@ -28,6 +28,7 @@
 
 #include "JSSubscriptionObserverCallback.h"
 #include "ScriptExecutionContext.h"
+#include "Subscriber.h"
 #include "SubscriptionObserver.h"
 
 namespace WebCore {
@@ -39,9 +40,9 @@ Ref<InternalObserverFromScript> InternalObserverFromScript::create(ScriptExecuti
     return internalObserver;
 }
 
-Ref<InternalObserverFromScript> InternalObserverFromScript::create(ScriptExecutionContext& context, SubscriptionObserver& subscription)
+Ref<InternalObserverFromScript> InternalObserverFromScript::create(ScriptExecutionContext& context, SubscriptionObserver&& subscription)
 {
-    Ref internalObserver = adoptRef(*new InternalObserverFromScript(context, subscription));
+    Ref internalObserver = adoptRef(*new InternalObserverFromScript(context, WTF::move(subscription)));
     internalObserver->suspendIfNeeded();
     return internalObserver;
 }
@@ -70,28 +71,32 @@ void InternalObserverFromScript::complete()
     m_active = false;
 }
 
-void InternalObserverFromScript::visitAdditionalChildren(JSC::AbstractSlotVisitor& visitor) const
+void InternalObserverFromScript::visitAdditionalChildrenInGCThread(JSC::AbstractSlotVisitor& visitor) const
 {
     if (RefPtr next = m_next)
-        next->visitJSFunction(visitor);
+        next->visitJSFunctionInGCThread(visitor);
 
     if (RefPtr error = m_error)
-        error->visitJSFunction(visitor);
+        error->visitJSFunctionInGCThread(visitor);
 
     if (RefPtr complete = m_complete)
-        complete->visitJSFunction(visitor);
+        complete->visitJSFunctionInGCThread(visitor);
 }
 
 InternalObserverFromScript::InternalObserverFromScript(ScriptExecutionContext& context, RefPtr<JSSubscriptionObserverCallback> callback)
     : InternalObserver(context)
     , m_next(callback)
     , m_error(nullptr)
-    , m_complete(nullptr) { }
+    , m_complete(nullptr)
+{
+}
 
-InternalObserverFromScript::InternalObserverFromScript(ScriptExecutionContext& context, SubscriptionObserver& subscription)
+InternalObserverFromScript::InternalObserverFromScript(ScriptExecutionContext& context, SubscriptionObserver&& subscription)
     : InternalObserver(context)
-    , m_next(subscription.next)
-    , m_error(subscription.error)
-    , m_complete(subscription.complete) { }
+    , m_next(WTF::move(subscription.next))
+    , m_error(WTF::move(subscription.error))
+    , m_complete(WTF::move(subscription.complete))
+{
+}
 
 } // namespace WebCore

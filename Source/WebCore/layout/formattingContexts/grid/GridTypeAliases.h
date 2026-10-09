@@ -25,6 +25,11 @@
 
 #pragma once
 
+namespace WTF {
+template <typename T>
+class Range;
+}
+
 namespace WebCore {
 
 class LayoutUnit;
@@ -34,19 +39,26 @@ namespace Layout {
 class PlacedGridItem;
 class UnplacedGridItem;
 
+struct ComputedSizes;
+struct FlexTrack;
 struct GridAreaLines;
 struct GridItemRect;
 struct TrackSizingFunctions;
+struct TrackSizingItem;
 struct UnsizedTrack;
 
+
 using BorderBoxPositions = Vector<LayoutUnit>;
+using FlexTracks = Vector<FlexTrack>;
 using GridAreas = HashMap<UnplacedGridItem, GridAreaLines>;
 using GridCell = Vector<UnplacedGridItem, 1>;
 using GridItemRects = Vector<GridItemRect>;
 using GridMatrix = Vector<Vector<GridCell>>;
 using PlacedGridItems = Vector<PlacedGridItem>;
+using PlacedGridItemSpanList = Vector<WTF::Range<size_t>>;
 using TrackSizes = Vector<LayoutUnit>;
 using TrackSizingFunctionsList = Vector<TrackSizingFunctions>;
+using TrackSizingItemList = Vector<TrackSizingItem>;
 using UnsizedTracks = Vector<UnsizedTrack>;
 using UsedBlockSizes = Vector<LayoutUnit>;
 using UsedInlineSizes = Vector<LayoutUnit>;

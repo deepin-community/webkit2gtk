@@ -43,8 +43,6 @@
 
 namespace JSC {
 
-const ASCIILiteral ArrayInvalidLengthError { "Array length must be a positive integer of safe magnitude."_s };
-
 STATIC_ASSERT_IS_TRIVIALLY_DESTRUCTIBLE(ArrayConstructor);
 
 const ClassInfo ArrayConstructor::s_info = { "Function"_s, &InternalFunction::s_info, &arrayConstructorTable, nullptr, CREATE_METHOD_TABLE(ArrayConstructor) };
@@ -70,7 +68,7 @@ void ArrayConstructor::finishCreation(VM& vm, JSGlobalObject* globalObject, Arra
     putDirectWithoutTransition(vm, vm.propertyNames->prototype, arrayPrototype, PropertyAttribute::DontEnum | PropertyAttribute::DontDelete | PropertyAttribute::ReadOnly);
     putDirectNonIndexAccessorWithoutTransition(vm, vm.propertyNames->speciesSymbol, globalObject->arraySpeciesGetterSetter(), PropertyAttribute::Accessor | PropertyAttribute::ReadOnly | PropertyAttribute::DontEnum);
     JSC_NATIVE_INTRINSIC_FUNCTION_WITHOUT_TRANSITION(vm.propertyNames->of, arrayConstructorOf, static_cast<unsigned>(PropertyAttribute::DontEnum), 0, ImplementationVisibility::Public, ArrayConstructorOfIntrinsic);
-    JSC_BUILTIN_FUNCTION_WITHOUT_TRANSITION(vm.propertyNames->isArray, arrayConstructorIsArrayCodeGenerator, static_cast<unsigned>(PropertyAttribute::DontEnum));
+    JSC_NATIVE_INTRINSIC_FUNCTION_WITHOUT_TRANSITION(vm.propertyNames->isArray, arrayConstructorIsArray, static_cast<unsigned>(PropertyAttribute::DontEnum), 1, ImplementationVisibility::Public, ArrayIsArrayIntrinsic);
 
     JSC_BUILTIN_FUNCTION_WITHOUT_TRANSITION(vm.propertyNames->builtinNames().fromPrivateName(), arrayConstructorFromCodeGenerator, static_cast<unsigned>(PropertyAttribute::DontEnum));
     JSC_BUILTIN_FUNCTION_WITHOUT_TRANSITION(vm.propertyNames->builtinNames().fromAsyncPublicName(), arrayConstructorFromAsyncCodeGenerator, static_cast<unsigned>(PropertyAttribute::DontEnum));
@@ -115,6 +113,15 @@ JSC_DEFINE_HOST_FUNCTION(callArrayConstructor, (JSGlobalObject* globalObject, Ca
     return JSValue::encode(constructArrayWithSizeQuirk(globalObject, args, JSValue()));
 }
 
+JSC_DEFINE_HOST_FUNCTION(arrayConstructorIsArray, (JSGlobalObject* globalObject, CallFrame* callFrame))
+{
+    VM& vm = globalObject->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
+    bool result = isArray(globalObject, callFrame->argument(0));
+    RETURN_IF_EXCEPTION(scope, { });
+    return JSValue::encode(jsBoolean(result));
+}
+
 static ALWAYS_INLINE bool isArraySlowInline(JSGlobalObject* globalObject, ProxyObject* proxy)
 {
     VM& vm = globalObject->vm();
@@ -125,12 +132,12 @@ static ALWAYS_INLINE bool isArraySlowInline(JSGlobalObject* globalObject, ProxyO
             auto* callFrame = vm.topJSCallFrame();
             auto* callee = callFrame && !callFrame->isNativeCalleeFrame() ? callFrame->jsCallee() : nullptr;
             ASCIILiteral calleeName = "Array.isArray"_s;
-            auto* function = callee ? jsDynamicCast<JSFunction*>(callee) : nullptr;
+            auto* function = callee ? dynamicDowncast<JSFunction>(callee) : nullptr;
             // If this function is from a different globalObject than the one passed in above,
             // then this test will fail even if function is Object.prototype.toString. The only
             // way this test will be work everytime is if we check against the
             // Object.prototype.toString of the function's own globalObject.
-            if (function && function == function->globalObject()->objectProtoToStringFunctionConcurrently())
+            if (function && function == function->realm()->objectProtoToStringFunctionConcurrently())
                 calleeName = "Object.prototype.toString"_s;
             throwTypeError(globalObject, scope, makeString(calleeName, " cannot be called on a Proxy that has been revoked"_s));
             return false;
@@ -143,7 +150,7 @@ static ALWAYS_INLINE bool isArraySlowInline(JSGlobalObject* globalObject, ProxyO
         if (argument->type() != ProxyObjectType)
             return false;
 
-        proxy = jsCast<ProxyObject*>(argument);
+        proxy = uncheckedDowncast<ProxyObject>(argument);
     }
 
     ASSERT_NOT_REACHED();
@@ -152,14 +159,6 @@ static ALWAYS_INLINE bool isArraySlowInline(JSGlobalObject* globalObject, ProxyO
 bool isArraySlow(JSGlobalObject* globalObject, ProxyObject* argument)
 {
     return isArraySlowInline(globalObject, argument);
-}
-
-// ES6 7.2.2
-// https://tc39.github.io/ecma262/#sec-isarray
-JSC_DEFINE_HOST_FUNCTION(arrayConstructorPrivateFuncIsArraySlow, (JSGlobalObject* globalObject, CallFrame* callFrame))
-{
-    ASSERT_UNUSED(globalObject, jsDynamicCast<ProxyObject*>(callFrame->argument(0)));
-    return JSValue::encode(jsBoolean(isArraySlowInline(globalObject, jsCast<ProxyObject*>(callFrame->uncheckedArgument(0)))));
 }
 
 ALWAYS_INLINE JSArray* fastArrayOf(JSGlobalObject* globalObject, CallFrame* callFrame, size_t length)
@@ -189,8 +188,6 @@ ALWAYS_INLINE JSArray* fastArrayOf(JSGlobalObject* globalObject, CallFrame* call
         nullptr, AllocationFailureMode::ReturnNull);
     if (!memory) [[unlikely]]
         return nullptr;
-
-    DeferGC deferGC(vm);
     auto* resultButterfly = Butterfly::fromBase(memory, 0, 0);
     resultButterfly->setVectorLength(vectorLength);
     resultButterfly->setPublicLength(length);
@@ -251,22 +248,40 @@ JSC_DEFINE_HOST_FUNCTION(arrayConstructorOf, (JSGlobalObject* globalObject, Call
     return JSValue::encode(result);
 }
 
-static ALWAYS_INLINE unsigned getArgumentsLength(ScopedArguments* arguments)
+static ALWAYS_INLINE unsigned NODELETE getArgumentsLength(ScopedArguments* arguments)
 {
     return arguments->internalLength();
 }
 
-static ALWAYS_INLINE unsigned getArgumentsLength(DirectArguments* arguments)
+static ALWAYS_INLINE unsigned NODELETE getArgumentsLength(DirectArguments* arguments)
 {
     return arguments->internalLength();
 }
 
-static ALWAYS_INLINE unsigned getArgumentsLength(ClonedArguments* arguments)
+static ALWAYS_INLINE unsigned NODELETE getArgumentsLength(ClonedArguments* arguments)
 {
     ASSERT(arguments->isIteratorProtocolFastAndNonObservable());
     JSValue lengthValue = arguments->getDirect(clonedArgumentsLengthPropertyOffset);
     ASSERT(lengthValue.isInt32() && lengthValue.asInt32() >= 0);
     return lengthValue.asInt32();
+}
+
+template<typename Arguments>
+static ALWAYS_INLINE void forEachArgumentsElement(JSGlobalObject* globalObject, Arguments* arguments, unsigned length, const Invocable<void(JSValue, unsigned)> auto& func)
+{
+    auto scope = DECLARE_THROW_SCOPE(globalObject->vm());
+    unsigned i;
+    for (i = 0; i < length; ++i) {
+        JSValue value = arguments->tryGetIndexQuickly(i);
+        if (!value)
+            break;
+        func(value, i);
+    }
+    for (; i < length; ++i) {
+        JSValue value = arguments->get(globalObject, i);
+        RETURN_IF_EXCEPTION(scope, void());
+        func(value, i);
+    }
 }
 
 template<typename Arguments>
@@ -280,13 +295,14 @@ static ALWAYS_INLINE JSArray* tryCreateArrayFromArguments(JSGlobalObject* global
     if (!length)
         RELEASE_AND_RETURN(scope, constructEmptyArray(globalObject, nullptr));
 
+    if (length > MAX_STORAGE_VECTOR_LENGTH) [[unlikely]]
+        return nullptr;
+
     IndexingType indexingType = IsArray;
-    for (unsigned i = 0; i < length; ++i) {
-        JSValue value = arguments->getIndexQuickly(i);
-        if (!value)
-            value = jsUndefined();
+    forEachArgumentsElement(globalObject, arguments, length, [&](JSValue value, unsigned) {
         indexingType = leastUpperBoundOfIndexingTypeAndValue(indexingType, value);
-    }
+    });
+    RETURN_IF_EXCEPTION(scope, nullptr);
 
     Structure* resultStructure = globalObject->arrayStructureForIndexingTypeDuringAllocation(indexingType);
     IndexingType resultIndexingType = resultStructure->indexingType();
@@ -303,25 +319,21 @@ static ALWAYS_INLINE JSArray* tryCreateArrayFromArguments(JSGlobalObject* global
         nullptr, AllocationFailureMode::ReturnNull);
     if (!memory) [[unlikely]]
         return nullptr;
-
-    DeferGC deferGC(vm);
     auto* resultButterfly = Butterfly::fromBase(memory, 0, 0);
     resultButterfly->setVectorLength(vectorLength);
     resultButterfly->setPublicLength(length);
 
     if (hasDouble(resultIndexingType)) {
-        for (uint64_t i = 0; i < length; ++i) {
-            JSValue value = arguments->getIndexQuickly(i);
+        forEachArgumentsElement(globalObject, arguments, length, [&](JSValue value, unsigned i) {
             ASSERT(value.isNumber());
             resultButterfly->contiguousDouble().atUnsafe(i) = value.asNumber();
-        }
+        });
+        RETURN_IF_EXCEPTION(scope, nullptr);
     } else if (hasInt32(resultIndexingType) || hasContiguous(resultIndexingType)) {
-        for (size_t i = 0; i < length; ++i) {
-            JSValue value = arguments->getIndexQuickly(i);
-            if (!value)
-                value = jsUndefined();
+        forEachArgumentsElement(globalObject, arguments, length, [&](JSValue value, unsigned i) {
             resultButterfly->contiguous().atUnsafe(i).setWithoutWriteBarrier(value);
-        }
+        });
+        RETURN_IF_EXCEPTION(scope, nullptr);
     } else
         RELEASE_ASSERT_NOT_REACHED();
 
@@ -358,7 +370,7 @@ static JSArray* tryCreateArrayFromSet(JSGlobalObject* globalObject, JSSet* set)
     if (storageCell == vm.orderedHashTableSentinel())
         RELEASE_AND_RETURN(scope, constructEmptyArray(globalObject, nullptr));
 
-    auto* storage = jsCast<JSSet::Storage*>(storageCell);
+    auto* storage = uncheckedDowncast<JSSet::Storage>(storageCell);
 
     // First pass: determine indexing type
     IndexingType indexingType = IsArray;
@@ -369,7 +381,7 @@ static JSArray* tryCreateArrayFromSet(JSGlobalObject* globalObject, JSSet* set)
         if (storageCell == vm.orderedHashTableSentinel())
             break;
 
-        auto* currentStorage = jsCast<JSSet::Storage*>(storageCell);
+        auto* currentStorage = uncheckedDowncast<JSSet::Storage>(storageCell);
         entry = JSSet::Helper::iterationEntry(*currentStorage) + 1;
         JSValue entryKey = JSSet::Helper::getIterationEntryKey(*currentStorage);
 
@@ -392,8 +404,6 @@ static JSArray* tryCreateArrayFromSet(JSGlobalObject* globalObject, JSSet* set)
         nullptr, AllocationFailureMode::ReturnNull);
     if (!memory) [[unlikely]]
         return nullptr;
-
-    DeferGC deferGC(vm);
     auto* resultButterfly = Butterfly::fromBase(memory, 0, 0);
     resultButterfly->setVectorLength(vectorLength);
     resultButterfly->setPublicLength(length);
@@ -402,7 +412,7 @@ static JSArray* tryCreateArrayFromSet(JSGlobalObject* globalObject, JSSet* set)
     storageCell = set->storageOrSentinel(vm);
     if (storageCell == vm.orderedHashTableSentinel()) [[unlikely]]
         return nullptr;
-    storage = jsCast<JSSet::Storage*>(storageCell);
+    storage = uncheckedDowncast<JSSet::Storage>(storageCell);
 
     entry = 0;
     size_t i = 0;
@@ -413,7 +423,7 @@ static JSArray* tryCreateArrayFromSet(JSGlobalObject* globalObject, JSSet* set)
             if (storageCell == vm.orderedHashTableSentinel())
                 break;
 
-            auto* currentStorage = jsCast<JSSet::Storage*>(storageCell);
+            auto* currentStorage = uncheckedDowncast<JSSet::Storage>(storageCell);
             entry = JSSet::Helper::iterationEntry(*currentStorage) + 1;
             JSValue value = JSSet::Helper::getIterationEntryKey(*currentStorage);
 
@@ -428,7 +438,7 @@ static JSArray* tryCreateArrayFromSet(JSGlobalObject* globalObject, JSSet* set)
             if (storageCell == vm.orderedHashTableSentinel())
                 break;
 
-            auto* currentStorage = jsCast<JSSet::Storage*>(storageCell);
+            auto* currentStorage = uncheckedDowncast<JSSet::Storage>(storageCell);
             entry = JSSet::Helper::iterationEntry(*currentStorage) + 1;
             JSValue value = JSSet::Helper::getIterationEntryKey(*currentStorage);
 
@@ -448,32 +458,35 @@ static JSArray* tryCreateArrayFromMapIterator(JSGlobalObject* globalObject, JSMa
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
 
-    if (!mapIterator->entry())
+    JSMap* map = mapIterator->iteratedObject();
+    if (!map) [[unlikely]]
         return nullptr;
 
-    JSMap* map = mapIterator->iteratedObject();
     IterationKind kind = mapIterator->kind();
     ASSERT(kind == IterationKind::Keys || kind == IterationKind::Values);
-    unsigned length = map->size();
 
-    if (!length)
-        RELEASE_AND_RETURN(scope, constructEmptyArray(globalObject, nullptr));
-
-    JSCell* storageCell = map->storageOrSentinel(vm);
+    JSCell* storageCell = mapIterator->tryGetStorage();
     if (storageCell == vm.orderedHashTableSentinel())
         RELEASE_AND_RETURN(scope, constructEmptyArray(globalObject, nullptr));
+    if (!storageCell) {
+        storageCell = map->storageOrSentinel(vm);
+        if (storageCell == vm.orderedHashTableSentinel())
+            RELEASE_AND_RETURN(scope, constructEmptyArray(globalObject, nullptr));
+    }
 
-    auto* storage = jsCast<JSMap::Storage*>(storageCell);
+    JSMap::Helper::Entry startEntry = mapIterator->entry();
+    auto* storage = uncheckedDowncast<JSMap::Storage>(storageCell);
 
     IndexingType indexingType = IsArray;
-    JSMap::Helper::Entry entry = 0;
+    JSMap::Helper::Entry entry = startEntry;
+    unsigned length = 0;
 
     while (true) {
-        storageCell = JSMap::Helper::nextAndUpdateIterationEntry(vm, *storage, entry);
-        if (storageCell == vm.orderedHashTableSentinel())
+        JSCell* nextCell = JSMap::Helper::nextAndUpdateIterationEntry(vm, *storage, entry);
+        if (nextCell == vm.orderedHashTableSentinel())
             break;
 
-        auto* currentStorage = jsCast<JSMap::Storage*>(storageCell);
+        auto* currentStorage = uncheckedDowncast<JSMap::Storage>(nextCell);
         entry = JSMap::Helper::iterationEntry(*currentStorage) + 1;
 
         JSValue entryValue;
@@ -483,8 +496,12 @@ static JSArray* tryCreateArrayFromMapIterator(JSGlobalObject* globalObject, JSMa
             entryValue = JSMap::Helper::getIterationEntryValue(*currentStorage);
 
         indexingType = leastUpperBoundOfIndexingTypeAndValue(indexingType, entryValue);
+        ++length;
         storage = currentStorage;
     }
+
+    if (!length)
+        RELEASE_AND_RETURN(scope, constructEmptyArray(globalObject, nullptr));
 
     Structure* resultStructure = globalObject->arrayStructureForIndexingTypeDuringAllocation(indexingType);
     IndexingType resultIndexingType = resultStructure->indexingType();
@@ -501,27 +518,24 @@ static JSArray* tryCreateArrayFromMapIterator(JSGlobalObject* globalObject, JSMa
         nullptr, AllocationFailureMode::ReturnNull);
     if (!memory) [[unlikely]]
         return nullptr;
-
-    DeferGC deferGC(vm);
     auto* resultButterfly = Butterfly::fromBase(memory, 0, 0);
     resultButterfly->setVectorLength(vectorLength);
     resultButterfly->setPublicLength(length);
 
-    storageCell = map->storageOrSentinel(vm);
-    if (storageCell == vm.orderedHashTableSentinel()) [[unlikely]]
-        return nullptr;
-    storage = jsCast<JSMap::Storage*>(storageCell);
-
-    entry = 0;
+    storageCell = mapIterator->tryGetStorage();
+    if (!storageCell)
+        storageCell = map->storageOrSentinel(vm);
+    storage = uncheckedDowncast<JSMap::Storage>(storageCell);
+    entry = startEntry;
     size_t i = 0;
 
     if (hasDouble(resultIndexingType)) {
         while (true) {
-            storageCell = JSMap::Helper::nextAndUpdateIterationEntry(vm, *storage, entry);
-            if (storageCell == vm.orderedHashTableSentinel())
+            JSCell* nextCell = JSMap::Helper::nextAndUpdateIterationEntry(vm, *storage, entry);
+            if (nextCell == vm.orderedHashTableSentinel())
                 break;
 
-            auto* currentStorage = jsCast<JSMap::Storage*>(storageCell);
+            auto* currentStorage = uncheckedDowncast<JSMap::Storage>(nextCell);
             entry = JSMap::Helper::iterationEntry(*currentStorage) + 1;
 
             JSValue value;
@@ -537,11 +551,11 @@ static JSArray* tryCreateArrayFromMapIterator(JSGlobalObject* globalObject, JSMa
         }
     } else if (hasInt32(resultIndexingType) || hasContiguous(resultIndexingType)) {
         while (true) {
-            storageCell = JSMap::Helper::nextAndUpdateIterationEntry(vm, *storage, entry);
-            if (storageCell == vm.orderedHashTableSentinel())
+            JSCell* nextCell = JSMap::Helper::nextAndUpdateIterationEntry(vm, *storage, entry);
+            if (nextCell == vm.orderedHashTableSentinel())
                 break;
 
-            auto* currentStorage = jsCast<JSMap::Storage*>(storageCell);
+            auto* currentStorage = uncheckedDowncast<JSMap::Storage>(nextCell);
             entry = JSMap::Helper::iterationEntry(*currentStorage) + 1;
 
             JSValue value;
@@ -558,6 +572,9 @@ static JSArray* tryCreateArrayFromMapIterator(JSGlobalObject* globalObject, JSMa
         RELEASE_ASSERT_NOT_REACHED();
 
     Butterfly::clearRange(resultIndexingType, resultButterfly, length, vectorLength);
+
+    mapIterator->close(vm);
+
     return JSArray::createWithButterfly(vm, nullptr, resultStructure, resultButterfly);
 }
 
@@ -582,7 +599,7 @@ JSC_DEFINE_HOST_FUNCTION(arrayConstructorPrivateFromFastWithoutMapFn, (JSGlobalO
         // For `Array.from(arguments)`
         switch (items.asCell()->type()) {
         case DirectArgumentsType: {
-            auto* arguments = jsCast<DirectArguments*>(items.asCell());
+            auto* arguments = uncheckedDowncast<DirectArguments>(items.asCell());
             if (arguments->isIteratorProtocolFastAndNonObservable()) [[likely]] {
                 result = tryCreateArrayFromDirectArguments(globalObject, arguments);
                 RETURN_IF_EXCEPTION(scope, { });
@@ -590,7 +607,7 @@ JSC_DEFINE_HOST_FUNCTION(arrayConstructorPrivateFromFastWithoutMapFn, (JSGlobalO
             break;
         }
         case ScopedArgumentsType: {
-            auto* arguments = jsCast<ScopedArguments*>(items.asCell());
+            auto* arguments = uncheckedDowncast<ScopedArguments>(items.asCell());
             if (arguments->isIteratorProtocolFastAndNonObservable()) [[likely]] {
                 result = tryCreateArrayFromScopedArguments(globalObject, arguments);
                 RETURN_IF_EXCEPTION(scope, { });
@@ -598,7 +615,7 @@ JSC_DEFINE_HOST_FUNCTION(arrayConstructorPrivateFromFastWithoutMapFn, (JSGlobalO
             break;
         }
         case ClonedArgumentsType: {
-            auto* arguments = jsCast<ClonedArguments*>(items.asCell());
+            auto* arguments = uncheckedDowncast<ClonedArguments>(items.asCell());
             if (arguments->isIteratorProtocolFastAndNonObservable()) [[likely]] {
                 result = tryCreateArrayFromClonedArguments(globalObject, arguments);
                 RETURN_IF_EXCEPTION(scope, { });
@@ -611,14 +628,14 @@ JSC_DEFINE_HOST_FUNCTION(arrayConstructorPrivateFromFastWithoutMapFn, (JSGlobalO
         }
     } else if (items && items.isCell() && items.asCell()->type() == JSSetType) {
         // For `Array.from(set)`
-        auto* set = jsCast<JSSet*>(items.asCell());
+        auto* set = uncheckedDowncast<JSSet>(items.asCell());
         if (set->isIteratorProtocolFastAndNonObservable()) [[likely]] {
             result = tryCreateArrayFromSet(globalObject, set);
             RETURN_IF_EXCEPTION(scope, { });
         }
     } else if (items && items.isCell() && items.asCell()->type() == JSMapIteratorType) {
         // For `Array.from(map.keys())`, `Array.from(map.values())`
-        auto* mapIterator = jsCast<JSMapIterator*>(items.asCell());
+        auto* mapIterator = uncheckedDowncast<JSMapIterator>(items.asCell());
         if (mapIterator->kind() != IterationKind::Entries && mapIteratorProtocolIsFastAndNonObservable(vm, mapIterator)) [[likely]] {
             result = tryCreateArrayFromMapIterator(globalObject, mapIterator);
             RETURN_IF_EXCEPTION(scope, { });

@@ -84,8 +84,6 @@
 
 namespace WebKit {
 using namespace WebCore;
-using namespace JSC;
-
 RefPtr<InjectedBundle> InjectedBundle::create(WebProcessCreationParameters& parameters, RefPtr<API::Object>&& initializationUserData)
 {
     TraceScope scope(TracePointCode::CreateInjectedBundleStart, TracePointCode::CreateInjectedBundleEnd);
@@ -124,16 +122,16 @@ void InjectedBundle::setServiceWorkerProxyCreationCallback(void (*callback)(uint
 void InjectedBundle::postMessage(const String& messageName, API::Object* messageBody)
 {
     auto& webProcess = WebProcess::singleton();
-    webProcess.protectedParentProcessConnection()->send(Messages::WebProcessPool::HandleMessage(messageName, UserData(webProcess.transformObjectsToHandles(messageBody))), 0);
+    protect(webProcess.parentProcessConnection())->send(Messages::WebProcessPool::HandleMessage(messageName, UserData(webProcess.transformObjectsToHandles(messageBody))), 0);
 }
 
 void InjectedBundle::postSynchronousMessage(const String& messageName, API::Object* messageBody, RefPtr<API::Object>& returnData)
 {
     auto& webProcess = WebProcess::singleton();
-    auto sendResult = webProcess.protectedParentProcessConnection()->sendSync(Messages::WebProcessPool::HandleSynchronousMessage(messageName, UserData(webProcess.transformObjectsToHandles(messageBody))), 0);
+    auto sendResult = protect(webProcess.parentProcessConnection())->sendSync(Messages::WebProcessPool::HandleSynchronousMessage(messageName, UserData(webProcess.transformObjectsToHandles(messageBody))), 0);
     if (sendResult.succeeded()) {
         auto [returnUserData] = sendResult.takeReply();
-        returnData = webProcess.transformHandlesToObjects(returnUserData.protectedObject().get());
+        returnData = webProcess.transformHandlesToObjects(protect(returnUserData.object()).get());
     } else
         returnData = nullptr;
 }
@@ -169,9 +167,9 @@ int InjectedBundle::numberOfPages(WebFrame* frame, double pageWidthInPixels, dou
     if (!coreFrame)
         return -1;
     if (!pageWidthInPixels)
-        pageWidthInPixels = coreFrame->protectedView()->width();
+        pageWidthInPixels = protect(coreFrame->view())->width();
     if (!pageHeightInPixels)
-        pageHeightInPixels = coreFrame->protectedView()->height();
+        pageHeightInPixels = protect(coreFrame->view())->height();
 
     return PrintContext::numberOfPages(*coreFrame, FloatSize(pageWidthInPixels, pageHeightInPixels));
 }
@@ -182,14 +180,14 @@ int InjectedBundle::pageNumberForElementById(WebFrame* frame, const String& id, 
     if (!coreFrame)
         return -1;
 
-    RefPtr element = coreFrame->protectedDocument()->getElementById(id);
+    RefPtr element = protect(coreFrame->document())->getElementById(id);
     if (!element)
         return -1;
 
     if (!pageWidthInPixels)
-        pageWidthInPixels = coreFrame->protectedView()->width();
+        pageWidthInPixels = protect(coreFrame->view())->width();
     if (!pageHeightInPixels)
-        pageHeightInPixels = coreFrame->protectedView()->height();
+        pageHeightInPixels = protect(coreFrame->view())->height();
 
     return PrintContext::pageNumberForElement(element.get(), FloatSize(pageWidthInPixels, pageHeightInPixels));
 }
@@ -229,7 +227,7 @@ void InjectedBundle::garbageCollectJavaScriptObjectsOnAlternateThreadForDebuggin
 
 size_t InjectedBundle::javaScriptObjectsCount()
 {
-    JSLockHolder lock(commonVM());
+    JSC::JSLockHolder lock(commonVM());
     return commonVM().heap.objectCount();
 }
 
@@ -239,7 +237,7 @@ void InjectedBundle::reportException(JSContextRef context, JSValueRef exception)
         return;
 
     JSC::JSGlobalObject* globalObject = toJS(context);
-    JSLockHolder lock(globalObject);
+    JSC::JSLockHolder lock(globalObject);
 
     WebCore::reportExceptionIfJSDOMWindow(globalObject, toJS(globalObject, exception));
 }
@@ -274,7 +272,7 @@ void InjectedBundle::setUserStyleSheetLocation(const String& location)
 void InjectedBundle::removeAllWebNotificationPermissions(WebPage* page)
 {
 #if ENABLE(NOTIFICATIONS)
-    page->protectedNotificationPermissionRequestManager()->removeAllPermissionsForTesting();
+    protect(page->notificationPermissionRequestManager())->removeAllPermissionsForTesting();
 #else
     UNUSED_PARAM(page);
 #endif
@@ -298,7 +296,7 @@ std::optional<WTF::UUID> InjectedBundle::webNotificationID(JSContextRef jsContex
 Ref<API::Data> InjectedBundle::createWebDataFromUint8Array(JSContextRef context, JSValueRef data)
 {
     JSC::JSGlobalObject* globalObject = toJS(context);
-    JSLockHolder lock(globalObject);
+    JSC::JSLockHolder lock(globalObject);
     RefPtr<Uint8Array> arrayData = WebCore::toUnsharedUint8Array(globalObject->vm(), toJS(globalObject, data));
     return API::Data::create(arrayData->span());
 }

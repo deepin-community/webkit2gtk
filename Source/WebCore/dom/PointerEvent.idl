@@ -23,23 +23,24 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-[
-    LegacyNativeDictionaryRequiredInterfaceNullability,
-] dictionary PointerEventInit : MouseEventInit {
+// https://w3c.github.io/pointerevents/
+
+// FIXME: The specification does not have defaults for tiltX, tiltY, altitudeAngle, and azimuthAngle, but it should.
+dictionary PointerEventInit : MouseEventInit {
     long pointerId = 0;
     double width = 1;
     double height = 1;
     float pressure = 0;
     float tangentialPressure = 0;
-    long tiltX = 0;
-    long tiltY = 0;
+    [ImplementationDefaultValue=0] long tiltX;
+    [ImplementationDefaultValue=0] long tiltY;
     long twist = 0;
-    [EnabledBySetting=AltitudeAngleEnabled] double altitudeAngle;
-    [EnabledBySetting=AzimuthAngleEnabled] double azimuthAngle;
+    [EnabledBySetting=AltitudeAngleEnabled, ImplementationDefaultValue=piOverTwoDouble] double altitudeAngle;
+    [EnabledBySetting=AzimuthAngleEnabled, ImplementationDefaultValue=0] double azimuthAngle;
     DOMString pointerType = "";
     boolean isPrimary = false;
-    [EnabledBySetting=GetCoalescedEventsEnabled] sequence<PointerEvent> coalescedEvents = [];
-    [EnabledBySetting=GetPredictedEventsEnabled] sequence<PointerEvent> predictedEvents = [];
+    sequence<PointerEvent> coalescedEvents = [];
+    sequence<PointerEvent> predictedEvents = [];
 };
 
 [
@@ -48,7 +49,7 @@
     JSGenerateToNativeObject,
     ExportToWrappedFunction
 ] interface PointerEvent : MouseEvent {
-    constructor([AtomString] DOMString type, optional PointerEventInit eventInitDict);
+    constructor([AtomString] DOMString type, optional PointerEventInit eventInitDict = {});
 
     readonly attribute long pointerId;
     readonly attribute double width;
@@ -63,7 +64,6 @@
     readonly attribute DOMString pointerType;
     readonly attribute boolean isPrimary;
 
-    [SecureContext, EnabledBySetting=GetCoalescedEventsEnabled] sequence<PointerEvent> getCoalescedEvents();
-    [EnabledBySetting=GetPredictedEventsEnabled] sequence<PointerEvent> getPredictedEvents();
+    [SecureContext] sequence<PointerEvent> getCoalescedEvents();
+    sequence<PointerEvent> getPredictedEvents();
 };
-

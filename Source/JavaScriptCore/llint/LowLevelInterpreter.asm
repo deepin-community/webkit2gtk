@@ -461,6 +461,7 @@ const OpcodeIDWide32SizeWasm = 2 # Wide32 Prefix + OpcodeID(1 byte)
 
 const WTFConfig = _g_config + constexpr WTF::startOffsetOfWTFConfig
 const GigacageConfig = _g_config + constexpr Gigacage::startOffsetOfGigacageConfig
+const ExecutableAllocatorConfigOffset = constexpr WebConfig::startOffsetOfExecutableAllocatorConfig
 const JSCConfigOffset = constexpr WTF::offsetOfWTFConfigExtension
 const JSCConfigGateMapOffset = JSCConfigOffset + constexpr JSC::offsetOfJSCConfigGateMap
 
@@ -918,8 +919,8 @@ const CalleeRegisterSaveSize = CalleeSaveRegisterCount * MachineRegisterSize
 const VMEntryTotalFrameSize = (CalleeRegisterSaveSize + sizeof VMEntryRecord + StackAlignment - 1) & ~StackAlignmentMask
 
 macro pushCalleeSaves()
-    # Note: Only registers that are in RegisterSetBuilder::calleeSaveRegisters(),
-    # but are not in RegisterSetBuilder::vmCalleeSaveRegisters() need to be saved here,
+    # Note: Only registers that are in RegisterSet::calleeSaveRegisters(),
+    # but are not in RegisterSet::vmCalleeSaveRegisters() need to be saved here,
     # i.e.: only those registers that are callee save in the C ABI, but are not
     # callee save in the JIT ABI.
     if C_LOOP or ARM64 or ARM64E or X86_64 or RISCV64
@@ -1047,60 +1048,64 @@ macro forEachFPCalleeSave(func)
     end
 end
 
+macro copyCalleeSavesToBuffer(buffer)
+    if ARM64 or ARM64E
+        storepairq csr0, csr1, [buffer]
+        storepairq csr2, csr3, 16[buffer]
+        storepairq csr4, csr5, 32[buffer]
+        storepairq csr6, csr7, 48[buffer]
+        storepairq csr8, csr9, 64[buffer]
+        storepaird csfr0, csfr1, 80[buffer]
+        storepaird csfr2, csfr3, 96[buffer]
+        storepaird csfr4, csfr5, 112[buffer]
+        storepaird csfr6, csfr7, 128[buffer]
+    elsif X86_64
+        storeq csr0, [buffer]
+        storeq csr1, 8[buffer]
+        storeq csr2, 16[buffer]
+        storeq csr3, 24[buffer]
+        storeq csr4, 32[buffer]
+    elsif ARMv7
+        storep csr0, [buffer]
+        storep csr1, 4[buffer]
+        stored csfr0, 8[buffer]
+        stored csfr1, 16[buffer]
+        stored csfr2, 24[buffer]
+        stored csfr3, 32[buffer]
+        stored csfr4, 40[buffer]
+        stored csfr5, 48[buffer]
+    elsif RISCV64
+        storep csr0, [buffer]
+        storep csr1, 8[buffer]
+        storep csr2, 16[buffer]
+        storep csr3, 24[buffer]
+        storep csr4, 32[buffer]
+        storep csr5, 40[buffer]
+        storep csr6, 48[buffer]
+        storep csr7, 56[buffer]
+        storep csr8, 64[buffer]
+        storep csr9, 72[buffer]
+        storep csr10, 80[buffer]
+        stored csfr0, 88[buffer]
+        stored csfr1, 96[buffer]
+        stored csfr2, 104[buffer]
+        stored csfr3, 112[buffer]
+        stored csfr4, 120[buffer]
+        stored csfr5, 128[buffer]
+        stored csfr6, 136[buffer]
+        stored csfr7, 144[buffer]
+        stored csfr8, 152[buffer]
+        stored csfr9, 160[buffer]
+        stored csfr10, 168[buffer]
+        stored csfr11, 176[buffer]
+    end
+end
+
 macro copyCalleeSavesToEntryFrameCalleeSavesBuffer(entryFrame)
     if ARM64 or ARM64E or X86_64 or ARMv7 or RISCV64
         vmEntryRecord(entryFrame, entryFrame)
         leap VMEntryRecord::calleeSaveRegistersBuffer[entryFrame], entryFrame
-        if ARM64 or ARM64E
-            storepairq csr0, csr1, [entryFrame]
-            storepairq csr2, csr3, 16[entryFrame]
-            storepairq csr4, csr5, 32[entryFrame]
-            storepairq csr6, csr7, 48[entryFrame]
-            storepairq csr8, csr9, 64[entryFrame]
-            storepaird csfr0, csfr1, 80[entryFrame]
-            storepaird csfr2, csfr3, 96[entryFrame]
-            storepaird csfr4, csfr5, 112[entryFrame]
-            storepaird csfr6, csfr7, 128[entryFrame]
-        elsif X86_64
-            storeq csr0, [entryFrame]
-            storeq csr1, 8[entryFrame]
-            storeq csr2, 16[entryFrame]
-            storeq csr3, 24[entryFrame]
-            storeq csr4, 32[entryFrame]
-        elsif ARMv7
-            storep csr0, [entryFrame]
-            storep csr1, 4[entryFrame]
-            stored csfr0, 8[entryFrame]
-            stored csfr1, 16[entryFrame]
-            stored csfr2, 24[entryFrame]
-            stored csfr3, 32[entryFrame]
-            stored csfr4, 40[entryFrame]
-            stored csfr5, 48[entryFrame]
-        elsif RISCV64
-            storep csr0, [entryFrame]
-            storep csr1, 8[entryFrame]
-            storep csr2, 16[entryFrame]
-            storep csr3, 24[entryFrame]
-            storep csr4, 32[entryFrame]
-            storep csr5, 40[entryFrame]
-            storep csr6, 48[entryFrame]
-            storep csr7, 56[entryFrame]
-            storep csr8, 64[entryFrame]
-            storep csr9, 72[entryFrame]
-            storep csr10, 80[entryFrame]
-            stored csfr0, 88[entryFrame]
-            stored csfr1, 96[entryFrame]
-            stored csfr2, 104[entryFrame]
-            stored csfr3, 112[entryFrame]
-            stored csfr4, 120[entryFrame]
-            stored csfr5, 128[entryFrame]
-            stored csfr6, 136[entryFrame]
-            stored csfr7, 144[entryFrame]
-            stored csfr8, 152[entryFrame]
-            stored csfr9, 160[entryFrame]
-            stored csfr10, 168[entryFrame]
-            stored csfr11, 176[entryFrame]
-        end
+        copyCalleeSavesToBuffer(entryFrame)
     end
 end
 
@@ -1111,61 +1116,65 @@ macro copyCalleeSavesToVMEntryFrameCalleeSavesBuffer(vm, temp)
     end
 end
 
+macro restoreCalleeSavesFromBuffer(buffer)
+    if ARM64 or ARM64E
+        loadpairq [buffer], csr0, csr1
+        loadpairq 16[buffer], csr2, csr3
+        loadpairq 32[buffer], csr4, csr5
+        loadpairq 48[buffer], csr6, csr7
+        loadpairq 64[buffer], csr8, csr9
+        loadpaird 80[buffer], csfr0, csfr1
+        loadpaird 96[buffer], csfr2, csfr3
+        loadpaird 112[buffer], csfr4, csfr5
+        loadpaird 128[buffer], csfr6, csfr7
+    elsif X86_64
+        loadq [buffer], csr0
+        loadq 8[buffer], csr1
+        loadq 16[buffer], csr2
+        loadq 24[buffer], csr3
+        loadq 32[buffer], csr4
+    elsif ARMv7
+        loadp [buffer], csr0
+        loadp 4[buffer], csr1
+        loadd 8[buffer], csfr0
+        loadd 16[buffer], csfr1
+        loadd 24[buffer], csfr2
+        loadd 32[buffer], csfr3
+        loadd 40[buffer], csfr4
+        loadd 48[buffer], csfr5
+    elsif RISCV64
+        loadq [buffer], csr0
+        loadq 8[buffer], csr1
+        loadq 16[buffer], csr2
+        loadq 24[buffer], csr3
+        loadq 32[buffer], csr4
+        loadq 40[buffer], csr5
+        loadq 48[buffer], csr6
+        loadq 56[buffer], csr7
+        loadq 64[buffer], csr8
+        loadq 72[buffer], csr9
+        loadq 80[buffer], csr10
+        loadd 88[buffer], csfr0
+        loadd 96[buffer], csfr1
+        loadd 104[buffer], csfr2
+        loadd 112[buffer], csfr3
+        loadd 120[buffer], csfr4
+        loadd 128[buffer], csfr5
+        loadd 136[buffer], csfr6
+        loadd 144[buffer], csfr7
+        loadd 152[buffer], csfr8
+        loadd 160[buffer], csfr9
+        loadd 168[buffer], csfr10
+        loadd 176[buffer], csfr11
+    end
+end
+
 macro restoreCalleeSavesFromVMEntryFrameCalleeSavesBuffer(vm, temp)
     if ARM64 or ARM64E or X86_64 or ARMv7 or RISCV64
         loadp VM::topEntryFrame[vm], temp
         vmEntryRecord(temp, temp)
         leap VMEntryRecord::calleeSaveRegistersBuffer[temp], temp
-        if ARM64 or ARM64E
-            loadpairq [temp], csr0, csr1
-            loadpairq 16[temp], csr2, csr3
-            loadpairq 32[temp], csr4, csr5
-            loadpairq 48[temp], csr6, csr7
-            loadpairq 64[temp], csr8, csr9
-            loadpaird 80[temp], csfr0, csfr1
-            loadpaird 96[temp], csfr2, csfr3
-            loadpaird 112[temp], csfr4, csfr5
-            loadpaird 128[temp], csfr6, csfr7
-        elsif X86_64
-            loadq [temp], csr0
-            loadq 8[temp], csr1
-            loadq 16[temp], csr2
-            loadq 24[temp], csr3
-            loadq 32[temp], csr4
-        elsif ARMv7
-            loadp [temp], csr0
-            loadp 4[temp], csr1
-            loadd 8[temp], csfr0
-            loadd 16[temp], csfr1
-            loadd 24[temp], csfr2
-            loadd 32[temp], csfr3
-            loadd 40[temp], csfr4
-            loadd 48[temp], csfr5
-        elsif RISCV64
-            loadq [temp], csr0
-            loadq 8[temp], csr1
-            loadq 16[temp], csr2
-            loadq 24[temp], csr3
-            loadq 32[temp], csr4
-            loadq 40[temp], csr5
-            loadq 48[temp], csr6
-            loadq 56[temp], csr7
-            loadq 64[temp], csr8
-            loadq 72[temp], csr9
-            loadq 80[temp], csr10
-            loadd 88[temp], csfr0
-            loadd 96[temp], csfr1
-            loadd 104[temp], csfr2
-            loadd 112[temp], csfr3
-            loadd 120[temp], csfr4
-            loadd 128[temp], csfr5
-            loadd 136[temp], csfr6
-            loadd 144[temp], csfr7
-            loadd 152[temp], csfr8
-            loadd 160[temp], csfr9
-            loadd 168[temp], csfr10
-            loadd 176[temp], csfr11
-        end
+        restoreCalleeSavesFromBuffer(temp)
     end
 end
 
@@ -1853,14 +1862,46 @@ else
 end
     doVMEntry(makeJavaScriptCall)
 
-if (ARM64E or ARM64) and ADDRESS64
+if ((ARM64E or ARM64) or X86_64) and ADDRESS64 and not C_LOOP
     macro vmEntryToJavaScriptSetup()
         functionPrologue()
         pushCalleeSaves()
         vmEntryRecord(cfr, sp)
-        storepairq a1, a5, VMEntryRecord::m_vm[sp]
-        loadpairq VM::topCallFrame[a1], t8, t9 # topCallFrame and topEntryFrame
-        storepairq t8, t9, VMEntryRecord::m_prevTopCallFrame[sp]
+        if ARM64 or ARM64E
+            storepairq a1, a5, VMEntryRecord::m_vm[sp]
+            loadpairq VM::topCallFrame[a1], t8, t9 # topCallFrame and topEntryFrame
+            storepairq t8, t9, VMEntryRecord::m_prevTopCallFrame[sp]
+        else
+            storeq a1, VMEntryRecord::m_vm[sp]
+            storeq a5, VMEntryRecord::m_context[sp]
+            loadq VM::topCallFrame[a1], t0
+            storeq t0, VMEntryRecord::m_prevTopCallFrame[sp]
+            loadq VM::topEntryFrame[a1], t0
+            storeq t0, VMEntryRecord::m_prevTopEntryFrame[sp]
+        end
+    end
+
+    macro vmEntryToJavaScriptStoreHeader(scratch, argCount)
+        move argCount, scratch
+        if ARM64 or ARM64E
+            storepairq a2, a3, CodeBlock + (SlotSize * 0)[sp]
+            storepairq scratch, a4, CodeBlock + (SlotSize * 2)[sp]
+        else
+            storeq a2, CodeBlock + (SlotSize * 0)[sp]
+            storeq a3, CodeBlock + (SlotSize * 1)[sp]
+            storeq scratch, CodeBlock + (SlotSize * 2)[sp]
+            storeq a4, CodeBlock + (SlotSize * 3)[sp]
+        end
+    end
+
+    macro vmEntryToJavaScriptSetTopCallFrame()
+        if ARM64 or ARM64E
+            move sp, t8
+            storepairq t8, cfr, VM::topCallFrame[a1] # topCallFrame and topEntryFrame
+        else
+            storeq sp, VM::topCallFrame[a1]
+            storeq cfr, VM::topEntryFrame[a1]
+        end
     end
 
     #  versions - these include a context parameter (JSCell*)
@@ -1870,12 +1911,13 @@ if (ARM64E or ARM64) and ADDRESS64
     _vmEntryToJavaScriptWith0Arguments:
         # entry must be a0
         vmEntryToJavaScriptSetup()
-        move 1, t8 # argumentCountIncludingThis
         subp ((CallFrameHeaderSize + 1 * SlotSize + StackAlignment - 1) & ~StackAlignmentMask), sp
-        storepairq a2, a3, CodeBlock + (SlotSize * 0)[sp]
-        storepairq t8, a4, CodeBlock + (SlotSize * 2)[sp]
-        move sp, t8
-        storepairq t8, cfr, VM::topCallFrame[a1] # topCallFrame and topEntryFrame
+        if ARM64 or ARM64E
+            vmEntryToJavaScriptStoreHeader(t8, 1)
+        else
+            vmEntryToJavaScriptStoreHeader(t0, 1)
+        end
+        vmEntryToJavaScriptSetTopCallFrame()
         jmp _llint_call_javascript
 
     # EncodedJSValue vmEntryToJavaScriptWith1Arguments(void*, VM*, CodeBlock*, JSObject*, JSValue, JSCell*, JSValue)
@@ -1884,15 +1926,17 @@ if (ARM64E or ARM64) and ADDRESS64
     _vmEntryToJavaScriptWith1Arguments:
         # entry must be a0
         vmEntryToJavaScriptSetup()
-        move 2, t8 # argumentCountIncludingThis
         subp ((CallFrameHeaderSize + 2 * SlotSize + StackAlignment - 1) & ~StackAlignmentMask), sp
-        storepairq a2, a3, CodeBlock + (SlotSize * 0)[sp]
-        storepairq t8, a4, CodeBlock + (SlotSize * 2)[sp]
-        storepairq a6, a6, CodeBlock + (SlotSize * 4)[sp]
-        move sp, t8
-        storepairq t8, cfr, VM::topCallFrame[a1] # topCallFrame and topEntryFrame
+        if ARM64 or ARM64E
+            vmEntryToJavaScriptStoreHeader(t8, 2)
+            storepairq a6, a6, CodeBlock + (SlotSize * 4)[sp]
+        else
+            vmEntryToJavaScriptStoreHeader(t0, 2)
+            loadq 16[cfr], t0
+            storeq t0, CodeBlock + (SlotSize * 4)[sp]
+        end
+        vmEntryToJavaScriptSetTopCallFrame()
         jmp _llint_call_javascript
-
 
     # EncodedJSValue vmEntryToJavaScriptWith2Arguments(void*, VM*, CodeBlock*, JSObject*, JSValue, JSCell*, JSValue, JSValue)
     # entry, vm, codeBlock, callee, thisValue, context, arg0, arg1
@@ -1900,13 +1944,18 @@ if (ARM64E or ARM64) and ADDRESS64
     _vmEntryToJavaScriptWith2Arguments:
         # entry must be a0
         vmEntryToJavaScriptSetup()
-        move 3, t8 # argumentCountIncludingThis
         subp ((CallFrameHeaderSize + 3 * SlotSize + StackAlignment - 1) & ~StackAlignmentMask), sp
-        storepairq a2, a3, CodeBlock + (SlotSize * 0)[sp]
-        storepairq t8, a4, CodeBlock + (SlotSize * 2)[sp]
-        storepairq a6, a7, CodeBlock + (SlotSize * 4)[sp]
-        move sp, t8
-        storepairq t8, cfr, VM::topCallFrame[a1] # topCallFrame and topEntryFrame
+        if ARM64 or ARM64E
+            vmEntryToJavaScriptStoreHeader(t8, 3)
+            storepairq a6, a7, CodeBlock + (SlotSize * 4)[sp]
+        else
+            vmEntryToJavaScriptStoreHeader(t0, 3)
+            loadq 16[cfr], t0
+            loadq 24[cfr], t5
+            storeq t0, CodeBlock + (SlotSize * 4)[sp]
+            storeq t5, CodeBlock + (SlotSize * 5)[sp]
+        end
+        vmEntryToJavaScriptSetTopCallFrame()
         jmp _llint_call_javascript
 
     # EncodedJSValue vmEntryToJavaScriptWith3Arguments(void*, VM*, CodeBlock*, JSObject*, JSValue, JSCell*, JSValue, JSValue, JSValue)
@@ -1915,15 +1964,22 @@ if (ARM64E or ARM64) and ADDRESS64
     _vmEntryToJavaScriptWith3Arguments:
         # entry must be a0
         vmEntryToJavaScriptSetup()
-        move 4, t8 # argumentCountIncludingThis
         subp ((CallFrameHeaderSize + 4 * SlotSize + StackAlignment - 1) & ~StackAlignmentMask), sp
-        loadq 16[cfr], t9 # Load arg2 from stack
-        storepairq a2, a3, CodeBlock + (SlotSize * 0)[sp]
-        storepairq t8, a4, CodeBlock + (SlotSize * 2)[sp]
-        storepairq a6, a7, CodeBlock + (SlotSize * 4)[sp]
-        storepairq t9, t9, CodeBlock + (SlotSize * 6)[sp]
-        move sp, t8
-        storepairq t8, cfr, VM::topCallFrame[a1] # topCallFrame and topEntryFrame
+        if ARM64 or ARM64E
+            loadq 16[cfr], t9 # Load arg2 from stack
+            vmEntryToJavaScriptStoreHeader(t8, 4)
+            storepairq a6, a7, CodeBlock + (SlotSize * 4)[sp]
+            storepairq t9, t9, CodeBlock + (SlotSize * 6)[sp]
+        else
+            vmEntryToJavaScriptStoreHeader(t0, 4)
+            loadq 16[cfr], t0
+            loadq 24[cfr], t5
+            storeq t0, CodeBlock + (SlotSize * 4)[sp]
+            storeq t5, CodeBlock + (SlotSize * 5)[sp]
+            loadq 32[cfr], t0
+            storeq t0, CodeBlock + (SlotSize * 6)[sp]
+        end
+        vmEntryToJavaScriptSetTopCallFrame()
         jmp _llint_call_javascript
 
     # EncodedJSValue vmEntryToJavaScriptWith4Arguments(void*, VM*, CodeBlock*, JSObject*, JSValue, JSCell*, JSValue, JSValue, JSValue, JSValue)
@@ -1932,15 +1988,24 @@ if (ARM64E or ARM64) and ADDRESS64
     _vmEntryToJavaScriptWith4Arguments:
         # entry must be a0
         vmEntryToJavaScriptSetup()
-        move 5, t8 # argumentCountIncludingThis
         subp ((CallFrameHeaderSize + 5 * SlotSize + StackAlignment - 1) & ~StackAlignmentMask), sp
-        loadpairq 16[cfr], t9, t10
-        storepairq a2, a3, CodeBlock + (SlotSize * 0)[sp]
-        storepairq t8, a4, CodeBlock + (SlotSize * 2)[sp]
-        storepairq a6, a7, CodeBlock + (SlotSize * 4)[sp]
-        storepairq t9, t10, CodeBlock + (SlotSize * 6)[sp]
-        move sp, t8
-        storepairq t8, cfr, VM::topCallFrame[a1] # topCallFrame and topEntryFrame
+        if ARM64 or ARM64E
+            loadpairq 16[cfr], t9, t10
+            vmEntryToJavaScriptStoreHeader(t8, 5)
+            storepairq a6, a7, CodeBlock + (SlotSize * 4)[sp]
+            storepairq t9, t10, CodeBlock + (SlotSize * 6)[sp]
+        else
+            vmEntryToJavaScriptStoreHeader(t0, 5)
+            loadq 16[cfr], t0
+            loadq 24[cfr], t5
+            storeq t0, CodeBlock + (SlotSize * 4)[sp]
+            storeq t5, CodeBlock + (SlotSize * 5)[sp]
+            loadq 32[cfr], t0
+            loadq 40[cfr], t5
+            storeq t0, CodeBlock + (SlotSize * 6)[sp]
+            storeq t5, CodeBlock + (SlotSize * 7)[sp]
+        end
+        vmEntryToJavaScriptSetTopCallFrame()
         jmp _llint_call_javascript
 
     # EncodedJSValue vmEntryToJavaScriptWith5Arguments(void*, VM*, CodeBlock*, JSObject*, JSValue, JSCell*, JSValue, JSValue, JSValue, JSValue, JSValue)
@@ -1949,17 +2014,28 @@ if (ARM64E or ARM64) and ADDRESS64
     _vmEntryToJavaScriptWith5Arguments:
         # entry must be a0
         vmEntryToJavaScriptSetup()
-        move 6, t8 # argumentCountIncludingThis
         subp ((CallFrameHeaderSize + 6 * SlotSize + StackAlignment - 1) & ~StackAlignmentMask), sp
-        loadpairq 16[cfr], t9, t10
-        loadq 32[cfr], t11
-        storepairq a2, a3, CodeBlock + (SlotSize * 0)[sp]
-        storepairq t8, a4, CodeBlock + (SlotSize * 2)[sp]
-        storepairq a6, a7, CodeBlock + (SlotSize * 4)[sp]
-        storepairq t9, t10, CodeBlock + (SlotSize * 6)[sp]
-        storepairq t11, t11, CodeBlock + (SlotSize * 8)[sp]
-        move sp, t8
-        storepairq t8, cfr, VM::topCallFrame[a1] # topCallFrame and topEntryFrame
+        if ARM64 or ARM64E
+            loadpairq 16[cfr], t9, t10
+            loadq 32[cfr], t11
+            vmEntryToJavaScriptStoreHeader(t8, 6)
+            storepairq a6, a7, CodeBlock + (SlotSize * 4)[sp]
+            storepairq t9, t10, CodeBlock + (SlotSize * 6)[sp]
+            storepairq t11, t11, CodeBlock + (SlotSize * 8)[sp]
+        else
+            vmEntryToJavaScriptStoreHeader(t0, 6)
+            loadq 16[cfr], t0
+            loadq 24[cfr], t5
+            storeq t0, CodeBlock + (SlotSize * 4)[sp]
+            storeq t5, CodeBlock + (SlotSize * 5)[sp]
+            loadq 32[cfr], t0
+            loadq 40[cfr], t5
+            storeq t0, CodeBlock + (SlotSize * 6)[sp]
+            storeq t5, CodeBlock + (SlotSize * 7)[sp]
+            loadq 48[cfr], t0
+            storeq t0, CodeBlock + (SlotSize * 8)[sp]
+        end
+        vmEntryToJavaScriptSetTopCallFrame()
         jmp _llint_call_javascript
 
     # EncodedJSValue vmEntryToJavaScriptWith6Arguments(void*, VM*, CodeBlock*, JSObject*, JSValue, JSCell*, JSValue, JSValue, JSValue, JSValue, JSValue, JSValue)
@@ -1968,17 +2044,30 @@ if (ARM64E or ARM64) and ADDRESS64
     _vmEntryToJavaScriptWith6Arguments:
         # entry must be a0
         vmEntryToJavaScriptSetup()
-        move 7, t8 # argumentCountIncludingThis
         subp ((CallFrameHeaderSize + 7 * SlotSize + StackAlignment - 1) & ~StackAlignmentMask), sp
-        loadpairq 16[cfr], t9, t10
-        loadpairq 32[cfr], t11, t12 # Load arg4 and arg5 from stack
-        storepairq a2, a3, CodeBlock + (SlotSize * 0)[sp]
-        storepairq t8, a4, CodeBlock + (SlotSize * 2)[sp]
-        storepairq a6, a7, CodeBlock + (SlotSize * 4)[sp]
-        storepairq t9, t10, CodeBlock + (SlotSize * 6)[sp]
-        storepairq t11, t12, CodeBlock + (SlotSize * 8)[sp]
-        move sp, t8
-        storepairq t8, cfr, VM::topCallFrame[a1] # topCallFrame and topEntryFrame
+        if ARM64 or ARM64E
+            loadpairq 16[cfr], t9, t10
+            loadpairq 32[cfr], t11, t12 # Load arg4 and arg5 from stack
+            vmEntryToJavaScriptStoreHeader(t8, 7)
+            storepairq a6, a7, CodeBlock + (SlotSize * 4)[sp]
+            storepairq t9, t10, CodeBlock + (SlotSize * 6)[sp]
+            storepairq t11, t12, CodeBlock + (SlotSize * 8)[sp]
+        else
+            vmEntryToJavaScriptStoreHeader(t0, 7)
+            loadq 16[cfr], t0
+            loadq 24[cfr], t5
+            storeq t0, CodeBlock + (SlotSize * 4)[sp]
+            storeq t5, CodeBlock + (SlotSize * 5)[sp]
+            loadq 32[cfr], t0
+            loadq 40[cfr], t5
+            storeq t0, CodeBlock + (SlotSize * 6)[sp]
+            storeq t5, CodeBlock + (SlotSize * 7)[sp]
+            loadq 48[cfr], t0
+            loadq 56[cfr], t5
+            storeq t0, CodeBlock + (SlotSize * 8)[sp]
+            storeq t5, CodeBlock + (SlotSize * 9)[sp]
+        end
+        vmEntryToJavaScriptSetTopCallFrame()
         jmp _llint_call_javascript
 end
 
@@ -2172,9 +2261,6 @@ if C_LOOP
 else
     macro initPCRelative(kind, pcBase)
         if X86_64
-            call _%kind%_relativePCBase
-        _%kind%_relativePCBase:
-            pop pcBase
         elsif ARM64 or ARM64E
         elsif ARMv7
         _%kind%_relativePCBase:
@@ -2186,15 +2272,7 @@ else
     # The PC base is in t3, as this is what _llint_entry leaves behind through
     # initPCRelative(t3)
     macro setEntryAddressCommon(kind, index, label, map)
-        if X86_64
-            leap (label - _%kind%_relativePCBase)[t3], t4
-            move index, t5
-            storep t4, [map, t5, 8]
-        elsif ARM64 or RISCV64
-            pcrtoaddr label, t3
-            move index, t4
-            storep t3, [map, t4, PtrSize]
-        elsif ARM64E
+        if ARM64E
             pcrtoaddr label, t3
             move index, t4
             leap [map, t4, PtrSize], t4
@@ -2205,6 +2283,10 @@ else
             addp t4, t3, t4
             move index, t5
             storep t4, [map, t5, 4]
+        else # X86_64, ARM64, RISCV64
+            pcrtoaddr label, t3
+            move index, t4
+            storep t3, [map, t4, PtrSize]
         end
     end
 
@@ -2378,6 +2460,7 @@ slowPathOp(typeof_is_object)
 slowPathOp(unreachable)
 slowPathOp(new_promise)
 slowPathOp(new_generator)
+slowPathOp(new_async_function_generator)
 
 macro llintSlowPathOp(opcodeName)
     llintOp(op_%opcodeName%, unused, macro (unused, unused, dispatch)
@@ -2644,14 +2727,6 @@ llintOpWithMetadata(op_tail_call_varargs, OpTailCallVarargs, macro (size, get, d
     # We lie and perform the tail call instead of preparing it since we can't
     # prepare the frame for a call opcode
     doCallVarargs(op_tail_call_varargs, size, get, OpTailCallVarargs, m_valueProfile, m_dst, dispatch, metadata, _llint_slow_path_size_frame_for_varargs, _llint_slow_path_tail_call_varargs, prepareForTailCall, invokeForTailCall, prepareForSlowTailCall, dispatchAfterTailCall)
-end)
-
-
-llintOpWithMetadata(op_tail_call_forward_arguments, OpTailCallForwardArguments, macro (size, get, dispatch, metadata, return)
-    checkSwitchToJITForEpilogue()
-    # We lie and perform the tail call instead of preparing it since we can't
-    # prepare the frame for a call opcode
-    doCallVarargs(op_tail_call_forward_arguments, size, get, OpTailCallForwardArguments, m_valueProfile, m_dst, dispatch, metadata, _llint_slow_path_size_frame_for_forward_arguments, _llint_slow_path_tail_call_forward_arguments, prepareForTailCall, invokeForTailCall, prepareForSlowTailCall, dispatchAfterTailCall)
 end)
 
 
@@ -3011,6 +3086,32 @@ op(normal_osr_exit_trampoline, macro ()
     dispatch(0)
 end)
 
+op(array_sort_comparator_return_trampoline, macro ()
+    if (JSVALUE64 and not C_LOOP) or ARMv7
+        restoreStackPointerAfterCall()
+
+        if ARMv7
+            move cfr, a0
+            cCall4(_llint_slow_path_array_sort_comparator_return)
+        else
+            move cfr, a0
+            cCall2(_llint_slow_path_array_sort_comparator_return)
+        end
+
+        setupReturnToBaselineAfterCheckpointExitIfNeeded()
+        restoreStateAfterCCall()
+        branchIfException(_llint_throw_from_slow_path_trampoline)
+        if ARM64E
+            move r1, a0
+            leap _g_config, a2
+            jmp JSCConfigGateMapOffset + (constexpr Gate::loopOSREntry) * PtrSize[a2], NativeToJITGatePtrTag # JSEntryPtrTag
+        else
+            jmp r1, JSEntryPtrTag
+        end
+    else
+        notSupported()
+    end
+end)
 
 # Lastly, make sure that we can link even though we don't support all opcodes.
 # These opcodes should never arise when using LLInt or either JIT. We assert

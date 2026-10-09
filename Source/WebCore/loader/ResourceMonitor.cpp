@@ -232,7 +232,7 @@ void ResourceMonitor::checkNetworkUsageExcessIfNecessary()
             return;
         }
 
-        frame->loader().protectedClient()->didExceedNetworkUsageThreshold();
+        protect(frame->loader().client())->didExceedNetworkUsageThreshold();
     }
 }
 

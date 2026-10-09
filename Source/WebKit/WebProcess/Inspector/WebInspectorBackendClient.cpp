@@ -105,7 +105,7 @@ void WebInspectorBackendClient::frontendCountChanged(unsigned count)
 Inspector::FrontendChannel* WebInspectorBackendClient::openLocalFrontend(PageInspectorController* controller)
 {
     if (RefPtr page = m_page.get())
-        page->protectedInspector()->openLocalInspectorFrontend();
+        protect(page->inspector())->openLocalInspectorFrontend();
     return nullptr;
 }
 
@@ -136,7 +136,7 @@ void WebInspectorBackendClient::highlight()
         return;
 
     if (!page->corePage()->settings().acceleratedCompositingEnabled()) {
-#if PLATFORM(GTK) || PLATFORM(WIN) || PLATFORM(PLAYSTATION)
+#if PLATFORM(GTK) || PLATFORM(WIN) || PLATFORM(PLAYSTATION) || PLATFORM(WPE)
         // FIXME: It can be optimized by marking only highlighted rect dirty.
         // setNeedsDisplay always makes whole rect dirty, and could lead to poor performance.
         // https://bugs.webkit.org/show_bug.cgi?id=195933
@@ -168,7 +168,7 @@ void WebInspectorBackendClient::hideHighlight()
     if (!page)
         return;
 
-#if PLATFORM(GTK) || PLATFORM(WIN) || PLATFORM(PLAYSTATION)
+#if PLATFORM(GTK) || PLATFORM(WIN) || PLATFORM(PLAYSTATION) || PLATFORM(WPE)
     if (!page->corePage()->settings().acceleratedCompositingEnabled()) {
         // FIXME: It can be optimized by marking only highlighted rect dirty.
         // setNeedsDisplay always makes whole rect dirty, and could lead to poor performance.
@@ -205,7 +205,7 @@ void WebInspectorBackendClient::showPaintRect(const FloatRect& rect)
     if (!m_paintIndicatorLayerClient)
         m_paintIndicatorLayerClient = makeUnique<RepaintIndicatorLayerClient>(*this);
 
-    Ref paintLayer = GraphicsLayer::create(page->protectedDrawingArea()->graphicsLayerFactory(), *m_paintIndicatorLayerClient);
+    Ref paintLayer = GraphicsLayer::create(protect(page->drawingArea())->graphicsLayerFactory(), *m_paintIndicatorLayerClient);
 
     paintLayer->setName(MAKE_STATIC_STRING_IMPL("paint rect"));
     paintLayer->setAnchorPoint(FloatPoint3D());

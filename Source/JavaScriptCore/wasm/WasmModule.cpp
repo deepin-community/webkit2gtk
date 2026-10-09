@@ -42,29 +42,33 @@ namespace JSC { namespace Wasm {
 
 Module::Module(IPIntPlan& plan)
     : m_moduleInformation(plan.takeModuleInformation())
-    , m_ipintCallees(IPIntCallees::createFromVector(plan.takeCallees()))
+    , m_ipintCallees(plan.takeCallees())
     , m_wasmToJSExitStubs(plan.takeWasmToJSExitStubs())
 {
+#if ENABLE(WEBASSEMBLY_DEBUGGER)
     if (Options::enableWasmDebugger()) [[unlikely]]
         Wasm::DebugServer::singleton().trackModule(*this);
+#endif
 }
 
 Module::~Module()
 {
+#if ENABLE(WEBASSEMBLY_DEBUGGER)
     if (Options::enableWasmDebugger()) [[unlikely]]
         Wasm::DebugServer::singleton().untrackModule(*this);
+#endif
 }
 
-Wasm::TypeIndex Module::typeIndexFromFunctionIndexSpace(FunctionSpaceIndex functionIndexSpace) const
+Wasm::RTT const& Module::rttFromFunctionIndexSpace(FunctionSpaceIndex functionIndexSpace) const
 {
-    return m_moduleInformation->typeIndexFromFunctionIndexSpace(functionIndexSpace);
+    return m_moduleInformation->rtt(functionIndexSpace);
 }
 
 static Module::ValidationResult makeValidationResult(IPIntPlan& plan)
 {
     ASSERT(!plan.hasWork());
     if (plan.failed())
-        return Unexpected<String>(plan.errorMessage());
+        return std::unexpected<String>(plan.errorMessage());
     return Module::ValidationResult(Module::create(plan));
 }
 
@@ -165,8 +169,10 @@ std::unique_ptr<MergedProfile> Module::createMergedProfile(const IPIntCallee& ca
     return result;
 }
 
+#if ENABLE(WEBASSEMBLY_DEBUGGER)
 uint32_t Module::debugId() const { return m_moduleInformation->debugInfo->id; }
 void Module::setDebugId(uint32_t id) { m_moduleInformation->debugInfo->id = id; }
+#endif
 
 } } // namespace JSC::Wasm
 

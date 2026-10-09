@@ -43,7 +43,6 @@
 #include "KeyboardEvent.h"
 #include "LocalizedStrings.h"
 #include "Logging.h"
-#include "NodeInlines.h"
 #include "NodeName.h"
 #include "PlatformLocale.h"
 #include "RenderBoxModelObjectInlines.h"
@@ -54,6 +53,7 @@
 #include <wtf/ASCIICType.h>
 #include <wtf/MathExtras.h>
 #include <wtf/TZoneMallocInlines.h>
+#include <wtf/unicode/CharacterNames.h>
 
 namespace WebCore {
 
@@ -107,7 +107,7 @@ const AtomString& NumberInputType::formControlType() const
 void NumberInputType::setValue(const String& sanitizedValue, bool valueChanged, TextFieldEventBehavior eventBehavior, TextControlSetValueSelection selection)
 {
     ASSERT(element());
-    if (!valueChanged && sanitizedValue.isEmpty() && !protectedElement()->innerTextValue().isEmpty())
+    if (!valueChanged && sanitizedValue.isEmpty() && !protect(element())->innerTextValue().isEmpty())
         updateInnerTextValue();
     TextFieldInputType::setValue(sanitizedValue, valueChanged, eventBehavior, selection);
 }
@@ -115,24 +115,24 @@ void NumberInputType::setValue(const String& sanitizedValue, bool valueChanged, 
 double NumberInputType::valueAsDouble() const
 {
     ASSERT(element());
-    return parseToDoubleForNumberType(protectedElement()->value().get());
+    return parseToDoubleForNumberType(protect(element())->value().get());
 }
 
 ExceptionOr<void> NumberInputType::setValueAsDouble(double newValue, TextFieldEventBehavior eventBehavior) const
 {
     ASSERT(element());
-    protectedElement()->setValue(serializeForNumberType(newValue), eventBehavior);
+    protect(element())->setValue(serializeForNumberType(newValue), eventBehavior);
     return { };
 }
 
 ExceptionOr<void> NumberInputType::setValueAsDecimal(const Decimal& newValue, TextFieldEventBehavior eventBehavior) const
 {
     ASSERT(element());
-    protectedElement()->setValue(serializeForNumberType(newValue), eventBehavior);
+    protect(element())->setValue(serializeForNumberType(newValue), eventBehavior);
     return { };
 }
 
-bool NumberInputType::typeMismatchFor(const String& value) const
+bool NumberInputType::typeMismatchFor(StringView value) const
 {
     return !value.isEmpty() && !std::isfinite(parseToDoubleForNumberType(value));
 }
@@ -140,7 +140,7 @@ bool NumberInputType::typeMismatchFor(const String& value) const
 bool NumberInputType::typeMismatch() const
 {
     ASSERT(element());
-    ASSERT(!typeMismatchFor(protectedElement()->value()));
+    ASSERT(!typeMismatchFor(protect(element())->value()));
     return false;
 }
 
@@ -252,17 +252,8 @@ StepRange NumberInputType::createStepRange(AnyStepHandling anyStepHandling) cons
     Ref element = *this->element();
 
     RangeLimitations rangeLimitations = RangeLimitations::Invalid;
-    auto extractBound = [&] (const QualifiedName& attributeName, const Decimal& defaultValue) -> Decimal {
-        const AtomString& attributeValue = element->attributeWithoutSynchronization(attributeName);
-        Decimal valueFromAttribute = parseToNumberOrNaN(attributeValue);
-        if (valueFromAttribute.isFinite()) {
-            rangeLimitations = RangeLimitations::Valid;
-            return valueFromAttribute;
-        }
-        return defaultValue;
-    };
-    Decimal minimum = extractBound(minAttr, -doubleMax);
-    Decimal maximum = extractBound(maxAttr, doubleMax);
+    Decimal minimum = extractStepRangeBound(minAttr, -doubleMax, rangeLimitations);
+    Decimal maximum = extractStepRangeBound(maxAttr, doubleMax, rangeLimitations);
 
     const Decimal step = StepRange::parseStep(anyStepHandling, stepDescription, element->attributeWithoutSynchronization(stepAttr));
     return StepRange(stepBase, rangeLimitations, minimum, maximum, step, stepDescription);
@@ -301,7 +292,7 @@ float NumberInputType::decorationWidth(float inputWidth) const
     ASSERT(element());
 
     float width = 0;
-    RefPtr spinButton = protectedElement()->innerSpinButtonElement();
+    RefPtr spinButton = protect(element())->innerSpinButtonElement();
     if (CheckedPtr spinRenderer = spinButton ? spinButton->renderBox() : nullptr) {
         width += spinRenderer->borderAndPaddingLogicalWidth();
 
@@ -329,7 +320,7 @@ auto NumberInputType::handleKeydownEvent(KeyboardEvent& event) -> ShouldCallBase
     return ShouldCallBaseEventHandler::Yes;
 }
 
-Decimal NumberInputType::parseToNumber(const String& src, const Decimal& defaultValue) const
+Decimal NumberInputType::parseToNumber(StringView src, const Decimal& defaultValue) const
 {
     return parseToDecimalForNumberType(src, defaultValue);
 }
@@ -341,32 +332,32 @@ String NumberInputType::serialize(const Decimal& value) const
     return serializeForNumberType(value);
 }
 
-static bool isE(char16_t ch)
+static bool NODELETE isE(char16_t ch)
 {
     return ch == 'e' || ch == 'E';
 }
 
-static bool isPlusSign(char16_t ch)
+static bool NODELETE isPlusSign(char16_t ch)
 {
     return ch == '+';
 }
 
-static bool isSignPrefix(char16_t ch)
+static bool NODELETE isSignPrefix(char16_t ch)
 {
     return ch == '+' || ch == '-';
 }
 
-static bool isDigit(char16_t ch)
+static bool NODELETE isDigit(char16_t ch)
 {
     return ch >= '0' && ch <= '9';
 }
 
-static bool isDecimalSeparator(char16_t ch)
+static bool NODELETE isDecimalSeparator(char16_t ch)
 {
     return ch == '.';
 }
 
-static bool hasTwoSignChars(const String& string)
+static bool NODELETE hasTwoSignChars(const String& string)
 {
     unsigned count = 0;
     for (unsigned i = 0; i < string.length(); ++i) {
@@ -379,12 +370,12 @@ static bool hasTwoSignChars(const String& string)
     return false;
 }
 
-static bool hasDecimalSeparator(const String& string)
+static bool NODELETE hasDecimalSeparator(const String& string)
 {
     return string.find('.') != notFound;
 }
 
-static bool hasSignNotAfterE(const String& string)
+static bool NODELETE hasSignNotAfterE(const String& string)
 {
     for (unsigned i = 0; i < string.length(); ++i) {
         if (isSignPrefix(string[i]))
@@ -401,13 +392,14 @@ void NumberInputType::handleBeforeTextInsertedEvent(BeforeTextInsertedEvent& eve
 
     ASSERT(element());
     Ref element = *this->element();
-    auto& localizedSeparator = element->locale().localizedDecimalSeparator();
+    CheckedRef locale = element->locale();
+    auto& localizedSeparator = locale->localizedDecimalSeparator();
 
     String updatedEventText;
     bool displayedTextUsesNonPeriodDecimalSeparator = false;
 
     if (localizedSeparator == "."_s) {
-        const auto localizedText = element->locale().convertFromLocalizedNumber(normalizedText);
+        const auto localizedText = locale->convertFromLocalizedNumber(normalizedText);
         updatedEventText = stripInvalidNumberCharacters(localizedText).get();
     } else {
         // In some locales where the decimal separator is not typically a period,
@@ -560,7 +552,7 @@ void NumberInputType::handleBeforeTextInsertedEvent(BeforeTextInsertedEvent& eve
         finalEventText.append(character);
     }
     LOG(Editing, "finalEventText: [%s]", finalEventText.toString().utf8().data());
-    const auto displayedText = displayedTextUsesNonPeriodDecimalSeparator ? element->locale().localizeNumberCharacters(finalEventText.toString()) : finalEventText.toString();
+    const auto displayedText = displayedTextUsesNonPeriodDecimalSeparator ? locale->localizeNumberCharacters(finalEventText.toString()) : finalEventText.toString();
     event.setText(displayedText);
 }
 
@@ -572,13 +564,13 @@ String NumberInputType::localizeValue(const String& proposedValue) const
     if (proposedValue.find(isE) != notFound)
         return proposedValue;
     ASSERT(element());
-    return protectedElement()->locale().convertToLocalizedNumber(proposedValue);
+    return protect(protect(element())->locale())->convertToLocalizedNumber(proposedValue);
 }
 
 String NumberInputType::visibleValue() const
 {
     ASSERT(element());
-    return localizeValue(protectedElement()->value());
+    return localizeValue(protect(element())->value());
 }
 
 String NumberInputType::convertFromVisibleValue(const String& visibleValue) const
@@ -589,7 +581,7 @@ String NumberInputType::convertFromVisibleValue(const String& visibleValue) cons
     if (visibleValue.find(isE) != notFound)
         return visibleValue;
     ASSERT(element());
-    return protectedElement()->locale().convertFromLocalizedNumber(visibleValue);
+    return protect(protect(element())->locale())->convertFromLocalizedNumber(visibleValue);
 }
 
 ValueOrReference<String> NumberInputType::sanitizeValue(const String& proposedValue LIFETIME_BOUND) const
@@ -604,7 +596,7 @@ ValueOrReference<String> NumberInputType::sanitizeValue(const String& proposedVa
 bool NumberInputType::hasBadInput() const
 {
     ASSERT(element());
-    String standardValue = convertFromVisibleValue(protectedElement()->innerTextValue());
+    String standardValue = convertFromVisibleValue(protect(element())->innerTextValue());
     return !standardValue.isEmpty() && !std::isfinite(parseToDoubleForNumberType(standardValue));
 }
 
@@ -627,14 +619,14 @@ void NumberInputType::attributeChanged(const QualifiedName& name)
         if (RefPtr element = this->element()) {
             element->invalidateStyleForSubtree();
             if (CheckedPtr renderer = element->renderer())
-                renderer->setNeedsLayoutAndPreferredWidthsUpdate();
+                renderer->setNeedsLayoutAndInvalidateContentLogicalWidths();
         }
         break;
     case AttributeNames::classAttr:
     case AttributeNames::stepAttr:
         if (RefPtr element = this->element()) {
             if (CheckedPtr renderer = element->renderer())
-                renderer->setNeedsLayoutAndPreferredWidthsUpdate();
+                renderer->setNeedsLayoutAndInvalidateContentLogicalWidths();
         }
         break;
     default:

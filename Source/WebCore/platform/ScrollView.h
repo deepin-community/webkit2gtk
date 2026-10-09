@@ -61,6 +61,7 @@ OBJC_CLASS NSView;
 
 namespace WebCore {
 
+class CornerRadii;
 class FloatQuad;
 class HostWindow;
 class LegacyTileCache;
@@ -88,6 +89,8 @@ public:
 
     USING_CAN_MAKE_WEAKPTR(Widget);
 
+    String debugDescription() const override;
+
     // ScrollableArea functions.
     WEBCORE_EXPORT void setScrollOffset(const ScrollOffset&) final;
     bool isScrollCornerVisible() const final;
@@ -106,16 +109,14 @@ public:
     virtual IntRect windowClipRect() const = 0;
 
     // Functions for child manipulation and inspection.
-    const HashSet<Ref<Widget>>& children() const { return m_children; }
+    const HashSet<Ref<Widget>>& children() const LIFETIME_BOUND { return m_children; }
     WEBCORE_EXPORT virtual void addChild(Widget&);
     WEBCORE_EXPORT virtual void removeChild(Widget&);
 
     // If the scroll view does not use a native widget, then it will have cross-platform Scrollbars. These functions
     // can be used to obtain those scrollbars.
     Scrollbar* horizontalScrollbar() const final { return m_horizontalScrollbar.get(); }
-    RefPtr<Scrollbar> protectedHorizontalScrollbar() const { return horizontalScrollbar(); }
     Scrollbar* verticalScrollbar() const final { return m_verticalScrollbar.get(); }
-    RefPtr<Scrollbar> protectedVerticalScrollbar() const { return verticalScrollbar(); }
     bool isScrollViewScrollbar(const Widget* child) const { return horizontalScrollbar() == child || verticalScrollbar() == child; }
 
     void positionScrollbarLayers();
@@ -146,7 +147,7 @@ public:
     // By default you only receive paint events for the area that is visible. In the case of using a
     // tiled backing store, this function can be set, so that the view paints the entire contents.
     bool paintsEntireContents() const { return m_paintsEntireContents; }
-    WEBCORE_EXPORT void setPaintsEntireContents(bool);
+    WEBCORE_EXPORT void NODELETE setPaintsEntireContents(bool);
 
     // By default scrolling is handled by WebCore, but some WebKit implementations take over scrolling,
     // delegating it to a native scrolling widget or the UI process.
@@ -173,6 +174,7 @@ public:
 
     private:
         SingleThreadWeakPtr<ScrollView> m_scrollView;
+        ScrollAnchoringSuppressionScope m_anchoringSuppressor;
     };
 
     WEBCORE_EXPORT std::unique_ptr<ProhibitScrollingWhenChangingContentSizeForScope> prohibitScrollingWhenChangingContentSizeForScope();
@@ -191,6 +193,8 @@ public:
     enum class InsetType : bool { WebCoreInset, WebCoreOrPlatformInset };
     virtual FloatBoxExtent obscuredContentInsets(InsetType = InsetType::WebCoreInset) const { return 0; }
     IntRect frameRectShrunkByInset() const;
+
+    virtual CornerRadii scrollbarAvoidanceCornerRadii() const;
 
     // The visible content rect has a location that is the scrolled offset of the document. The width and height are the unobscured viewport
     // width and height. By default the scrollbars themselves are excluded from this rectangle, but an optional boolean argument allows them
@@ -212,9 +216,11 @@ public:
     WEBCORE_EXPORT FloatRect exposedContentRect() const;
 
     // The given rects are only used if there is no platform widget.
-    WEBCORE_EXPORT void setExposedContentRect(const FloatRect&);
+    WEBCORE_EXPORT void NODELETE setExposedContentRect(const FloatRect&);
 
-    WEBCORE_EXPORT FloatSize unobscuredContentSize() const;
+    void adjustExposedContentRectForProgrammaticScroll(ScrollPosition);
+
+    WEBCORE_EXPORT FloatSize NODELETE unobscuredContentSize() const;
     WEBCORE_EXPORT void setUnobscuredContentSize(const FloatSize&);
 
 #if PLATFORM(IOS_FAMILY)
@@ -233,9 +239,9 @@ public:
     int layoutWidth() const { return layoutSize().width(); }
     int layoutHeight() const { return layoutSize().height(); }
 
-    WEBCORE_EXPORT IntSize fixedLayoutSize() const;
+    WEBCORE_EXPORT IntSize NODELETE fixedLayoutSize() const;
     WEBCORE_EXPORT void setFixedLayoutSize(const IntSize&);
-    WEBCORE_EXPORT bool useFixedLayout() const;
+    WEBCORE_EXPORT bool NODELETE useFixedLayout() const;
     WEBCORE_EXPORT void setUseFixedLayout(bool enable);
 
     // Functions for getting/setting the size of the document contained inside the ScrollView (as an IntSize or as individual width and height
@@ -251,7 +257,7 @@ public:
     ScrollPosition maximumScrollPosition() const override; // The maximum position we can be scrolled to.
 
     // Adjust the passed in scroll position to keep it between the minimum and maximum positions.
-    ScrollPosition adjustScrollPositionWithinRange(const ScrollPosition&) const;
+    ScrollPosition adjustScrollPositionWithinRange(const ScrollPosition&) const override;
     int scrollX() const { return scrollPosition().x(); }
     int scrollY() const { return scrollPosition().y(); }
 
@@ -373,7 +379,7 @@ public:
     void clipRectChanged() final;
 
     // For platforms that need to hit test scrollbars from within the engine's event handlers (like Win32).
-    Scrollbar* scrollbarAtPoint(const IntPoint& windowPoint);
+    Scrollbar* scrollbarAtPoint(const IntPoint& windowPoint, ScrollbarHitTestTolerance = ScrollbarHitTestTolerance::None);
 
     IntPoint convertChildToSelf(const Widget*, IntPoint) const;
     FloatPoint convertChildToSelf(const Widget*, FloatPoint) const;
@@ -416,11 +422,11 @@ public:
     void setAllowsUnclampedScrollPositionForTesting(bool allowsUnclampedScrollPosition) { m_allowsUnclampedScrollPosition = allowsUnclampedScrollPosition; }
     bool allowsUnclampedScrollPosition() const { return m_allowsUnclampedScrollPosition; }
 
-    bool managesScrollbars() const;
+    bool NODELETE managesScrollbars() const;
     virtual void updateScrollbarSteps();
 
     // Called to update the scrollbars to accurately reflect the state of the view.
-    void updateScrollbars(const ScrollPosition& desiredPosition);
+    WEBCORE_EXPORT void updateScrollbars(const ScrollPosition& desiredPosition);
 
 protected:
     ScrollView();
@@ -469,11 +475,9 @@ protected:
 #if PLATFORM(COCOA)
 public:
     WEBCORE_EXPORT NSView* documentView() const;
-    WEBCORE_EXPORT RetainPtr<NSView> protectedDocumentView() const;
 
 private:
-    PlatformScrollView* scrollView() const;
-    RetainPtr<PlatformScrollView> protectedScrollView() const;
+    PlatformScrollView* NODELETE scrollView() const;
 #endif
 
 private:
@@ -488,7 +492,6 @@ private:
     bool setHasScrollbarInternal(RefPtr<Scrollbar>&, ScrollbarOrientation, bool hasBar, bool* contentSizeAffected);
 
     bool isScrollView() const final { return true; }
-    String debugDescription() const override;
 
     void init();
     void destroy();
@@ -520,7 +523,7 @@ private:
     IntPoint platformScreenToContents(const IntPoint&) const;
 
     void platformSetScrollPosition(const IntPoint&);
-    bool platformScroll(ScrollDirection, ScrollGranularity);
+    bool NODELETE platformScroll(ScrollDirection, ScrollGranularity);
     void platformSetScrollbarsSuppressed(bool repaintOnUnsuppress);
     void platformRepaintContentRectangle(const IntRect&);
     bool platformIsOffscreen() const;

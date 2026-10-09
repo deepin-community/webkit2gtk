@@ -31,6 +31,7 @@
 
 #pragma once
 
+#include <WebCore/FloatPoint3D.h>
 #include <WebCore/RenderBox.h>
 #include <WebCore/RenderLayerModelObject.h>
 #include <WebCore/SVGBoundingBoxComputation.h>
@@ -51,14 +52,20 @@ class RenderSVGModelObject : public RenderLayerModelObject {
 public:
     virtual ~RenderSVGModelObject();
 
-    bool requiresLayer() const override { return true; }
+    bool requiresLayer() const override;
 
-    void styleDidChange(Style::Difference, const RenderStyle* oldStyle) override;
+    void styleDidChange(Style::Difference, const Style::ComputedStyle* oldStyle) override;
 
     static bool checkIntersection(RenderElement*, const FloatRect&);
     static bool checkEnclosure(RenderElement*, const FloatRect&);
 
     inline SVGElement& element() const;
+
+    // Cached local SVG transform for non-layered elements.
+    // For layered elements, the layer caches the transform instead.
+    // Updated via updateLocalTransform(), analogous to updateLayerTransform() for layered elements.
+    AffineTransform localTransform() const override { return m_localTransform.value_or(AffineTransform()); }
+    void updateLocalTransform();
 
     LayoutRect currentSVGLayoutRect() const { return m_layoutRect; }
     void setCurrentSVGLayoutRect(const LayoutRect& layoutRect) { m_layoutRect = layoutRect; }
@@ -71,7 +78,14 @@ public:
     LayoutRect borderBoxRectEquivalent() const { return { LayoutPoint(), m_layoutRect.size() }; }
     LayoutRect contentBoxRectEquivalent() const { return borderBoxRectEquivalent(); }
     LayoutRect frameRectEquivalent() const { return m_layoutRect; }
-    LayoutRect visualOverflowRectEquivalent() const { return SVGBoundingBoxComputation::computeVisualOverflowRect(*this); }
+    LayoutRect visualOverflowRectEquivalent() const
+    {
+        if (!m_cachedVisualOverflowRect)
+            m_cachedVisualOverflowRect = SVGBoundingBoxComputation::computeVisualOverflowRect(*this);
+        return *m_cachedVisualOverflowRect;
+    }
+
+    void updateCachedVisualOverflowRect() { m_cachedVisualOverflowRect = SVGBoundingBoxComputation::computeVisualOverflowRect(*this); }
     LayoutSize locationOffsetEquivalent() const { return toLayoutSize(currentSVGLayoutLocation()); }
 
     bool hasVisualOverflow() const { return !borderBoxRectEquivalent().contains(visualOverflowRectEquivalent()); }
@@ -82,12 +96,18 @@ public:
     virtual LayoutRect overflowClipRect(const LayoutPoint& location, OverlayScrollbarSizeRelevancy = OverlayScrollbarSizeRelevancy::IgnoreOverlayScrollbarSize, PaintPhase = PaintPhase::BlockBackground) const;
     LayoutRect overflowClipRectForChildLayers(const LayoutPoint& location, OverlayScrollbarSizeRelevancy relevancy) { return overflowClipRect(location, relevancy); }
 
-    virtual Path computeClipPath(AffineTransform&) const;
+    Path computeClipPathGeometry() const;
+    void computeClipContentTransform(AffineTransform&) const;
     virtual void addFocusRingRects(Vector<LayoutRect>&, const LayoutPoint& additionalOffset, const RenderLayerModelObject* paintContainer) const;
 
+    void invalidateCachedVisualOverflowRect() override { m_cachedVisualOverflowRect = std::nullopt; }
+
+    std::optional<FloatPoint3D> cachedTransformOriginForReferenceBox(const Style::ComputedStyle&, const FloatRect& referenceBox) const override;
+    void invalidateCachedTransformOrigin() const { m_cachedTransformOrigin = std::nullopt; }
+
 protected:
-    RenderSVGModelObject(Type, Document&, RenderStyle&&, OptionSet<SVGModelObjectFlag> = { });
-    RenderSVGModelObject(Type, SVGElement&, RenderStyle&&, OptionSet<SVGModelObjectFlag> = { });
+    RenderSVGModelObject(Type, Document&, Style::ComputedStyle&&, OptionSet<SVGModelObjectFlag> = { });
+    RenderSVGModelObject(Type, SVGElement&, Style::ComputedStyle&&, OptionSet<SVGModelObjectFlag> = { });
 
     void updateFromStyle() override;
 
@@ -108,10 +128,18 @@ protected:
     // intersection, this return value allows distinguishing between no intersection and zero-area intersection.
     bool applyCachedClipAndScrollPosition(RepaintRects&, const RenderLayerModelObject* container, VisibleRectContext) const final;
 
+    mutable std::optional<LayoutRect> m_cachedVisualOverflowRect;
+
+    void updateLayerTransform() override;
+
 private:
-    LayoutSize cachedSizeForOverflowClip() const;
+    LayoutSize NODELETE cachedSizeForOverflowClip() const;
 
     LayoutRect m_layoutRect;
+    std::optional<AffineTransform> m_localTransform;
+
+    mutable std::optional<FloatPoint3D> m_cachedTransformOrigin;
+    mutable FloatRect m_cachedTransformOriginBox;
 };
 
 } // namespace WebCore

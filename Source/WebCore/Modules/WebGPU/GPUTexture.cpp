@@ -26,6 +26,7 @@
 #include "config.h"
 #include "GPUTexture.h"
 
+#include "ExceptionOr.h"
 #include "GPUDevice.h"
 #include "GPUTextureDescriptor.h"
 #include "GPUTextureView.h"
@@ -81,7 +82,7 @@ void GPUTexture::setLabel(String&& label)
     m_backing->setLabel(WTF::move(label));
 }
 
-static WebGPU::TextureViewDescriptor convertToBacking(const std::optional<GPUTextureViewDescriptor>& textureViewDescriptor)
+static WebGPU::TextureViewDescriptor NODELETE convertToBacking(const std::optional<GPUTextureViewDescriptor>& textureViewDescriptor)
 {
     if (!textureViewDescriptor)
         return WebGPU::TextureViewDescriptor { };
@@ -142,7 +143,7 @@ GPUFlagsConstant GPUTexture::usage() const
     return m_usage;
 }
 
-static GPUTextureFormat depthSpecificFormat(GPUTextureFormat textureFormat)
+static GPUTextureFormat NODELETE depthSpecificFormat(GPUTextureFormat textureFormat)
 {
     // https://gpuweb.github.io/gpuweb/#aspect-specific-format
 
@@ -156,7 +157,7 @@ static GPUTextureFormat depthSpecificFormat(GPUTextureFormat textureFormat)
     }
 }
 
-static GPUTextureFormat stencilSpecificFormat(GPUTextureFormat textureFormat)
+static GPUTextureFormat NODELETE stencilSpecificFormat(GPUTextureFormat textureFormat)
 {
     // https://gpuweb.github.io/gpuweb/#aspect-specific-format
 

@@ -1,5 +1,5 @@
 /*
- * Copyright 2025 Google Inc.
+ * Copyright 2025 Google LLC
  *
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file.
@@ -7,7 +7,7 @@
 
 #include "include/core/SkPathTypes.h"
 #include "include/private/SkPathRef.h"
-#include "include/private/base/SkTDArray.h"
+#include "include/private/SkTDArray.h"
 #include "src/core/SkCubicClipper.h"
 #include "src/core/SkGeometry.h"
 #include "src/core/SkPathPriv.h"
@@ -17,6 +17,20 @@
 #include <cstdint>
 #include <iterator>
 #include <optional>
+
+int SkPathPriv::GenIDChangeListenersCount(const SkPath& path) {
+    return path.fPathData->genIDChangeListenerCount();
+}
+
+void SkPathPriv::AddGenIDChangeListener(const SkPath& path, sk_sp<SkIDChangeListener> listener) {
+    auto pdata = path.fPathData.get();
+    // SkPath's error-singleton is never deleted, so we don't want to add any listeners to it.
+    if (pdata != SkPath::PeekErrorSingleton()) {
+        pdata->addGenIDChangeListener(std::move(listener));
+    }
+}
+
+///////////////////////////////////////////////////////////////////////////
 
 /*
  Determines if path is a rect by keeping track of changes in direction
@@ -1380,60 +1394,6 @@ bool SkPathPriv::Contains(const SkPathRaw& raw, SkPoint p) {
 
 ////////////////////////////////////////////////////////////////////////////////////////
 
-SkPathVerbAnalysis SkPathPriv::AnalyzeVerbs(SkSpan<const SkPathVerb> vbs) {
-    SkPathVerbAnalysis info = {false, 0, 0, 0};
-    bool needMove = true;
-    bool invalid = false;
-
-    if (vbs.size() >= (INT_MAX / 3)) SK_UNLIKELY {
-        // A path with an extremely high number of quad, conic or cubic verbs could cause
-        // `info.points` to overflow. To prevent against this, we reject extremely large paths. This
-        // check is conservative and assumes the worst case (in particular, it assumes that every
-        // verb consumes 3 points, which would only happen for a path composed entirely of cubics).
-        // This limits us to 700 million verbs, which is large enough for any reasonable use case.
-        invalid = true;
-    } else {
-        for (auto v : vbs) {
-            switch (v) {
-                case SkPathVerb::kMove:
-                    needMove = false;
-                    info.points += 1;
-                    break;
-                case SkPathVerb::kLine:
-                    invalid |= needMove;
-                    info.segmentMask |= kLine_SkPathSegmentMask;
-                    info.points += 1;
-                    break;
-                case SkPathVerb::kQuad:
-                    invalid |= needMove;
-                    info.segmentMask |= kQuad_SkPathSegmentMask;
-                    info.points += 2;
-                    break;
-                case SkPathVerb::kConic:
-                    invalid |= needMove;
-                    info.segmentMask |= kConic_SkPathSegmentMask;
-                    info.points += 2;
-                    info.weights += 1;
-                    break;
-                case SkPathVerb::kCubic:
-                    invalid |= needMove;
-                    info.segmentMask |= kCubic_SkPathSegmentMask;
-                    info.points += 3;
-                    break;
-                case SkPathVerb::kClose:
-                    invalid |= needMove;
-                    needMove = true;
-                    break;
-                default:
-                    invalid = true;
-                    break;
-            }
-        }
-    }
-    info.valid = !invalid;
-    return info;
-}
-
 bool SkPathPriv::IsAxisAligned(SkSpan<const SkPoint> pts) {
     // Conservative (quick) test to see if all segments are axis-aligned.
     // Multiple contours might give a false-negative, but for speed, we ignore that
@@ -1588,6 +1548,9 @@ int SkPathPriv::FindLastMoveToIndex(SkSpan<const SkPathVerb> verbs, const size_t
 std::pair<SkPathDirection, unsigned>
 SkPathPriv::TransformDirAndStart(const SkMatrix& matrix, bool isRRect, SkPathDirection dir,
                                  unsigned start) {
+    if (matrix.isIdentity()) {
+        return {dir, start};
+    }
     unsigned inStart = start;
     bool isCCW = (dir == SkPathDirection::kCCW);
 

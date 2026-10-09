@@ -26,6 +26,8 @@
 #include "config.h"
 #include "LayoutIntegrationInlineContentBuilder.h"
 
+#include "FontCascadeInlines.h"
+#include "FontInlines.h"
 #include "InlineDamage.h"
 #include "InlineDisplayBoxInlines.h"
 #include "LayoutBoxGeometry.h"
@@ -33,8 +35,8 @@
 #include "LayoutState.h"
 #include "RenderBlockFlowInlines.h"
 #include "RenderBoxInlines.h"
-#include "RenderStyle+GettersInlines.h"
 #include "StringTruncator.h"
+#include "StyleComputedStyle+GettersInlines.h"
 
 namespace WebCore {
 namespace LayoutIntegration {
@@ -45,7 +47,7 @@ inline static float endPaddingQuirkValue(const RenderBlockFlow& flow)
     auto endPadding = flow.hasNonVisibleOverflow() ? flow.paddingEnd() : 0_lu;
     if (!endPadding)
         endPadding = flow.endPaddingWidthForCaret();
-    if (flow.hasNonVisibleOverflow() && !endPadding && flow.element() && flow.element()->isRootEditableElement() && flow.style().isLeftToRightDirection())
+    if (flow.hasNonVisibleOverflow() && !endPadding && flow.element() && protect(flow.element())->isRootEditableElement() && flow.style().writingMode().deprecatedIsLeftToRightDirection())
         endPadding = 1;
     return endPadding;
 }
@@ -67,7 +69,7 @@ static std::tuple<float, float> glyphOverflowInInlineDirection(size_t firstTextB
         auto character = isLeading ? textContent[0] : textContent[textContent.length() - 1];
         auto& fontCascade = textBox.style().fontCascade();
         auto glyphData = fontCascade.glyphDataForCharacter(character, !isLeftToRightDirection);
-        return (glyphData.font ? *glyphData.font : fontCascade.primaryFont().get()).boundsForGlyph(glyphData.glyph);
+        return (glyphData.font ? *glyphData.font : fontCascade.primaryFont()).boundsForGlyph(glyphData.glyph);
     };
 
     auto leadingOverflow = [&] {
@@ -133,9 +135,9 @@ void InlineContentBuilder::adjustDisplayLines(InlineContent& inlineContent, size
     auto& boxes = inlineContent.displayContent().boxes;
 
     size_t boxIndex = !startIndex ? 0 : lines[startIndex - 1].lastBoxIndex() + 1;
-    auto& rootBoxStyle = m_blockFlow.style();
-    auto isLeftToRightInlineDirection = rootBoxStyle.isLeftToRightDirection();
-    auto isHorizontalWritingMode = rootBoxStyle.writingMode().isHorizontal();
+    CheckedRef rootBoxStyle = m_blockFlow.style();
+    auto isLeftToRightInlineDirection = rootBoxStyle->writingMode().deprecatedIsLeftToRightDirection();
+    auto isHorizontalWritingMode = rootBoxStyle->writingMode().isHorizontal();
 
     auto blockScrollableOverflowRect = FloatRect { };
     auto blockInkOverflowRect = FloatRect { };
@@ -198,15 +200,15 @@ void InlineContentBuilder::adjustDisplayLines(InlineContent& inlineContent, size
                 if (box.isBlockLevelBox())
                     inlineContent.setHasBlockLevelBoxes();
 
-                auto& renderer = downcast<RenderBox>(*box.layoutBox().rendererForIntegration());
-                if (!renderer.hasSelfPaintingLayer()) {
-                    auto childInkOverflow = renderer.logicalVisualOverflowRectForPropagation(renderer.parent()->writingMode());
+                CheckedRef renderer = downcast<RenderBox>(*box.layoutBox().rendererForIntegration());
+                if (!renderer->hasSelfPaintingLayer()) {
+                    auto childInkOverflow = renderer->logicalVisualOverflowRectForPropagation(renderer->parent()->writingMode());
                     childInkOverflow.move(box.left(), box.top());
                     lineInkOverflowRect.unite(childInkOverflow);
                 }
 
-                if (!renderer.hasControlClip()) {
-                    auto childScrollableOverflow = renderer.layoutOverflowRectForPropagation(renderer.parent()->writingMode());
+                if (!renderer->hasControlClip()) {
+                    auto childScrollableOverflow = renderer->layoutOverflowRectForPropagation(renderer->parent()->writingMode());
                     childScrollableOverflow.move(box.left(), box.top());
                     lineScrollableOverflowRect.unite(childScrollableOverflow);
                 }
@@ -219,7 +221,7 @@ void InlineContentBuilder::adjustDisplayLines(InlineContent& inlineContent, size
                     lineInkOverflowRect.unite(box.inkOverflow());
 
                 if (line.hasBlockLevelBox()) {
-                    if (hasSelfPaintingLayer || box.layoutBox().style().hasOpacity() || box.layoutBox().style().hasOutline()) {
+                    if (hasSelfPaintingLayer || !box.layoutBox().style().opacity().isOpaque() || box.layoutBox().style().hasOutline()) {
                         // See if the inline box has properties that affect block-in-inline painting.
                         inlineContent.setHasPaintedInlineLevelBoxes();
                     }
@@ -272,11 +274,11 @@ void InlineContentBuilder::computeIsFirstIsLastBoxAndBidiReorderingForInlineCont
             lastRootInlineBoxIndex = index;
             continue;
         }
-        auto& layoutBox = displayBox.layoutBox();
+        CheckedRef layoutBox = displayBox.layoutBox();
         if (is<Layout::InlineTextBox>(layoutBox) && displayBox.bidiLevel() != UBIDI_DEFAULT_LTR)
-            downcast<RenderText>(*layoutBox.rendererForIntegration()).setNeedsVisualReordering();
+            downcast<RenderText>(*layoutBox->rendererForIntegration()).setNeedsVisualReordering();
 
-        if (lastDisplayBoxForLayoutBoxIndexes.set(&layoutBox, index).isNewEntry)
+        if (lastDisplayBoxForLayoutBoxIndexes.set(layoutBox.ptr(), index).isNewEntry)
             displayBox.setIsFirstForLayoutBox();
     }
     for (auto index : lastDisplayBoxForLayoutBoxIndexes.values())
@@ -337,15 +339,22 @@ FloatRect InlineContentBuilder::handlePartialDisplayContentUpdate(Layout::Inline
         return { boxCount };
     }();
 
+    auto damagedRect = FloatRect { };
+
     if (!firstDamagedLineIndex || !numberOfDamagedLines || !firstDamagedBoxIndex || !numberOfDamagedBoxes) {
         ASSERT_NOT_REACHED();
-        return { };
+        // We failed to compute the damaged range. The existing display content may still hold references to
+        // layout boxes that were detached (see InlineDamage::m_detachedLayoutBoxes) and will be destroyed as
+        // soon as line damage is released. Do not leave those stale display boxes in place.
+        for (auto& line : inlineContent.displayContent().lines)
+            damagedRect.unite(line.inkOverflow());
+        inlineContent.displayContent().clear();
+        return damagedRect;
     }
 
     auto numberOfNewLines = layoutResult.displayContent.lines.size();
     auto numberOfNewBoxes = layoutResult.displayContent.boxes.size();
 
-    auto damagedRect = FloatRect { };
     auto adjustDamagedRectWithLineRange = [&](size_t firstLineIndex, size_t lineCount) {
         auto& lines = inlineContent.displayContent().lines;
         ASSERT(firstLineIndex + lineCount <= lines.size());
@@ -372,12 +381,15 @@ FloatRect InlineContentBuilder::handlePartialDisplayContentUpdate(Layout::Inline
             if (numberOfNewBoxes == *numberOfDamagedBoxes)
                 return;
             auto firstCleanLineIndex = *firstDamagedLineIndex + *numberOfDamagedLines;
-            auto offset = numberOfNewBoxes - *numberOfDamagedBoxes;
             auto& lines = displayContent.lines;
             for (size_t cleanLineIndex = firstCleanLineIndex; cleanLineIndex < lines.size(); ++cleanLineIndex) {
-                ASSERT(lines[cleanLineIndex].firstBoxIndex() + offset > 0);
-                auto adjustedFirstBoxIndex = std::max<size_t>(0, lines[cleanLineIndex].firstBoxIndex() + offset);
-                lines[cleanLineIndex].setFirstBoxIndex(adjustedFirstBoxIndex);
+                auto firstBoxIndex = lines[cleanLineIndex].firstBoxIndex();
+                if (numberOfNewBoxes >= *numberOfDamagedBoxes) {
+                    lines[cleanLineIndex].setFirstBoxIndex(firstBoxIndex + (numberOfNewBoxes - *numberOfDamagedBoxes));
+                    continue;
+                }
+                auto decrease = *numberOfDamagedBoxes - numberOfNewBoxes;
+                lines[cleanLineIndex].setFirstBoxIndex(decrease > firstBoxIndex ? 0uz : firstBoxIndex - decrease);
             }
         };
         adjustCachedBoxIndexesIfNeeded();

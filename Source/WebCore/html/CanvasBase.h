@@ -71,10 +71,10 @@ public:
 
     virtual unsigned width() const { return m_size.width(); }
     virtual unsigned height() const { return m_size.height(); }
-    const IntSize& size() const { return m_size; }
+    const IntSize& size() const LIFETIME_BOUND { return m_size; }
     virtual void setSizeForControllingContext(IntSize) = 0;
 
-    RefPtr<ImageBuffer> makeRenderingResultsAvailable(ShouldApplyPostProcessingToDirtyRect = ShouldApplyPostProcessingToDirtyRect::Yes);
+    WEBCORE_EXPORT RefPtr<ImageBuffer> makeRenderingResultsAvailable(ShouldApplyPostProcessingToDirtyRect = ShouldApplyPostProcessingToDirtyRect::Yes);
 
     void setOriginClean() { m_originClean = true; }
     void setOriginTainted() { m_originClean = false; }
@@ -82,7 +82,6 @@ public:
 
     virtual SecurityOrigin* securityOrigin() const { return nullptr; }
     ScriptExecutionContext* scriptExecutionContext() const { return canvasBaseScriptExecutionContext();  }
-    RefPtr<ScriptExecutionContext> protectedScriptExecutionContext() const;
 
     virtual CanvasRenderingContext* renderingContext() const = 0;
 
@@ -90,7 +89,7 @@ public:
 
     void addObserver(CanvasObserver&);
     void removeObserver(CanvasObserver&);
-    bool hasObserver(CanvasObserver&) const;
+    bool NODELETE hasObserver(CanvasObserver&) const;
     void notifyObserversCanvasChanged(const FloatRect&);
     void notifyObserversCanvasResized();
     void notifyObserversCanvasDestroyed(); // Must be called in destruction before clearing m_context.
@@ -112,7 +111,7 @@ public:
 
     bool shouldAccelerate() const;
 
-    WEBCORE_EXPORT static void setMaxCanvasAreaForTesting(std::optional<size_t>);
+    WEBCORE_EXPORT static void NODELETE setMaxCanvasAreaForTesting(std::optional<size_t>);
     [[nodiscard]] bool validateArea() const;
 
     virtual void queueTaskKeepingObjectAlive(TaskSource, Function<void(CanvasBase&)>&&) = 0;
@@ -130,7 +129,6 @@ protected:
     explicit CanvasBase(IntSize, ScriptExecutionContext&);
 
     virtual ScriptExecutionContext* canvasBaseScriptExecutionContext() const = 0;
-    RefPtr<ScriptExecutionContext> protectedCanvasBaseScriptExecutionContext() const;
     virtual std::unique_ptr<CSSParserContext> createCSSParserContext() const = 0;
 
     void setSize(const IntSize&);
@@ -140,7 +138,7 @@ protected:
     void removeCanvasNeedingPreparationForDisplayOrFlush();
 
 private:
-    bool shouldInjectNoiseBeforeReadback() const;
+    bool NODELETE shouldInjectNoiseBeforeReadback() const;
 
     mutable IntSize m_size;
     mutable std::unique_ptr<CSSParserContext> m_cssParserContext;
@@ -160,10 +158,10 @@ private:
 #endif
 };
 
-WebCoreOpaqueRoot root(CanvasBase*);
+WebCoreOpaqueRoot NODELETE root(CanvasBase*);
 
 
-inline const CSSParserContext& CanvasBase::cssParserContext() const
+inline const CSSParserContext& CanvasBase::cssParserContext() const LIFETIME_BOUND
 {
     if (!m_cssParserContext) [[unlikely]]
         m_cssParserContext = createCSSParserContext();

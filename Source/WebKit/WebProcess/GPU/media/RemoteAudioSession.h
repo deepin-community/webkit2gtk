@@ -59,7 +59,6 @@ public:
 private:
     RemoteAudioSession(WebProcess&);
     IPC::Connection& ensureConnection();
-    Ref<IPC::Connection> ensureProtectedConnection();
 
     // IPC::MessageReceiver
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) final;
@@ -95,8 +94,6 @@ private:
     void setIsPlayingToBluetoothOverride(std::optional<bool>) final;
 
     bool isMuted() const final { return configuration().isMuted; }
-
-    bool isActive() const final { return configuration().isActive; }
 
     void beginInterruptionForTesting() final;
     void endInterruptionForTesting() final;

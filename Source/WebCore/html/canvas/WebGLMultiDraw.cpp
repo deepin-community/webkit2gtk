@@ -39,7 +39,7 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(WebGLMultiDraw);
 WebGLMultiDraw::WebGLMultiDraw(WebGLRenderingContextBase& context)
     : WebGLExtension(context, WebGLExtensionName::WebGLMultiDraw)
 {
-    context.graphicsContextGL()->enableExtension(GCGLExtension::ANGLE_multi_draw);
+    protect(context.graphicsContextGL())->enableExtension(GCGLExtension::ANGLE_multi_draw);
 
     // Spec requires ANGLE_instanced_arrays to be turned on implicitly here.
     // Enable it both in the backend and in WebKit.
@@ -51,8 +51,7 @@ WebGLMultiDraw::~WebGLMultiDraw() = default;
 
 bool WebGLMultiDraw::supported(GraphicsContextGL& context)
 {
-    return context.supportsExtension(GCGLExtension::ANGLE_multi_draw)
-        && context.supportsExtension(GCGLExtension::ANGLE_instanced_arrays);
+    return context.supportsExtension(GCGLExtension::ANGLE_multi_draw);
 }
 
 void WebGLMultiDraw::multiDrawArraysWEBGL(GCGLenum mode, Int32List&& firstsList, GCGLuint firstsOffset, Int32List&& countsList, GCGLuint countsOffset, GCGLsizei drawcount)
@@ -78,7 +77,7 @@ void WebGLMultiDraw::multiDrawArraysWEBGL(GCGLenum mode, Int32List&& firstsList,
     {
         ScopedInspectorShaderProgramHighlight scopedHighlight { context.get() };
 
-        context->graphicsContextGL()->multiDrawArraysANGLE(mode, GCGLSpanTuple { firstsList.span().subspan(firstsOffset).data(), countsList.span().subspan(countsOffset).data(), static_cast<size_t>(drawcount) });
+        protect(context->graphicsContextGL())->multiDrawArraysANGLE(mode, GCGLSpanTuple { firstsList.span().subspan(firstsOffset).data(), countsList.span().subspan(countsOffset).data(), static_cast<size_t>(drawcount) });
     }
 
     context->markContextChangedAndNotifyCanvasObserver();
@@ -108,7 +107,7 @@ void WebGLMultiDraw::multiDrawArraysInstancedWEBGL(GCGLenum mode, Int32List&& fi
     {
         ScopedInspectorShaderProgramHighlight scopedHighlight { context.get() };
 
-        context->graphicsContextGL()->multiDrawArraysInstancedANGLE(mode, GCGLSpanTuple { firstsList.span().subspan(firstsOffset).data(), countsList.span().subspan(countsOffset).data(), instanceCountsList.span().subspan(instanceCountsOffset).data(), static_cast<size_t>(drawcount) });
+        protect(context->graphicsContextGL())->multiDrawArraysInstancedANGLE(mode, GCGLSpanTuple { firstsList.span().subspan(firstsOffset).data(), countsList.span().subspan(countsOffset).data(), instanceCountsList.span().subspan(instanceCountsOffset).data(), static_cast<size_t>(drawcount) });
     }
 
     context->markContextChangedAndNotifyCanvasObserver();
@@ -137,7 +136,7 @@ void WebGLMultiDraw::multiDrawElementsWEBGL(GCGLenum mode, Int32List&& countsLis
     {
         ScopedInspectorShaderProgramHighlight scopedHighlight { context.get() };
 
-        context->graphicsContextGL()->multiDrawElementsANGLE(mode, GCGLSpanTuple { countsList.span().subspan(countsOffset).data(), offsetsList.span().subspan(offsetsOffset).data(), static_cast<size_t>(drawcount) }, type);
+        protect(context->graphicsContextGL())->multiDrawElementsANGLE(mode, GCGLSpanTuple { countsList.span().subspan(countsOffset).data(), offsetsList.span().subspan(offsetsOffset).data(), static_cast<size_t>(drawcount) }, type);
     }
 
     context->markContextChangedAndNotifyCanvasObserver();
@@ -167,7 +166,7 @@ void WebGLMultiDraw::multiDrawElementsInstancedWEBGL(GCGLenum mode, Int32List&& 
     {
         ScopedInspectorShaderProgramHighlight scopedHighlight { context.get() };
 
-        context->graphicsContextGL()->multiDrawElementsInstancedANGLE(mode, GCGLSpanTuple { countsList.span().subspan(countsOffset).data(), offsetsList.span().subspan(offsetsOffset).data(), instanceCountsList.span().subspan(instanceCountsOffset).data(), static_cast<size_t>(drawcount) }, type);
+        protect(context->graphicsContextGL())->multiDrawElementsInstancedANGLE(mode, GCGLSpanTuple { countsList.span().subspan(countsOffset).data(), offsetsList.span().subspan(offsetsOffset).data(), instanceCountsList.span().subspan(instanceCountsOffset).data(), static_cast<size_t>(drawcount) }, type);
     }
 
     context->markContextChangedAndNotifyCanvasObserver();

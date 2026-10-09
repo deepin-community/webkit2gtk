@@ -27,6 +27,7 @@
 
 #if ENABLE(MATHML)
 
+#include <array>
 #include <optional>
 #include <unicode/utypes.h>
 #include <wtf/Forward.h>
@@ -34,7 +35,7 @@
 namespace WebCore {
 
 namespace MathMLOperatorDictionary {
-enum Form { Infix, Prefix, Postfix };
+enum class Form : uint8_t { Infix, Prefix, Postfix };
 enum Flag {
     Accent = 0x1,
     Fence = 0x2, // This has no visual effect but allows to expose semantic information via the accessibility tree.
@@ -54,6 +55,7 @@ struct Property {
     unsigned short flags { 0 };
 };
 std::optional<Property> search(char32_t, Form, bool explicitForm);
+std::optional<Property> search(std::array<char16_t, 2>, Form, bool explicitForm);
 bool isVertical(char32_t);
 }
 

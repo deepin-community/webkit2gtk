@@ -31,6 +31,10 @@
 
 #include "EventLoop.h"
 #include "FrameRateMonitor.h"
+#include "JSDOMConvertInterface.h"
+#include "JSDOMConvertNumbers.h"
+#include "JSDOMConvertUnion.h"
+#include "JSDOMPromiseDeferred.h"
 #include "JSRTCEncodedAudioFrame.h"
 #include "JSRTCEncodedVideoFrame.h"
 #include "Logging.h"
@@ -49,7 +53,7 @@ RTCEncodedStreamProducer::~RTCEncodedStreamProducer() = default;
 
 ExceptionOr<Ref<RTCEncodedStreamProducer>> RTCEncodedStreamProducer::create(ScriptExecutionContext& context)
 {
-    auto* globalObject = JSC::jsCast<JSDOMGlobalObject*>(context.globalObject());
+    auto* globalObject = downcast<JSDOMGlobalObject>(context.globalObject());
     if (!globalObject)
         return Exception { ExceptionCode::InvalidStateError };
 
@@ -111,7 +115,7 @@ void RTCEncodedStreamProducer::enqueueFrame(Ref<RTCRtpTransformableFrame>&& fram
     if (!context)
         return;
 
-    auto* globalObject = JSC::jsCast<JSDOMGlobalObject*>(context->globalObject());
+    auto* globalObject = downcast<JSDOMGlobalObject>(context->globalObject());
     if (!globalObject)
         return;
 
@@ -160,12 +164,15 @@ ExceptionOr<void> RTCEncodedStreamProducer::writeFrame(ScriptExecutionContext& c
 
     bool isVideo = false;
     auto frame = frameConversionResult.releaseReturnValue();
-    auto rtcFrame = WTF::switchOn(frame, [&](RefPtr<RTCEncodedAudioFrame>& value) {
-        return value->rtcFrame(vm);
-    }, [&](RefPtr<RTCEncodedVideoFrame>& value) {
-        isVideo = true;
-        return value->rtcFrame(vm);
-    });
+    auto rtcFrame = WTF::switchOn(frame,
+        [&](Ref<RTCEncodedAudioFrame>& value) {
+            return value->rtcFrame(vm);
+        },
+        [&](Ref<RTCEncodedVideoFrame>& value) {
+            isVideo = true;
+            return value->rtcFrame(vm);
+        }
+    );
 
     if (m_isVideo != isVideo || (m_hasTransformer && !rtcFrame->isFromTransformer(m_transformer.get())))
         return { };
@@ -186,7 +193,7 @@ void RTCEncodedStreamProducer::generateKeyFrame(ScriptExecutionContext& context,
         return;
 
     if (!backend->requestKeyFrame(rid)) {
-        context.checkedEventLoop()->queueTask(TaskSource::Networking, [promise = WTF::move(promise)]() mutable {
+        protect(context.eventLoop())->queueTask(TaskSource::Networking, [promise = WTF::move(promise)]() mutable {
             promise->reject(Exception { ExceptionCode::NotFoundError, "rid was not found or is empty"_s });
         });
         return;

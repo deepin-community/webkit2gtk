@@ -47,8 +47,8 @@ public:
         std::optional<Vector<XRSessionMode>> supportedModes;
         Vector<FakeXRViewInit> views;
 
-        std::optional<Vector<String>> supportedFeatures;
-        std::optional<Vector<String>> enabledFeatures;
+        Vector<String> supportedFeatures;
+        Vector<String> enabledFeatures;
 
         std::optional<Vector<FakeXRBoundsPoint>> boundsCoordinates;
 

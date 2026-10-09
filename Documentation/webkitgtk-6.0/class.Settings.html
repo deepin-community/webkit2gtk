@@ -62,7 +62,7 @@ SPDX-License-Identifier: BSD, LGPL-2.1
         <h3><a href="index.html">WebKit</a></h3>
         <p>API Version: 6.0</p>
         
-        <p>Library Version: 2.52.5</p>
+        <p>Library Version: 2.54.0</p>
         
       </div>
       
@@ -529,7 +529,7 @@ SPDX-License-Identifier: BSD, LGPL-2.1
 }</pre></code>
 
         <div class="docblock">
-          <p>Control the behaviour of a <code>WebKitWebView</code>.</p>
+          <p>Control the behavior of a <code>WebKitWebView</code>.</p>
 <p><code>WebKitSettings</code> can be applied to a <code>WebKitWebView</code> to control text charset,
 color, font sizes, printing mode, script support, loading of images and various
 other things on a <code>WebKitWebView</code>. After creation, a <code>WebKitSettings</code> object
@@ -728,7 +728,7 @@ contains default&nbsp;settings.</p>
         <div class="">
           <h6><a href="method.Settings.apply_from_key_file.html">webkit_settings_apply_from_key_file</a></h6>
           <div class="docblock">
-            <p>Reads the contents of the given <code>group_name</code> from the given <code>key_file</code> and apply the value of
+            <p>Reads the contents of the given <code>group_name</code> from the given <code>key_file</code> and applies the value of
 each key/value to the corresponding property on the <code>settings</code>.</p>
           </div>
           <div class="docblock">
@@ -1202,7 +1202,7 @@ each key/value to the corresponding property on the <code>settings</code>.</p>
             <p>Gets the <code>WebKitSettings:math-font-family</code> property.</p>
           </div>
           <div class="docblock">
-            <p></p>
+            <p><span class="emblem available">since: 2.52</span></p>
           </div>
         </div>
       
@@ -1612,7 +1612,7 @@ each key/value to the corresponding property on the <code>settings</code>.</p>
             <p>Set the <code>WebKitSettings:enable-mock-capture-devices</code> property.</p>
           </div>
           <div class="docblock">
-            <p><span class="emblem available">since: 2.4</span></p>
+            <p><span class="emblem available">since: 2.24</span></p>
           </div>
         </div>
       
@@ -1792,7 +1792,7 @@ each key/value to the corresponding property on the <code>settings</code>.</p>
             <p>Set the <code>WebKitSettings:math-font-family</code> property.</p>
           </div>
           <div class="docblock">
-            <p></p>
+            <p><span class="emblem available">since: 2.52</span></p>
           </div>
         </div>
       
@@ -1962,7 +1962,7 @@ each key/value to the corresponding property on the <code>settings</code>.</p>
             <p>Whether file access is allowed from file URLs. By default, when
 something is loaded in a <code>WebKitWebView</code> using a file <span class="caps">URI</span>, cross
 origin requests to other file resources are not allowed. This
-setting allows you to change that behaviour, so that it would be
+setting allows you to change that behavior, so that it would be
 possible to do a XMLHttpRequest of a local file, for&nbsp;example.</p>
           </div>
           <div class="docblock">
@@ -1975,7 +1975,7 @@ possible to do a XMLHttpRequest of a local file, for&nbsp;example.</p>
           <div class="docblock">
             <p>Determine whether it&#8217;s allowed to create and run modal dialogs
 from a <code>WebKitWebView</code> through JavaScript with
-<function>window.showModalDialog</function>. If it&#8217;s set to
+<code>window.showModalDialog</code>. If it&#8217;s set to
 <code>FALSE</code>, the associated <code>WebKitWebView</code> won&#8217;t be able to create
 new modal dialogs, so not even the <code>WebKitWebView::create</code>
 signal will be&nbsp;emitted.</p>
@@ -1991,7 +1991,7 @@ signal will be&nbsp;emitted.</p>
             <p>Whether or not the top frame is allowed to navigate to data URLs. It is disabled by default
 due to the risk it poses when loading untrusted URLs, with data URLs being used in scamming
 and phishing attacks. In contrast, a scenario where it could be enabled could be an app that
-embeds a WebView and you have control of the pages being show instead of a generic&nbsp;browser.</p>
+embeds a WebView and you have control of the pages being shown instead of a generic&nbsp;browser.</p>
           </div>
           <div class="docblock">
             <p><span class="emblem available">since: 2.28</span></p>
@@ -2005,7 +2005,7 @@ embeds a WebView and you have control of the pages being show instead of a gener
 should be allowed to access content from any origin.  By default, when
 something is loaded in a <code>WebKitWebView</code> using a file scheme <span class="caps">URL</span>,
 access to the local file system and arbitrary local storage is not
-allowed. This setting allows you to change that behaviour, so that
+allowed. This setting allows you to change that behavior, so that
 it would be possible to use local storage, for&nbsp;example.</p>
           </div>
           <div class="docblock">
@@ -2361,9 +2361,9 @@ special-case this and other cases to make some specific sites&nbsp;work.</p>
             <p>Whether to enable Spatial Navigation. This feature consists in the ability
 to navigate between focusable elements in a Web page, such as hyperlinks
 and form controls, by using Left, Right, Up and Down arrow keys.
-For example, if an user presses the Right key, heuristics determine whether
+For example, if a user presses the Right key, heuristics determine whether
 there is an element they might be trying to reach towards the right, and if
-there are multiple elements, which element they probably&nbsp;wants.</p>
+there are multiple elements, which element they probably&nbsp;want.</p>
           </div>
           <div class="docblock">
             <p><span class="emblem available">since: 2.4</span></p>
@@ -2492,7 +2492,7 @@ set to <code>TRUE</code>, document.execCommand() allows cut, copy and paste&nbsp
         <div class="">
           <h6><a href="property.Settings.media-content-types-requiring-hardware-support.html">WebKit.Settings:media-content-types-requiring-hardware-support</a></h6>
           <div class="docblock">
-            <p>List of media content types requiring hardware support, split by semicolons (:).
+            <p>List of media content types requiring hardware support, split by colons (:).
 For example: &#8216;video/webm; codecs=&#8221;vp<em>&#8220;:video/mp4; codecs=&#8221;avc</em>&#8220;:video/&ast;&nbsp;codecs=&#8221;av1*&#8221;&#8217;.</p>
           </div>
           <div class="docblock">

@@ -59,7 +59,7 @@ struct SameSizeAsRuleData {
 
 static_assert(sizeof(RuleData) == sizeof(SameSizeAsRuleData), "RuleData should stay small");
 
-static inline MatchBasedOnRuleHash computeMatchBasedOnRuleHash(const CSSSelector& selector)
+static inline MatchBasedOnRuleHash NODELETE computeMatchBasedOnRuleHash(const CSSSelector& selector)
 {
     if (selector.precedingInComplexSelector())
         return MatchBasedOnRuleHash::None;
@@ -88,19 +88,31 @@ static inline MatchBasedOnRuleHash computeMatchBasedOnRuleHash(const CSSSelector
 static inline PropertyAllowlist determinePropertyAllowlist(const CSSSelector& selector)
 {
     for (const CSSSelector* component = &selector; component; component = component->precedingInComplexSelector()) {
+        if (component->match() == CSSSelector::Match::PseudoElement) {
+            switch (component->pseudoElement()) {
+            case CSSSelector::PseudoElement::GrammarError:
+            case CSSSelector::PseudoElement::Highlight:
+            case CSSSelector::PseudoElement::Selection:
+            case CSSSelector::PseudoElement::SpellingError:
+            case CSSSelector::PseudoElement::TargetText:
+                return PropertyAllowlist::Highlight;
+            case CSSSelector::PseudoElement::Marker:
+                return PropertyAllowlist::Marker;
 #if ENABLE(VIDEO)
-        // Property allow-list for `::cue`:
-        if (component->match() == CSSSelector::Match::PseudoElement && component->pseudoElement() == CSSSelector::PseudoElement::UserAgentPart && component->value() == UserAgentParts::cue())
-            return PropertyAllowlist::Cue;
-        // Property allow-list for `::cue(selector)`:
-        if (component->match() == CSSSelector::Match::PseudoElement && component->pseudoElement() == CSSSelector::PseudoElement::Cue)
-            return PropertyAllowlist::CueSelector;
-        // Property allow-list for '::-internal-cue-background':
-        if (component->match() == CSSSelector::Match::PseudoElement && component->pseudoElement() == CSSSelector::PseudoElement::UserAgentPart && component->value() == UserAgentParts::internalCueBackground())
-            return PropertyAllowlist::CueBackground;
+            case CSSSelector::PseudoElement::UserAgentPart:
+                if (component->value() == UserAgentParts::cue())
+                    return PropertyAllowlist::Cue;
+                // Property allow-list for '::-internal-cue-background':
+                if (component->value() == UserAgentParts::internalCueBackground())
+                    return PropertyAllowlist::CueBackground;
+                break;
+            case CSSSelector::PseudoElement::Cue:
+                return PropertyAllowlist::CueSelector;
 #endif
-        if (component->match() == CSSSelector::Match::PseudoElement && component->pseudoElement() == CSSSelector::PseudoElement::Marker)
-            return propertyAllowlistForPseudoElement(PseudoElementType::Marker);
+            default:
+                break;
+            }
+        }
 
         if (const auto* selectorList = selector.selectorList()) {
             for (auto& subSelector : *selectorList) {
@@ -116,10 +128,10 @@ static inline PropertyAllowlist determinePropertyAllowlist(const CSSSelector& se
 RuleData::RuleData(const StyleRule& styleRule, unsigned selectorIndex, unsigned selectorListIndex, unsigned position, IsStartingStyle isStartingStyle)
     : m_styleRuleWithSelectorIndex(&styleRule, static_cast<uint16_t>(selectorIndex))
     , m_selectorListIndex(selectorListIndex)
-    , m_matchBasedOnRuleHash(enumToUnderlyingType(computeMatchBasedOnRuleHash(selector())))
+    , m_matchBasedOnRuleHash(std::to_underlying(computeMatchBasedOnRuleHash(selector())))
     , m_canMatchPseudoElement(complexSelectorCanMatchPseudoElement(selector()))
-    , m_propertyAllowlist(enumToUnderlyingType(determinePropertyAllowlist(selector())))
-    , m_isStartingStyle(enumToUnderlyingType(isStartingStyle))
+    , m_propertyAllowlist(std::to_underlying(determinePropertyAllowlist(selector())))
+    , m_isStartingStyle(std::to_underlying(isStartingStyle))
     , m_isEnabled(true)
     , m_position(position)
     , m_descendantSelectorIdentifierHashes(SelectorFilter::collectHashes(selector()))

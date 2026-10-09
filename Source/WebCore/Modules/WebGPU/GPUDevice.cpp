@@ -63,6 +63,7 @@
 #include "GPUTextureFormat.h"
 #include "GPUUncapturedErrorEvent.h"
 #include "HTMLVideoElement.h"
+#include "JSDOMConvertInterface.h"
 #include "JSDOMPromiseDeferred.h"
 #include "JSGPUComputePipeline.h"
 #include "JSGPUDeviceLostInfo.h"
@@ -73,6 +74,7 @@
 #include "JSGPUUncapturedErrorEvent.h"
 #include "JSGPUValidationError.h"
 #include "RequestAnimationFrameCallback.h"
+#include "SecurityOrigin.h"
 #include "WebGPUXRBinding.h"
 #include "XRGPUBinding.h"
 #include <wtf/TZoneMallocInlines.h>
@@ -85,7 +87,7 @@ GPUDevice::GPUDevice(ScriptExecutionContext* scriptExecutionContext, Ref<WebGPU:
     : ActiveDOMObject { scriptExecutionContext }
     , m_lostPromise(makeUniqueRef<LostPromise>())
     , m_backing(WTF::move(backing))
-    , m_queue(GPUQueue::create(Ref { m_backing->queue() }, this->backing()))
+    , m_queue(GPUQueue::create(m_backing->queue(), this->backing()))
     , m_autoPipelineLayout(createAutoPipelineLayout())
     , m_features(GPUSupportedFeatures::create(m_backing->features()))
     , m_limits(GPUSupportedLimits::create(m_backing->limits()))
@@ -163,7 +165,7 @@ RefPtr<WebGPU::XRBinding> GPUDevice::createXRBinding(const WebXRSession&)
     return m_backing->createXRBinding();
 }
 
-ExceptionOr<Ref<GPUBuffer>> GPUDevice::createBuffer(const GPUBufferDescriptor& bufferDescriptor)
+ExceptionOr<Ref<GPUBuffer>> GPUDevice::createBuffer(GPUBufferDescriptor&& bufferDescriptor)
 {
     auto bufferSize = bufferDescriptor.size;
     if (bufferDescriptor.mappedAtCreation) {
@@ -274,7 +276,7 @@ std::optional<String> GPUDevice::errorValidatingSupportedFormat(GPUTextureFormat
     }
 }
 
-ExceptionOr<Ref<GPUTexture>> GPUDevice::createTexture(const GPUTextureDescriptor& textureDescriptor)
+ExceptionOr<Ref<GPUTexture>> GPUDevice::createTexture(GPUTextureDescriptor&& textureDescriptor)
 {
     if (auto error = errorValidatingSupportedFormat(textureDescriptor.format))
         return Exception { ExceptionCode::TypeError, makeString("GPUDevice.createTexture: Unsupported texture format: "_s, *error) };
@@ -286,7 +288,7 @@ ExceptionOr<Ref<GPUTexture>> GPUDevice::createTexture(const GPUTextureDescriptor
     return GPUTexture::create(texture.releaseNonNull(), textureDescriptor, *this);
 }
 
-static WebGPU::SamplerDescriptor convertToBacking(const std::optional<GPUSamplerDescriptor>& samplerDescriptor)
+static WebGPU::SamplerDescriptor NODELETE convertToBacking(const std::optional<GPUSamplerDescriptor>& samplerDescriptor)
 {
     if (!samplerDescriptor) {
         return {
@@ -307,7 +309,7 @@ static WebGPU::SamplerDescriptor convertToBacking(const std::optional<GPUSampler
     return samplerDescriptor->convertToBacking();
 }
 
-ExceptionOr<Ref<GPUSampler>> GPUDevice::createSampler(const std::optional<GPUSamplerDescriptor>& samplerDescriptor)
+ExceptionOr<Ref<GPUSampler>> GPUDevice::createSampler(std::optional<GPUSamplerDescriptor>&& samplerDescriptor)
 {
     RefPtr sampler = m_backing->createSampler(convertToBacking(samplerDescriptor));
     if (!sampler)
@@ -324,21 +326,23 @@ ScriptExecutionContext* GPUDevice::scriptExecutionContext() const
 GPUExternalTexture* GPUDevice::externalTextureForDescriptor(const GPUExternalTextureDescriptor& descriptor)
 {
     m_videoElementToExternalTextureMap.removeNullReferences();
-#if ENABLE(WEB_CODECS)
-    if (auto* videoElement = std::get_if<RefPtr<HTMLVideoElement>>(&descriptor.source)) {
-#else
-    if (auto* videoElement = &descriptor.source) {
-#endif
-        if (!videoElement->get())
-            return nullptr;
-        Ref v = *videoElement->get();
-        if (m_previouslyImportedExternalTexture.first.get() == v.ptr())
-            return m_previouslyImportedExternalTexture.second.get();
 
-        auto it = m_videoElementToExternalTextureMap.find(v);
-        if (it != m_videoElementToExternalTextureMap.end())
-            return it->value.get();
-    }
+#if ENABLE(WEB_CODECS)
+    auto* videoElement = std::get_if<Ref<HTMLVideoElement>>(&descriptor.source);
+    if (!videoElement)
+        return nullptr;
+    Ref videoElementRef = *videoElement;
+#else
+    Ref videoElementRef = descriptor.source;
+#endif
+
+    if (m_previouslyImportedExternalTexture.first == videoElementRef.ptr())
+        return m_previouslyImportedExternalTexture.second.get();
+
+    auto it = m_videoElementToExternalTextureMap.find(videoElementRef);
+    if (it != m_videoElementToExternalTextureMap.end())
+        return it->value.get();
+
     return nullptr;
 }
 
@@ -360,20 +364,20 @@ private:
     {
     }
 
-    bool hasCallback() const final { return true; }
+    bool NODELETE hasCallback() const final { return true; }
 
     CallbackResult<void> invoke(double, const VideoFrameMetadata&) override
     {
-        RefPtr videoElement = m_videoElement.get();
+        RefPtr videoElement { m_videoElement };
         if (!videoElement)
             return { };
-        RefPtr gpuDevice = m_gpuDevice.get();
+        RefPtr gpuDevice { m_gpuDevice };
         if (!gpuDevice)
             return { };
         auto texture = gpuDevice->takeExternalTextureForVideoElement(*videoElement);
         if (!texture)
             return { };
-        if (texture.get() == m_externalTexture.ptr())
+        if (texture == m_externalTexture.ptr())
             m_externalTexture->destroy();
         return { };
     }
@@ -389,53 +393,74 @@ private:
 };
 #endif
 
-ExceptionOr<Ref<GPUExternalTexture>> GPUDevice::importExternalTexture(const GPUExternalTextureDescriptor& externalTextureDescriptor)
+ExceptionOr<Ref<GPUExternalTexture>> GPUDevice::importExternalTexture(GPUExternalTextureDescriptor&& externalTextureDescriptor)
 {
+#if ENABLE(VIDEO)
+    auto checkVideoElementOriginTaint = [this](const HTMLVideoElement& videoElement) -> std::optional<Exception> {
+        RefPtr context = scriptExecutionContext();
+        if (RefPtr securityOrigin = context ? context->securityOrigin() : nullptr; securityOrigin && videoElement.taintsOrigin(*securityOrigin))
+            return Exception { ExceptionCode::SecurityError, "GPUDevice.importExternalTexture: Cross origin external videos are not allowed in WebGPU"_s };
+        return std::nullopt;
+    };
+#endif
+
 #if ENABLE(VIDEO) && PLATFORM(COCOA)
     if (RefPtr externalTexture = externalTextureForDescriptor(externalTextureDescriptor)) {
         externalTexture->undestroy();
 #if ENABLE(WEB_CODECS)
-        auto& videoElement = std::get<RefPtr<HTMLVideoElement>>(externalTextureDescriptor.source);
+        Ref videoElementRef = std::get<Ref<HTMLVideoElement>>(externalTextureDescriptor.source);
 #else
-        auto& videoElement = externalTextureDescriptor.source;
+        Ref videoElementRef = externalTextureDescriptor.source;
 #endif
-        m_videoElementToExternalTextureMap.remove(*videoElement.get());
+        if (auto exception = checkVideoElementOriginTaint(videoElementRef))
+            return WTF::move(*exception);
+
+        m_videoElementToExternalTextureMap.remove(videoElementRef);
         if (auto optionalMediaIdentifier = externalTextureDescriptor.mediaIdentifier()) {
             m_backing->updateExternalTexture(externalTexture->backing(), *optionalMediaIdentifier);
             return externalTexture.releaseNonNull();
         }
     }
 #endif
+
     RefPtr texture = m_backing->importExternalTexture(externalTextureDescriptor.convertToBacking());
     if (!texture)
         return Exception { ExceptionCode::InvalidStateError, "GPUDevice.importExternalTexture: Unable to import texture."_s };
+
     auto externalTexture = GPUExternalTexture::create(texture.releaseNonNull());
+
 #if ENABLE(VIDEO)
 #if ENABLE(WEB_CODECS)
-    if (auto* videoElement = std::get_if<RefPtr<HTMLVideoElement>>(&externalTextureDescriptor.source); videoElement && videoElement->get()) {
+    auto* videoElement = std::get_if<Ref<HTMLVideoElement>>(&externalTextureDescriptor.source);
+    if (!videoElement)
+        return externalTexture;
+    Ref videoElementRef = *videoElement;
 #else
-    if (auto* videoElement = &externalTextureDescriptor.source; videoElement && videoElement->get()) {
+    Ref videoElementRef = externalTextureDescriptor.source;
 #endif
-        WeakPtr<HTMLVideoElement> videoElementPtr = videoElement->get();
-        m_videoElementToExternalTextureMap.set(*videoElementPtr, externalTexture.get());
-        m_previouslyImportedExternalTexture.first = *videoElement;
-        m_previouslyImportedExternalTexture.second = externalTexture.ptr();
-        videoElementPtr->requestVideoFrameCallback(GPUDeviceVideoFrameRequestCallback::create(externalTexture.get(), *videoElementPtr, *this, RefPtr { scriptExecutionContext() }.get()));
-        queueTaskKeepingObjectAlive(*this, TaskSource::WebGPU, [videoElementPtr, externalTextureRef = externalTexture](auto& gpuDevice) {
-            if (!videoElementPtr)
-                return;
-            auto it = gpuDevice.m_videoElementToExternalTextureMap.find(*videoElementPtr);
-            if (it == gpuDevice.m_videoElementToExternalTextureMap.end() || externalTextureRef.ptr() != it->value.get())
-                return;
+    if (auto exception = checkVideoElementOriginTaint(videoElementRef))
+        return WTF::move(*exception);
 
-            externalTextureRef->destroy();
-        });
-    }
+    WeakPtr videoElementPtr = videoElementRef.ptr();
+    m_videoElementToExternalTextureMap.set(videoElementRef, externalTexture.get());
+    m_previouslyImportedExternalTexture.first = videoElementRef.ptr();
+    m_previouslyImportedExternalTexture.second = externalTexture.ptr();
+
+    videoElementPtr->requestVideoFrameCallback(GPUDeviceVideoFrameRequestCallback::create(externalTexture.get(), *videoElementPtr, *this, protect(scriptExecutionContext())));
+    queueTaskKeepingObjectAlive(*this, TaskSource::WebGPU, [videoElementPtr, externalTextureRef = externalTexture](auto& gpuDevice) {
+        if (!videoElementPtr)
+            return;
+        auto it = gpuDevice.m_videoElementToExternalTextureMap.find(*videoElementPtr);
+        if (it == gpuDevice.m_videoElementToExternalTextureMap.end() || externalTextureRef.ptr() != it->value.get())
+            return;
+
+        externalTextureRef->destroy();
+    });
 #endif
     return externalTexture;
 }
 
-ExceptionOr<Ref<GPUBindGroupLayout>> GPUDevice::createBindGroupLayout(const GPUBindGroupLayoutDescriptor& bindGroupLayoutDescriptor)
+ExceptionOr<Ref<GPUBindGroupLayout>> GPUDevice::createBindGroupLayout(GPUBindGroupLayoutDescriptor&& bindGroupLayoutDescriptor)
 {
     for (auto& entry : bindGroupLayoutDescriptor.entries) {
         if (entry.storageTexture) {
@@ -461,7 +486,7 @@ RefPtr<GPUPipelineLayout> GPUDevice::createAutoPipelineLayout()
     return GPUPipelineLayout::create(layout.releaseNonNull());
 }
 
-ExceptionOr<Ref<GPUPipelineLayout>> GPUDevice::createPipelineLayout(const GPUPipelineLayoutDescriptor& pipelineLayoutDescriptor)
+ExceptionOr<Ref<GPUPipelineLayout>> GPUDevice::createPipelineLayout(GPUPipelineLayoutDescriptor&& pipelineLayoutDescriptor)
 {
     RefPtr pipelineLayout = m_backing->createPipelineLayout(pipelineLayoutDescriptor.convertToBacking(m_backing));
     if (!pipelineLayout)
@@ -469,15 +494,15 @@ ExceptionOr<Ref<GPUPipelineLayout>> GPUDevice::createPipelineLayout(const GPUPip
     return GPUPipelineLayout::create(pipelineLayout.releaseNonNull());
 }
 
-ExceptionOr<Ref<GPUBindGroup>> GPUDevice::createBindGroup(const GPUBindGroupDescriptor& bindGroupDescriptor)
+ExceptionOr<Ref<GPUBindGroup>> GPUDevice::createBindGroup(GPUBindGroupDescriptor&& bindGroupDescriptor)
 {
-    RefPtr currentLayout = bindGroupDescriptor.layout.get();
+    Ref currentLayout = bindGroupDescriptor.layout;
 #if ENABLE(VIDEO) && PLATFORM(COCOA)
     bool hasExternalTexture = false;
     auto* externalTexture = bindGroupDescriptor.externalTextureMatches(m_lastCreatedExternalTextureBindGroup.first, hasExternalTexture);
-    if (RefPtr externalTextureValue = externalTexture ? externalTexture->get() : nullptr) {
+    if (RefPtr externalTextureValue = externalTexture ? externalTexture->ptr() : nullptr) {
         RefPtr bindGroup = m_lastCreatedExternalTextureBindGroup.second;
-        bool autoGeneratedLayoutMisMatch = currentLayout && currentLayout->autogeneratedPipelineIdentifier() != bindGroup->autogeneratedPipelineIdentifier();
+        bool autoGeneratedLayoutMisMatch = currentLayout->autogeneratedPipelineIdentifier() != bindGroup->autogeneratedPipelineIdentifier();
         if (!autoGeneratedLayoutMisMatch && bindGroup->updateExternalTextures(*externalTextureValue))
             return bindGroup.releaseNonNull();
     }
@@ -486,7 +511,7 @@ ExceptionOr<Ref<GPUBindGroup>> GPUDevice::createBindGroup(const GPUBindGroupDesc
     RefPtr group = m_backing->createBindGroup(bindGroupDescriptor.convertToBacking());
     if (!group)
         return Exception { ExceptionCode::InvalidStateError, "GPUDevice.createBindGroup: Unable to make bind group."_s };
-    auto result = GPUBindGroup::create(group.releaseNonNull(), currentLayout.get());
+    auto result = GPUBindGroup::create(group.releaseNonNull(), WTF::move(currentLayout));
 #if ENABLE(VIDEO) && PLATFORM(COCOA)
     if (hasExternalTexture) {
         m_lastCreatedExternalTextureBindGroup.first = bindGroupDescriptor.entries;
@@ -497,7 +522,7 @@ ExceptionOr<Ref<GPUBindGroup>> GPUDevice::createBindGroup(const GPUBindGroupDesc
     return result;
 }
 
-ExceptionOr<Ref<GPUShaderModule>> GPUDevice::createShaderModule(const GPUShaderModuleDescriptor& shaderModuleDescriptor)
+ExceptionOr<Ref<GPUShaderModule>> GPUDevice::createShaderModule(GPUShaderModuleDescriptor&& shaderModuleDescriptor)
 {
     if (!m_autoPipelineLayout)
         return Exception { ExceptionCode::InvalidStateError, "GPUDevice.createShaderModule: Unable to make shader module."_s };
@@ -517,46 +542,46 @@ ExceptionOr<Ref<GPUShaderModule>> GPUDevice::createShaderModule(const GPUShaderM
     return GPUShaderModule::create(shaderModule.releaseNonNull());
 }
 
-ExceptionOr<Ref<GPUComputePipeline>> GPUDevice::createComputePipeline(const GPUComputePipelineDescriptor& computePipelineDescriptor)
+ExceptionOr<Ref<GPUComputePipeline>> GPUDevice::createComputePipeline(UniquelyAnnotatedDescriptor<GPUComputePipelineDescriptor>&& computePipelineDescriptor)
 {
     if (!m_autoPipelineLayout)
         return Exception { ExceptionCode::InvalidStateError, "GPUDevice.createComputePipeline: Unable to make pipeline."_s };
-    RefPtr pipeline = m_backing->createComputePipeline(computePipelineDescriptor.convertToBacking(*m_autoPipelineLayout));
+    RefPtr pipeline = m_backing->createComputePipeline(computePipelineDescriptor->convertToBacking(*m_autoPipelineLayout));
     if (!pipeline)
         return Exception { ExceptionCode::InvalidStateError, "GPUDevice.createComputePipeline: Unable to make pipeline."_s };
     return GPUComputePipeline::create(pipeline.releaseNonNull(), computePipelineDescriptor.uniqueAutogeneratedId());
 }
 
-ExceptionOr<Ref<GPURenderPipeline>> GPUDevice::createRenderPipeline(const GPURenderPipelineDescriptor& renderPipelineDescriptor)
+ExceptionOr<Ref<GPURenderPipeline>> GPUDevice::createRenderPipeline(UniquelyAnnotatedDescriptor<GPURenderPipelineDescriptor>&& renderPipelineDescriptor)
 {
-    if (renderPipelineDescriptor.fragment) {
-        for (auto& colorState : renderPipelineDescriptor.fragment->targets) {
+    if (renderPipelineDescriptor->fragment) {
+        for (auto& colorState : renderPipelineDescriptor->fragment->targets) {
             if (colorState) {
                 if (auto error = errorValidatingSupportedFormat(colorState->format))
                     return Exception { ExceptionCode::TypeError, makeString("GPUDevice.createRenderPipeline: Unsupported texture format for color target: "_s, *error) };
             }
         }
     }
-    if (renderPipelineDescriptor.depthStencil) {
-        if (auto error = errorValidatingSupportedFormat(renderPipelineDescriptor.depthStencil->format))
+    if (renderPipelineDescriptor->depthStencil) {
+        if (auto error = errorValidatingSupportedFormat(renderPipelineDescriptor->depthStencil->format))
             return Exception { ExceptionCode::TypeError, makeString("GPUDevice.createRenderPipeline: Unsupported texture format for depth target: "_s, *error) };
     }
 
     if (!m_autoPipelineLayout)
         return Exception { ExceptionCode::InvalidStateError, "GPUDevice.createRenderPipeline: Unable to make pipeline."_s };
-    RefPtr renderPipeline = m_backing->createRenderPipeline(renderPipelineDescriptor.convertToBacking(*m_autoPipelineLayout));
+    RefPtr renderPipeline = m_backing->createRenderPipeline(renderPipelineDescriptor->convertToBacking(*m_autoPipelineLayout));
     if (!renderPipeline)
         return Exception { ExceptionCode::InvalidStateError, "GPUDevice.createRenderPipeline: Unable to make pipeline."_s };
     return GPURenderPipeline::create(renderPipeline.releaseNonNull(), renderPipelineDescriptor.uniqueAutogeneratedId());
 }
 
-void GPUDevice::createComputePipelineAsync(const GPUComputePipelineDescriptor& computePipelineDescriptor, CreateComputePipelineAsyncPromise&& promise)
+void GPUDevice::createComputePipelineAsync(UniquelyAnnotatedDescriptor<GPUComputePipelineDescriptor>&& computePipelineDescriptor, CreateComputePipelineAsyncPromise&& promise)
 {
     if (!m_autoPipelineLayout) {
         promise.rejectType<IDLInterface<GPUPipelineError>>(GPUPipelineError::create(""_s, { GPUPipelineErrorReason::Internal }));
         return;
     }
-    m_backing->createComputePipelineAsync(computePipelineDescriptor.convertToBacking(*m_autoPipelineLayout), [promise = WTF::move(promise), autogeneratedId = computePipelineDescriptor.uniqueAutogeneratedId()](RefPtr<WebGPU::ComputePipeline>&& computePipeline, String&& error) mutable {
+    m_backing->createComputePipelineAsync(computePipelineDescriptor->convertToBacking(*m_autoPipelineLayout), [promise = WTF::move(promise), autogeneratedId = computePipelineDescriptor.uniqueAutogeneratedId()](RefPtr<WebGPU::ComputePipeline>&& computePipeline, String&& error) mutable {
         if (computePipeline)
             promise.resolve(GPUComputePipeline::create(computePipeline.releaseNonNull(), autogeneratedId));
         else
@@ -564,26 +589,26 @@ void GPUDevice::createComputePipelineAsync(const GPUComputePipelineDescriptor& c
     });
 }
 
-ExceptionOr<void> GPUDevice::createRenderPipelineAsync(const GPURenderPipelineDescriptor& renderPipelineDescriptor, CreateRenderPipelineAsyncPromise&& promise)
+ExceptionOr<void> GPUDevice::createRenderPipelineAsync(UniquelyAnnotatedDescriptor<GPURenderPipelineDescriptor>&& renderPipelineDescriptor, CreateRenderPipelineAsyncPromise&& promise)
 {
-    if (renderPipelineDescriptor.fragment) {
-        for (auto& colorState : renderPipelineDescriptor.fragment->targets) {
+    if (renderPipelineDescriptor->fragment) {
+        for (auto& colorState : renderPipelineDescriptor->fragment->targets) {
             if (colorState) {
                 if (auto error = errorValidatingSupportedFormat(colorState->format))
                     return Exception { ExceptionCode::TypeError, makeString("GPUDevice.createRenderBundleEncoder: Unsupported texture format for color format: "_s, *error) };
             }
         }
     }
-    if (renderPipelineDescriptor.depthStencil) {
-        if (auto error = errorValidatingSupportedFormat(renderPipelineDescriptor.depthStencil->format))
+    if (renderPipelineDescriptor->depthStencil) {
+        if (auto error = errorValidatingSupportedFormat(renderPipelineDescriptor->depthStencil->format))
             return Exception { ExceptionCode::TypeError, makeString("GPUDevice.createRenderBundleEncoder: Unsupported texture format for color format: "_s, *error) };
     }
 
     if (!m_autoPipelineLayout)
         return Exception { ExceptionCode::InvalidStateError, "GPUDevice.createRenderBundleEncoder: Unable to make encoder."_s };
 
-    m_backing->createRenderPipelineAsync(renderPipelineDescriptor.convertToBacking(*m_autoPipelineLayout), [promise = WTF::move(promise), autogeneratedId = renderPipelineDescriptor.uniqueAutogeneratedId()](RefPtr<WebGPU::RenderPipeline>&& renderPipeline, String&& error) mutable {
-        if (renderPipeline.get())
+    m_backing->createRenderPipelineAsync(renderPipelineDescriptor->convertToBacking(*m_autoPipelineLayout), [promise = WTF::move(promise), autogeneratedId = renderPipelineDescriptor.uniqueAutogeneratedId()](RefPtr<WebGPU::RenderPipeline>&& renderPipeline, String&& error) mutable {
+        if (renderPipeline)
             promise.resolve(GPURenderPipeline::create(renderPipeline.releaseNonNull(), autogeneratedId));
         else
             promise.rejectType<IDLInterface<GPUPipelineError>>(GPUPipelineError::create(WTF::move(error), { GPUPipelineErrorReason::Validation }));
@@ -591,7 +616,7 @@ ExceptionOr<void> GPUDevice::createRenderPipelineAsync(const GPURenderPipelineDe
     return { };
 }
 
-static WebGPU::CommandEncoderDescriptor convertToBacking(const std::optional<GPUCommandEncoderDescriptor>& commandEncoderDescriptor)
+static WebGPU::CommandEncoderDescriptor NODELETE convertToBacking(const std::optional<GPUCommandEncoderDescriptor>& commandEncoderDescriptor)
 {
     if (!commandEncoderDescriptor)
         return { };
@@ -599,7 +624,7 @@ static WebGPU::CommandEncoderDescriptor convertToBacking(const std::optional<GPU
     return commandEncoderDescriptor->convertToBacking();
 }
 
-ExceptionOr<Ref<GPUCommandEncoder>> GPUDevice::createCommandEncoder(const std::optional<GPUCommandEncoderDescriptor>& commandEncoderDescriptor)
+ExceptionOr<Ref<GPUCommandEncoder>> GPUDevice::createCommandEncoder(std::optional<GPUCommandEncoderDescriptor>&& commandEncoderDescriptor)
 {
     RefPtr encoder = m_backing->createCommandEncoder(convertToBacking(commandEncoderDescriptor));
     if (!encoder)
@@ -607,7 +632,7 @@ ExceptionOr<Ref<GPUCommandEncoder>> GPUDevice::createCommandEncoder(const std::o
     return GPUCommandEncoder::create(encoder.releaseNonNull(), m_backing.get());
 }
 
-ExceptionOr<Ref<GPURenderBundleEncoder>> GPUDevice::createRenderBundleEncoder(const GPURenderBundleEncoderDescriptor& renderBundleEncoderDescriptor)
+ExceptionOr<Ref<GPURenderBundleEncoder>> GPUDevice::createRenderBundleEncoder(GPURenderBundleEncoderDescriptor&& renderBundleEncoderDescriptor)
 {
     for (auto& colorFormat : renderBundleEncoderDescriptor.colorFormats) {
         if (colorFormat) {
@@ -626,7 +651,7 @@ ExceptionOr<Ref<GPURenderBundleEncoder>> GPUDevice::createRenderBundleEncoder(co
     return GPURenderBundleEncoder::create(encoder.releaseNonNull());
 }
 
-ExceptionOr<Ref<GPUQuerySet>> GPUDevice::createQuerySet(const GPUQuerySetDescriptor& querySetDescriptor)
+ExceptionOr<Ref<GPUQuerySet>> GPUDevice::createQuerySet(GPUQuerySetDescriptor&& querySetDescriptor)
 {
     if (querySetDescriptor.type == GPUQueryType::Timestamp) {
         if (!m_backing->features().features().contains("timestamp-query"_s))
@@ -647,16 +672,17 @@ void GPUDevice::pushErrorScope(GPUErrorFilter errorFilter)
 
 static GPUError createGPUErrorFromWebGPUError(auto& webGPUError)
 {
-    return WTF::switchOn(WTF::move(*webGPUError), [](Ref<WebGPU::OutOfMemoryError>&& outOfMemoryError) {
-        GPUError error = RefPtr<GPUOutOfMemoryError>(GPUOutOfMemoryError::create(WTF::move(outOfMemoryError)));
-        return error;
-    }, [](Ref<WebGPU::ValidationError>&& validationError) {
-        GPUError error = RefPtr<GPUValidationError>(GPUValidationError::create(WTF::move(validationError)));
-        return error;
-    }, [](Ref<WebGPU::InternalError>&& internalError) {
-        GPUError error = RefPtr<GPUInternalError>(GPUInternalError::create(WTF::move(internalError)));
-        return error;
-    });
+    return WTF::switchOn(WTF::move(*webGPUError),
+        [](Ref<WebGPU::OutOfMemoryError>&& outOfMemoryError) -> GPUError {
+            return GPUOutOfMemoryError::create(WTF::move(outOfMemoryError));
+        },
+        [](Ref<WebGPU::ValidationError>&& validationError) -> GPUError {
+            return GPUValidationError::create(WTF::move(validationError));
+        },
+        [](Ref<WebGPU::InternalError>&& internalError) -> GPUError {
+            return GPUInternalError::create(WTF::move(internalError));
+        }
+    );
 }
 
 void GPUDevice::popErrorScope(ErrorScopePromise&& errorScopePromise)
@@ -677,17 +703,33 @@ bool GPUDevice::addEventListener(const AtomString& eventType, Ref<EventListener>
 {
     auto result = EventTarget::addEventListener(eventType, WTF::move(eventListener), options);
 #if PLATFORM(COCOA)
-    if (eventType == WebCore::eventNames().uncapturederrorEvent) {
-        m_backing->resolveUncapturedErrorEvent([eventType, weakThis = WeakPtr { *this }](bool hasUncapturedError, std::optional<WebGPU::Error>&& error) {
-            RefPtr protectedThis = weakThis.get();
-            if (!protectedThis || !hasUncapturedError)
-                return;
-
-            queueTaskToDispatchEvent(*protectedThis, TaskSource::WebGPU, GPUUncapturedErrorEvent::create(WebCore::eventNames().uncapturederrorEvent, GPUUncapturedErrorEventInit { .error = createGPUErrorFromWebGPUError(error) }));
-        });
-    }
+    if (eventType == WebCore::eventNames().uncapturederrorEvent)
+        listenForUncapturedErrors();
 #endif
     return result;
+}
+
+void GPUDevice::listenForUncapturedErrors()
+{
+    if (m_listeningForUncapturedErrors)
+        return;
+#if PLATFORM(COCOA)
+    m_listeningForUncapturedErrors = true;
+    m_backing->resolveUncapturedErrorEvent([pendingActivity = makePendingActivity(*this), weakThis = WeakPtr { *this }](bool hasUncapturedError, std::optional<WebGPU::Error>&& error) {
+        RefPtr protectedThis { weakThis };
+        if (!protectedThis || !hasUncapturedError)
+            return;
+
+        protectedThis->m_listeningForUncapturedErrors = false;
+
+        RefPtr context = protectedThis->scriptExecutionContext();
+        if (!context)
+            return;
+
+        queueTaskToDispatchEvent(*protectedThis, TaskSource::WebGPU, GPUUncapturedErrorEvent::create(WebCore::eventNames().uncapturederrorEvent, GPUUncapturedErrorEventInit { .error = createGPUErrorFromWebGPUError(error) }));
+        protectedThis->listenForUncapturedErrors();
+    });
+#endif
 }
 
 #if ENABLE(VIDEO)

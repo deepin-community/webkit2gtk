@@ -23,6 +23,7 @@
 #pragma once
 
 #include <WebCore/Color.h>
+#include <WebCore/DestinationColorSpace.h>
 #include <WebCore/FilterEffect.h>
 
 namespace WebCore {
@@ -35,11 +36,11 @@ public:
 
     bool operator==(const FEFlood&) const;
 
-    const Color& floodColor() const { return m_floodColor; }
-    bool setFloodColor(const Color&);
+    const Color& floodColor() const LIFETIME_BOUND { return m_floodColor; }
+    bool NODELETE setFloodColor(const Color&);
 
     float floodOpacity() const { return m_floodOpacity; }
-    bool setFloodOpacity(float);
+    bool NODELETE setFloodOpacity(float);
 
 #if !USE(CG) && !USE(SKIA)
     // feFlood does not perform color interpolation of any kind, so the result is always in the current

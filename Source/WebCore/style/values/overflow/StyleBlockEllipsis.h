@@ -26,16 +26,17 @@
 
 #pragma once
 
+#include <WebCore/StyleString.h>
 #include <WebCore/StyleValueTypes.h>
 #include <wtf/text/AtomString.h>
 
 namespace WebCore {
 namespace Style {
 
-// <'block-ellipse'> = none | auto | <string>
+// <'block-ellipse'> = no-ellipsis | auto | <string>
 // https://www.w3.org/TR/css-overflow-4/#propdef-block-ellipsis
 struct BlockEllipsis {
-    BlockEllipsis(CSS::Keyword::None)
+    BlockEllipsis(CSS::Keyword::NoEllipsis)
     {
     }
 
@@ -44,13 +45,13 @@ struct BlockEllipsis {
     {
     }
 
-    BlockEllipsis(AtomString&& string)
+    BlockEllipsis(String&& string)
         : m_type { Type::String }
-        , m_string { WTF::move(string) }
+        , m_string { WTF::move(string.value) }
     {
     }
 
-    bool isNone() const { return m_type == Type::None; }
+    bool isNone() const { return m_type == Type::NoEllipsis; }
     bool isAuto() const { return m_type == Type::Auto; }
     bool isString() const { return m_type == Type::String; }
 
@@ -59,12 +60,12 @@ struct BlockEllipsis {
         auto visitor = WTF::makeVisitor(std::forward<F>(f)...);
 
         switch (m_type) {
-        case Type::None:
-            return visitor(CSS::Keyword::None { });
+        case Type::NoEllipsis:
+            return visitor(CSS::Keyword::NoEllipsis { });
         case Type::Auto:
             return visitor(CSS::Keyword::Auto { });
         case Type::String:
-            return visitor(m_string);
+            return visitor(String { m_string });
         }
         RELEASE_ASSERT_NOT_REACHED();
     }
@@ -72,9 +73,9 @@ struct BlockEllipsis {
     bool operator==(const BlockEllipsis&) const = default;
 
 private:
-    enum class Type : uint8_t { None, Auto, String };
+    enum class Type : uint8_t { NoEllipsis, Auto, String };
 
-    Type m_type { Type::None };
+    Type m_type { Type::NoEllipsis };
     AtomString m_string { nullAtom() };
 };
 

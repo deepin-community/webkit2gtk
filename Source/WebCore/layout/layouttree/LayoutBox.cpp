@@ -35,7 +35,7 @@
 #include "LayoutShape.h"
 #include "LayoutState.h"
 #include "RenderObject.h"
-#include "RenderStyle+GettersInlines.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include <wtf/NeverDestroyed.h>
 #include <wtf/TZoneMallocInlines.h>
 
@@ -46,7 +46,7 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(Box);
 WTF_MAKE_TZONE_ALLOCATED_IMPL(Box::BoxRareData);
 
 
-Box::Box(ElementAttributes&& elementAttributes, RenderStyle&& style, std::unique_ptr<RenderStyle>&& firstLineStyle, EnumSet<BaseTypeFlag> baseTypeFlags)
+Box::Box(ElementAttributes&& elementAttributes, Style::ComputedStyle&& style, std::unique_ptr<Style::ComputedStyle>&& firstLineStyle, EnumSet<BaseTypeFlag> baseTypeFlags)
     : m_nodeType(elementAttributes.nodeType)
     , m_isAnonymous(static_cast<bool>(elementAttributes.isAnonymous))
     , m_baseTypeFlags(baseTypeFlags.toRaw())
@@ -80,7 +80,7 @@ UniqueRef<Box> Box::removeFromParent()
     return makeUniqueRefFromNonNullUniquePtr(WTF::move(ownedSelf));
 }
 
-void Box::updateStyle(RenderStyle&& newStyle, std::unique_ptr<RenderStyle>&& newFirstLineStyle)
+void Box::updateStyle(Style::ComputedStyle&& newStyle, std::unique_ptr<Style::ComputedStyle>&& newFirstLineStyle)
 {
     m_style = WTF::move(newStyle);
     if (newFirstLineStyle)
@@ -221,26 +221,26 @@ bool Box::isFloatAvoider() const
 
 bool Box::isInlineBlockBox() const
 {
-    return m_style.display() == DisplayType::InlineBlock;
+    return m_style.display() == Style::DisplayType::InlineFlowRoot;
 }
 
 bool Box::isInlineTableBox() const
 {
-    return m_style.display() == DisplayType::InlineTable;
+    return m_style.display() == Style::DisplayType::InlineTable;
 }
 
 bool Box::isBlockLevelBox() const
 {
     // Block level elements generate block level boxes.
     auto display = m_style.display();
-    return display == DisplayType::Block
-        || display == DisplayType::ListItem
-        || display == DisplayType::Table
-        || display == DisplayType::Flex
-        || display == DisplayType::Box
-        || display == DisplayType::Grid
-        || display == DisplayType::GridLanes
-        || display == DisplayType::FlowRoot;
+    return display == Style::DisplayType::BlockFlow
+        || display == Style::DisplayType::BlockFlowRoot
+        || display == Style::DisplayType::BlockTable
+        || display == Style::DisplayType::BlockFlex
+        || display == Style::DisplayType::BlockGrid
+        || display == Style::DisplayType::BlockGridLanes
+        || display == Style::DisplayType::BlockDeprecatedFlex
+        || display == Style::DisplayType::BlockFlowListItem;
 }
 
 bool Box::isBlockBox() const
@@ -253,16 +253,17 @@ bool Box::isInlineLevelBox() const
 {
     // Inline level elements generate inline level boxes.
     auto display = m_style.display();
-    return display == DisplayType::Inline
-        || display == DisplayType::InlineBox
-        || display == DisplayType::InlineFlex
-        || display == DisplayType::InlineGrid
-        || display == DisplayType::InlineGridLanes
-        || display == DisplayType::Ruby
-        || display == DisplayType::RubyBase
-        || display == DisplayType::RubyAnnotation
-        || isInlineBlockBox()
-        || isInlineTableBox();
+    return is<ElementBox>(*this) &&
+          (display == Style::DisplayType::InlineFlow
+        || display == Style::DisplayType::InlineFlowRoot
+        || display == Style::DisplayType::InlineTable
+        || display == Style::DisplayType::InlineFlex
+        || display == Style::DisplayType::InlineGrid
+        || display == Style::DisplayType::InlineGridLanes
+        || display == Style::DisplayType::InlineRuby
+        || display == Style::DisplayType::InlineDeprecatedFlex
+        || display == Style::DisplayType::RubyBase
+        || display == Style::DisplayType::RubyText);
 }
 
 bool Box::isInlineBox() const
@@ -270,7 +271,10 @@ bool Box::isInlineBox() const
     // An inline box is one that is both inline-level and whose contents participate in its containing inline formatting context.
     // A non-replaced element with a 'display' value of 'inline' generates an inline box.
     auto display = m_style.display();
-    return (display == DisplayType::Inline || display == DisplayType::Ruby || display == DisplayType::RubyBase) && !isReplacedBox();
+    return is<ElementBox>(*this) &&
+          (display == Style::DisplayType::InlineFlow
+        || display == Style::DisplayType::InlineRuby
+        || display == Style::DisplayType::RubyBase) && !isReplacedBox();
 }
 
 bool Box::isAtomicInlineBox() const
@@ -294,11 +298,10 @@ bool Box::isGridItem() const
 bool Box::isBlockContainer() const
 {
     auto display = m_style.display();
-    return display == DisplayType::Block
-        || display == DisplayType::FlowRoot
-        || display == DisplayType::ListItem
-        || display == DisplayType::RubyBlock
-        || isInlineBlockBox()
+    return display == Style::DisplayType::BlockFlow
+        || display == Style::DisplayType::BlockFlowRoot
+        || display == Style::DisplayType::BlockFlowListItem
+        || display == Style::DisplayType::BlockRuby
         || isTableCell()
         || isTableCaption(); // TODO && !replaced element
 }
@@ -322,7 +325,7 @@ bool Box::isLayoutContainmentBox() const
 
 bool Box::isRubyAnnotationBox() const
 {
-    return m_style.display() == DisplayType::RubyAnnotation;
+    return m_style.display() == Style::DisplayType::RubyText;
 }
 
 bool Box::isInterlinearRubyAnnotationBox() const
@@ -332,7 +335,8 @@ bool Box::isInterlinearRubyAnnotationBox() const
 
 bool Box::isInternalRubyBox() const
 {
-    return m_style.display() == DisplayType::RubyBase || m_style.display() == DisplayType::RubyAnnotation;
+    return m_style.display() == Style::DisplayType::RubyBase
+        || m_style.display() == Style::DisplayType::RubyText;
 }
 
 bool Box::isSizeContainmentBox() const
@@ -356,7 +360,18 @@ bool Box::isInternalTableBox() const
 {
     // table-row-group, table-header-group, table-footer-group, table-row, table-cell, table-column-group, table-column
     // generates the appropriate internal table box which participates in a table formatting context.
-    return isTableBody() || isTableHeader() || isTableFooter() || isTableRow() || isTableCell() || isTableColumnGroup() || isTableColumn();
+    return isTableBody()
+        || isTableHeader()
+        || isTableFooter()
+        || isTableRow()
+        || isTableCell()
+        || isTableColumnGroup()
+        || isTableColumn();
+}
+
+bool Box::isRubyBase() const
+{
+    return style().display() == Style::DisplayType::RubyBase;
 }
 
 const Box* Box::nextInFlowSibling() const
@@ -419,7 +434,7 @@ bool Box::isDescendantOf(const Box& box) const
 
 bool Box::isDescendantOfWithinFormattingContext(const Box& box) const
 {
-    for (auto* ancestor = &parent(); !ancestor->establishesFormattingContext(); ancestor = &ancestor->parent()) {
+    for (CheckedPtr ancestor = &parent(); !ancestor->establishesFormattingContext(); ancestor = &ancestor->parent()) {
         if (ancestor == &box)
             return true;
     }
@@ -430,7 +445,7 @@ bool Box::isInFormattingContextEstablishedBy(const ElementBox& formattingContext
 {
     ASSERT(formattingContextRoot.establishesFormattingContext());
 
-    auto* ancestor = &parent();
+    CheckedPtr ancestor = &parent();
     while (true) {
         if (ancestor->establishesFormattingContext())
             break;
@@ -541,11 +556,11 @@ void Box::setShape(RefPtr<const LayoutShape> shape)
 
 const ElementBox* Box::associatedRubyAnnotationBox() const
 {
-    if (style().display() != DisplayType::RubyBase)
+    if (style().display() != Style::DisplayType::RubyBase)
         return nullptr;
 
     auto* next = nextSibling();
-    if (!next || next->style().display() != DisplayType::RubyAnnotation)
+    if (!next || next->style().display() != Style::DisplayType::RubyText)
         return nullptr;
 
     return dynamicDowncast<ElementBox>(next);

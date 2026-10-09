@@ -56,6 +56,7 @@ private:
     void didReceiveSyncMessage(IPC::Connection&, IPC::Decoder&, UniqueRef<IPC::Encoder>&) override;
 
     void isLayerTreeFrozen(CompletionHandler<void(bool)>&&);
+    void numberOfLiveDocuments(CompletionHandler<void(uint64_t)>&&);
     void setPermissionLevel(const String& origin, bool allowed);
     void isEditingCommandEnabled(const String& commandName, CompletionHandler<void(bool)>&&);
     void resetStateBetweenTests();
@@ -70,6 +71,8 @@ private:
     void setObscuredContentInsets(float top, float right, float bottom, float left, CompletionHandler<void()>&&);
 
     void clearWheelEventTestMonitor();
+    void startMonitoringWheelEventsForTesting(CompletionHandler<void()>&&);
+    void waitForWheelEventsToCompleteForTesting(CompletionHandler<void()>&&);
 
     WeakPtr<WebPage> m_page;
     WebCore::PageIdentifier m_pageIdentifier;

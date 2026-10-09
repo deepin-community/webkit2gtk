@@ -51,6 +51,7 @@ enum class FontTechnology : uint8_t;
 struct CSSParserContext;
 
 namespace CSS {
+struct FontStyleRange;
 struct PropertyParserState;
 }
 
@@ -78,10 +79,10 @@ using UnresolvedFontWidthPercentage = CSS::Percentage<CSS::Nonnegative>;
 using UnresolvedFontWidth = Variant<CSSValueID, UnresolvedFontWidthPercentage>;
 
 // <absolute-size> | <relative-size> | <length-percentage [0,∞]>
-using UnresolvedFontSize = Variant<CSSValueID, CSS::LengthPercentage<CSS::Nonnegative>>;
+using UnresolvedFontSize = Variant<CSSValueID, CSS::LengthPercentage<CSS::NonnegativeUnzoomed>>;
 
 // normal | <number [0,∞]> | <length-percentage [0,∞]>
-using UnresolvedFontLineHeight = Variant<CSSValueID, CSS::Number<CSS::Nonnegative>, CSS::LengthPercentage<CSS::Nonnegative>>;
+using UnresolvedFontLineHeight = Variant<CSSValueID, CSS::Number<CSS::Nonnegative>, CSS::LengthPercentage<CSS::NonnegativeUnzoomed>>;
 
 // [ <family-name> | <generic-family> ]#
 using UnresolvedFontFamilyName = Variant<CSSValueID, AtomString>;
@@ -113,8 +114,8 @@ RefPtr<CSSValue> consumeFontFamily(CSSParserTokenRange&, CSS::PropertyParserStat
 RefPtr<CSSValue> consumeFamilyName(CSSParserTokenRange&, CSS::PropertyParserState&);
 // Sub-production of 'font-family': <generic-family>
 // https://drafts.csswg.org/css-fonts-4/#generic-family-name-syntax
-const AtomString& genericFontFamily(CSSValueID);
-WebKitFontFamilyNames::FamilyNamesIndex genericFontFamilyIndex(CSSValueID);
+const AtomString& NODELETE genericFontFamily(CSSValueID);
+WebKitFontFamilyNames::FamilyNamesIndex NODELETE genericFontFamilyIndex(CSSValueID);
 
 // MARK: 'font-size-adjust'
 // https://drafts.csswg.org/css-fonts-4/#font-size-adjust-prop
@@ -145,10 +146,17 @@ RefPtr<CSSValueList> parseFontFaceUnicodeRange(const String&, ScriptExecutionCon
 // https://drafts.csswg.org/css-fonts-4/#descdef-font-face-font-display
 RefPtr<CSSValue> parseFontFaceDisplay(const String&, ScriptExecutionContext&);
 
+// MARK: @font-face metric override descriptors
+// https://drafts.csswg.org/css-fonts-4/#font-metrics-override-desc
+RefPtr<CSSValue> parseFontFaceAscentOverride(const String&, ScriptExecutionContext&);
+RefPtr<CSSValue> parseFontFaceDescentOverride(const String&, ScriptExecutionContext&);
+RefPtr<CSSValue> parseFontFaceLineGapOverride(const String&, ScriptExecutionContext&);
+
 // MARK: @font-face 'font-style'
 // https://drafts.csswg.org/css-fonts-4/#descdef-font-face-font-style
 RefPtr<CSSValue> parseFontFaceFontStyle(const String&, ScriptExecutionContext&);
 RefPtr<CSSValue> consumeFontFaceFontStyle(CSSParserTokenRange&, CSS::PropertyParserState&);
+std::optional<CSS::FontStyleRange> consumeUnresolvedFontFaceFontStyle(CSSParserTokenRange&, CSS::PropertyParserState&);
 
 // MARK: @font-face 'font-feature-settings'
 // https://drafts.csswg.org/css-fonts-4/#descdef-font-face-font-feature-settings

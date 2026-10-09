@@ -22,18 +22,17 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef OpenTypeTypes_h
-#define OpenTypeTypes_h
+#pragma once
 
 #if ENABLE(OPENTYPE_MATH)
-#include <WebCore/Glyph.h>
+#include "Glyph.h"
 #endif
 
-#include <WebCore/SharedBuffer.h>
+#include "SharedBuffer.h"
+#include <numeric>
 #include <wtf/StdLibExtras.h>
 
-namespace WebCore {
-namespace OpenType {
+namespace WebCore::OpenType {
 
 struct BigEndianShort {
     operator short() const { return (v & 0x00ff) << 8 | v >> 8; }
@@ -153,7 +152,7 @@ protected:
             // We do a binary search on the glyph indexes.
             uint32_t imin = 0, imax = glyphCount;
             while (imin < imax) {
-                uint32_t imid = (imin + imax) >> 1;
+                uint32_t imid = std::midpoint(imin, imax);
                 uint16_t glyphMid = coverage1->glyphArray[imid];
                 if (glyphMid == glyph) {
                     coverageIndex = imid;
@@ -177,7 +176,7 @@ protected:
             // We do a binary search on the ranges.
             uint32_t imin = 0, imax = rangeCount;
             while (imin < imax) {
-                uint32_t imid = (imin + imax) >> 1;
+                uint32_t imid = std::midpoint(imin, imax);
                 uint16_t rStart = coverage2->ranges[imid].start;
                 uint16_t rEnd = coverage2->ranges[imid].end;
                 if (rEnd < glyph)
@@ -198,7 +197,4 @@ protected:
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 #endif
 
-} // namespace OpenType
-} // namespace WebCore
-
-#endif // OpenTypeTypes_h
+} // namespace WebCore::OpenType

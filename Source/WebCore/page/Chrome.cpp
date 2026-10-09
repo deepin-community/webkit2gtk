@@ -31,10 +31,8 @@
 #include "ContainerNodeInlines.h"
 #include "DataListSuggestionPicker.h"
 #include "DateTimeChooser.h"
-#if HAVE(DIGITAL_CREDENTIALS_UI)
 #include "DigitalCredentialsRequestData.h"
 #include "DigitalCredentialsResponseData.h"
-#endif
 #include "DocumentType.h"
 #include "DocumentView.h"
 #include "DocumentWindow.h"
@@ -93,11 +91,6 @@ Chrome::~Chrome()
     m_client->chromeDestroyed();
 }
 
-Ref<Page> Chrome::protectedPage() const
-{
-    return m_page.get();
-}
-
 void Chrome::invalidateRootView(const IntRect& updateRect)
 {
     m_client->invalidateRootView(updateRect);
@@ -116,7 +109,7 @@ void Chrome::invalidateContentsForSlowScroll(const IntRect& updateRect)
 void Chrome::scroll(const IntSize& scrollDelta, const IntRect& rectToScroll, const IntRect& clipRect)
 {
     m_client->scroll(scrollDelta, rectToScroll, clipRect);
-    InspectorInstrumentation::didScroll(protectedPage());
+    InspectorInstrumentation::didScroll(protect(m_page));
 }
 
 IntPoint Chrome::screenToRootView(const IntPoint& point) const
@@ -179,6 +172,11 @@ void Chrome::scrollContainingScrollViewsToRevealRect(const IntRect& rect) const
 void Chrome::scrollMainFrameToRevealRect(const IntRect& rect) const
 {
     m_client->scrollMainFrameToRevealRect(rect);
+}
+
+void Chrome::scrollOriginDidChange(const LocalFrame& frame) const
+{
+    m_client->scrollOriginDidChange(frame);
 }
 
 void Chrome::setWindowRect(const FloatRect& rect)
@@ -254,7 +252,7 @@ void Chrome::runModal()
     // JavaScript that runs within the nested event loop must not be run in the context of the
     // script that called showModalDialog. Null out entryScope to break the connection.
 
-    RefPtr localTopDocument = m_page->localTopDocument();
+    RefPtr localTopDocument = protect(m_page)->localTopDocument();
     if (!localTopDocument)
         return;
 
@@ -264,24 +262,9 @@ void Chrome::runModal()
     m_client->runModal();
 }
 
-bool Chrome::toolbarsVisible() const
+bool Chrome::isPopup() const
 {
-    return m_client->toolbarsVisible();
-}
-
-bool Chrome::statusbarVisible() const
-{
-    return m_client->statusbarVisible();
-}
-
-bool Chrome::scrollbarsVisible() const
-{
-    return m_client->scrollbarsVisible();
-}
-
-bool Chrome::menubarVisible() const
-{
-    return m_client->menubarVisible();
+    return m_client->isPopup();
 }
 
 void Chrome::setResizable(bool b)
@@ -324,7 +307,7 @@ bool Chrome::runJavaScriptConfirm(LocalFrame& frame, const String& message)
 {
     // Defer loads in case the client method runs a new event loop that would
     // otherwise cause the load to continue while we're in the middle of executing JavaScript.
-    PageGroupLoadDeferrer deferrer(protectedPage(), true);
+    PageGroupLoadDeferrer deferrer(protect(m_page), true);
 
     notifyPopupOpeningObservers();
     return m_client->runJavaScriptConfirm(frame, frame.displayStringModifiedByEncoding(message));
@@ -334,7 +317,7 @@ bool Chrome::runJavaScriptPrompt(LocalFrame& frame, const String& prompt, const 
 {
     // Defer loads in case the client method runs a new event loop that would
     // otherwise cause the load to continue while we're in the middle of executing JavaScript.
-    PageGroupLoadDeferrer deferrer(protectedPage(), true);
+    PageGroupLoadDeferrer deferrer(protect(m_page), true);
 
     notifyPopupOpeningObservers();
     String displayPrompt = frame.displayStringModifiedByEncoding(prompt);
@@ -353,7 +336,7 @@ void Chrome::mouseDidMoveOverElement(const HitTestResult& result, OptionSet<Plat
     getToolTip(result, toolTip, toolTipDirection);
     m_client->mouseDidMoveOverElement(result, modifiers, toolTip, toolTipDirection);
 
-    InspectorInstrumentation::mouseDidMoveOverElement(protectedPage(), result, modifiers);
+    InspectorInstrumentation::mouseDidMoveOverElement(protect(m_page), result, modifiers);
 }
 
 void Chrome::getToolTip(const HitTestResult& result, String& toolTip, TextDirection& toolTipDirection)
@@ -416,7 +399,7 @@ bool Chrome::print(LocalFrame& frame)
     // FIXME: This should have PageGroupLoadDeferrer, like runModal() or runJavaScriptAlert(), because it's no different from those.
 
     if (frame.document()->isSandboxed(SandboxFlag::Modals)) {
-        frame.document()->protectedWindow()->printErrorMessage("Use of window.print is not allowed in a sandboxed frame when the allow-modals flag is not set."_s);
+        protect(frame.document()->window())->printErrorMessage("Use of window.print is not allowed in a sandboxed frame when the allow-modals flag is not set."_s);
         return false;
     }
 
@@ -469,6 +452,11 @@ void Chrome::runOpenPanel(LocalFrame& frame, FileChooser& fileChooser)
     m_client->runOpenPanel(frame, fileChooser);
 }
 
+void Chrome::transcodeChosenFiles(Vector<String>&& transcodingPaths, String&& destinationUTI, String&& destinationExtension, CompletionHandler<void(Vector<String>&&)>&& completion)
+{
+    m_client->transcodeChosenFiles(WTF::move(transcodingPaths), WTF::move(destinationUTI), WTF::move(destinationExtension), WTF::move(completion));
+}
+
 void Chrome::showShareSheet(ShareDataWithParsedURL&& shareData, CompletionHandler<void(bool)>&& callback)
 {
     m_client->showShareSheet(WTF::move(shareData), WTF::move(callback));
@@ -479,15 +467,15 @@ void Chrome::showContactPicker(ContactsRequestData&& requestData, CompletionHand
     m_client->showContactPicker(WTF::move(requestData), WTF::move(callback));
 }
 
-#if HAVE(DIGITAL_CREDENTIALS_UI)
-void Chrome::showDigitalCredentialsPicker(const DigitalCredentialsRequestData& requestData, WTF::CompletionHandler<void(Expected<WebCore::DigitalCredentialsResponseData, WebCore::ExceptionData>&&)>&& callback)
+#if ENABLE(WEB_AUTHN)
+void Chrome::showDigitalCredentialsChooser(const DigitalCredentialsRequestData& requestData, WTF::CompletionHandler<void(Expected<WebCore::DigitalCredentialsResponseData, WebCore::ExceptionData>&&)>&& callback)
 {
-    m_client->showDigitalCredentialsPicker(requestData, WTF::move(callback));
+    m_client->showDigitalCredentialsChooser(requestData, WTF::move(callback));
 }
 
-void Chrome::dismissDigitalCredentialsPicker(CompletionHandler<void(bool)>&& callback)
+void Chrome::dismissDigitalCredentialsChooser(CompletionHandler<void(bool)>&& callback)
 {
-    m_client->dismissDigitalCredentialsPicker(WTF::move(callback));
+    m_client->dismissDigitalCredentialsChooser(WTF::move(callback));
 }
 #endif
 
@@ -595,17 +583,7 @@ PlatformDisplayID Chrome::displayID() const
 
 void Chrome::windowScreenDidChange(PlatformDisplayID displayID, std::optional<FramesPerSecond> nominalFrameInterval)
 {
-    protectedPage()->windowScreenDidChange(displayID, nominalFrameInterval);
-}
-
-bool Chrome::selectItemWritingDirectionIsNatural()
-{
-    return m_client->selectItemWritingDirectionIsNatural();
-}
-
-bool Chrome::selectItemAlignmentFollowsMenuWritingDirection()
-{
-    return m_client->selectItemAlignmentFollowsMenuWritingDirection();
+    protect(m_page)->windowScreenDidChange(displayID, nominalFrameInterval);
 }
 
 RefPtr<PopupMenu> Chrome::createPopupMenu(PopupMenuClient& client) const
@@ -633,7 +611,7 @@ void Chrome::didReceiveDocType(LocalFrame& frame)
     if (!frame.isMainFrame())
         return;
 
-    auto* doctype = frame.document()->doctype();
+    RefPtr doctype = protect(frame.document())->doctype();
     m_client->didReceiveMobileDocType(doctype && doctype->publicId().containsIgnoringASCIICase("xhtml mobile"_s));
 #endif
 }

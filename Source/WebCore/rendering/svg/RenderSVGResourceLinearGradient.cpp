@@ -32,7 +32,7 @@ namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(RenderSVGResourceLinearGradient);
 
-RenderSVGResourceLinearGradient::RenderSVGResourceLinearGradient(SVGLinearGradientElement& element, RenderStyle&& style)
+RenderSVGResourceLinearGradient::RenderSVGResourceLinearGradient(SVGLinearGradientElement& element, Style::ComputedStyle&& style)
     : RenderSVGResourceGradient(Type::SVGResourceLinearGradient, element, WTF::move(style))
 {
 }
@@ -52,7 +52,7 @@ void RenderSVGResourceLinearGradient::collectGradientAttributesIfNeeded()
         m_attributes = WTF::move(attributes);
 }
 
-RefPtr<Gradient> RenderSVGResourceLinearGradient::createGradient(const RenderStyle& style)
+RefPtr<Gradient> RenderSVGResourceLinearGradient::createGradient(const Style::ComputedStyle& style)
 {
     if (!m_attributes)
         return nullptr;
@@ -63,7 +63,7 @@ RefPtr<Gradient> RenderSVGResourceLinearGradient::createGradient(const RenderSty
 
     return Gradient::create(
         Gradient::LinearData { startPoint, endPoint },
-        { ColorInterpolationMethod::SRGB { }, AlphaPremultiplication::Unpremultiplied },
+        gradientColorInterpolationMethod(),
         platformSpreadMethodFromSVGType(m_attributes->spreadMethod()),
         stopsByApplyingColorFilter(m_attributes->stops(), style),
         false);

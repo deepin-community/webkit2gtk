@@ -37,6 +37,7 @@
 #include <WebCore/StyleBoxData.h>
 #include <WebCore/StyleCustomPropertyData.h>
 #include <WebCore/StyleDeprecatedFlexibleBoxData.h>
+#include <WebCore/StyleDisplay.h>
 #include <WebCore/StyleFillLayers.h>
 #include <WebCore/StyleFilterData.h>
 #include <WebCore/StyleFlexibleBoxData.h>
@@ -93,16 +94,6 @@
 
 namespace WebCore {
 namespace Style {
-
-constexpr SVGGlyphOrientationHorizontal ComputedStyleProperties::initialGlyphOrientationHorizontal()
-{
-    return SVGGlyphOrientationHorizontal::Degrees0;
-}
-
-inline WebCore::Color ComputedStyleProperties::initialColor()
-{
-    return WebCore::Color::black;
-}
 
 constexpr LineWidth ComputedStyleProperties::initialBorderBottomWidth()
 {

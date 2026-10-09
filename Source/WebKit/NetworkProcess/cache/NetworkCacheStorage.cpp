@@ -78,15 +78,15 @@ public:
         ASSERT(m_completionHandler);
     }
 
-    Storage::ReadOperationIdentifier identifier() const { return m_identifier; }
-    const Key& key() const { return m_key; }
-    unsigned priority() const { return m_priority; }
-    bool isCanceled() const { return m_isCanceled; }
-    bool canFinish() const { return !m_waitsForRecord && !m_waitsForBlob; }
+    Storage::ReadOperationIdentifier NODELETE identifier() const { return m_identifier; }
+    const Key& NODELETE key() const { return m_key; }
+    unsigned NODELETE priority() const { return m_priority; }
+    bool NODELETE isCanceled() const { return m_isCanceled; }
+    bool NODELETE canFinish() const { return !m_waitsForRecord && !m_waitsForBlob; }
 
     void updateForStart(size_t readOperationDispatchCount);
     void updateForDispatch(bool synchronizationInProgress, bool shrinkInProgress, size_t readOperationDispatchCount);
-    void setWaitsForBlob() { m_waitsForBlob = true; }
+    void NODELETE setWaitsForBlob() { m_waitsForBlob = true; }
     void finishReadRecord(Record&&, MonotonicTime recordIOStartTime, MonotonicTime recordIOEndTime);
     void finishReadBlob(BlobStorage::Blob&&, MonotonicTime blobIOStartTime, MonotonicTime blobIOEndTime);
     void cancel();
@@ -220,10 +220,10 @@ public:
         ASSERT(isMainRunLoop());
     }
 
-    Storage::WriteOperationIdentifier identifier() const { return m_identifier; }
-    const Record& record() const WTF_REQUIRES_CAPABILITY(mainThread) { return m_record; }
+    Storage::WriteOperationIdentifier NODELETE identifier() const { return m_identifier; }
+    const Record& NODELETE record() const WTF_REQUIRES_CAPABILITY(mainThread) { return m_record; }
     void invokeMappedBodyHandler(const Data&);
-    bool storeBlobInMemoryCache() const { return m_storeBlobInMemoryCache; }
+    bool NODELETE storeBlobInMemoryCache() const { return m_storeBlobInMemoryCache; }
 
 private:
     Storage::WriteOperationIdentifier m_identifier;
@@ -281,6 +281,16 @@ public:
         });
     }
 
+    struct PartitionEntry {
+        String recordPath;
+        WallTime lastAccessTime;
+    };
+    HashMap<String, PartitionEntry>& ensurePartitionMap()
+    {
+        ASSERT(!isMainRunLoop());
+        return m_partitionMap;
+    }
+
 private:
     explicit TraverseOperation(Storage::TraverseHandler&& handler)
         : m_handler(WTF::move(handler))
@@ -290,6 +300,7 @@ private:
     Lock m_lock;
     Condition m_activeCondition;
     unsigned m_activityCount WTF_GUARDED_BY_LOCK(m_lock) { 0 };
+    HashMap<String, PartitionEntry> m_partitionMap;
 };
 
 static String makeCachePath(const String& baseCachePath)
@@ -322,7 +333,7 @@ static String makeSaltFilePath(const String& baseDirectoryPath)
     return FileSystem::pathByAppendingComponent(makeVersionedDirectoryPath(baseDirectoryPath), saltFileName);
 }
 
-RefPtr<Storage> Storage::open(const String& baseCachePath, Mode mode, size_t capacity)
+RefPtr<Storage> Storage::open(const String& baseCachePath, Mode mode, size_t capacity, size_t mainResourceBlobMemoryCacheFileLimit)
 {
     ASSERT(RunLoop::isMain());
     ASSERT(!baseCachePath.isNull());
@@ -348,7 +359,7 @@ RefPtr<Storage> Storage::open(const String& baseCachePath, Mode mode, size_t cap
     if (!salt)
         return nullptr;
 
-    return adoptRef(new Storage(cachePath, mode, *salt, capacity));
+    return adoptRef(new Storage(cachePath, mode, *salt, capacity, mainResourceBlobMemoryCacheFileLimit));
 }
 
 using RecordFileTraverseFunction = Function<void (const String& fileName, const String& hashString, const String& type, bool isBlob, const String& recordDirectoryPath)>;
@@ -398,11 +409,7 @@ static void deleteEmptyRecordsDirectories(const String& recordsPath)
     });
 }
 
-// Cache a small number of recently used memory mapped main resource blobs to speed up hot loads of
-// recently visited websites.
-static constexpr unsigned blobStorageMemoryCacheFileLimit = 0;
-
-Storage::Storage(const String& baseDirectoryPath, Mode mode, Salt salt, size_t capacity)
+Storage::Storage(const String& baseDirectoryPath, Mode mode, Salt salt, size_t capacity, size_t mainResourceBlobMemoryCacheFileLimit)
     : m_basePath(baseDirectoryPath)
     , m_recordsPath(makeRecordsDirectoryPath(baseDirectoryPath))
     , m_mode(mode)
@@ -410,10 +417,16 @@ Storage::Storage(const String& baseDirectoryPath, Mode mode, Salt salt, size_t c
     , m_capacity(capacity)
     , m_readOperationTimeoutTimer(*this, &Storage::cancelAllReadOperations)
     , m_writeOperationDispatchTimer(*this, &Storage::dispatchPendingWriteOperations)
-    , m_ioQueue(ConcurrentWorkQueue::create("com.apple.WebKit.Cache.Storage"_s, WorkQueue::QOS::UserInteractive))
+    , m_ioQueue(ConcurrentWorkQueue::create("com.apple.WebKit.Cache.Storage"_s,
+#if OS(LINUX)
+                WorkQueue::QOS::UserInitiated
+#else
+                WorkQueue::QOS::UserInteractive
+#endif
+                ))
     , m_backgroundIOQueue(ConcurrentWorkQueue::create("com.apple.WebKit.Cache.Storage.background"_s, WorkQueue::QOS::Utility))
     , m_serialBackgroundIOQueue(WorkQueue::create("com.apple.WebKit.Cache.Storage.serialBackground"_s, WorkQueue::QOS::Utility))
-    , m_blobStorage(makeBlobDirectoryPath(baseDirectoryPath), m_salt, blobStorageMemoryCacheFileLimit)
+    , m_blobStorage(makeBlobDirectoryPath(baseDirectoryPath), m_salt, mainResourceBlobMemoryCacheFileLimit)
 {
     ASSERT(RunLoop::isMain());
 
@@ -1131,6 +1144,20 @@ void Storage::traverseWithinRootPath(const String& rootPath, const String& type,
                 return;
 
             auto recordPath = FileSystem::pathByAppendingComponent(recordDirectoryPath, fileName);
+
+            if (flags & TraverseFlag::LastAccessedRecordPerPartition) {
+                ASSERT(!flags.containsAny({ TraverseFlag::ComputeWorth, TraverseFlag::ShareCount }));
+                auto mtime = FileSystem::fileModificationTime(recordPath);
+                auto it = traverseOperation->ensurePartitionMap().find(recordDirectoryPath);
+                if (it == traverseOperation->ensurePartitionMap().end())
+                    traverseOperation->ensurePartitionMap().set(recordDirectoryPath, TraverseOperation::PartitionEntry { recordPath, mtime.value_or(WallTime { }) });
+                else if (mtime && *mtime > it->value.lastAccessTime) {
+                    it->value.recordPath = recordPath;
+                    it->value.lastAccessTime = *mtime;
+                }
+                return;
+            }
+
             double worth = -1;
             if (flags & TraverseFlag::ComputeWorth)
                 worth = computeRecordWorth(fileTimes(recordPath));
@@ -1156,13 +1183,31 @@ void Storage::traverseWithinRootPath(const String& rootPath, const String& type,
                         static_cast<size_t>(metaData.bodySize),
                         worth,
                         bodyShareCount,
-                        String::fromUTF8(SHA1::hexDigest(metaData.bodyHash).span())
+                        String::fromUTF8(SHA1::hexDigest(metaData.bodyHash).span()),
+                        { }
                     };
                     traverseOperation->invokeHandler(&record, info);
                 }
                 traverseOperation->decrementActivityCount();
             });
         });
+
+        if (flags & TraverseFlag::LastAccessedRecordPerPartition) {
+            for (auto& [directoryPath, entry] : traverseOperation->ensurePartitionMap()) {
+                traverseOperation->waitAndIncrementActivityCount();
+                auto channel = IOChannel::open(WTF::move(entry.recordPath), IOChannel::Type::Read);
+                channel->read(0, std::numeric_limits<size_t>::max(), WorkQueue::mainSingleton(), [this, protectedThis, traverseOperation, accessTime = entry.lastAccessTime](auto fileData, int) {
+                    RecordMetaData metaData;
+                    Data headerData;
+                    if (decodeRecordHeader(fileData, metaData, headerData, m_salt)) {
+                        Record record { metaData.key, metaData.timeStamp, headerData, { }, metaData.bodyHash };
+                        RecordInfo info { static_cast<size_t>(metaData.bodySize), -1, 0, String { }, accessTime };
+                        traverseOperation->invokeHandler(&record, info);
+                    }
+                    traverseOperation->decrementActivityCount();
+                });
+            }
+        }
 
         traverseOperation->waitUntilActivitiesFinished();
         RunLoop::mainSingleton().dispatch([traverseOperation = WTF::move(traverseOperation)]() mutable {

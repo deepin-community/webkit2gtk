@@ -42,6 +42,7 @@
 #include "WorkerGlobalScope.h"
 #include "WorkerThread.h"
 #include <JavaScriptCore/JSLock.h>
+#include <JavaScriptCore/JSObjectInlines.h>
 #include <JavaScriptCore/SourceProvider.h>
 #include <wtf/TZoneMallocInlines.h>
 
@@ -100,14 +101,14 @@ void ScheduledAction::executeFunctionInContext(JSGlobalObject* globalObject, JSV
     ASSERT(m_function);
     VM& vm = context.vm();
     JSLockHolder lock(vm);
-    auto catchScope = DECLARE_CATCH_SCOPE(vm);
+    auto catchScope = DECLARE_TOP_EXCEPTION_SCOPE(vm);
 
     JSObject* jsFunction = m_function.get();
     auto callData = JSC::getCallData(jsFunction);
     if (callData.type == CallData::Type::None)
         return;
 
-    auto* jsFunctionGlobalObject = jsFunction->globalObject();
+    auto* jsFunctionGlobalObject = jsFunction->realm();
 
     JSGlobalObject* lexicalGlobalObject = globalObject;
 
@@ -134,7 +135,7 @@ void ScheduledAction::executeFunctionInContext(JSGlobalObject* globalObject, JSV
 
 void ScheduledAction::execute(Document& document)
 {
-    auto* window = toJSDOMWindow(document.frame(), m_isolatedWorld);
+    auto* window = toJSDOMWindow(protect(document.frame()), m_isolatedWorld);
     if (!window)
         return;
 

@@ -28,6 +28,7 @@
 
 #if ENABLE(WEBASSEMBLY)
 
+#include "CalleeBits.h"
 #include "InPlaceInterpreter.h"
 #include "JSCJSValueInlines.h"
 #include "JSToWasm.h"
@@ -43,7 +44,8 @@
 #include "WasmModuleInformation.h"
 #include "WebAssemblyBuiltin.h"
 #include "WebAssemblyBuiltinTrampoline.h"
-
+#include <wtf/SHA1.h>
+#include <wtf/SixCharacterHash.h>
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/MakeString.h>
 
@@ -55,6 +57,7 @@ WTF_MAKE_COMPACT_TZONE_ALLOCATED_IMPL(Callee);
 WTF_MAKE_COMPACT_TZONE_ALLOCATED_IMPL(JITCallee);
 WTF_MAKE_COMPACT_TZONE_ALLOCATED_IMPL(JSToWasmCallee);
 WTF_MAKE_COMPACT_TZONE_ALLOCATED_IMPL(WasmToJSCallee);
+WTF_MAKE_COMPACT_TZONE_ALLOCATED_IMPL(RestoreFrameCallee);
 WTF_MAKE_COMPACT_TZONE_ALLOCATED_IMPL(IPIntCallee);
 WTF_MAKE_COMPACT_TZONE_ALLOCATED_IMPL(WasmBuiltinCallee);
 
@@ -88,6 +91,18 @@ Callee::Callee(Wasm::CompilationMode compilationMode, FunctionSpaceIndex index, 
     , m_index(index)
     , m_indexOrName(index, WTF::move(name))
 {
+}
+
+void Callee::setIndexOrName(IndexOrName&& indexOrName)
+{
+#if ASSERT_ENABLED
+    // Racy once the callee is registered, since the profiler and stack walker then read it.
+    {
+        Locker locker { NativeCalleeRegistry::singleton().getLock() };
+        ASSERT(!NativeCalleeRegistry::singleton().isValidCallee(this));
+    }
+#endif
+    m_indexOrName = WTF::move(indexOrName);
 }
 
 void Callee::reportToVMsForDestruction()
@@ -141,6 +156,9 @@ inline void Callee::runWithDowncast(const Func& func)
     case CompilationMode::WasmBuiltinMode:
         func(uncheckedDowncast<WasmBuiltinCallee>(this));
         break;
+    case CompilationMode::RestoreFrameMode:
+        func(uncheckedDowncast<RestoreFrameCallee>(this));
+        break;
     }
 }
 
@@ -153,6 +171,27 @@ inline void Callee::runWithDowncast(const Func& func) const
 void Callee::dump(PrintStream& out) const
 {
     out.print(makeString(m_indexOrName));
+}
+
+void Callee::dumpSimpleName(PrintStream& out) const
+{
+    unsigned hash = 0;
+    runWithDowncast([&](const auto* derived) {
+        hash = derived->computeCodeHashImpl();
+    });
+
+    if (hash) {
+        auto buffer = integerToSixCharacterHashString(hash);
+        out.print(m_indexOrName, '#', std::span<const char> { buffer });
+    } else
+        out.print(m_indexOrName);
+}
+
+String Callee::nameWithHash() const
+{
+    StringPrintStream out;
+    dumpSimpleName(out);
+    return out.toString();
 }
 
 CodePtr<WasmEntryPtrTag> Callee::entrypoint() const
@@ -172,6 +211,17 @@ std::tuple<void*, void*> Callee::range() const
     });
     return result;
 }
+
+#if ENABLE(JIT)
+Box<PCToCodeOriginMap> Callee::pcToCodeOriginMap() const
+{
+    Box<PCToCodeOriginMap> result;
+    runWithDowncast([&](auto* derived) {
+        result = derived->pcToCodeOriginMapImpl();
+    });
+    return result;
+}
+#endif
 
 const RegisterAtOffsetList* Callee::calleeSaveRegisters()
 {
@@ -237,21 +287,40 @@ WasmToJSCallee& WasmToJSCallee::singleton()
     return callee.get().get();
 }
 
-IPIntCallee::IPIntCallee(FunctionIPIntMetadataGenerator& generator, FunctionSpaceIndex index, std::pair<const Name*, RefPtr<NameSection>>&& name)
+EncodedJSValue g_restoreFrameCalleeBoxed { };
+
+RestoreFrameCallee::RestoreFrameCallee()
+    : Callee(Wasm::CompilationMode::RestoreFrameMode)
+{
+    NativeCalleeRegistry::singleton().registerCallee(this);
+}
+
+RestoreFrameCallee& RestoreFrameCallee::singleton()
+{
+    static LazyNeverDestroyed<Ref<RestoreFrameCallee>> callee;
+    static std::once_flag onceKey;
+    std::call_once(onceKey, [&]() {
+        callee.construct(adoptRef(*new RestoreFrameCallee));
+        g_restoreFrameCalleeBoxed = CalleeBits::encodeNativeCallee(&callee.get().get());
+    });
+    return callee.get().get();
+}
+
+IPIntCallee::IPIntCallee(FunctionIPIntMetadataGenerator& generator, FunctionSpaceIndex index, const RTT& signatureRTT, std::pair<const Name*, RefPtr<NameSection>>&& name)
     : Callee(Wasm::CompilationMode::IPIntMode, index, WTF::move(name))
     , m_functionIndex(generator.m_functionIndex)
     , m_bytecode(generator.m_bytecode.data() + generator.m_bytecodeOffset)
     , m_bytecodeEnd(m_bytecode + (generator.m_bytecode.size() - generator.m_bytecodeOffset - 1))
     , m_metadata(WTF::move(generator.m_metadata))
-    , m_argumINTBytecode(WTF::move(generator.m_argumINTBytecode))
-    , m_uINTBytecode(WTF::move(generator.m_uINTBytecode))
+    , m_localInitBytecode(WTF::move(generator.m_localInitBytecode))
+    , m_signatureRTT(&signatureRTT)
     , m_callTargets(WTF::move(generator.m_callTargets))
-    , m_topOfReturnStackFPOffset(generator.m_topOfReturnStackFPOffset)
     , m_localSizeToAlloc(roundUpToMultipleOf<2>(generator.m_numLocals))
     , m_numRethrowSlotsToAlloc(generator.m_numAlignedRethrowSlots)
     , m_numLocals(generator.m_numLocals)
     , m_numArgumentsOnStack(generator.m_numArgumentsOnStack)
     , m_maxFrameSizeInV128(generator.m_maxFrameSizeInV128)
+    , m_maxCalleeStackSize(generator.m_maxCalleeStackSize)
     , m_tierUpCounter(WTF::move(generator.m_tierUpCounter))
 {
     if (size_t count = generator.m_exceptionHandlers.size()) {
@@ -294,10 +363,62 @@ void IPIntCallee::setEntrypoint(CodePtr<WasmEntryPtrTag> entrypoint)
     NativeCalleeRegistry::singleton().registerCallee(this);
 }
 
+void IPIntCallee::setEntrypointWithoutRegistration(CodePtr<WasmEntryPtrTag> entrypoint)
+{
+    ASSERT(!m_entrypoint);
+    m_entrypoint = entrypoint;
+}
+
 const RegisterAtOffsetList* IPIntCallee::calleeSaveRegistersImpl()
 {
     ASSERT(RegisterAtOffsetList::ipintCalleeSaveRegisters().registerCount() == numberOfIPIntCalleeSaveRegisters);
     return &RegisterAtOffsetList::ipintCalleeSaveRegisters();
+}
+
+unsigned IPIntCallee::computeCodeHashImpl() const
+{
+    unsigned hash = m_codeHash;
+    if (hash)
+        return hash;
+
+    SHA1 sha1;
+
+    // The maxSourceCodeLengthToHash is a heuristic to avoid crashing fuzzers
+    // due to resource exhaustion. This is OK to do because:
+    // 1. Hash is not a critical hash.
+    // 2. In practice, reasonable source code are not 500 MB or more long.
+    // 3. And if they are that long, then we are still diversifying the hash on
+    //    their length. But if they do collide, it's OK.
+    // The only invariant here is that we should always produce the same hash
+    // for the same source string. The algorithm below achieves that.
+    std::span bytecode { m_bytecode, m_bytecodeEnd };
+    constexpr unsigned maxSourceCodeLengthToHash = 500 * MB;
+    if (bytecode.size() < maxSourceCodeLengthToHash)
+        sha1.addBytes(bytecode);
+    else {
+        // Just hash with the length and samples of the source string instead.
+        unsigned index = 0;
+        unsigned oldIndex = 0;
+        unsigned length = bytecode.size();
+        unsigned step = (length >> 10) + 1;
+
+        sha1.addBytes(std::span { std::bit_cast<uint8_t*>(&length), sizeof(length) });
+        do {
+            auto character = bytecode[index];
+            sha1.addBytes(std::span { std::bit_cast<uint8_t*>(&character), sizeof(character) });
+            oldIndex = index;
+            index += step;
+        } while (index > oldIndex && index < length);
+    }
+
+    SHA1::Digest digest;
+    sha1.computeHash(digest);
+    hash = digest[0] | (digest[1] << 8) | (digest[2] << 16) | (digest[3] << 24);
+
+    if (hash == 0)
+        hash += 0x2d5a93d0;
+    m_codeHash = hash;
+    return hash;
 }
 
 #if ENABLE(WEBASSEMBLY_OMGJIT)
@@ -416,12 +537,11 @@ Box<PCToCodeOriginMap> OptimizingJITCallee::materializePCToOriginMap(B3::PCToOri
 
 #endif
 
-JSToWasmCallee::JSToWasmCallee(TypeIndex typeIndex, bool)
+JSToWasmCallee::JSToWasmCallee(Ref<const RTT>&& rtt, bool)
     : Callee(Wasm::CompilationMode::JSToWasmMode)
-    , m_typeIndex(typeIndex)
+    , m_rtt(WTF::move(rtt))
 {
-    const TypeDefinition& signature = TypeInformation::get(typeIndex).expand();
-    CallInformation wasmFrameConvention = wasmCallingConvention().callInformationFor(signature, CallRole::Caller);
+    CallInformation wasmFrameConvention = wasmCallingConvention().callInformationFor(m_rtt.get(), CallRole::Caller);
 
     RegisterAtOffsetList savedResultRegisters = wasmFrameConvention.computeResultsOffsetList();
     size_t totalFrameSize = wasmFrameConvention.headerAndArgumentStackSizeInBytes;
@@ -469,13 +589,17 @@ void OptimizingJITCallee::linkExceptionHandlers(Vector<UnlinkedHandlerInfo> unli
     }
 }
 
+unsigned OptimizingJITCallee::computeCodeHashImpl() const
+{
+    return m_profiledCallee->computeCodeHashImpl();
+}
+
 BBQCallee::~BBQCallee()
 {
     if (Options::freeRetiredWasmCode() && m_osrEntryCallee) {
         m_osrEntryCallee->reportToVMsForDestruction();
     }
 }
-
 
 const RegisterAtOffsetList* BBQCallee::calleeSaveRegistersImpl()
 {

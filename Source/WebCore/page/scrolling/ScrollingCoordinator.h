@@ -38,7 +38,6 @@
 #include <wtf/Forward.h>
 #include <wtf/TZoneMalloc.h>
 #include <wtf/ThreadSafeRefCounted.h>
-#include <wtf/Threading.h>
 #include <wtf/TypeCasts.h>
 
 namespace WTF {
@@ -88,9 +87,6 @@ public:
 
     // Should be called whenever the given frame view has been laid out.
     virtual void frameViewLayoutUpdated(LocalFrameView&) { }
-
-    using LayoutViewportOriginOrOverrideRect = Variant<std::optional<FloatPoint>, std::optional<FloatRect>>;
-    virtual void reconcileScrollingState(LocalFrameView&, const FloatPoint&, const LayoutViewportOriginOrOverrideRect&, ScrollType, ViewportRectStability, ScrollingLayerPositionAction) { }
 
     // Should be called whenever the set of fixed objects changes.
     void frameViewFixedObjectsDidChange(LocalFrameView&);
@@ -176,7 +172,7 @@ public:
     virtual void setSynchronousScrollingReasons(std::optional<ScrollingNodeID>, OptionSet<SynchronousScrollingReason>) { }
     virtual OptionSet<SynchronousScrollingReason> synchronousScrollingReasons(std::optional<ScrollingNodeID>) const { return { }; }
     bool hasSynchronousScrollingReasons(std::optional<ScrollingNodeID> nodeID) const { return !!synchronousScrollingReasons(nodeID); }
-    WEBCORE_EXPORT virtual void applyScrollUpdate(ScrollUpdate&&, ScrollType = ScrollType::User) { }
+    virtual void applyScrollUpdate(ScrollUpdate&&, ScrollType = ScrollType::User, ViewportRectStability = ViewportRectStability::Stable) { }
 
     virtual void reconcileViewportConstrainedLayerPositions(std::optional<ScrollingNodeID>, const LayoutRect&, ScrollingLayerPositionAction) { }
     virtual String scrollingStateTreeAsText(OptionSet<ScrollingStateTreeAsTextBehavior> = { }) const;
@@ -185,7 +181,6 @@ public:
     virtual bool isRubberBandInProgress(std::optional<ScrollingNodeID>) const { return false; }
     virtual bool isUserScrollInProgress(std::optional<ScrollingNodeID>) const { return false; }
     virtual bool isScrollSnapInProgress(std::optional<ScrollingNodeID>) const { return false; }
-    virtual void updateScrollSnapPropertiesWithFrameView(const LocalFrameView&) { }
     virtual void setScrollPinningBehavior(ScrollPinningBehavior) { }
     virtual bool hasSubscrollers(FrameIdentifier) const { return false; }
 
@@ -229,7 +224,7 @@ public:
     virtual void setScrollbarOpacity(ScrollableArea&) { }
 #endif
 
-    FrameIdentifier mainFrameIdentifier() const;
+    FrameIdentifier NODELETE mainFrameIdentifier() const;
 
 protected:
     explicit ScrollingCoordinator(Page*);
@@ -245,8 +240,7 @@ protected:
 
     virtual void willCommitTree(FrameIdentifier) { }
 
-    WEBCORE_EXPORT Page* page() const;
-    WEBCORE_EXPORT RefPtr<Page> protectedPage() const;
+    WEBCORE_EXPORT Page* NODELETE page() const;
 
 private:
     virtual bool hasVisibleSlowRepaintViewportConstrainedObjects(const LocalFrameView&) const;

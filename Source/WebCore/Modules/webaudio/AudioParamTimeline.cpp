@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2011 Google Inc. All rights reserved.
- * Copyright (C) 2022-2024 Apple Inc. All rights reserved.
+ * Copyright (C) 2022-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -39,7 +39,7 @@
 
 namespace WebCore {
 
-static void fillWithValue(std::span<float> values, float value, unsigned endFrame, unsigned& writeIndex)
+static void NODELETE fillWithValue(std::span<float> values, float value, unsigned endFrame, unsigned& writeIndex)
 {
     if (writeIndex < endFrame) {
         std::ranges::fill(values.subspan(writeIndex).first(endFrame - writeIndex), value);
@@ -49,7 +49,7 @@ static void fillWithValue(std::span<float> values, float value, unsigned endFram
 
 // Test that for a SetTarget event, the current value is close enough to the target value that
 // we can consider the event to have converged to the target.
-static bool hasSetTargetConverged(float value, float target, Seconds currentTime, Seconds startTime, double timeConstant)
+static bool NODELETE hasSetTargetConverged(float value, float target, Seconds currentTime, Seconds startTime, double timeConstant)
 {
     // For a SetTarget event, we want the event to terminate eventually so that we can stop using
     // the timeline to compute the values.
@@ -126,14 +126,14 @@ ExceptionOr<void> AudioParamTimeline::setValueCurveAtTime(Vector<float>&& curve,
     return insertEvent(ParamEvent::createSetValueEvent(curveEndValue, time + duration));
 }
 
-static bool isValidNumber(float x)
+static bool NODELETE isValidNumber(float x)
 {
-    return !std::isnan(x) && !std::isinf(x);
+    return std::isfinite(x);
 }
 
-static bool isValidNumber(Seconds s)
+static bool NODELETE isValidNumber(Seconds s)
 {
-    return !std::isnan(s.value()) && !std::isinf(s.value());
+    return std::isfinite(s.value());
 }
 
 ExceptionOr<void> AudioParamTimeline::insertEvent(ParamEvent&& event)
@@ -314,9 +314,9 @@ ExceptionOr<void> AudioParamTimeline::cancelAndHoldAtTime(Seconds cancelTime)
         if (result.hasException())
             return result.releaseException();
         if (newSetValueEvent) {
-            insertEvent(WTF::move(*newSetValueEvent));
-            if (result.hasException())
-                return result.releaseException();
+            auto setValueResult = insertEvent(WTF::move(*newSetValueEvent));
+            if (setValueResult.hasException())
+                return setValueResult.releaseException();
         }
     }
 

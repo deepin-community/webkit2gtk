@@ -54,7 +54,7 @@ public:
     static String textFromUTF8(std::span<const uint8_t>);
 
     void setEncoding(const PAL::TextEncoding&, EncodingSource);
-    const PAL::TextEncoding& encoding() const { return m_encoding; }
+    const PAL::TextEncoding& encoding() const LIFETIME_BOUND { return m_encoding; }
     ContentType contentType() const { return m_contentType; }
     const PAL::TextEncoding* encodingForURLParsing();
 
@@ -84,7 +84,7 @@ private:
     bool checkForHeadCharset(std::span<const uint8_t>, bool& movedDataToBuffer);
     bool checkForMetaCharset(std::span<const uint8_t>);
     void detectJapaneseEncoding(std::span<const uint8_t>);
-    bool shouldAutoDetect() const;
+    bool NODELETE shouldAutoDetect() const;
 
     ContentType m_contentType;
     PAL::TextEncoding m_encoding;

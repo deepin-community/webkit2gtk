@@ -50,12 +50,16 @@
 #include "PlatformLayer.h"
 #include "StyleFilter.h"
 #include "Timer.h"
+#include "TypedArrayPixelBuffer.h"
 #include <wtf/Vector.h>
 #include <wtf/text/WTFString.h>
 
+namespace JSC {
+struct Uint8ClampedAdaptor;
+}
+
 namespace WebCore {
 
-class ByteArrayPixelBuffer;
 class CachedImage;
 class CanvasLayerContextSwitcher;
 class CanvasGradient;
@@ -72,22 +76,24 @@ class TextMetrics;
 class WebCodecsVideoFrame;
 
 struct DOMMatrix2DInit;
+struct GlyphOverflow;
 
-using CanvasImageSource = Variant<RefPtr<HTMLImageElement>
-    , RefPtr<SVGImageElement>
-    , RefPtr<HTMLCanvasElement>
-    , RefPtr<ImageBitmap>
-    , RefPtr<CSSStyleImageValue>
+using CanvasImageSource = Variant<
+      Ref<HTMLImageElement>
+    , Ref<SVGImageElement>
+    , Ref<HTMLCanvasElement>
+    , Ref<ImageBitmap>
+    , Ref<CSSStyleImageValue>
 #if ENABLE(OFFSCREEN_CANVAS)
-    , RefPtr<OffscreenCanvas>
+    , Ref<OffscreenCanvas>
 #endif
 #if ENABLE(VIDEO)
-    , RefPtr<HTMLVideoElement>
+    , Ref<HTMLVideoElement>
 #endif
 #if ENABLE(WEB_CODECS)
-    , RefPtr<WebCodecsVideoFrame>
+    , Ref<WebCodecsVideoFrame>
 #endif
-    >;
+>;
 
 class CanvasRenderingContext2DBase : public CanvasRenderingContext, public CanvasPath {
     WTF_MAKE_TZONE_ALLOCATED(CanvasRenderingContext2DBase);
@@ -101,7 +107,7 @@ public:
 
     bool isAccelerated() const;
 
-    const CanvasRenderingContext2DSettings& getContextAttributes() const { return m_settings; }
+    const CanvasRenderingContext2DSettings& getContextAttributes() const LIFETIME_BOUND { return m_settings; }
     using RenderingMode = WebCore::RenderingMode;
     std::optional<RenderingMode> renderingModeForTesting() const final;
     std::optional<RenderingMode> getEffectiveRenderingModeForTesting();
@@ -120,10 +126,10 @@ public:
     double miterLimit() const { return state().miterLimit; }
     void setMiterLimit(double);
 
-    const Vector<double>& getLineDash() const { return state().lineDash; }
+    const Vector<double>& getLineDash() const LIFETIME_BOUND { return state().lineDash; }
     void setLineDash(const Vector<double>&);
 
-    const Vector<double>& webkitLineDash() const { return getLineDash(); }
+    const Vector<double>& webkitLineDash() const LIFETIME_BOUND { return getLineDash(); }
     void setWebkitLineDash(const Vector<double>&);
 
     double lineDashOffset() const { return state().lineDashOffset; }
@@ -212,7 +218,7 @@ public:
 
     void clearCanvas();
 
-    using StyleVariant = Variant<String, RefPtr<CanvasGradient>, RefPtr<CanvasPattern>>;
+    using StyleVariant = Variant<String, Ref<CanvasGradient>, Ref<CanvasPattern>>;
     StyleVariant strokeStyle() const;
     void setStrokeStyle(String&&);
     void setStrokeStyle(RefPtr<CanvasGradient>&&);
@@ -262,10 +268,10 @@ public:
         FontProxy(const FontProxy&);
         FontProxy& operator=(const FontProxy&);
 
-        bool realized() const { return m_font.fontSelector(); }
+        bool realized() const { return m_font.hasFontSelector(); }
         void initialize(FontSelector&, const FontCascade&);
-        const FontMetrics& metricsOfPrimaryFont() const;
-        const FontCascadeDescription& fontDescription() const;
+        const FontMetrics& metricsOfPrimaryFont() const LIFETIME_BOUND;
+        const FontCascadeDescription& NODELETE fontDescription() const LIFETIME_BOUND;
         float width(const TextRun&, GlyphOverflow* = 0) const;
         void drawBidiText(GraphicsContext&, const TextRun&, const FloatPoint&, FontCascade::CustomFontNotReadyAction) const;
 
@@ -273,7 +279,7 @@ public:
         bool isPopulated() const { return m_font.fonts(); }
 #endif
 
-        const FontCascade& fontCascade() const { return m_font; }
+        const FontCascade& fontCascade() const LIFETIME_BOUND { return m_font; }
 
         float letterSpacing() const { return m_font.letterSpacing(); }
         void setLetterSpacing(float letterSpacing) { m_font.setLetterSpacing(letterSpacing); }
@@ -326,23 +332,23 @@ public:
 
         RefPtr<CanvasLayerContextSwitcher> targetSwitcher;
 
-        CanvasLineCap canvasLineCap() const;
-        CanvasLineJoin canvasLineJoin() const;
-        CanvasTextAlign canvasTextAlign() const;
-        CanvasTextBaseline canvasTextBaseline() const;
+        CanvasLineCap NODELETE canvasLineCap() const;
+        CanvasLineJoin NODELETE canvasLineJoin() const;
+        CanvasTextAlign NODELETE canvasTextAlign() const;
+        CanvasTextBaseline NODELETE canvasTextBaseline() const;
         String fontString() const;
         String globalCompositeOperationString() const;
         String shadowColorString() const;
     };
-    const Vector<State, 1>& stateStack();
+    const Vector<State, 1>& stateStack() LIFETIME_BOUND;
 
 protected:
     static const int DefaultFontSize;
     static const ASCIILiteral DefaultFontFamily;
 
-    const State& state() const { return m_stateStack.last(); }
+    const State& state() const LIFETIME_BOUND { return m_stateStack.last(); }
     void realizeSaves();
-    State& modifiableState() { ASSERT(!m_unrealizedSaveCount || m_stateStack.size() >= MaxSaveCount); return m_stateStack.last(); }
+    State& modifiableState() LIFETIME_BOUND { ASSERT(!m_unrealizedSaveCount || m_stateStack.size() >= MaxSaveCount); return m_stateStack.last(); }
 
     GraphicsContext* drawingContext() const;
     GraphicsContext* effectiveDrawingContext() const;
@@ -394,11 +400,11 @@ protected:
 
     bool usesCSSCompatibilityParseMode() const { return m_usesCSSCompatibilityParseMode; }
 
-    void updateStateTransform(const AffineTransform&);
+    void NODELETE updateStateTransform(const AffineTransform&);
 
     RefPtr<ImageBuffer> allocateImageBuffer() const;
     bool hasCreatedImageBuffer() const { return m_hasCreatedImageBuffer; }
-    RefPtr<ImageBuffer> buffer() const;
+    ImageBuffer* buffer() const;
     RefPtr<ImageBuffer> makeRenderingResultsAvailable(ShouldApplyPostProcessingToDirtyRect = ShouldApplyPostProcessingToDirtyRect::Yes);
     RefPtr<ImageBuffer> createImageForNoiseInjection() const;
     void didUpdateCanvasSizeProperties(bool) override;
@@ -418,13 +424,13 @@ private:
     void applyLineDash() const;
     void setShadow(const FloatSize& offset, float blur, const Color&);
     void applyShadow();
-    bool shouldDrawShadows() const;
+    bool NODELETE shouldDrawShadows() const;
 
     bool needsPreparationForDisplay() const final;
     void prepareForDisplay() final;
 
     void clearAccumulatedDirtyRect() final;
-    bool isEntireBackingStoreDirty() const;
+    bool NODELETE isEntireBackingStoreDirty() const;
     FloatRect backingStoreBounds() const { return FloatRect { { }, FloatSize { canvasBase().size() } }; }
 
     PixelFormat pixelFormat() const final;

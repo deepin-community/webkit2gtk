@@ -50,9 +50,7 @@ WebPasteboardProxy& WebPasteboardProxy::singleton()
     return proxy;
 }
 
-WebPasteboardProxy::WebPasteboardProxy()
-{
-}
+WebPasteboardProxy::WebPasteboardProxy() = default;
 
 void WebPasteboardProxy::addWebProcessProxy(WebProcessProxy& webProcessProxy)
 {
@@ -68,9 +66,9 @@ void WebPasteboardProxy::removeWebProcessProxy(WebProcessProxy& webProcessProxy)
 
 RefPtr<WebProcessProxy> WebPasteboardProxy::webProcessProxyForConnection(IPC::Connection& connection) const
 {
-    for (Ref webProcessProxy : m_webProcessProxySet) {
-        if (webProcessProxy->hasConnection(connection))
-            return webProcessProxy.ptr();
+    for (auto& webProcessProxy : m_webProcessProxySet) {
+        if (webProcessProxy.hasConnection(connection))
+            return &webProcessProxy;
     }
     return nullptr;
 }

@@ -51,7 +51,7 @@ class Storage : public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<Storage, 
     WTF_DEPRECATED_MAKE_FAST_ALLOCATED(Storage);
 public:
     enum class Mode { Normal, AvoidRandomness };
-    static RefPtr<Storage> open(const String& cachePath, Mode, size_t capacity);
+    static RefPtr<Storage> open(const String& cachePath, Mode, size_t capacity, size_t mainResourceBlobMemoryCacheFileLimit);
 
     enum class ReadOperationIdentifierType { };
     using ReadOperationIdentifier = ObjectIdentifier<ReadOperationIdentifierType>;
@@ -114,10 +114,12 @@ public:
         double worth; // 0-1 where 1 is the most valuable.
         unsigned bodyShareCount;
         String bodyHash;
+        WallTime lastAccessTime;
     };
     enum class TraverseFlag : uint8_t {
         ComputeWorth = 1 << 0,
         ShareCount = 1 << 1,
+        LastAccessedRecordPerPartition = 1 << 2,
     };
     using TraverseHandler = Function<void (const Record*, const RecordInfo&)>;
     // Null record signals end.
@@ -126,7 +128,7 @@ public:
 
     void setCapacity(size_t);
     size_t capacity() const { return m_capacity; }
-    size_t approximateSize() const;
+    size_t NODELETE approximateSize() const;
 
     // Incrementing this number will delete all existing cache content for everyone. Do you really need to do it?
     static const unsigned version = 17;
@@ -135,14 +137,14 @@ public:
     String versionPath() const;
     String recordsPathIsolatedCopy() const;
 
-    const Salt& salt() const { return m_salt; }
+    const Salt& salt() const LIFETIME_BOUND { return m_salt; }
 
     ~Storage();
 
     void writeWithoutWaiting() { m_initialWriteDelay = 0_s; };
 
 private:
-    Storage(const String& directoryPath, Mode, Salt, size_t capacity);
+    Storage(const String& directoryPath, Mode, Salt, size_t capacity, size_t mainResourceBlobMemoryCacheFileLimit);
 
     String recordDirectoryPathForKey(const Key&) const;
     String recordPathForKey(const Key&) const;
@@ -182,13 +184,13 @@ private:
     ConcurrentWorkQueue& backgroundIOQueue() { return m_backgroundIOQueue.get(); }
     WorkQueue& serialBackgroundIOQueue() { return m_serialBackgroundIOQueue.get(); }
 
-    bool mayContain(const Key&) const;
-    bool mayContainBlob(const Key&) const;
+    bool NODELETE mayContain(const Key&) const;
+    bool NODELETE mayContainBlob(const Key&) const;
 
     void addToRecordFilter(const Key&);
     void deleteFiles(const Key&);
 
-    static bool isHigherPriority(const std::unique_ptr<ReadOperation>&, const std::unique_ptr<ReadOperation>&);
+    static bool NODELETE isHigherPriority(const std::unique_ptr<ReadOperation>&, const std::unique_ptr<ReadOperation>&);
 
     size_t estimateRecordsSize(unsigned recordCount, unsigned blobCount) const;
     uint32_t volumeBlockSize() const;

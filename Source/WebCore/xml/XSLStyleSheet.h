@@ -68,7 +68,7 @@ public:
     
     void checkLoaded();
     
-    const URL& finalURL() const { return m_finalURL; }
+    const URL& finalURL() const LIFETIME_BOUND { return m_finalURL; }
 
     void loadChildSheets();
     void loadChildSheet(const String& href);
@@ -77,7 +77,7 @@ public:
 
     Document* ownerDocument();
     XSLStyleSheet* parentStyleSheet() const override { return m_parentStyleSheet.get(); }
-    void setParentStyleSheet(XSLStyleSheet* parent);
+    void NODELETE setParentStyleSheet(XSLStyleSheet* parent);
 
     xmlDocPtr document();
     xsltStylesheetPtr compileStyleSheet();
@@ -85,7 +85,7 @@ public:
 
     void clearDocuments();
 
-    void markAsProcessed();
+    void NODELETE markAsProcessed();
     bool processed() const { return m_processed; }
     
     String type() const override { return "text/xml"_s; }

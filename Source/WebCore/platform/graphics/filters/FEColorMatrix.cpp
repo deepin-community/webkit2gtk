@@ -45,6 +45,11 @@ Ref<FEColorMatrix> FEColorMatrix::create(ColorMatrixType type, Vector<float>&& v
     return adoptRef(*new FEColorMatrix(type, WTF::move(values), colorSpace));
 }
 
+Ref<FEColorMatrix> FEColorMatrix::create(ColorMatrixType type, const ColorMatrix<5, 4>& matrix, DestinationColorSpace colorSpace)
+{
+    return create(type, matrix.data(), colorSpace);
+}
+
 FEColorMatrix::FEColorMatrix(ColorMatrixType type, Vector<float>&& values, DestinationColorSpace colorSpace)
     : FilterEffect(FilterEffect::Type::FEColorMatrix, colorSpace)
     , m_type(type)
@@ -67,7 +72,7 @@ bool FEColorMatrix::setType(ColorMatrixType type)
     return true;
 }
 
-bool FEColorMatrix::setValues(const Vector<float> &values)
+bool FEColorMatrix::setValues(const Vector<float>& values)
 {
     if (m_values == values)
         return false;
@@ -88,7 +93,9 @@ bool FEColorMatrix::areValuesValidForType(ColorMatrixType type, const Vector<flo
     case ColorMatrixType::FECOLORMATRIX_TYPE_UNKNOWN:
         return false;
     }
-    RELEASE_ASSERT_NOT_REACHED();
+
+    ASSERT_NOT_REACHED();
+    return false;
 }
 
 void FEColorMatrix::calculateSaturateComponents(std::span<float, 9> components, float value)

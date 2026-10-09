@@ -32,7 +32,7 @@ namespace Style {
 
 // <'block-step-size'> = none | <length [0,∞]>
 // https://www.w3.org/TR/css-rhythm-1/#propdef-block-step-size
-struct BlockStepSize : ValueOrKeyword<Length<CSS::Nonnegative, float>, CSS::Keyword::None> {
+struct BlockStepSize : ValueOrKeyword<Length<CSS::NonnegativeUnzoomed, float>, CSS::Keyword::None> {
     using Base::Base;
     using Length = typename Base::Value;
 
@@ -44,8 +44,8 @@ struct BlockStepSize : ValueOrKeyword<Length<CSS::Nonnegative, float>, CSS::Keyw
 // MARK: - Blending
 
 template<> struct Blending<BlockStepSize> {
-    auto canBlend(const BlockStepSize&, const BlockStepSize&) -> bool;
-    auto requiresInterpolationForAccumulativeIteration(const BlockStepSize&, const BlockStepSize&) -> bool;
+    bool NODELETE canBlend(const BlockStepSize&, const BlockStepSize&);
+    bool NODELETE requiresInterpolationForAccumulativeIteration(const BlockStepSize&, const BlockStepSize&);
     auto blend(const BlockStepSize&, const BlockStepSize&, const BlendingContext&) -> BlockStepSize;
 };
 

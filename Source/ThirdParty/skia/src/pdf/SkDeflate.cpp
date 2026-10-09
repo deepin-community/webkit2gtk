@@ -7,18 +7,18 @@
 
 #include "src/pdf/SkDeflate.h"
 
-#include "include/private/base/SkAssert.h"
-#include "include/private/base/SkDebug.h"
-#include "include/private/base/SkMalloc.h"
-#include "include/private/base/SkTFitsIn.h"
-#include "include/private/base/SkTo.h"
+#include "include/private/SkAssert.h"
+#include "include/private/SkDebug.h"
+#include "include/private/SkMalloc.h"
+#include "include/private/SkTFitsIn.h"
+#include "include/private/SkTo.h"
 #include "src/core/SkTraceEvent.h"
 
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
 
-#include "zlib.h"  // NO_G3_REWRITE
+#include <zlib.h>
 
 namespace {
 

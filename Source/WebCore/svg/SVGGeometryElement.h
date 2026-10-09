@@ -59,7 +59,7 @@ private:
     float calculateTotalLength() const;
     ExceptionOr<Ref<SVGPoint>> calculatePointAtLength(float distance) const;
 
-    Ref<SVGAnimatedNumber> m_pathLength { SVGAnimatedNumber::create(this) };
+    const Ref<SVGAnimatedNumber> m_pathLength { SVGAnimatedNumber::create(this) };
 };
 
 } // namespace WebCore

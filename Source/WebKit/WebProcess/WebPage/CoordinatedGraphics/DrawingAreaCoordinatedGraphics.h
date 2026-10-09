@@ -49,10 +49,6 @@ public:
 
     virtual ~DrawingAreaCoordinatedGraphics();
 
-#if PLATFORM(GTK) || PLATFORM(WPE)
-    void fillGLInformation(RenderProcessInfo&&, CompletionHandler<void(RenderProcessInfo&&)>&&);
-#endif
-
 private:
     DrawingAreaCoordinatedGraphics(WebPage&, const WebPageCreationParameters&);
 
@@ -74,12 +70,6 @@ private:
     void backgroundColorDidChange() override;
 #endif
 
-#if PLATFORM(WPE) && ENABLE(WPE_PLATFORM) && (USE(GBM)|| OS(ANDROID))
-    void preferredBufferFormatsDidChange() override;
-#endif
-
-    bool shouldUseTiledBackingForFrameView(const WebCore::LocalFrameView&) const override;
-
     bool supportsAsyncScrolling() const override;
     void registerScrollingTree() override;
     void unregisterScrollingTree() override;
@@ -100,19 +90,9 @@ private:
     void forceUpdate() override;
     void didDiscardBackingStore() override;
 
-#if PLATFORM(GTK) || PLATFORM(WPE)
-    void dispatchAfterEnsuringDrawing(IPC::AsyncReplyID) override;
-    void dispatchPendingCallbacksAfterEnsuringDrawing() override;
-#endif
-
 #if ENABLE(DAMAGE_TRACKING)
     void resetDamageHistoryForTesting() override;
     void foreachRegionInDamageHistoryForTesting(Function<void(const WebCore::Region&)>&&) const override;
-#endif
-
-#if PLATFORM(GTK)
-    void adjustTransientZoom(double scale, WebCore::FloatPoint origin) override;
-    void commitTransientZoom(double scale, WebCore::FloatPoint origin, CompletionHandler<void()>&&) override;
 #endif
 
     void exitAcceleratedCompositingModeSoon();
@@ -152,11 +132,6 @@ private:
     // The layer tree host that handles accelerated compositing.
     std::unique_ptr<LayerTreeHost> m_layerTreeHost;
 
-#if PLATFORM(WPE)
-    // Frame renderer used in non-composited mode.
-    std::unique_ptr<NonCompositedFrameRenderer> m_nonCompositedFrameRenderer;
-#endif
-
     WebCore::Region m_dirtyRegion;
     WebCore::IntRect m_scrollRect;
     WebCore::IntSize m_scrollOffset;
@@ -171,15 +146,6 @@ private:
     bool m_shouldSendEnterAcceleratedCompositingMode { false };
 
     RunLoop::Timer m_displayTimer;
-
-#if PLATFORM(GTK)
-    bool m_transientZoom { false };
-    WebCore::FloatPoint m_transientZoomInitialOrigin;
-#endif
-
-#if PLATFORM(GTK) || PLATFORM(WPE)
-    Vector<IPC::AsyncReplyID> m_pendingAfterDrawCallbackIDs;
-#endif
 };
 
 } // namespace WebKit

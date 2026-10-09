@@ -28,9 +28,10 @@
 
 #include "WebCoreJSBuiltinInternals.h"
 #include "WebCoreJSClientData.h"
-#include <JavaScriptCore/CatchScope.h>
+#include <JavaScriptCore/JSObjectInlines.h>
 #include <JavaScriptCore/JSSet.h>
 #include <JavaScriptCore/JSSetInlines.h>
+#include <JavaScriptCore/TopExceptionScope.h>
 #include <JavaScriptCore/VMTrapsInlines.h>
 
 namespace WebCore {
@@ -47,7 +48,7 @@ std::pair<bool, std::reference_wrapper<JSC::JSObject>> getBackingSet(JSC::JSGlob
     if (!backingSet) {
         auto& vm = lexicalGlobalObject.vm();
         backingSet = JSC::JSSet::create(vm, lexicalGlobalObject.setStructure());
-        setLike.putDirect(vm, builtinNames(vm).backingSetPrivateName(), backingSet, enumToUnderlyingType(JSC::PropertyAttribute::DontEnum));
+        setLike.putDirect(vm, builtinNames(vm).backingSetPrivateName(), backingSet, std::to_underlying(JSC::PropertyAttribute::DontEnum));
         return { true, *JSC::asObject(backingSet) };
     }
     return { false, *JSC::asObject(backingSet) };

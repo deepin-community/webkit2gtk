@@ -52,11 +52,11 @@ public:
     ~MutableCSSSelector();
 
     CSSSelector releaseSelector() { return WTF::move(m_selector); }
-    const CSSSelector& selector() const { return m_selector; };
-    CSSSelector& selector() { return m_selector; }
+    const CSSSelector& selector() const LIFETIME_BOUND { return m_selector; };
+    CSSSelector& selector() LIFETIME_BOUND { return m_selector; }
 
     void setValue(const AtomString& value, bool matchLowerCase = false) { m_selector.setValue(value, matchLowerCase); }
-    const AtomString& value() const { return m_selector.value(); }
+    const AtomString& value() const LIFETIME_BOUND { return m_selector.value(); }
 
     void setAttribute(const QualifiedName& value, CSSSelector::AttributeMatchType type) { m_selector.setAttribute(value, type); }
 
@@ -68,13 +68,14 @@ public:
 
     CSSSelector::Match match() const { return m_selector.match(); }
     CSSSelector::PseudoElement pseudoElement() const { return m_selector.pseudoElement(); }
-    const CSSSelectorList* selectorList() const { return m_selector.selectorList(); }
+    const CSSSelectorList* selectorList() const LIFETIME_BOUND { return m_selector.selectorList(); }
 
     void setPseudoElement(CSSSelector::PseudoElement type) { m_selector.setPseudoElement(type); }
     void setPseudoClass(CSSSelector::PseudoClass type) { m_selector.setPseudoClass(type); }
 
     void adoptSelectorVector(MutableCSSSelectorList&&);
-    void setArgumentList(FixedVector<AtomString>);
+    void setIntegerList(FixedVector<int>);
+    void setStringList(FixedVector<AtomString>);
     void setLangList(FixedVector<PossiblyQuotedIdentifier>);
     void setSelectorList(std::unique_ptr<CSSSelectorList>);
 
@@ -82,7 +83,7 @@ public:
 
     CSSSelector::PseudoClass pseudoClass() const { return m_selector.pseudoClass(); }
 
-    bool matchesPseudoElement() const;
+    bool NODELETE matchesPseudoElement() const;
 
     bool isHostPseudoClass() const { return m_selector.isHostPseudoClass(); }
 
@@ -95,10 +96,10 @@ public:
     // special case, since it will be covered by this function once again.
     bool needsImplicitShadowCombinatorForMatching() const;
 
-    MutableCSSSelector* precedingInComplexSelector() const { return m_precedingInComplexSelector.get(); }
-    MutableCSSSelector* leftmostSimpleSelector();
-    const MutableCSSSelector* leftmostSimpleSelector() const;
-    bool startsWithExplicitCombinator() const;
+    MutableCSSSelector* precedingInComplexSelector() const LIFETIME_BOUND { return m_precedingInComplexSelector.get(); }
+    MutableCSSSelector* NODELETE leftmostSimpleSelector();
+    const MutableCSSSelector* NODELETE leftmostSimpleSelector() const;
+    bool NODELETE startsWithExplicitCombinator() const;
     void setPrecedingInComplexSelector(std::unique_ptr<MutableCSSSelector> selector) { m_precedingInComplexSelector = WTF::move(selector); }
     void prependInComplexSelector(CSSSelector::Relation, std::unique_ptr<MutableCSSSelector>);
     void prependInComplexSelectorAsRelative(std::unique_ptr<MutableCSSSelector>);
@@ -120,6 +121,7 @@ inline bool MutableCSSSelector::needsImplicitShadowCombinatorForMatching() const
             || pseudoElement() == CSSSelector::PseudoElement::Cue
 #endif
             || pseudoElement() == CSSSelector::PseudoElement::Part
+            || pseudoElement() == CSSSelector::PseudoElement::Picker
             || pseudoElement() == CSSSelector::PseudoElement::Slotted
             || pseudoElement() == CSSSelector::PseudoElement::UserAgentPartLegacyAlias
             || pseudoElement() == CSSSelector::PseudoElement::WebKitUnknown);

@@ -170,7 +170,7 @@ ViewportAttributes ViewportArguments::resolve(const FloatSize& initialViewportSi
     return result;
 }
 
-static FloatSize convertToUserSpace(const FloatSize& deviceSize, float devicePixelRatio)
+static FloatSize NODELETE convertToUserSpace(const FloatSize& deviceSize, float devicePixelRatio)
 {
     FloatSize result = deviceSize;
     if (devicePixelRatio != 1)
@@ -342,7 +342,7 @@ static ASCIILiteral viewportErrorMessageTemplate(ViewportErrorCode errorCode)
     return "Unknown viewport error."_s;
 }
 
-static MessageLevel viewportErrorMessageLevel(ViewportErrorCode errorCode)
+static MessageLevel NODELETE viewportErrorMessageLevel(ViewportErrorCode errorCode)
 {
     switch (errorCode) {
     case ViewportErrorCode::TruncatedViewportArgumentValue:

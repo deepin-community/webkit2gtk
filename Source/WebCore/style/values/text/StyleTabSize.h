@@ -24,8 +24,7 @@
 
 #pragma once
 
-#include <WebCore/StyleLengthWrapper.h>
-#include <WebCore/StyleValueTypes.h>
+#include <WebCore/StylePrimitiveNumeric.h>
 
 namespace WebCore {
 
@@ -37,7 +36,7 @@ namespace Style {
 // https://drafts.csswg.org/css-text-3/#propdef-tab-size
 struct TabSize {
     using Spaces = Style::Number<CSS::Nonnegative, float>;
-    using Length = Style::Length<CSS::Nonnegative, float>;
+    using Length = Style::Length<CSS::NonnegativeUnzoomed, float>;
 
     constexpr TabSize(CSS::ValueLiteral<CSS::NumberUnit::Number> literal)
         : m_value { Spaces { literal } }
@@ -92,13 +91,13 @@ template<> struct CSSValueConversion<TabSize> { auto operator()(BuilderState&, c
 // MARK: - Blending
 
 template<> struct Blending<TabSize> {
-    auto canBlend(const TabSize&, const TabSize&) -> bool;
+    bool NODELETE canBlend(const TabSize&, const TabSize&);
     auto blend(const TabSize&, const TabSize&, const BlendingContext&) -> TabSize;
 };
 
 // MARK: - Platform
 
-template<> struct ToPlatform<TabSize> { auto operator()(const TabSize&) -> WebCore::TabSize; };
+template<> struct ToPlatform<TabSize> { auto operator()(const TabSize&, ZoomFactor) -> WebCore::TabSize; };
 
 } // namespace Style
 } // namespace WebCore

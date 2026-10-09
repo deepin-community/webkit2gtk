@@ -25,11 +25,11 @@
 
 #pragma once
 
-#include <WebCore/Color.h>
-#include <WebCore/IntRect.h>
-#include <WebCore/IntSize.h>
-#include <WebCore/NativeImage.h>
-#include <WebCore/SharedBuffer.h>
+#include "Color.h"
+#include "IntRect.h"
+#include "IntSize.h"
+#include "NativeImage.h"
+#include "SharedBuffer.h"
 #include <wtf/StdLibExtras.h>
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/ParsingUtilities.h>
@@ -47,11 +47,16 @@ class ImageBackingStore {
 public:
     static std::unique_ptr<ImageBackingStore> create(const IntSize& size, bool premultiplyAlpha = true)
     {
-        return std::unique_ptr<ImageBackingStore>(new ImageBackingStore(size, premultiplyAlpha));
+        auto backingStore = std::unique_ptr<ImageBackingStore>(new ImageBackingStore(size, premultiplyAlpha));
+        if (!backingStore->m_pixels)
+            return nullptr;
+        return backingStore;
     }
 
     static std::unique_ptr<ImageBackingStore> create(const ImageBackingStore& other)
     {
+        if (!other.m_pixels)
+            return nullptr;
         return std::unique_ptr<ImageBackingStore>(new ImageBackingStore(other));
     }
 
@@ -84,8 +89,8 @@ public:
         m_frameRect = frameRect;
     }
 
-    const IntSize& size() const { return m_size; }
-    const IntRect& frameRect() const { return m_frameRect; }
+    const IntSize& size() const LIFETIME_BOUND { return m_size; }
+    const IntRect& frameRect() const LIFETIME_BOUND { return m_frameRect; }
 
     void clear()
     {
@@ -207,11 +212,12 @@ private:
         : m_premultiplyAlpha(premultiplyAlpha)
     {
         ASSERT(!size.isEmpty() && !isOverSize(size));
-        setSize(size);
+        RELEASE_ASSERT(setSize(size));
     }
 
     ImageBackingStore(const ImageBackingStore& other)
         : m_size(other.m_size)
+        , m_frameRect(other.m_frameRect)
         , m_premultiplyAlpha(other.m_premultiplyAlpha)
     {
         ASSERT(!m_size.isEmpty() && !isOverSize(m_size));

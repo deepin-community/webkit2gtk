@@ -26,6 +26,7 @@
 #include "GStreamerCommon.h"
 #include "GStreamerIceStream.h"
 #include "GUniquePtrRice.h"
+#include "RiceUtilities.h"
 #include <gst/app/gstappsink.h>
 #include <gst/app/gstappsrc.h>
 #include <gst/webrtc/ice.h>
@@ -81,7 +82,7 @@ static GstFlowReturn iceTransportHandleSample(WebKitGstIceTransport* self, GstAp
         return GST_FLOW_ERROR;
 
     const auto& riceStream = webkitGstWebRTCIceStreamGetRiceStream(stream.get());
-    auto component = adoptGRef(rice_stream_get_component(riceStream.get(), 1));
+    GRefPtr component = adoptGRef(rice_stream_get_component(riceStream.get(), 1));
     if (!component)
         return GST_FLOW_ERROR;
 
@@ -172,7 +173,7 @@ void webkitGstWebRTCIceTransportHandleIncomingData(WebKitGstIceTransport* transp
     gst_app_src_push_buffer(GST_APP_SRC(iceTransport->src), buffer.leakRef());
 }
 
-void webkitGstWebRTCIceTransportNewSelectedPair(WebKitGstIceTransport* transport, RiceAgentSelectedPair& pair)
+void webkitGstWebRTCIceTransportNewSelectedPair(WebKitGstIceTransport* transport, const RiceAgentSelectedPair& pair)
 {
     transport->priv->selectedPair = { GUniquePtr<RiceCandidate>(rice_candidate_copy(&pair.local)), GUniquePtr<RiceCandidate>(rice_candidate_copy(&pair.remote)) };
     gst_webrtc_ice_transport_selected_pair_change(GST_WEBRTC_ICE_TRANSPORT(transport));
@@ -215,7 +216,7 @@ static void populateCandidateStats(const RiceCandidate* candidate, GstWebRTCICEC
     }
     gstStats->prio = candidate->priority;
 
-#if GST_CHECK_VERSION(1, 27, 0)
+#if GST_CHECK_VERSION(1, 28, 0)
     GST_WEBRTC_ICE_CANDIDATE_STATS_FOUNDATION(gstStats) = g_strdup(candidate->foundation);
     if (candidate->related_address) {
         auto relatedAddress = riceAddressToString(candidate->related_address, false);
@@ -245,7 +246,7 @@ static void populateCandidateStats(const RiceCandidate* candidate, GstWebRTCICEC
 #endif
 }
 
-#if GST_CHECK_VERSION(1, 27, 0)
+#if GST_CHECK_VERSION(1, 28, 0)
 static void fillCredentials(const GRefPtr<RiceStream>& stream, bool isLocal, GstWebRTCICECandidateStats* stats)
 {
     GUniquePtr<RiceCredentials> credentials(isLocal ? rice_stream_get_local_credentials(stream.get()) : rice_stream_get_remote_credentials(stream.get()));
@@ -277,14 +278,14 @@ bool webkitGstWebRTCIceTransportGetSelectedPair(WebKitGstIceTransport* transport
 
     *localStats = g_new0(GstWebRTCICECandidateStats, 1);
     populateCandidateStats(localCandidate.get(), *localStats);
-#if GST_CHECK_VERSION(1, 27, 0)
+#if GST_CHECK_VERSION(1, 28, 0)
     fillCredentials(riceStream, true, *localStats);
 #endif
     (*localStats)->stream_id = streamId;
 
     *remoteStats = g_new0(GstWebRTCICECandidateStats, 1);
     populateCandidateStats(remoteCandidate.get(), *remoteStats);
-#if GST_CHECK_VERSION(1, 27, 0)
+#if GST_CHECK_VERSION(1, 28, 0)
     fillCredentials(riceStream, false, *remoteStats);
 #endif
     (*remoteStats)->stream_id = streamId;
@@ -292,7 +293,7 @@ bool webkitGstWebRTCIceTransportGetSelectedPair(WebKitGstIceTransport* transport
     return true;
 }
 
-#if GST_CHECK_VERSION(1, 27, 0)
+#if GST_CHECK_VERSION(1, 28, 0)
 static GstWebRTCICECandidate* riceCandidateToGst(const RiceCandidate* candidate, const GRefPtr<RiceStream>& stream, bool isLocal)
 {
     RELEASE_ASSERT(candidate);
@@ -334,7 +335,7 @@ static void webkit_gst_webrtc_ice_transport_class_init(WebKitGstIceTransportClas
     auto gobjectClass = G_OBJECT_CLASS(klass);
     gobjectClass->constructed = webkitGstWebRTCIceTransportConstructed;
 
-#if GST_CHECK_VERSION(1, 27, 0)
+#if GST_CHECK_VERSION(1, 28, 0)
     auto transportClass = GST_WEBRTC_ICE_TRANSPORT_CLASS(klass);
     transportClass->get_selected_candidate_pair = webkitGstWebRTCIceTransportGetSelectedCandidatePair;
 #endif

@@ -22,6 +22,7 @@
 
 #pragma once
 
+#include <JavaScriptCore/LexerUnicodeProperties.h>
 #include <JavaScriptCore/Lookup.h>
 #include <JavaScriptCore/ParserArena.h>
 #include <JavaScriptCore/ParserModes.h>
@@ -47,7 +48,7 @@ enum class LexerFlags : uint8_t {
 bool isLexerKeyword(const Identifier&);
 
 template <typename T>
-class Lexer {
+class JSC_CACHE_LINE_ALIGNED Lexer {
     WTF_MAKE_NONCOPYABLE(Lexer);
     WTF_MAKE_TZONE_ALLOCATED_TEMPLATE(Lexer);
 public:
@@ -76,9 +77,7 @@ public:
         return JSTextPosition(m_lineNumber, currentOffset(), currentLineStartOffset());
     }
     JSTextPosition positionBeforeLastNewline() const { return m_positionBeforeLastNewline; }
-    JSTokenLocation lastTokenLocation() const { return m_lastTokenLocation; }
-    void setLastLineNumber(int lastLineNumber) { m_lastLineNumber = lastLineNumber; }
-    int lastLineNumber() const { return m_lastLineNumber; }
+
     bool hasLineTerminatorBeforeToken() const { return m_hasLineTerminatorBeforeToken; }
     JSTokenType scanRegExp(JSToken*, char16_t patternPrefix = 0);
     enum class RawStringsBuildMode { BuildRawStrings, DontBuildRawStrings };
@@ -147,7 +146,7 @@ private:
     void append16(std::span<const char16_t> characters) { m_buffer16.append(characters); }
 
     static constexpr char32_t errorCodePoint = 0xFFFFFFFFu;
-    char32_t currentCodePoint() const;
+    char32_t NODELETE currentCodePoint() const;
     ALWAYS_INLINE void shift();
     ALWAYS_INLINE bool atEnd() const;
     ALWAYS_INLINE T peek(int offset) const;
@@ -171,8 +170,6 @@ private:
     ALWAYS_INLINE const Identifier* makeRightSizedIdentifier(std::span<const char16_t>, char16_t orAllChars);
     ALWAYS_INLINE const Identifier* makeEmptyIdentifier();
 
-    ALWAYS_INLINE bool lastTokenWasRestrKeyword() const;
-    
     ALWAYS_INLINE void skipWhitespace();
 
     template <int shiftAmount> void internalShift();
@@ -206,44 +203,51 @@ private:
     template <unsigned length>
     ALWAYS_INLINE bool consume(const char (&input)[length]);
 
-    void fillTokenInfo(JSToken*, JSTokenType, JSTextPosition endPosition);
+    void fillTokenInfo(JSToken*, JSTextPosition endPosition);
 
     static constexpr size_t initialReadBufferCapacity = 32;
 
-    int m_lineNumber;
-    int m_lastLineNumber;
-
-    Vector<Latin1Character> m_buffer8;
-    Vector<char16_t> m_buffer16;
-    Vector<char16_t> m_bufferForRawTemplateString16;
-    bool m_hasLineTerminatorBeforeToken;
-    int m_lastToken;
-
-    const SourceCode* m_source;
-    unsigned m_sourceOffset;
+    // Fields up to m_sourceURLDirective are arranged according to access frequency
+    // and affinity; do not rearrange without careful analysis.
+    VM& m_vm;
+    IdentifierArena* m_arena;
     const T* m_code;
     const T* m_codeStart;
     const T* m_codeEnd;
-    const T* m_codeStartPlusOffset;
     const T* m_lineStart;
-    JSTextPosition m_positionBeforeLastNewline;
-    JSTokenLocation m_lastTokenLocation;
-    bool m_isReparsingFunction;
-    bool m_atLineStart;
-    bool m_error;
     String m_lexErrorMessage;
+    int m_lineNumber;
+    T m_current;
+    bool m_hasLineTerminatorBeforeToken;
+    bool m_atLineStart;
+    bool m_parsingBuiltinFunction;
 
+    // offset 64 if T == Latin1Character
+    Vector<Latin1Character> m_buffer8;
+    Vector<char16_t> m_buffer16;
+    Vector<char16_t> m_bufferForRawTemplateString16;
+    JSTextPosition m_positionBeforeLastNewline;
+    bool m_isReparsingFunction;
+    bool m_error;
+
+    // offset 128 if T == Latin1Character
     String m_sourceURLDirective;
     String m_sourceMappingURLDirective;
-
-    T m_current;
-
-    IdentifierArena* m_arena;
-
-    VM& m_vm;
-    bool m_parsingBuiltinFunction;
     JSParserScriptMode m_scriptMode;
+    const SourceCode* m_source;
+    unsigned m_sourceOffset;
+    const T* m_codeStartPlusOffset;
+
+    static void verifyLayout();
 };
+
+template<>
+inline void Lexer<Latin1Character>::verifyLayout()
+{
+#if !ASSERT_ENABLED && !ASAN_ENABLED && CPU(ARM64) && CPU(ADDRESS64)
+    static_assert(OBJECT_OFFSETOF(Lexer<Latin1Character>, m_buffer8) == JSC_CACHE_LINE_SIZE, "Lexer hot field layout drifted.");
+#endif
+}
 
 WTF_MAKE_TZONE_ALLOCATED_TEMPLATE_IMPL(template<typename T>, Lexer<T>);
 
@@ -258,7 +262,12 @@ ALWAYS_INLINE bool Lexer<Latin1Character>::isWhiteSpace(Latin1Character ch)
 template <>
 ALWAYS_INLINE bool Lexer<char16_t>::isWhiteSpace(char16_t ch)
 {
-    return isLatin1(ch) ? Lexer<Latin1Character>::isWhiteSpace(static_cast<Latin1Character>(ch)) : (u_charType(ch) == U_SPACE_SEPARATOR || ch == byteOrderMark);
+    if (isLatin1(ch))
+        return Lexer<Latin1Character>::isWhiteSpace(static_cast<Latin1Character>(ch));
+
+    // Non-Latin1 Zs category (Space_Separator) + BOM
+    // Generated from UnicodeData.txt by generateLexerUnicodePropertyTables.py
+    return isNonLatin1WhiteSpace(ch);
 }
 
 template <>
@@ -397,7 +406,6 @@ ALWAYS_INLINE JSTokenType Lexer<T>::lexExpectIdentifier(JSToken* tokenRecord, Op
     }
 #endif
 
-    m_lastToken = IDENT;
     return IDENT;
     
 slowCase:

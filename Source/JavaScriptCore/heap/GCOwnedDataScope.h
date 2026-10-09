@@ -32,6 +32,11 @@
 
 namespace JSC {
 
+#if ASSERT_ENABLED
+JS_EXPORT_PRIVATE void setTopGCOwnedDataScopeIfNeeded(const JSCell* cell, const void* scope);
+JS_EXPORT_PRIVATE void clearTopGCOwnedDataScopeIfNeeded(const JSCell* cell, const void* scope);
+#endif
+
 // This class is used return data owned by a JSCell. Consider:
 // int foo(JSString* jsString)
 // {
@@ -76,16 +81,14 @@ public:
         , data(value)
     {
 #if ASSERT_ENABLED
-        if (!owner->vm().heap.m_topGCOwnedDataScope)
-            owner->vm().heap.m_topGCOwnedDataScope = this;
+        setTopGCOwnedDataScopeIfNeeded(owner, this);
 #endif
     }
 
     ~GCOwnedDataScope()
     {
 #if ASSERT_ENABLED
-        if (owner && owner->vm().heap.m_topGCOwnedDataScope == this)
-            owner->vm().heap.m_topGCOwnedDataScope = nullptr;
+        clearTopGCOwnedDataScopeIfNeeded(owner, this);
 #endif
         ensureStillAliveHere(owner);
     }

@@ -33,6 +33,7 @@
 #include "AXUtilities.h"
 #include "AccessibilityObject.h"
 #include "LayoutRect.h"
+#include "LocalNameWithNamespace.h"
 #include "RenderStyleConstants.h"
 #include <wtf/Forward.h>
 
@@ -41,6 +42,8 @@ namespace WebCore {
 class AXObjectCache;
 class Element;
 class HTMLLabelElement;
+class HTMLMediaElement;
+class HTMLVideoElement;
 class Node;
 
 class AccessibilityNodeObject : public AccessibilityObject {
@@ -61,7 +64,7 @@ public:
     bool isOrderedList() const final;
     bool isDescriptionList() const final;
     bool isMultiSelectable() const override;
-    bool isNativeImage() const;
+    bool NODELETE isNativeImage() const;
     bool isNativeTextControl() const final;
     bool isSecureField() const final;
     bool isSearchField() const final;
@@ -80,8 +83,7 @@ public:
 
     bool canSetSelectedAttribute() const override;
 
-    Node* node() const final { return m_node.get(); }
-    CheckedPtr<Node> checkedNode() const { return node(); }
+    Node* NODELETE node() const final { return m_node.get(); }
     Document* document() const override;
     LocalFrameView* documentFrameView() const override;
 
@@ -146,8 +148,8 @@ public:
     String axColumnIndexText() const final;
     unsigned colSpan() const;
     unsigned rowSpan() const;
-    void incrementEffectiveRowSpan();
-    void resetEffectiveRowSpan();
+    void NODELETE incrementEffectiveRowSpan();
+    void NODELETE resetEffectiveRowSpan();
     void setAXColIndexFromRow(int);
     void setColumnIndex(unsigned);
 #if USE(ATSPI)
@@ -185,7 +187,7 @@ public:
     String revealableText() const final;
     bool isHiddenUntilFoundContainer() const final;
     String text() const final;
-    void alternativeText(Vector<AccessibilityText>&) const;
+    virtual void alternativeText(Vector<AccessibilityText>&) const;
     void helpText(Vector<AccessibilityText>&) const;
     String stringValue() const override;
 
@@ -199,11 +201,7 @@ public:
     bool hasAccNameAttribute() const;
     bool hasAttributesRequiredForInclusion() const final;
     bool hasClickHandler() const final;
-    bool hasCursorPointer() const final
-    {
-        CheckedPtr style = this->style();
-        return style && style->cursorType() == CursorType::Pointer && style->pointerEvents() != PointerEvents::None;
-    }
+    inline bool hasCursorPointer() const final; // Defined in AccessibilityNodeObjectInlines.h
     bool showsCursorOnHover() const final;
     bool hasPointerEventsNone() const final;
 
@@ -234,12 +232,12 @@ public:
 
     LayoutRect elementRect() const override;
     Path elementPath() const override;
-    bool supportsPath() const override { return isImageMapLink(); }
+    bool supportsPath() const override;
 
     bool isLabelContainingOnlyStaticText() const;
     bool isNativeLabel() const override;
 
-#if ENABLE(AX_THREAD_TEXT_APIS)
+#if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
     TextEmissionBehavior textEmissionBehavior() const final;
 #endif
 
@@ -261,7 +259,7 @@ protected:
     mutable bool m_containsOnlyStaticTextDirty { false };
     mutable bool m_containsOnlyStaticText { false };
 
-#ifndef NDEBUG
+#if ASSERT_ENABLED
     bool m_initialized { false };
 #endif
 
@@ -346,7 +344,7 @@ private:
     bool needsToUpdateChildren() const final { return m_childrenDirty; }
     void setNeedsToUpdateSubtree() final { m_subtreeDirty = true; }
 
-    bool isDescendantOfElementType(const HashSet<QualifiedName>&) const;
+    bool isDescendantOfElementType(const HashSet<LocalNameWithNamespace>&) const;
 
     AXObjectRareData* rareDataWithCleanTableChildren();
     // Returns the number of columns the table should have.

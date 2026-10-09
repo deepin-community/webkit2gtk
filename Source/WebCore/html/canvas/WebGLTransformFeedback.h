@@ -27,8 +27,8 @@
 
 #if ENABLE(WEBGL)
 
-#include "GraphicsContextGL.h"
-#include "WebGLObject.h"
+#include <WebCore/GraphicsContextGL.h>
+#include <WebCore/WebGLObject.h>
 #include <wtf/RefPtr.h>
 #include <wtf/Vector.h>
 
@@ -62,10 +62,10 @@ public:
     // Returns false if index is out of range and the caller should
     // synthesize a GL error.
     void setBoundIndexedTransformFeedbackBuffer(const AbstractLocker&, GCGLuint index, WebGLBuffer*);
-    bool getBoundIndexedTransformFeedbackBuffer(GCGLuint index, WebGLBuffer** outBuffer);
+    bool NODELETE getBoundIndexedTransformFeedbackBuffer(GCGLuint index, WebGLBuffer** outBuffer);
     bool hasBoundIndexedTransformFeedbackBuffer(const WebGLBuffer* buffer) { return m_boundIndexedTransformFeedbackBuffers.contains(buffer); }
 
-    bool validateProgramForResume(WebGLProgram*) const;
+    bool NODELETE validateProgramForResume(WebGLProgram*) const;
 
     void didBind() { m_hasEverBeenBound = true; }
 
@@ -74,7 +74,7 @@ public:
 
     void unbindBuffer(const AbstractLocker&, WebGLBuffer&);
 
-    bool hasEnoughBuffers(GCGLuint numRequired) const;
+    bool NODELETE hasEnoughBuffers(GCGLuint numRequired) const;
 
     void addMembersToOpaqueRoots(const AbstractLocker&, JSC::AbstractSlotVisitor&);
 

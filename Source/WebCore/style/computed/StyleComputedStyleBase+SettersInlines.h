@@ -34,7 +34,7 @@
 #define SET_NESTED(group, parent, variable, value) SET_STYLE_PROPERTY(group->parent->variable, group.access().parent.access().variable, value)
 #define SET_DOUBLY_NESTED(group, grandparent, parent, variable, value) SET_STYLE_PROPERTY(group->grandparent->parent->variable, group.access().grandparent.access().parent.access().variable, value)
 #define SET_NESTED_STRUCT(group, parent, variable, value) SET_STYLE_PROPERTY(group->parent.variable, group.access().parent.variable, value)
-#define SET_STYLE_PROPERTY_PAIR(read, write, variable1, value1, variable2, value2) do { Ref readable = Ref { *read }; if (!compareEqual(readable->variable1, value1) || !compareEqual(readable->variable2, value2)) { auto& writable = write; writable.variable1 = value1; writable.variable2 = value2; } } while (0)
+#define SET_STYLE_PROPERTY_PAIR(read, write, variable1, value1, variable2, value2) do { Ref readable { *read }; if (!compareEqual(readable->variable1, value1) || !compareEqual(readable->variable2, value2)) { auto& writable = write; writable.variable1 = value1; writable.variable2 = value2; } } while (0)
 #define SET_PAIR(group, variable1, value1, variable2, value2) SET_STYLE_PROPERTY_PAIR(group, group.access(), variable1, value1, variable2, value2)
 #define SET_NESTED_PAIR(group, parent, variable1, value1, variable2, value2) SET_STYLE_PROPERTY_PAIR(group->parent, group.access().parent.access(), variable1, value1, variable2, value2)
 #define SET_DOUBLY_NESTED_PAIR(group, grandparent, parent, variable1, value1, variable2, value2) SET_STYLE_PROPERTY_PAIR(group->grandparent->parent, group.access().grandparent.access().parent.access(), variable1, value1, variable2, value2)
@@ -63,9 +63,9 @@ inline void ComputedStyleBase::setUsesViewportUnits()
     m_nonInheritedFlags.usesViewportUnits = true;
 }
 
-inline void ComputedStyleBase::setUsesContainerUnits()
+inline void ComputedStyleBase::setIsContainerDependent()
 {
-    m_nonInheritedFlags.usesContainerUnits = true;
+    m_nonInheritedFlags.isContainerDependent = true;
 }
 
 inline void ComputedStyleBase::setUsesTreeCountingFunctions()
@@ -81,11 +81,6 @@ inline void ComputedStyleBase::setInsideLink(InsideLink insideLink)
 inline void ComputedStyleBase::setIsLink(bool isLink)
 {
     m_nonInheritedFlags.isLink = isLink;
-}
-
-inline void ComputedStyleBase::setEmptyState(bool emptyState)
-{
-    m_nonInheritedFlags.emptyState = emptyState;
 }
 
 inline void ComputedStyleBase::setFirstChildState()
@@ -116,6 +111,11 @@ inline void ComputedStyleBase::setEffectiveInert(bool effectiveInert)
 inline void ComputedStyleBase::setIsEffectivelyTransparent(bool effectivelyTransparent)
 {
     SET(m_inheritedRareData, effectivelyTransparent, effectivelyTransparent);
+}
+
+inline void ComputedStyleBase::setEffectiveWrapInsideAvoid(bool effectiveWrapInsideAvoid)
+{
+    SET(m_inheritedRareData, effectiveWrapInsideAvoid, effectiveWrapInsideAvoid);
 }
 
 inline void ComputedStyleBase::setEventListenerRegionTypes(OptionSet<EventListenerRegionType> eventListenerTypes)
@@ -183,9 +183,9 @@ inline void ComputedStyleBase::setUsedPositionOptionIndex(std::optional<size_t> 
     SET_NESTED(m_nonInheritedData, rareData, usedPositionOptionIndex, index);
 }
 
-inline void ComputedStyleBase::setEffectiveDisplay(DisplayType effectiveDisplay)
+inline void ComputedStyleBase::setDisplayMaintainingOriginalDisplay(Display display)
 {
-    m_nonInheritedFlags.effectiveDisplay = static_cast<unsigned>(effectiveDisplay);
+    m_nonInheritedFlags.display = display.toRaw();
 }
 
 inline void ComputedStyleBase::setUsedAppearance(StyleAppearance a)
@@ -227,8 +227,8 @@ inline void ComputedStyleBase::setHasPseudoStyles(EnumSet<PseudoElementType> set
 inline void ComputedStyleBase::setPseudoElementIdentifier(std::optional<PseudoElementIdentifier>&& identifier)
 {
     if (identifier) {
-        m_nonInheritedFlags.pseudoElementType = enumToUnderlyingType(identifier->type) + 1;
-        SET_NESTED(m_nonInheritedData, rareData, pseudoElementNameArgument, WTF::move(identifier->nameArgument));
+        m_nonInheritedFlags.pseudoElementType = std::to_underlying(identifier->type) + 1;
+        SET_NESTED(m_nonInheritedData, rareData, pseudoElementNameArgument, WTF::move(identifier->nameOrPart));
     } else {
         m_nonInheritedFlags.pseudoElementType = 0;
         SET_NESTED(m_nonInheritedData, rareData, pseudoElementNameArgument, nullAtom());
@@ -240,11 +240,6 @@ inline void ComputedStyleBase::setPseudoElementIdentifier(std::optional<PseudoEl
 inline void ComputedStyleBase::setEvaluationTimeZoomEnabled(bool value)
 {
     SET(m_inheritedRareData, evaluationTimeZoomEnabled, value);
-}
-
-inline void ComputedStyleBase::setDeviceScaleFactor(float value)
-{
-    SET(m_inheritedRareData, deviceScaleFactor, value);
 }
 
 inline void ComputedStyleBase::setUseSVGZoomRulesForLength(bool value)
@@ -259,6 +254,11 @@ inline bool ComputedStyleBase::setUsedZoom(float zoomLevel)
     m_inheritedFlags.isZoomed = zoomLevel != 1.0f;
     m_inheritedRareData.access().usedZoom = zoomLevel;
     return true;
+}
+
+inline void ComputedStyleBase::setDeviceScaleFactor(float scaleFactor)
+{
+    SET(m_inheritedRareData, deviceScaleFactor, scaleFactor);
 }
 
 // MARK: - Aggregates
@@ -281,6 +281,21 @@ inline BackgroundLayers& ComputedStyleBase::ensureBackgroundLayers()
 inline MaskLayers& ComputedStyleBase::ensureMaskLayers()
 {
     return m_nonInheritedData.access().miscData.access().mask.access();
+}
+
+inline ScrollTimelines& ComputedStyleBase::ensureScrollTimelines()
+{
+    return m_nonInheritedData.access().rareData.access().scrollTimelines.access();
+}
+
+inline ViewTimelines& ComputedStyleBase::ensureViewTimelines()
+{
+    return m_nonInheritedData.access().rareData.access().viewTimelines.access();
+}
+
+inline TimelineTriggers& ComputedStyleBase::ensureTimelineTriggers()
+{
+    return m_nonInheritedData.access().rareData.access().timelineTriggers.access();
 }
 
 inline void ComputedStyleBase::setBackgroundLayers(BackgroundLayers&& layers)

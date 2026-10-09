@@ -36,6 +36,7 @@ enum class WebCore::UserInterfaceLayoutDirection : bool;
     WebKit::DrawingAreaIdentifier drawingAreaIdentifier;
     WebKit::WebPageProxyIdentifier webPageProxyIdentifier;
     WebKit::WebPageGroupData pageGroupData;
+    std::optional<WebCore::BrowsingContextGroupIdentifier> browsingContextGroupIdentifier;
 
     bool isEditable;
 
@@ -80,6 +81,10 @@ enum class WebCore::UserInterfaceLayoutDirection : bool;
 
     WebCore::FloatBoxExtent obscuredContentInsets;
 
+#if HAVE(NSREFRESHCONTROLLER)
+    bool hasRefreshController;
+#endif
+
     float mediaVolume;
     WebCore::MediaProducerMutedStateFlags muted;
     bool openedByDOM;
@@ -107,6 +112,7 @@ enum class WebCore::UserInterfaceLayoutDirection : bool;
     bool useDarkAppearance;
     bool useElevatedUserInterfaceLevel;
     bool allowPostingLegacySynchronousMessages;
+    bool backgroundTextExtractionEnabled;
 
 #if PLATFORM(MAC)
     std::optional<WebCore::DestinationColorSpace> colorSpace;
@@ -144,7 +150,7 @@ enum class WebCore::UserInterfaceLayoutDirection : bool;
 #if ENABLE(TILED_CA_DRAWING_AREA)
     WebKit::SandboxExtensionHandle renderServerMachExtensionHandle;
 #endif
-#if HAVE(STATIC_FONT_REGISTRY)
+#if HAVE(STATIC_FONT_REGISTRY) && !ENABLE(REMOVE_XPC_AND_MACH_SANDBOX_EXTENSIONS_IN_WEBCONTENT)
     Vector<WebKit::SandboxExtensionHandle> fontMachExtensionHandles;
 #endif
 #if HAVE(APP_ACCENT_COLORS)
@@ -240,6 +246,12 @@ enum class WebCore::UserInterfaceLayoutDirection : bool;
 
 #if PLATFORM(MAC)
     double overflowHeightForTopScrollEdgeEffect;
+#if ENABLE(SCROLL_POCKET_IN_FULLSCREEN)
+    bool fullScreenTitlebarOverlayIsDisplayed;
+#endif
+#if HAVE(NSVIEW_CORNER_CONFIGURATION)
+    WebCore::CornerRadii scrollbarAvoidanceCornerRadii;
+#endif
 #endif
 
     WebCore::ContentSecurityPolicyModeForExtension contentSecurityPolicyModeForExtension;
@@ -249,12 +261,10 @@ enum class WebCore::UserInterfaceLayoutDirection : bool;
     WebCore::FrameIdentifier mainFrameIdentifier;
     String openedMainFrameName;
     std::optional<WebCore::FrameIdentifier> mainFrameOpenerIdentifier;
+    URL mainFrameOpenerURL;
     WebCore::SandboxFlags initialSandboxFlags;
     WebCore::ReferrerPolicy initialReferrerPolicy;
     std::optional<WebCore::WindowFeatures> windowFeatures;
-    bool statusBarIsVisible;
-    bool menuBarIsVisible;
-    bool toolbarsAreVisible;
 
 #if ENABLE(ADVANCED_PRIVACY_PROTECTIONS)
     Vector<WebCore::LinkDecorationFilteringData> linkDecorationFilteringData;
@@ -275,6 +285,10 @@ enum class WebCore::UserInterfaceLayoutDirection : bool;
     WebCore::ShouldRequireExplicitConsentForGamepadAccess gamepadAccessRequiresExplicitConsent;
 #endif
 
+#if ENABLE(MODEL_ELEMENT_IMMERSIVE)
+    bool allowsImmersiveEnvironments;
+#endif
+
 #if HAVE(AUDIT_TOKEN)
     std::optional<WebKit::CoreIPCAuditToken> presentingApplicationAuditToken;
 #endif
@@ -290,6 +304,13 @@ enum class WebCore::UserInterfaceLayoutDirection : bool;
 #endif
 
     std::optional<WebKit::TextManipulationParameters> textManipulationParameters;
+
+    bool isPopup;
+
+    WebCore::AccessibilityMode accessibilityMode;
+    bool shouldForceSiteIsolationAlwaysOnForTesting;
+    bool shouldEnableNetworkInstrumentation;
+    bool shouldEnablePageInstrumentation;
 }
 
 [Nested] struct WebKit::RemotePageParameters {

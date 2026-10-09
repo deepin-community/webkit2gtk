@@ -18,8 +18,8 @@
 #include "include/core/SkSamplingOptions.h"
 #include "include/core/SkSize.h"
 #include "include/core/SkTypes.h"
-#include "include/private/base/SkCPUTypes.h"
-#include "include/private/base/SkDebug.h"
+#include "include/private/SkCPUTypes.h"
+#include "include/private/SkDebug.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -27,13 +27,11 @@
 class SkColorSpace;
 class SkImage;
 class SkMatrix;
-class SkMipmap;
 class SkPaint;
 class SkPixelRef;
 class SkShader;
 enum SkColorType : int;
 enum class SkTileMode;
-struct SkMaskBuilder;
 
 /** \class SkBitmap
     SkBitmap describes a two-dimensional raster pixel array. SkBitmap is built on
@@ -207,7 +205,7 @@ public:
 
         @return  true if dimensions do not enclose area
     */
-    bool empty() const { return fPixmap.info().isEmpty(); }
+    bool empty() const { return fPixmap.isEmpty(); }
 
     /** Returns true if SkPixelRef is nullptr.
 
@@ -644,10 +642,6 @@ public:
         example: https://fiddle.skia.org/c/@Bitmap_installPixels_3
     */
     bool installPixels(const SkPixmap& pixmap);
-
-    /** Deprecated.
-    */
-    bool installMaskPixels(SkMaskBuilder& mask);
 
     /** Replaces SkPixelRef with pixels, preserving SkImageInfo and rowBytes().
         Sets SkPixelRef origin to (0, 0).
@@ -1246,13 +1240,8 @@ public:
     };
 
 private:
-    sk_sp<SkPixelRef>   fPixelRef;
-    SkPixmap            fPixmap;
-    sk_sp<SkMipmap>     fMips;
-
-    friend class SkImage_Raster;
-    friend class SkReadBuffer;        // unflatten
-    friend class GrProxyProvider;     // fMips
+    sk_sp<SkPixelRef> fPixelRef;
+    SkPixmap fPixmap;
 };
 
 ///////////////////////////////////////////////////////////////////////////////

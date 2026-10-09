@@ -17,11 +17,8 @@ set(WPEPlatformMock_LIBRARIES
     LibDRM::LibDRM
     WTF
     WebKit
+    bmalloc
 )
-
-if (NOT USE_SYSTEM_MALLOC)
-  list(APPEND WPEPlatformMock_LIBRARIES bmalloc)
-endif ()
 
 add_library(WPEPlatformMock STATIC ${WPEPlatformMock_SOURCES})
 target_include_directories(WPEPlatformMock PRIVATE ${WPEPlatformMock_PRIVATE_INCLUDE_DIRECTORIES})
@@ -102,11 +99,11 @@ macro(ADD_WPE_PLATFORM_TEST test_name)
     endif ()
 endmacro()
 
-ADD_WPE_PLATFORM_TEST(TestDisplay ${TOOLS_DIR}/TestWebKitAPI/Tests/WPEPlatform/TestDisplay.cpp)
-ADD_WPE_PLATFORM_TEST(TestDisplayDefault ${TOOLS_DIR}/TestWebKitAPI/Tests/WPEPlatform/TestDisplayDefault.cpp)
-ADD_WPE_PLATFORM_TEST(TestSettings ${TOOLS_DIR}/TestWebKitAPI/Tests/WPEPlatform/TestSettings.cpp)
-ADD_WPE_PLATFORM_TEST(TestView ${TOOLS_DIR}/TestWebKitAPI/Tests/WPEPlatform/TestView.cpp)
+ADD_WPE_PLATFORM_TEST(TestDisplay ${TOOLS_DIR}/TestWebKitAPI/Tests/WebKit/WKWebView/wpe/wpe-platform/TestDisplay.cpp)
+ADD_WPE_PLATFORM_TEST(TestDisplayDefault ${TOOLS_DIR}/TestWebKitAPI/Tests/WebKit/WKWebView/wpe/wpe-platform/TestDisplayDefault.cpp)
+ADD_WPE_PLATFORM_TEST(TestSettings ${TOOLS_DIR}/TestWebKitAPI/Tests/WebKit/WKWebView/wpe/wpe-platform/TestSettings.cpp)
+ADD_WPE_PLATFORM_TEST(TestView ${TOOLS_DIR}/TestWebKitAPI/Tests/WebKit/WKWebView/wpe/wpe-platform/TestView.cpp)
 
 if (ENABLE_WPE_PLATFORM_WAYLAND)
-    ADD_WPE_PLATFORM_TEST(TestDisplayWayland ${TOOLS_DIR}/TestWebKitAPI/Tests/WPEPlatform/TestDisplayWayland.cpp)
+    ADD_WPE_PLATFORM_TEST(TestDisplayWayland ${TOOLS_DIR}/TestWebKitAPI/Tests/WebKit/WKWebView/wpe/wpe-platform/TestDisplayWayland.cpp)
 endif ()

@@ -56,7 +56,7 @@ public:
     virtual ~CSSFontFaceSource();
 
     // FontLoadRequestClient.
-    void ref() const final;
+    void NODELETE ref() const final;
     void deref() const final;
 
     //                      => Success
@@ -80,16 +80,16 @@ public:
     FontLoadRequest* fontLoadRequest() const { return m_fontRequest.get(); }
     bool requiresExternalResource() const { return m_fontRequest.get(); }
 
-    bool isSVGFontFaceSource() const;
+    bool NODELETE isSVGFontFaceSource() const;
 
 private:
-    bool shouldIgnoreFontLoadCompletions() const;
+    bool NODELETE shouldIgnoreFontLoadCompletions() const;
 
     void fontLoaded(FontLoadRequest&) override;
 
-    void setStatus(Status);
+    void NODELETE setStatus(Status);
 
-    Ref<CSSFontFace> protectedCSSFontFace() const;
+    CSSFontFace& cssFontFace() const { return m_owningCSSFontFace.get(); }
 
     RefPtr<FontCustomPlatformData> loadCustomFont(SharedBuffer&, DownloadableBinaryFontTrustedTypes);
 

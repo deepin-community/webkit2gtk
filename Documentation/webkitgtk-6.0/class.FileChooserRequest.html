@@ -62,7 +62,7 @@ SPDX-License-Identifier: BSD, LGPL-2.1
         <h3><a href="index.html">WebKit</a></h3>
         <p>API Version: 6.0</p>
         
-        <p>Library Version: 2.52.5</p>
+        <p>Library Version: 2.54.0</p>
         
       </div>
       
@@ -155,7 +155,7 @@ SPDX-License-Identifier: BSD, LGPL-2.1
           Description
           <a href="#description" class="anchor"></a>
           
-          <a class="srclink" title="go to source location" href="https://github.com/WebKit/WebKit/tree/main/Source/WebKit/UIProcess/API/glib/WebKitFileChooserRequest.cpp#L40">[src]</a>
+          <a class="srclink" title="go to source location" href="https://github.com/WebKit/WebKit/tree/main/Source/WebKit/UIProcess/API/glib/WebKitFileChooserRequest.cpp#L39">[src]</a>
           
         </h4>
 
@@ -170,8 +170,8 @@ SPDX-License-Identifier: BSD, LGPL-2.1
 file type, WebKit will need to show a dialog to choose one or
 more files to be uploaded to the server along with the rest of the
 form data. For that to happen in a general way, instead of just
-opening a <code>GtkFileChooserDialog</code> (which might be not desirable in
-some cases, which could prefer to use their own file chooser
+opening a <code>GtkFileChooserDialog</code> (which might not be desirable for
+applications that prefer to use their own file chooser
 dialog), WebKit will fire the <code>WebKitWebView::run-file-chooser</code>
 signal with a <code>WebKitFileChooserRequest</code> object, which will allow
 the client application to specify the files to be selected, to
@@ -318,7 +318,7 @@ a regular <code>GtkFileChooserDialog</code> for the user to interact&nbsp;with.<
         <div class="">
           <h6><a href="method.FileChooserRequest.get_selected_files.html">webkit_file_chooser_request_get_selected_files</a></h6>
           <div class="docblock">
-            <p>Get the list of selected files associated to the&nbsp;request.</p>
+            <p>Get the list of selected files associated with the&nbsp;request.</p>
           </div>
           <div class="docblock">
             <p></p>
@@ -405,7 +405,7 @@ more&nbsp;details.</p>
           <h6><a href="property.FileChooserRequest.selected-files.html">WebKit.FileChooserRequest:selected-files</a></h6>
           <div class="docblock">
             <p>A <code>NULL</code>-terminated array of strings containing the list of
-selected files associated to the current request. See
+selected files associated with the current request. See
 <code>webkit_file_chooser_request_get_selected_files()</code> for more&nbsp;details.</p>
           </div>
           <div class="docblock">

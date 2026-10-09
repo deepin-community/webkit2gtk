@@ -114,14 +114,14 @@ public:
     {
         if (!m_context)
             return;
-        context.graphicsContextGL()->disable(GraphicsContextGL::RASTERIZER_DISCARD);
+        protect(context.graphicsContextGL())->disable(GraphicsContextGL::RASTERIZER_DISCARD);
     }
 
     ~ScopedDisableRasterizerDiscard()
     {
         if (!m_context)
             return;
-        m_context->graphicsContextGL()->enable(GraphicsContextGL::RASTERIZER_DISCARD);
+        protect(m_context->graphicsContextGL())->enable(GraphicsContextGL::RASTERIZER_DISCARD);
     }
 
 private:
@@ -138,9 +138,9 @@ public:
             return;
         GCGLenum value[1] { GraphicsContextGL::COLOR_ATTACHMENT0 };
         if (context.isWebGL2())
-            context.graphicsContextGL()->drawBuffers(value);
+            protect(context.graphicsContextGL())->drawBuffers(value);
         else
-            context.graphicsContextGL()->drawBuffersEXT(value);
+            protect(context.graphicsContextGL())->drawBuffersEXT(value);
     }
 
     ~ScopedEnableBackbuffer()
@@ -149,9 +149,9 @@ public:
             return;
         GCGLenum value[1] { GraphicsContextGL::NONE };
         if (m_context->isWebGL2())
-            m_context->graphicsContextGL()->drawBuffers(value);
+            protect(m_context->graphicsContextGL())->drawBuffers(value);
         else
-            m_context->graphicsContextGL()->drawBuffersEXT(value);
+            protect(m_context->graphicsContextGL())->drawBuffersEXT(value);
     }
 
 private:
@@ -166,18 +166,49 @@ public:
     {
         if (!m_context)
             return;
-        context.graphicsContextGL()->disable(GraphicsContextGL::SCISSOR_TEST);
+        protect(context.graphicsContextGL())->disable(GraphicsContextGL::SCISSOR_TEST);
     }
 
     ~ScopedDisableScissorTest()
     {
         if (!m_context)
             return;
-        m_context->graphicsContextGL()->enable(GraphicsContextGL::SCISSOR_TEST);
+        protect(m_context->graphicsContextGL())->enable(GraphicsContextGL::SCISSOR_TEST);
     }
 
 private:
     WeakPtr<WebGLRenderingContextBase> m_context;
+};
+
+class ScopedScissorTestForRegion {
+    WTF_MAKE_NONCOPYABLE(ScopedScissorTestForRegion);
+public:
+    ScopedScissorTestForRegion(WebGLRenderingContextBase& context, const IntRect& region)
+        : m_context(context)
+        , m_wasEnabled(context.m_scissorEnabled)
+    {
+        if (!m_context)
+            return;
+        RefPtr gl = context.graphicsContextGL();
+        gl->getIntegerv(GraphicsContextGL::SCISSOR_BOX, m_scissorBox);
+        gl->enable(GraphicsContextGL::SCISSOR_TEST);
+        gl->scissor(region.x(), region.y(), region.width(), region.height());
+    }
+
+    ~ScopedScissorTestForRegion()
+    {
+        if (!m_context)
+            return;
+        RefPtr gl = m_context->graphicsContextGL();
+        gl->scissor(m_scissorBox[0], m_scissorBox[1], m_scissorBox[2], m_scissorBox[3]);
+        if (!m_wasEnabled)
+            gl->disable(GraphicsContextGL::SCISSOR_TEST);
+    }
+
+private:
+    WeakPtr<WebGLRenderingContextBase> m_context;
+    std::array<GCGLint, 4> m_scissorBox { };
+    bool m_wasEnabled { false };
 };
 
 class ScopedWebGLRestoreFramebuffer {

@@ -1,141 +1,109 @@
 ================
-WebKitGTK 2.52.5
+WebKitGTK 2.54.0
 ================
 
-What's new in WebKitGTK 2.52.5?
+What's new in WebKitGTK 2.54.0?
 
-  - Fire scrollend event for instant programmatic scrolls.
-  - Increase network idle connection timeout to 115 seconds.
+  - Fix contents being y-flipped on GTK3 when using SHM or GBM mapped buffers.
+  - Take into account the layer transform when deciding the sampling options of compositing tiles.
+  - Fix clipping of single child layer which has filter outsets.
+  - Fix several crashes and rendering issues.
+
+=================
+WebKitGTK 2.53.92
+=================
+
+What's new in WebKitGTK 2.53.92?
+
+  - Fix opacity animation not damaging descendant layers.
+  - Fix expiration date of favicons in the icon database.
+  - Fix webkit_web_view_get_tls_info() that sometimes returned FALSE for valid HTTPS connections.
+  - Fix documentation of webkit_web_view_call_async_javascript_function.
+  - Use a Chrome user agent for PrimeVideo.
+  - Fix the build with USE_SPIEL=ON.
+  - Fix several crashes and rendering issues.
+
+=================
+WebKitGTK 2.53.91
+=================
+
+What's new in WebKitGTK 2.53.91?
+
+  - Handle video orientation in skia compositor.
+  - Do not use cached credentials when Authorization header is present.
+  - Fix scrollbar rendering issues due to incorrect damage.
+  - Add log fallback when journald is not reachable
+  - Fix several crashes and rendering issues.
+
+=================
+WebKitGTK 2.53.90
+=================
+
+What's new in WebKitGTK 2.53.90?
+
+  - Do not support rendering tiles in the main thread in accelerated compositing mode.
+  - Add magnification property to WebKitWebView to handle visual scaling.
+  - Add new API to allow setting a per-navigation custom User-Agent to WebKitWebsitePolicies.
+  - Improved platform media queries to handle prefers reduced motion, high contrast and dark theme.
+  - Fix several crashes and rendering issues.
+  - Translation updates: Brazilian Portuguese, Slovenian.
+
+================
+WebKitGTK 2.53.4
+================
+
+What's new in WebKitGTK 2.53.4?
+
+  - Implemented batched painting in skia compositor, which improves performance when
+    there are many layers that can be painted in the same operation.
+  - Avoid unnecessary clips when possible in skia compositor.
+  - Fix synchronization issues between main, scrolling and compositing threads causing
+    glitches while scrolling in some cases.
+  - Limit the damage region of the scrollbar to the region actually painted.
+  - Add support for image/webp to canvas.toDataURL().
+  - Expose search inputs as WEBKIT_INPUT_PURPOSE_SEARCH.
   - Add User-Agent quirk for HBO Max.
-  - Fix the build with system malloc.
   - Fix several crashes and rendering issues.
 
 ================
-WebKitGTK 2.52.4
+WebKitGTK 2.53.3
 ================
 
-What's new in WebKitGTK 2.52.4?
+What's new in WebKitGTK 2.53.3?
 
-  - Add support for half-width fonts.
-  - Improve content filter compilation by avoiding file copies.
-  - Improve handling of out of disk space conditions when the NetworkProcess
-    tried to write data in caches.
-  - Improve how the CMake build system checks whether libatomic is required.
-  - Fix painting scrollbars when their width changes.
-  - Fix playback of certain YouTube videos with low frame rates.
-  - Fix webkit://gpu not working in systems where neither libGL.so.1
-    nor libOpenGL.so.0 are available.
-  - Fix the build with librice 0.4 or newer when the GStreamer WebRTC
-    backend is enabled at build configuration time.
-  - Fix the build with USE_GSTREAMER_WEBRTC=OFF.
-  - Fix the build with USE_GBM=OFF.
+  - Switch web process compositor to use Skia instead of TextureMapper.
+  - Fix missing glyph before ZWJ/ZWNJ if no font is found for the cluster.
+  - Add support for half width fonts.
+  - Support time zone change notifications on linux.
   - Fix several crashes and rendering issues.
 
 ================
-WebKitGTK 2.52.3
+WebKitGTK 2.53.2
 ================
 
-What's new in WebKitGTK 2.52.3?
+What's new in WebKitGTK 2.53.2?
 
-  - Add support for the "scrollbar-color" CSS property.
-  - Fix some emoji glyphs being rendered as missing glyph boxes.
-  - Fix JavaScriptCore crashes on architectures other than x86_64.
-  - Fix the build on s390x.
-  - Fix several crashes and rendering issues.
-  - Translation updates: Serbian.
-
-================
-WebKitGTK 2.52.2
-================
-
-What's new in WebKitGTK 2.52.2?
-
-  - Improve handling of real-time threads.
-  - Fix scrollbar rendering glitches visible in some GPU configurations.
-  - Fix V4L2 hardware accelerated media codecs now working due to overly
-    restrictive sandbox device access rules.
-  - Fix leak of bitmap images in webkit_favicon_database_get_favicon_finish().
-  - Fix the build with USE_GTK4=OFF.
-  - Partially fix the build in BSD and other non-Linux Unix systems.
+  - Only use DMA-BUF mapping for writing to the GPU atlas when possible.
+  - Do not resolve '-apple-system' font to default system font.
+  - Set real time limits when not using the portal.
+  - Report support for supported non-AAC mp4a codecs.
   - Fix several crashes and rendering issues.
 
 ================
-WebKitGTK 2.52.1
+WebKitGTK 2.53.1
 ================
 
-What's new in WebKitGTK 2.52.1?
+What's new in WebKitGTK 2.53.1?
 
-  - Reduce the amount of useless MPRIS notifications produced by MediaSesion
-    when the information about media being played is incomplete.
-  - Support turning off USE_GSTREAMER to configure the build with all multimedia
-    features disabled.
-  - Add Sysprof marks for mouse events.
-  - Fix MediaSession icon for iheart.com not being displayed.
-  - Fix the build with USE_GSTREAMER_GL disabled.
-  - Fix the build with librice version 0.3.0 or newer.
+  - Remove the option to use cairo for 2D rendering.
+  - Implement GPU atlas creation and replay substitution for batched raster image uploads.
+  - Improved non accelerated composited mode by using the same buffer sharing
+    implementation as accelerated mode.
+  - The on-demand hardware acceleration policy is now deprecated in GTK3 API.
+  - Add new improved API for page favicons.
+  - Add webkit_feature_list_find() to public API.
+  - Support PGO features in regular CMake builds.
   - Fix several crashes and rendering issues.
-  - Translation updates: Georgian.
-
-================
-WebKitGTK 2.52.0
-================
-
-What's new in WebKitGTK 2.52.0?
-
-  - Make scrolling with touch input smoother for small movements.
-  - Fix estimated load progress of downloads when Content-Length value is wrong.
-  - Ensure that "scrollend" events are correctly emitted after scroll animations.
-  - Fix several crashes and rendering issues.
-  - Translation updates: Japanese, Kazakh, Swedish.
-
-=================
-WebKitGTK 2.51.93
-=================
-
-What's new in WebKitGTK 2.51.93?
-
-  - Make text look like in other browsers by blending in linear color space.
-  - Avoid composition for non visible layers with running animations.
-  - Fix several crashes and rendering issues.
-
-=================
-WebKitGTK 2.51.92
-=================
-
-What's new in WebKitGTK 2.51.92?
-
-  - Fix PDF rendering broken by the accelerated 2D canvas performance improvements.
-  - Fix flickering while scrolling in some edge cases.
-  - Support for rotation and mirroring in internal WebCodecs encoder.
-  - System fallback font selection no longer takes style into account.
-  - Fix several crashes and rendering issues.
-
-=================
-WebKitGTK 2.51.91
-=================
-
-What's new in WebKitGTK 2.51.91?
-
-  - Disable GPU process by default.
-  - Improve async scrolling when main thread is busy by avoiding locks and rendering the
-    scrollbars from the scrolling thread.
-  - Fix the build with old versions of libdrm.
-  - Fix the build on i386.
-  - Fix several crashes and rendering issues.
-
-=================
-WebKitGTK 2.51.90
-=================
-
-What's new in WebKitGTK 2.51.90?
-
-  - Improve performance of accelerated 2D canvas by recording operations
-    for batched replay.
-  - Add webkit_context_menu_get_position() and webkit_context_menu_item_get_title().
-  - Fix web process translatable strings to follow system locale.
-  - Fix DMA-BUF buffers leaked with GTK3 when the web view is destroyed.
-  - Fix several crashes and rendering issues.
-  - Translation updates: Slovenian.
 
 ================
 WebKitGTK 2.51.4

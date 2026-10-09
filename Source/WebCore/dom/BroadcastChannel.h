@@ -32,6 +32,7 @@
 #include <WebCore/EventTargetInterfaces.h>
 #include <wtf/Forward.h>
 #include <wtf/RefCounted.h>
+#include <wtf/ThreadSafeWeakPtr.h>
 
 namespace JSC {
 class JSGlobalObject;
@@ -59,7 +60,7 @@ public:
     void deref() const final { ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr::deref(); }
     USING_CAN_MAKE_WEAKPTR(EventTarget);
 
-    BroadcastChannelIdentifier identifier() const;
+    BroadcastChannelIdentifier NODELETE identifier() const;
     String name() const;
 
     ExceptionOr<void> postMessage(JSC::JSGlobalObject&, JSC::JSValue message);
@@ -77,7 +78,6 @@ private:
     // EventTarget
     enum EventTargetInterfaceType eventTargetInterface() const final { return EventTargetInterfaceType::BroadcastChannel; }
     ScriptExecutionContext* scriptExecutionContext() const final;
-    using ActiveDOMObject::protectedScriptExecutionContext;
     void refEventTarget() final { ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr::ref(); }
     void derefEventTarget() final { ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr::deref(); }
     void eventListenersDidChange() final;

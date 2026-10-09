@@ -53,7 +53,7 @@ class ContentFilter : public RefCounted<ContentFilter> {
 public:
     template <typename T> static void addType() { types().append(type<T>()); }
 
-    WEBCORE_EXPORT static RefPtr<ContentFilter> create(ContentFilterClient&);
+    WEBCORE_EXPORT static RefPtr<ContentFilter> create(ContentFilterClient&, IsMainFrameLoad);
     WEBCORE_EXPORT ~ContentFilter();
 
     static constexpr ASCIILiteral urlScheme() { return "x-apple-content-filter"_s; }
@@ -74,7 +74,7 @@ public:
     bool willHandleProvisionalLoadFailure(const ResourceError&) const;
     WEBCORE_EXPORT void handleProvisionalLoadFailure(const ResourceError&);
 
-    const ResourceError& blockedError() const { return m_blockedError; }
+    const ResourceError& blockedError() const LIFETIME_BOUND { return m_blockedError; }
     void setBlockedError(const ResourceError& error) { m_blockedError = error; }
     bool isAllowed() const { return m_state == State::Allowed; }
     bool responseReceived() const { return m_responseReceived; }
@@ -82,7 +82,7 @@ public:
     WEBCORE_EXPORT static const URL& blockedPageURL();
 
 #if HAVE(AUDIT_TOKEN)
-    WEBCORE_EXPORT void setHostProcessAuditToken(const std::optional<audit_token_t>&);
+    WEBCORE_EXPORT void NODELETE setHostProcessAuditToken(const std::optional<audit_token_t>&);
 #endif
 
 #if HAVE(WEBCONTENTRESTRICTIONS)
@@ -124,8 +124,6 @@ private:
     void deliverResourceData(const SharedBuffer&);
     void deliverStoredResourceData();
 
-    Ref<ContentFilterClient> protectedClient() const;
-    
     URL url();
 
     Container m_contentFilters;

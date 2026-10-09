@@ -58,7 +58,7 @@ public:
     void ref() const final { RefCounted::ref(); }
     void deref() const final { RefCounted::deref(); }
 
-    bool isSupported();
+    bool NODELETE isSupported();
 
     String cookiesForDOM(const URL& firstParty, const WebCore::SameSiteInfo&, const URL&, WebCore::FrameIdentifier, WebCore::PageIdentifier, WebPageProxyIdentifier, WebCore::IncludeSecureCookies);
     void setCookiesFromDOM(const URL& firstParty, const WebCore::SameSiteInfo&, const URL&, WebCore::FrameIdentifier, WebCore::PageIdentifier, const String& cookieString, WebCore::ShouldRelaxThirdPartyCookieBlocking);
@@ -77,10 +77,9 @@ private:
     WebCookieCache() = default;
 
     WebCore::NetworkStorageSession& inMemoryStorageSession();
-    CheckedRef<WebCore::NetworkStorageSession> checkedInMemoryStorageSession() { return inMemoryStorageSession(); }
 
     void pruneCacheIfNecessary();
-    bool cacheMayBeOutOfSync() const;
+    bool NODELETE cacheMayBeOutOfSync() const;
 
     // CookieChangeListener
     void cookiesAdded(const String& host, const Vector<WebCore::Cookie>&) final;

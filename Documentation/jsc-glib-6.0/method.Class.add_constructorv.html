@@ -62,7 +62,7 @@ SPDX-License-Identifier: BSD, LGPL-2.1
         <h3><a href="index.html">JavaScriptCore</a></h3>
         <p>API Version: 6.0</p>
         
-        <p>Library Version: 2.52.5</p>
+        <p>Library Version: 2.54.0</p>
         
       </div>
       
@@ -152,7 +152,7 @@ SPDX-License-Identifier: BSD, LGPL-2.1
       </h4>
 
       <div class="docblock">
-        <p>Add a constructor to <code>jsc_class</code>. If <code>name</code> is <code>NULL</code>, the class name will be used. When <function>new</function>
+        <p>Add a constructor to <code>jsc_class</code>. If <code>name</code> is <code>NULL</code>, the class name will be used. When <code>new</code>
 is used with the constructor or <code>jsc_value_constructor_call()</code> is called, <code>callback</code> is invoked receiving the
 parameters and <code>user_data</code> as the last parameter. When the constructor object is cleared in the <code>JSCClass</code> context,
 <code>destroy_notify</code> is called with <code>user_data</code> as&nbsp;parameter.</p>
@@ -289,7 +289,7 @@ parameters and <code>user_data</code> as the last parameter. When the constructo
           <dt class="arg-name"><code>parameter_types</code></dt>
           <dd class="arg-description">
             <p><em>Type:</em>&nbsp;An array of&nbsp;<code>GType</code></p>
-            <p>A list of <code>GType</code><!-- -->s, one for each parameter, or <code>NULL</code>.</p>
+            <p>A list of <code>GType</code> values, one for each parameter, or <code>NULL</code>.</p>
             <table>
             
             <tr><td>The argument can be <code>NULL</code>.</td></tr>

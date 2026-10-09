@@ -62,7 +62,7 @@ SPDX-License-Identifier: BSD, LGPL-2.1
         <h3><a href="index.html">JavaScriptCore</a></h3>
         <p>API Version: 6.0</p>
         
-        <p>Library Version: 2.52.5</p>
+        <p>Library Version: 2.54.0</p>
         
       </div>
       
@@ -145,14 +145,14 @@ SPDX-License-Identifier: BSD, LGPL-2.1
         Description
         <a class="anchor" href="#description"></a>
         
-        <a class="srclink" title="go to source location" href="https://github.com/WebKit/WebKit/tree/Source/JavaScriptCore/API/glib/JSCClass.cpp#L659">[src]</a>
+        <a class="srclink" title="go to source location" href="https://github.com/WebKit/WebKit/tree/Source/JavaScriptCore/API/glib/JSCClass.cpp#L657">[src]</a>
         
       </h4>
 
       <div class="docblock">
-        <p>Add a constructor to <code>jsc_class</code>. If <code>name</code> is <code>NULL</code>, the class name will be used. When <function>new</function>
+        <p>Add a constructor to <code>jsc_class</code>. If <code>name</code> is <code>NULL</code>, the class name will be used. When <code>new</code>
 is used with the constructor or <code>jsc_value_constructor_call()</code> is called, <code>callback</code> is invoked receiving
-a <code>GPtrArray</code> of <code>JSCValue</code><!-- -->s as arguments and <code>user_data</code> as the last parameter. When the constructor object
+a <code>GPtrArray</code> of <code>JSCValue</code> objects as arguments and <code>user_data</code> as the last parameter. When the constructor object
 is cleared in the <code>JSCClass</code> context, <code>destroy_notify</code> is called with <code>user_data</code> as&nbsp;parameter.</p>
 <p>This function creates the constructor, which needs to be added to an object as a property to be able to use it. Use
 <code>jsc_context_set_value()</code> to make the constructor available in the global&nbsp;object.</p>

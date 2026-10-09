@@ -40,6 +40,10 @@
 #include <wtf/WeakRef.h>
 #include <wtf/text/WTFString.h>
 
+namespace JSC {
+class Debugger;
+}
+
 namespace Inspector {
 class BackendDispatcher;
 class FrontendChannel;
@@ -49,10 +53,12 @@ class FrontendRouter;
 namespace WebCore {
 
 class InspectorBackendClient;
+class InspectorController;
 class InspectorFrontendClient;
 class InspectorInstrumentation;
 class InstrumentingAgents;
 class LocalFrame;
+class PageInspectorController;
 class WebInjectedScriptManager;
 struct FrameAgentContext;
 
@@ -61,7 +67,7 @@ class FrameInspectorController final : public Inspector::InspectorEnvironment, p
     WTF_MAKE_TZONE_ALLOCATED(FrameInspectorController);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(FrameInspectorController);
 public:
-    FrameInspectorController(LocalFrame&);
+    FrameInspectorController(LocalFrame&, PageInspectorController&);
     ~FrameInspectorController() override;
 
     // AbstractCanMakeCheckedPtr overrides
@@ -71,13 +77,14 @@ public:
     void decrementCheckedPtrCount() const final { CanMakeCheckedPtr::decrementCheckedPtrCount(); }
     void setDidBeginCheckedPtrDeletion() final { CanMakeCheckedPtr::setDidBeginCheckedPtrDeletion(); }
 
-    WEBCORE_EXPORT void ref() const;
+    WEBCORE_EXPORT void NODELETE ref() const;
     WEBCORE_EXPORT void deref() const;
 
     WEBCORE_EXPORT void connectFrontend(Inspector::FrontendChannel&, bool isAutomaticInspection = false, bool immediatelyPause = false);
     WEBCORE_EXPORT void disconnectFrontend(Inspector::FrontendChannel&);
     WEBCORE_EXPORT void dispatchMessageFromFrontend(const String& message);
 
+    WEBCORE_EXPORT void siteIsolationFirstEnabled();
     void inspectedFrameDestroyed();
 
     InstrumentingAgents& instrumentingAgents() const { return m_instrumentingAgents.get(); }
@@ -96,6 +103,7 @@ private:
     friend class InspectorInstrumentation;
 
     FrameAgentContext frameAgentContext();
+    void createConsoleAgent();
     void createLazyAgents();
 
     WeakRef<LocalFrame> m_frame;
@@ -104,8 +112,10 @@ private:
     const Ref<Inspector::FrontendRouter> m_frontendRouter;
     const Ref<Inspector::BackendDispatcher> m_backendDispatcher;
     const Ref<WTF::Stopwatch> m_executionStopwatch;
+    std::unique_ptr<JSC::Debugger> m_debugger;
     Inspector::AgentRegistry m_agents;
 
+    bool m_didCreateConsoleAgent { false };
     bool m_didCreateLazyAgents { false };
     WeakPtr<InspectorFrontendClient> m_inspectorFrontendClient;
 };

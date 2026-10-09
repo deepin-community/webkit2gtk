@@ -43,14 +43,14 @@ class ReadableStreamBYOBRequest : public RefCounted<ReadableStreamBYOBRequest> {
 public:
     static Ref<ReadableStreamBYOBRequest> create(ReadableByteStreamController&, Ref<JSC::ArrayBufferView>&&);
 
-    JSC::ArrayBufferView* view() const;
+    JSC::ArrayBufferView* NODELETE view() const;
     ExceptionOr<void> respond(JSDOMGlobalObject&, size_t);
     ExceptionOr<void> respondWithNewView(JSDOMGlobalObject&, JSC::ArrayBufferView&);
 
     void clearController();
     void clearView();
 
-    template<typename Visitor> void visitAdditionalChildren(Visitor&);
+    template<typename Visitor> void visitAdditionalChildrenInGCThread(Visitor&);
 
 private:
     ReadableStreamBYOBRequest(ReadableByteStreamController&, Ref<JSC::ArrayBufferView>&&);

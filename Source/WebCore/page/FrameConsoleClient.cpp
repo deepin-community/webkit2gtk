@@ -48,10 +48,12 @@
 #include "ImageBitmapRenderingContext.h"
 #include "ImageBuffer.h"
 #include "ImageData.h"
+#include "ImageUtilities.h"
 #include "InspectorCanvas.h"
 #include "InspectorInstrumentation.h"
 #include "IntRect.h"
 #include "JSCanvasRenderingContext2D.h"
+#include "JSDOMGlobalObject.h"
 #include "JSDOMRectReadOnly.h"
 #include "JSExecState.h"
 #include "JSHTMLCanvasElement.h"
@@ -209,22 +211,22 @@ void FrameConsoleClient::addMessage(MessageSource source, MessageLevel level, co
 void FrameConsoleClient::messageWithTypeAndLevel(MessageType type, MessageLevel level, JSC::JSGlobalObject* lexicalGlobalObject, Ref<Inspector::ScriptArguments>&& arguments)
 {
     String messageText;
-    std::span<const String> additionalArguments;
-    Vector<String> messageArgumentsVector = arguments->getArgumentsAsStrings();
-    if (!messageArgumentsVector.isEmpty()) {
-        messageText = messageArgumentsVector.first();
-        additionalArguments = messageArgumentsVector.subspan(1);
-    }
+    arguments->getFirstArgumentAsString(messageText);
 
     auto message = makeUnique<Inspector::ConsoleMessage>(MessageSource::ConsoleAPI, type, level, messageText, arguments.copyRef(), lexicalGlobalObject);
 
-    String url = message->url();
-    unsigned lineNumber = message->line();
-    unsigned columnNumber = message->column();
+    auto url = message->url();
+    auto lineNumber = message->line();
+    auto columnNumber = message->column();
+
+    auto* domGlobalObject = dynamicDowncast<JSDOMGlobalObject>(lexicalGlobalObject);
+    if (level == MessageLevel::Error && domGlobalObject && domGlobalObject->hasScriptErrorCallbacks())
+        domGlobalObject->invokeScriptErrorCallbacks(messageText, url, lineNumber, columnNumber);
 
 #if ENABLE(WEBDRIVER_BIDI)
     AutomationInstrumentation::addMessageToConsole(message);
 #endif
+
     Ref frame = m_frame.get();
     InspectorInstrumentation::addMessageToConsole(frame.get(), WTF::move(message));
 
@@ -235,7 +237,7 @@ void FrameConsoleClient::messageWithTypeAndLevel(MessageType type, MessageLevel 
     if (page->usesEphemeralSession())
         return;
 
-    if (!messageArgumentsVector.isEmpty()) {
+    if (arguments->argumentCount()) {
         page->chrome().client().addMessageToConsole(MessageSource::ConsoleAPI, level, messageText, lineNumber, columnNumber, url);
 
         if (RefPtr consoleMessageListener = page->consoleMessageListenerForTesting())
@@ -370,7 +372,7 @@ void FrameConsoleClient::screenshot(JSC::JSGlobalObject* lexicalGlobalObject, Re
                 // Only try to do something special for subclasses of Node if they're detached from the DOM tree.
                 if (!node->document().contains(*node)) {
                     auto snapshotImageElement = [&snapshot] (HTMLImageElement& imageElement) {
-                        if (auto* cachedImage = imageElement.cachedImage()) {
+                        if (RefPtr cachedImage = imageElement.cachedImage()) {
                             if (RefPtr image = cachedImage->image(); image && image != &Image::nullImage()) {
                                 snapshot = ImageBuffer::create(image->size(), RenderingMode::Unaccelerated, RenderingPurpose::Unspecified, /* scale */ 1, DestinationColorSpace::SRGB(), PixelFormat::BGRA8);
                                 snapshot->context().drawImage(*image, FloatPoint(0, 0));
@@ -408,7 +410,7 @@ void FrameConsoleClient::screenshot(JSC::JSGlobalObject* lexicalGlobalObject, Re
                     }
 
                     if (snapshot)
-                        dataURL = snapshot->toDataURL("image/png"_s, /* quality */ std::nullopt, PreserveResolution::Yes);
+                        dataURL = encodeDataURL(WTF::move(snapshot), "image/png"_s);
                 }
             }
         } else if (RefPtr imageData = JSImageData::toWrapped(vm, possibleTarget)) {
@@ -416,14 +418,14 @@ void FrameConsoleClient::screenshot(JSC::JSGlobalObject* lexicalGlobalObject, Re
             if (InspectorInstrumentation::hasFrontends()) [[unlikely]] {
                 if (RefPtr imageBuffer = ImageBuffer::create(imageData->size(), RenderingMode::Unaccelerated, RenderingPurpose::Unspecified, /* scale */ 1, DestinationColorSpace::SRGB(), PixelFormat::BGRA8)) {
                     imageBuffer->putPixelBuffer(imageData->byteArrayPixelBuffer().get(), IntRect(IntPoint(), imageData->size()));
-                    dataURL = imageBuffer->toDataURL("image/png"_s, /* quality */ std::nullopt, PreserveResolution::Yes);
+                    dataURL = encodeDataURL(WTF::move(imageBuffer), "image/png"_s);
                 }
             }
         } else if (RefPtr imageBitmap = JSImageBitmap::toWrapped(vm, possibleTarget)) {
             target = possibleTarget;
             if (InspectorInstrumentation::hasFrontends()) [[unlikely]] {
                 if (RefPtr imageBuffer = imageBitmap->buffer())
-                    dataURL = imageBuffer->toDataURL("image/png"_s, /* quality */ std::nullopt, PreserveResolution::Yes);
+                    dataURL = encodeDataURL(WTF::move(imageBuffer), "image/png"_s);
             }
         } else if (RefPtr context = canvasRenderingContext(vm, possibleTarget)) {
             target = possibleTarget;
@@ -437,7 +439,7 @@ void FrameConsoleClient::screenshot(JSC::JSGlobalObject* lexicalGlobalObject, Re
                 Ref frame = m_frame.get();
                 if (RefPtr localMainFrame = frame->localMainFrame()) {
                     if (RefPtr snapshot = WebCore::snapshotFrameRect(*localMainFrame, enclosingIntRect(rect->toFloatRect()), { { }, PixelFormat::BGRA8, DestinationColorSpace::SRGB() }))
-                        dataURL = snapshot->toDataURL("image/png"_s, /* quality */ std::nullopt, PreserveResolution::Yes);
+                        dataURL = encodeDataURL(WTF::move(snapshot), "image/png"_s);
                 }
             }
         } else {
@@ -454,9 +456,9 @@ void FrameConsoleClient::screenshot(JSC::JSGlobalObject* lexicalGlobalObject, Re
             Ref frame = m_frame.get();
             if (RefPtr localMainFrame = frame->localMainFrame()) {
                 // If no target is provided, capture an image of the viewport.
-                auto viewportRect = localMainFrame->protectedView()->unobscuredContentRect();
+                auto viewportRect = protect(localMainFrame->view())->unobscuredContentRect();
                 if (RefPtr snapshot = WebCore::snapshotFrameRect(*localMainFrame, viewportRect, { { }, PixelFormat::BGRA8, DestinationColorSpace::SRGB() }))
-                    dataURL = snapshot->toDataURL("image/png"_s, /* quality */ std::nullopt, PreserveResolution::Yes);
+                    dataURL = encodeDataURL(WTF::move(snapshot), "image/png"_s);
             }
         }
 

@@ -23,6 +23,7 @@
 
 #include <WebCore/AutoplayEvent.h>
 #include <WebCore/ContactInfo.h>
+#include <WebCore/CornerRadii.h>
 #include <WebCore/DatabaseDetails.h>
 #include <WebCore/DeviceOrientationOrMotionPermissionState.h>
 #include <WebCore/DisabledAdaptations.h>
@@ -54,7 +55,6 @@
 
 #if PLATFORM(IOS_FAMILY)
 #include <WebCore/PlatformLayer.h>
-#include <WebCore/WKContentObservation.h>
 #define NSResponder WAKResponder
 #ifndef __OBJC__
 class WAKResponder;
@@ -73,7 +73,7 @@ OBJC_CLASS NSData;
 #include <WebCore/PlatformXR.h>
 #endif
 
-#if HAVE(DIGITAL_CREDENTIALS_UI)
+#if ENABLE(WEB_AUTHN)
 #include <WebCore/DigitalCredentialsProtocols.h>
 #include <WebCore/DigitalCredentialsRequestData.h>
 #include <WebCore/DigitalCredentialsResponseData.h>
@@ -110,6 +110,7 @@ class Geolocation;
 class GraphicsLayer;
 class GraphicsLayerFactory;
 class HTMLAttachmentElement;
+class HTMLFrameOwnerElement;
 class HTMLImageElement;
 class HTMLInputElement;
 class HTMLMediaElement;
@@ -139,8 +140,8 @@ class ViewportConstraints;
 class Widget;
 class WorkerClient;
 
-#if HAVE(DIGITAL_CREDENTIALS_UI)
-struct DigitalCredentialsRequestData;
+#if ENABLE(WEB_AUTHN)
+struct DigitalCredentialsMobileDocumentRequestData;
 struct MobileDocumentRequest;
 #endif
 
@@ -150,6 +151,8 @@ struct GraphicsContextGLAttributes;
 #endif
 
 struct AppHighlight;
+struct AccessibilityRemoteToken;
+struct AccessibilitySearchCriteriaIPC;
 struct ApplePayAMSUIRequest;
 struct AriaNotifyData;
 struct CharacterRange;
@@ -168,6 +171,7 @@ struct SimpleRange;
 struct StringWithDirection;
 struct SystemPreviewInfo;
 struct TextRecognitionOptions;
+struct TextEffectData;
 struct ViewportArguments;
 struct WindowFeatures;
 
@@ -176,7 +180,7 @@ enum class AXLoadingEvent : uint8_t;
 enum class AXNotification : uint8_t;
 enum class AXTextChange : uint8_t;
 enum class BroadcastFocusedElement : bool;
-enum class CookieConsentDecisionResult : uint8_t;
+enum class ContentChange : uint8_t;
 enum class DidFilterLinkDecoration : bool { No, Yes };
 enum class IsLoggedIn : uint8_t;
 enum class LinkDecorationFilteringTrigger : uint8_t;
@@ -251,10 +255,7 @@ public:
     virtual bool canRunModal() const = 0;
     virtual void runModal() = 0;
 
-    virtual bool toolbarsVisible() const = 0;
-    virtual bool statusbarVisible() const = 0;
-    virtual bool scrollbarsVisible() const = 0;
-    virtual bool menubarVisible() const = 0;
+    virtual bool isPopup() const = 0;
 
     virtual void setResizable(bool) = 0;
 
@@ -287,8 +288,15 @@ public:
     virtual IntPoint screenToRootView(const IntPoint&) const = 0;
     virtual IntPoint rootViewToScreen(const IntPoint&) const = 0;
     virtual IntRect rootViewToScreen(const IntRect&) const = 0;
+    // Returns the screen-to-rootView conversion using cached accessibility position if available.
+    // Returns std::nullopt if cached data is not available, in which case caller should use screenToRootView().
+    virtual std::optional<IntPoint> screenToRootViewUsingCachedPosition(const IntPoint&, const IntSize&) const { return std::nullopt; }
     virtual IntPoint accessibilityScreenToRootView(const IntPoint&) const = 0;
     virtual IntRect rootViewToAccessibilityScreen(const IntRect&) const = 0;
+#if ENABLE(ACCESSIBILITY_LOCAL_FRAME)
+    virtual void requestFrameScreenPosition(FrameIdentifier) const { }
+    virtual void scheduleAccessibilityFrameGeometryUpdate() const { }
+#endif
 #if PLATFORM(IOS_FAMILY)
     virtual void relayAccessibilityNotification(String&&, RetainPtr<NSData>&&) const = 0;
     virtual void relayAriaNotifyNotification(AriaNotifyData&&) const = 0;
@@ -322,9 +330,12 @@ public:
 
     virtual void contentsSizeChanged(LocalFrame&, const IntSize&) const = 0;
     virtual void intrinsicContentsSizeChanged(const IntSize&) const = 0;
+    virtual void scrollOriginDidChange(const LocalFrame&) const { }
 
     virtual void scrollContainingScrollViewsToRevealRect(const IntRect&) const { }; // Currently only Mac has a non empty implementation.
     virtual void scrollMainFrameToRevealRect(const IntRect&) const { };
+
+    virtual CornerRadii scrollbarAvoidanceCornerRadii() const { return { }; }
 
     virtual bool shouldUnavailablePluginMessageBeButton(PluginUnavailabilityReason) const { return false; }
     virtual void unavailablePluginButtonClicked(Element&, PluginUnavailabilityReason) const { }
@@ -337,14 +348,12 @@ public:
     virtual void themeColorChanged() const { }
     virtual void pageExtendedBackgroundColorDidChange() const { }
     virtual void sampledPageTopColorChanged() const { }
-#if ENABLE(WEB_PAGE_SPATIAL_BACKDROP)
-    virtual void spatialBackdropSourceChanged() const { }
-#endif
 
 #if ENABLE(MODEL_ELEMENT_IMMERSIVE)
-    virtual void allowImmersiveElement(const Element&, CompletionHandler<void(bool)>&& completion) const { completion(false); }
-    virtual void presentImmersiveElement(const Element&, const LayerHostingContextIdentifier, CompletionHandler<void(bool)>&& completion) const { completion(false); }
-    virtual void dismissImmersiveElement(const Element&, CompletionHandler<void()>&& completion) const { completion(); }
+    virtual void allowImmersiveElement(CompletionHandler<void(bool)>&& completion) const { completion(false); }
+    virtual void presentImmersiveElement(const LayerHostingContextIdentifier, CompletionHandler<void(bool)>&& completion) const { completion(false); }
+    virtual void dismissImmersiveElement(CompletionHandler<void()>&& completion) const { completion(); }
+    virtual bool supportsImmersiveElement() const { return false; }
 #endif
 
 #if ENABLE(APP_HIGHLIGHTS)
@@ -352,13 +361,6 @@ public:
 #endif
 
     virtual void exceededDatabaseQuota(LocalFrame&, const String& databaseName, DatabaseDetails) = 0;
-
-    // Callback invoked when the application cache fails to save a cache object
-    // because storing it would grow the database file past its defined maximum
-    // size or past the amount of free space on the device. 
-    // The chrome client would need to take some action such as evicting some
-    // old caches.
-    virtual void reachedMaxAppCacheSize(int64_t) { }
 
     WEBCORE_EXPORT virtual std::unique_ptr<WorkerClient> createWorkerClient(SerialFunctionDispatcher&);
 
@@ -371,7 +373,6 @@ public:
 #if PLATFORM(IOS_FAMILY)
     virtual void didReceiveMobileDocType(bool) = 0;
     virtual void setNeedsScrollNotifications(LocalFrame&, bool) = 0;
-    virtual void didFinishContentChangeObserving(LocalFrame&, WKContentChange) = 0;
     virtual void notifyRevealedSelectionByScrollingFrame(LocalFrame&) = 0;
 
     enum LayoutType { NormalLayout, Scroll };
@@ -400,6 +401,10 @@ public:
     virtual bool showDataDetectorsUIForElement(const Element&, const Event&) = 0;
 #endif
 
+#if ENABLE(CONTENT_CHANGE_OBSERVER)
+    virtual void didFinishContentChangeObserving(LocalFrame&, ContentChange) = 0;
+#endif
+
 #if ENABLE(ORIENTATION_EVENTS)
     virtual IntDegrees deviceOrientation() const = 0;
 #endif
@@ -415,16 +420,17 @@ public:
     virtual void updateTextIndicator(RefPtr<TextIndicator>&&) const = 0;
 
     virtual void runOpenPanel(LocalFrame&, FileChooser&) = 0;
+    WEBCORE_EXPORT virtual void transcodeChosenFiles(Vector<String>&& transcodingPaths, String&& destinationUTI, String&& destinationExtension, CompletionHandler<void(Vector<String>&&)>&&);
     virtual void showShareSheet(ShareDataWithParsedURL&&, CompletionHandler<void(bool)>&& callback) { callback(false); }
     virtual void showContactPicker(ContactsRequestData&&, CompletionHandler<void(std::optional<Vector<ContactInfo>>&&)>&& callback) { callback(std::nullopt); }
 
-#if HAVE(DIGITAL_CREDENTIALS_UI)
-    virtual void showDigitalCredentialsPicker(const DigitalCredentialsRequestData&, CompletionHandler<void(Expected<DigitalCredentialsResponseData, ExceptionData>&&)>&& completionHandler)
+#if ENABLE(WEB_AUTHN)
+    virtual void showDigitalCredentialsChooser(const DigitalCredentialsRequestData&, CompletionHandler<void(Expected<DigitalCredentialsResponseData, ExceptionData>&&)>&& completionHandler)
     {
         completionHandler(makeUnexpected(ExceptionData { ExceptionCode::NotSupportedError, "Digital credentials are not supported."_s }));
     }
 
-    virtual void dismissDigitalCredentialsPicker(CompletionHandler<void(bool)>&& completionHandler)
+    virtual void dismissDigitalCredentialsChooser(CompletionHandler<void(bool)>&& completionHandler)
     {
         completionHandler(false);
     }
@@ -587,8 +593,6 @@ public:
     virtual void postAccessibilityFrameLoadingEventNotification(AccessibilityObject*, AXLoadingEvent) = 0;
 #endif
 
-    virtual bool selectItemWritingDirectionIsNatural() = 0;
-    virtual bool selectItemAlignmentFollowsMenuWritingDirection() = 0;
     // Checks if there is an opened popup, called by RenderMenuList::showPopup().
     virtual RefPtr<PopupMenu> createPopupMenu(PopupMenuClient&) const = 0;
     virtual RefPtr<SearchPopupMenu> createSearchPopupMenu(PopupMenuClient&) const = 0;
@@ -625,6 +629,12 @@ public:
     virtual void isAnyAnimationAllowedToPlayDidChange(bool /* anyAnimationCanPlay */) { };
 #endif
     virtual void resolveAccessibilityHitTestForTesting(WebCore::FrameIdentifier, const IntPoint&, CompletionHandler<void(String)>&& callback) { callback(""_s); };
+#if PLATFORM(MAC)
+    WEBCORE_EXPORT virtual void performAccessibilitySearchInRemoteFrame(FrameIdentifier, const AccessibilitySearchCriteriaIPC&, CompletionHandler<void(Vector<AccessibilityRemoteToken>&&)>&&);
+    // Called by a child frame to continue a search in its parent frame.
+    // The parent searches from the child frame's position in its tree.
+    WEBCORE_EXPORT virtual void continueAccessibilitySearchFromChildFrame(FrameIdentifier childFrameID, const AccessibilitySearchCriteriaIPC&, CompletionHandler<void(Vector<AccessibilityRemoteToken>&&)>&&);
+#endif
 
     virtual void isPlayingMediaDidChange(MediaProducerMediaStateFlags) { }
     virtual void handleAutoplayEvent(AutoplayEvent, OptionSet<AutoplayEventFlags>) { }
@@ -693,8 +703,11 @@ public:
     virtual void setMockWebAuthenticationConfiguration(const MockWebAuthenticationConfiguration&) { }
 #endif
 
+    virtual HTMLFrameOwnerElement* frameOwnerElementForFrameID(FrameIdentifier) const { return nullptr; }
+
     virtual bool requiresScriptTrackingPrivacyProtections(const URL&, const SecurityOrigin& /* topOrigin */) const { return false; }
     virtual bool shouldAllowScriptAccess(const URL&, const WebCore::SecurityOrigin&, ScriptTrackingPrivacyCategory) const { return true; }
+    virtual bool requiresConsistentPrivacyQuirkForDomain(const URL&) const { return false; };
 
     virtual void animationDidFinishForElement(const Element&) { }
 
@@ -733,8 +746,6 @@ public:
 
     virtual void didAddOrRemoveViewportConstrainedObjects() { }
 
-    virtual void requestCookieConsent(CompletionHandler<void(CookieConsentDecisionResult)>&&) = 0;
-
     virtual bool isUsingUISideCompositing() const { return false; }
     
     virtual bool isInStableState() const { return true; }
@@ -767,6 +778,11 @@ public:
     virtual void saveSnapshotOfTextPlaceholderForAnimation(const SimpleRange&) { };
 
     virtual void clearAnimationsForActiveWritingToolsSession() { };
+
+#if ENABLE(WRITING_TOOLS_TEXT_EFFECTS)
+    virtual void addTextEffectForID(const WTF::UUID&, TextEffectData&&, RefPtr<TextIndicator>&&, RefPtr<TextIndicator>&&) { }
+    virtual void removeTextEffectForID(const WTF::UUID&) { }
+#endif
 #endif
 
     virtual void setIsInRedo(bool) { }
@@ -791,6 +807,8 @@ public:
 #if ENABLE(VIDEO)
     WEBCORE_EXPORT virtual void showCaptionDisplaySettings(HTMLMediaElement&, const ResolvedCaptionDisplaySettingsOptions&, CompletionHandler<void(ExceptionOr<void>)>&&);
 #endif
+
+    virtual void updateRemoteIntersectionObserversInOtherWebProcesses() { }
 
     WEBCORE_EXPORT virtual ~ChromeClient();
 

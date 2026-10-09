@@ -59,13 +59,13 @@ void ImageFrameWorkQueue::start()
     if (m_workQueue)
         return;
 
-    RefPtr decoder = protectedSource()->decoder();
+    RefPtr decoder = m_source.get()->decoder();
     if (!decoder)
         return;
 
     m_workQueue = WorkQueue::create("org.webkit.ImageDecoder"_s, WorkQueue::QOS::Default);
 
-    m_workQueue->dispatch([protectedThis = Ref { *this }, protectedWorkQueue = Ref { *m_workQueue }, protectedSource = this->protectedSource(), protectedDecoder = Ref { *decoder }, protectedRequestQueue = Ref { requestQueue() }] () mutable {
+    protect(m_workQueue)->dispatch([protectedThis = Ref { *this }, protectedWorkQueue = Ref { *m_workQueue }, protectedSource = m_source.get(), protectedDecoder = Ref { *decoder }, protectedRequestQueue = Ref { requestQueue() }] () mutable {
         Request request;
         while (protectedRequestQueue->dequeue(request)) {
             TraceScope tracingScope(AsyncImageDecodeStart, AsyncImageDecodeEnd);
@@ -76,8 +76,15 @@ void ImageFrameWorkQueue::start()
             if (minimumDecodingDuration > 0_s)
                 startingTime = MonotonicTime::now();
 
-            PlatformImagePtr platformImage = protectedDecoder->createFrameImageAtIndex(request.index, request.subsamplingLevel, request.options);
-            RefPtr nativeImage = NativeImage::create(WTF::move(platformImage));
+            RefPtr<NativeImage> nativeImage;
+            DecodingDestination decodingDestination = request.options.decodingDestination();
+
+            if (auto result = protectedDecoder->createNativeImageAtIndex(request.index, request.subsamplingLevel, request.options)) {
+                nativeImage = WTF::move(std::get<Ref<NativeImage>>(*result));
+                decodingDestination = std::get<DecodingDestination>(*result);
+            }
+
+            request.options = { request.options.decodingMode(), decodingDestination, request.options.sizeForDrawing() };
 
             // Pretend as if decoding the frame took minimumDecodingDuration.
             if (minimumDecodingDuration > 0_s) {
@@ -89,13 +96,13 @@ void ImageFrameWorkQueue::start()
             // Even if we fail to decode the frame, it is important to sync the main thread with this result.
             callOnMainThread([protectedThis, protectedWorkQueue, protectedSource, request, nativeImage = WTF::move(nativeImage)] () mutable {
                 // The WorkQueue may have been recreated before the frame was decoded.
-                if (protectedWorkQueue.ptr() != protectedThis->m_workQueue || protectedSource.ptr() != protectedThis->m_source.get()) {
+                if (protectedWorkQueue.ptr() != protectedThis->m_workQueue || protectedSource.ptr() != protectedThis->m_source.get().ptr()) {
                     LOG(Images, "ImageFrameWorkQueue::%s - %p - url: %s. WorkQueue was recreated at index = %d.", __FUNCTION__, protectedThis.ptr(), protectedSource->sourceUTF8().data(), request.index);
                     return;
                 }
 
                 // The DecodeQueue may have been cleared before the frame was decoded.
-                if (protectedThis->decodeQueue().isEmpty() || protectedThis->decodeQueue().first() != request) {
+                if (protectedThis->decodeQueue().isEmpty() || !request.isCompatibleWith(protectedThis->decodeQueue().first())) {
                     LOG(Images, "ImageFrameWorkQueue::%s - %p - url: %s. DecodeQueue was cleared at index = %d.", __FUNCTION__, protectedThis.ptr(), protectedSource->sourceUTF8().data(), request.index);
                     return;
                 }
@@ -114,7 +121,7 @@ void ImageFrameWorkQueue::dispatch(const Request& request)
 {
     ASSERT(isMainThread());
 
-    requestQueue().enqueue(request);
+    protect(requestQueue())->enqueue(request);
     decodeQueue().append(request);
 
     start();
@@ -124,7 +131,7 @@ void ImageFrameWorkQueue::stop()
 {
     ASSERT(isMainThread());
 
-    Ref source = protectedSource();
+    Ref source = m_source.get();
 
     for (auto& request : m_decodeQueue) {
         LOG(Images, "ImageFrameWorkQueue::%s - %p - url: %s. Decoding was cancelled for frame at index = %d.", __FUNCTION__, this, source->sourceUTF8().data(), request.index);
@@ -132,7 +139,7 @@ void ImageFrameWorkQueue::stop()
     }
 
     if (m_requestQueue) {
-        m_requestQueue->close();
+        protect(m_requestQueue)->close();
         m_requestQueue = nullptr;
     }
 

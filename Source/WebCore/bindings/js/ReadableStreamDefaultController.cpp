@@ -31,11 +31,15 @@
 #include "config.h"
 #include "ReadableStreamDefaultController.h"
 
+#include "JSDOMConvertBufferSource.h"
 #include "WebCoreJSClientData.h"
-#include <JavaScriptCore/CatchScope.h>
+#include <JavaScriptCore/HeapCellInlines.h>
 #include <JavaScriptCore/HeapInlines.h>
 #include <JavaScriptCore/IdentifierInlines.h>
+#include <JavaScriptCore/JSCellInlines.h>
+#include <JavaScriptCore/JSGenericTypedArrayViewInlines.h>
 #include <JavaScriptCore/JSObjectInlines.h>
+#include <JavaScriptCore/TopExceptionScope.h>
 
 namespace WebCore {
 
@@ -44,7 +48,7 @@ static bool invokeReadableStreamDefaultControllerFunction(JSC::JSGlobalObject& l
     JSC::VM& vm = lexicalGlobalObject.vm();
     JSC::JSLockHolder lock(vm);
 
-    auto scope = DECLARE_CATCH_SCOPE(vm);
+    auto scope = DECLARE_TOP_EXCEPTION_SCOPE(vm);
     auto function = lexicalGlobalObject.get(&lexicalGlobalObject, identifier);
 
     EXCEPTION_ASSERT(!scope.exception() || vm.hasPendingTerminationException());
@@ -76,7 +80,7 @@ void ReadableStreamDefaultController::error(const Exception& exception)
     JSC::JSGlobalObject& lexicalGlobalObject = this->globalObject();
     auto& vm = lexicalGlobalObject.vm();
     JSC::JSLockHolder lock(vm);
-    auto scope = DECLARE_CATCH_SCOPE(vm);
+    auto scope = DECLARE_TOP_EXCEPTION_SCOPE(vm);
     auto value = createDOMException(&lexicalGlobalObject, exception.code(), exception.message());
 
     if (scope.exception()) [[unlikely]] {
@@ -138,7 +142,7 @@ bool ReadableStreamDefaultController::enqueue(RefPtr<JSC::ArrayBuffer>&& buffer)
     JSC::JSGlobalObject& lexicalGlobalObject = this->globalObject();
     auto& vm = lexicalGlobalObject.vm();
     JSC::JSLockHolder lock(vm);
-    auto scope = DECLARE_CATCH_SCOPE(vm);
+    auto scope = DECLARE_TOP_EXCEPTION_SCOPE(vm);
     auto length = buffer->byteLength();
     auto chunk = JSC::Uint8Array::create(WTF::move(buffer), 0, length);
     auto value = toJS(&lexicalGlobalObject, &lexicalGlobalObject, chunk.get());

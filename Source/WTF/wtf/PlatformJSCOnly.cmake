@@ -19,12 +19,17 @@ if (WIN32)
         win/PathWalker.cpp
         win/SignalsWin.cpp
         win/ThreadingWin.cpp
+        win/WTFCRTDebug.cpp
         win/Win32Handle.cpp
     )
     list(APPEND WTF_LIBRARIES
         DbgHelp
         shlwapi
+        synchronization
         winmm
+    )
+    list(APPEND WTF_PUBLIC_HEADERS
+        win/WTFCRTDebug.h
     )
 else ()
     list(APPEND WTF_SOURCES
@@ -50,8 +55,10 @@ else ()
 
     if (LOWERCASE_EVENT_LOOP_TYPE STREQUAL "glib")
         list(APPEND WTF_SOURCES
+            glib/FilePathWatcher.cpp
             glib/FileSystemGlib.cpp
             glib/Sandbox.cpp
+            glib/TimeZoneGLib.cpp
         )
     endif ()
 
@@ -79,10 +86,14 @@ elseif (APPLE)
             ${WTF_DERIVED_SOURCES_DIR}/mach_excUser.c
         MAIN_DEPENDENCY mac/MachExceptions.defs
         WORKING_DIRECTORY ${WTF_DERIVED_SOURCES_DIR}
-        COMMAND mig -DMACH_EXC_SERVER_TASKIDTOKEN_STATE -sheader MachExceptionsServer.h MachExceptions.defs
+        COMMAND ${Mig_EXECUTABLE} -header mach_exc.h -user mach_excUser.c
+            -sheader MachExceptionsServer.h -server mach_excServer.c
+            -DMACH_EXC_SERVER_TASKIDTOKEN_STATE -isysroot ${CMAKE_OSX_SYSROOT}
+            MachExceptions.defs
         VERBATIM)
     list(APPEND WTF_SOURCES
         cocoa/MemoryFootprintCocoa.cpp
+        cocoa/TimeZoneCocoa.cpp
 
         generic/MemoryPressureHandlerGeneric.cpp
 
@@ -112,6 +123,7 @@ endif ()
 
 if (LOWERCASE_EVENT_LOOP_TYPE STREQUAL "glib")
     list(APPEND WTF_PUBLIC_HEADERS
+        glib/FilePathWatcher.h
         glib/GRefPtr.h
         glib/GSpanExtras.h
         glib/GTypedefs.h

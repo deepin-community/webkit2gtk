@@ -29,6 +29,7 @@
 #include "JSDOMWindow.h"
 #include "LocalDOMWindow.h"
 #include "ScriptExecutionContext.h"
+#include "WebCoreJSClientData.h"
 #include <JavaScriptCore/ErrorHandlingScope.h>
 #include <JavaScriptCore/Exception.h>
 #include <JavaScriptCore/ExceptionHelpers.h>
@@ -43,7 +44,7 @@ void reportException(JSGlobalObject* lexicalGlobalObject, JSValue exceptionValue
 {
     VM& vm = lexicalGlobalObject->vm();
     RELEASE_ASSERT(vm.currentThreadIsHoldingAPILock());
-    auto* exception = jsDynamicCast<JSC::Exception*>(exceptionValue);
+    auto* exception = dynamicDowncast<JSC::Exception>(exceptionValue);
     if (!exception) {
         exception = vm.lastException();
         if (!exception)
@@ -62,38 +63,38 @@ void reportExceptionIfJSDOMWindow(JSC::JSGlobalObject* globalObject, JSC::JSValu
     reportException(globalObject, exception);
 }
 
-String retrieveErrorMessageWithoutName(JSGlobalObject& lexicalGlobalObject, VM& vm, JSValue exception, CatchScope& catchScope)
+String retrieveErrorMessageWithoutName(JSGlobalObject& lexicalGlobalObject, VM& vm, JSValue exception, TopExceptionScope& topExceptionScope)
 {
     // FIXME: <http://webkit.org/b/115087> Web Inspector: WebCore::reportException should not evaluate JavaScript handling exceptions
     // If this is a custom exception object, call toString on it to try and get a nice string representation for the exception.
     String errorMessage;
-    if (auto* error = jsDynamicCast<ErrorInstance*>(exception))
+    if (auto* error = dynamicDowncast<ErrorInstance>(exception))
         errorMessage = error->sanitizedMessageString(&lexicalGlobalObject);
-    else if (auto* error = jsDynamicCast<JSDOMException*>(exception))
+    else if (auto* error = dynamicDowncast<JSDOMException>(exception))
         errorMessage = error->wrapped().message();
     else
         errorMessage = exception.toWTFString(&lexicalGlobalObject);
 
     // We need to clear any new exception that may be thrown in the toString() call above.
     // reportException() is not supposed to be making new exceptions.
-    catchScope.clearException();
+    topExceptionScope.clearException();
     vm.clearLastException();
     return errorMessage;
 }
 
-String retrieveErrorMessage(JSGlobalObject& lexicalGlobalObject, VM& vm, JSValue exception, CatchScope& catchScope)
+String retrieveErrorMessage(JSGlobalObject& lexicalGlobalObject, VM& vm, JSValue exception, TopExceptionScope& topExceptionScope)
 {
     // FIXME: <http://webkit.org/b/115087> Web Inspector: WebCore::reportException should not evaluate JavaScript handling exceptions
     // If this is a custom exception object, call toString on it to try and get a nice string representation for the exception.
     String errorMessage;
-    if (auto* error = jsDynamicCast<ErrorInstance*>(exception))
+    if (auto* error = dynamicDowncast<ErrorInstance>(exception))
         errorMessage = error->sanitizedToString(&lexicalGlobalObject);
     else
         errorMessage = exception.toWTFString(&lexicalGlobalObject);
 
     // We need to clear any new exception that may be thrown in the toString() call above.
     // reportException() is not supposed to be making new exceptions.
-    catchScope.clearException();
+    topExceptionScope.clearException();
     vm.clearLastException();
     return errorMessage;
 }
@@ -105,10 +106,10 @@ void reportException(JSGlobalObject* lexicalGlobalObject, JSC::Exception* except
     if (vm.isTerminationException(exception))
         return;
 
-    // We can declare a CatchScope here because we will clear the exception below if it's
+    // We can declare a TopExceptionScope here because we will clear the exception below if it's
     // not a TerminationException. If it's a TerminationException, it'll remain sticky in
     // the VM, but we have the check above to ensure that we do not re-enter this scope.
-    auto scope = DECLARE_CATCH_SCOPE(vm);
+    auto scope = DECLARE_TOP_EXCEPTION_SCOPE(vm);
 
     ErrorHandlingScope errorScope(lexicalGlobalObject->vm());
 
@@ -116,8 +117,8 @@ void reportException(JSGlobalObject* lexicalGlobalObject, JSC::Exception* except
     scope.clearException();
     vm.clearLastException();
 
-    auto* globalObject = jsCast<JSDOMGlobalObject*>(lexicalGlobalObject);
-    if (auto* window = jsDynamicCast<JSDOMWindow*>(globalObject)) {
+    auto* globalObject = downcast<JSDOMGlobalObject>(lexicalGlobalObject);
+    if (auto* window = dynamicDowncast<JSDOMWindow>(globalObject)) {
         RefPtr localDOMWindow = dynamicDowncast<LocalDOMWindow>(window->wrapped());
         if (!localDOMWindow || !localDOMWindow->isCurrentlyDisplayedInFrame())
             return;
@@ -133,7 +134,19 @@ void reportException(JSGlobalObject* lexicalGlobalObject, JSC::Exception* except
     }
 
     auto errorMessage = retrieveErrorMessage(*lexicalGlobalObject, vm, exception->value(), scope);
-    globalObject->protectedScriptExecutionContext()->reportException(errorMessage, lineNumber, columnNumber, exceptionSourceURL, exception, callStack->size() ? callStack.ptr() : nullptr, cachedScript, fromModule);
+
+    if (globalObject->hasScriptErrorCallbacks()) {
+        // The call stack may contain masked URLs (e.g. webkit-masked-url://hidden/) for scripts
+        // whose origin is hidden from the page (e.g. extension content scripts in the main world).
+        // Use the unmasked URL from the exception's code blocks for internal reporting.
+        auto unmaskedSourceURL = exceptionSourceURL;
+        if (auto url = unmaskedSourceURLFromException(*exception, vm); !url.isEmpty())
+            unmaskedSourceURL = url;
+
+        globalObject->invokeScriptErrorCallbacks(errorMessage, unmaskedSourceURL, lineNumber, columnNumber);
+    }
+
+    protect(globalObject->scriptExecutionContext())->reportException(errorMessage, lineNumber, columnNumber, exceptionSourceURL, exception, callStack->size() ? callStack.ptr() : nullptr, cachedScript, fromModule);
 
     if (exceptionDetails) {
         exceptionDetails->message = errorMessage;
@@ -146,7 +159,7 @@ void reportException(JSGlobalObject* lexicalGlobalObject, JSC::Exception* except
 void reportCurrentException(JSGlobalObject* lexicalGlobalObject)
 {
     VM& vm = lexicalGlobalObject->vm();
-    auto scope = DECLARE_CATCH_SCOPE(vm);
+    auto scope = DECLARE_TOP_EXCEPTION_SCOPE(vm);
     auto* exception = scope.exception();
     scope.clearException();
     reportException(lexicalGlobalObject, exception);

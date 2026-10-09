@@ -17,14 +17,15 @@
 #include "include/core/SkRefCnt.h"
 #include "include/core/SkScalar.h"
 #include "include/core/SkSurface.h"
-#include "include/private/base/SkAssert.h"
-#include "include/private/base/SkMath.h"
+#include "include/private/SkAssert.h"
+#include "include/private/SkMath.h"
+#include "include/private/SkPixelStorage.h"
 #include "src/core/SkBitmapDevice.h"
 #include "src/core/SkCPURecorderImpl.h"
 #include "src/core/SkDevice.h"
 #include "src/core/SkImageInfoPriv.h"
-#include "src/core/SkImagePriv.h"
 #include "src/core/SkSurfacePriv.h"
+#include "src/image/SkImage_Raster.h"
 
 #include <cstdint>
 #include <cstring>
@@ -78,8 +79,9 @@ SkSurface_Raster::SkSurface_Raster(skcpu::RecorderImpl* recorder,
                                    void (*releaseProc)(void* pixels, void* context),
                                    void* context,
                                    const SkSurfaceProps* props)
-        : SkSurface_Base(info, props), fRecorder(recorder) {
+        : SkSurface_Base(info, props, nullptr), fRecorder(recorder) {
     fBitmap.installPixels(info, pixels, rowBytes, releaseProc, context);
+    fPixelStorage = sk_ref_sp(fBitmap.pixelRef());
     fWeOwnThePixels = false;    // We are "Direct"
 }
 
@@ -87,7 +89,7 @@ SkSurface_Raster::SkSurface_Raster(skcpu::RecorderImpl* recorder,
                                    const SkImageInfo& info,
                                    sk_sp<SkPixelRef> pr,
                                    const SkSurfaceProps* props)
-        : SkSurface_Base(pr->width(), pr->height(), props), fRecorder(recorder) {
+        : SkSurface_Base(pr->width(), pr->height(), props, pr), fRecorder(recorder) {
     fBitmap.setInfo(info, pr->rowBytes());
     fBitmap.setPixelRef(std::move(pr), 0, 0);
     fWeOwnThePixels = true;
@@ -118,7 +120,7 @@ sk_sp<SkImage> SkSurface_Raster::onNewImageSnapshot(const SkIRect* subset) {
         return dst.asImage();
     }
 
-    SkCopyPixelsMode cpm = kIfMutable_SkCopyPixelsMode;
+    SkCopyPixelsMode cpm = SkCopyPixelsMode::kIfMutable;
     if (fWeOwnThePixels) {
         // SkImage_raster requires these pixels are immutable for its full lifetime.
         // We'll undo this via onRestoreBackingMutability() if we can avoid the COW.
@@ -126,12 +128,12 @@ sk_sp<SkImage> SkSurface_Raster::onNewImageSnapshot(const SkIRect* subset) {
             pr->setTemporarilyImmutable();
         }
     } else {
-        cpm = kAlways_SkCopyPixelsMode;
+        cpm = SkCopyPixelsMode::kAlways;
     }
 
     // Our pixels are in memory, so read access on the snapshot SkImage could be cheap.
     // Lock the shared pixel ref to ensure peekPixels() is usable.
-    return SkMakeImageFromRasterBitmap(fBitmap, cpm);
+    return SkImage_Raster::MakeFromBitmap(fBitmap, cpm);
 }
 
 void SkSurface_Raster::onWritePixels(const SkPixmap& src, int x, int y) {
@@ -149,7 +151,8 @@ bool SkSurface_Raster::onCopyOnWrite(ContentChangeMode mode) {
     // are we sharing pixelrefs with the image?
     sk_sp<SkImage> cached(this->refCachedImage());
     SkASSERT(cached);
-    if (SkBitmapImageGetPixelRef(cached.get()) == fBitmap.pixelRef()) {
+    SkASSERT(as_IB(cached)->isRasterBacked());
+    if (static_cast<SkImage_Raster*>(cached.get())->getPixelRef() == fBitmap.pixelRef()) {
         SkASSERT(fWeOwnThePixels);
         if (kDiscard_ContentChangeMode == mode) {
             if (!fBitmap.tryAllocPixels()) {

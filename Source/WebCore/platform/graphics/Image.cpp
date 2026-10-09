@@ -141,11 +141,6 @@ void Image::subresourcesAreFinished(Document*, CompletionHandler<void()>&& compl
     completionHandler();
 }
 
-RefPtr<FragmentedSharedBuffer> Image::protectedData() const
-{
-    return m_encodedImageData;
-}
-
 EncodedDataStatus Image::setData(RefPtr<FragmentedSharedBuffer>&& data, bool allDataReceived)
 {
     m_encodedImageData = WTF::move(data);
@@ -155,6 +150,19 @@ EncodedDataStatus Image::setData(RefPtr<FragmentedSharedBuffer>&& data, bool all
         return EncodedDataStatus::Complete;
 
     return dataChanged(allDataReceived);
+}
+
+bool Image::tryReplaceData(Ref<FragmentedSharedBuffer>&& data)
+{
+    if (!canReplaceData())
+        return false;
+
+    // replaceData should only be called with an identical copy of previously set encoded data.
+    ASSERT(m_encodedImageData && *m_encodedImageData == data.get());
+    m_encodedImageData = WTF::move(data);
+    dataReplaced();
+
+    return true;
 }
 
 URL Image::sourceURL() const

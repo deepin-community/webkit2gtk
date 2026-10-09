@@ -28,7 +28,6 @@
 #include "LegacyRenderSVGResource.h"
 #include "MutableStyleProperties.h"
 #include "RenderSVGPath.h"
-#include "RenderStyle+GettersInlines.h"
 #include "SVGDocumentExtensions.h"
 #include "SVGElementTypeHelpers.h"
 #include "SVGMPathElement.h"
@@ -36,6 +35,7 @@
 #include "SVGPathUtilities.h"
 #include "SVGPoint.h"
 #include "Settings.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/MakeString.h>
 
@@ -45,7 +45,7 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(SVGPathElement);
 
 class PathSegListCache {
 public:
-    static PathSegListCache& singleton();
+    static PathSegListCache& NODELETE singleton();
 
     std::optional<DataRef<SVGPathByteStream::Data>> get(const AtomString& attributeValue) const;
     void add(const AtomString& attributeValue, DataRef<SVGPathByteStream::Data>);
@@ -118,13 +118,13 @@ void SVGPathElement::attributeChanged(const QualifiedName& name, const AtomStrin
     if (name == SVGNames::dAttr) {
         auto& cache = PathSegListCache::singleton();
         if (newValue.isEmpty())
-            Ref { m_pathSegList }->baseVal()->clearByteStreamData();
+            protect(m_pathSegList)->baseVal()->clearByteStreamData();
         else if (auto data = cache.get(newValue))
-            Ref { m_pathSegList }->baseVal()->updateByteStreamData(WTF::move(data.value()));
-        else if (Ref { m_pathSegList }->baseVal()->parse(newValue))
-            cache.add(newValue, m_pathSegList->baseVal()->existingPathByteStream().data());
+            protect(m_pathSegList)->baseVal()->updateByteStreamData(WTF::move(data.value()));
+        else if (protect(m_pathSegList)->baseVal()->parse(newValue))
+            cache.add(newValue, protect(m_pathSegList)->baseVal()->existingPathByteStream().data());
         else
-            protectedDocument()->checkedSVGExtensions()->reportError(makeString("Problem parsing d=\""_s, newValue, "\""_s));
+            protect(protect(document())->svgExtensions())->reportError(makeString("Problem parsing d=\""_s, newValue, "\""_s));
     }
 
     SVGGeometryElement::attributeChanged(name, oldValue, newValue, attributeModificationReason);
@@ -142,10 +142,10 @@ void SVGPathElement::svgAttributeChanged(const QualifiedName& attrName)
         InstanceInvalidationGuard guard(*this);
         invalidateMPathDependencies();
 
-        if (CheckedPtr path = dynamicDowncast<RenderSVGPath>(renderer()))
+        if (auto* path = dynamicDowncast<RenderSVGPath>(renderer()))
             path->setNeedsShapeUpdate();
 
-        if (CheckedPtr path = dynamicDowncast<LegacyRenderSVGPath>(renderer()))
+        if (auto* path = dynamicDowncast<LegacyRenderSVGPath>(renderer()))
             path->setNeedsShapeUpdate();
 
         updateSVGRendererForElementChange();
@@ -168,29 +168,29 @@ void SVGPathElement::invalidateMPathDependencies()
     }
 }
 
-Node::InsertedIntoAncestorResult SVGPathElement::insertedIntoAncestor(InsertionType insertionType, ContainerNode& parentOfInsertedTree)
+Node::NeedsPostConnectionSteps SVGPathElement::insertionSteps(InsertionType insertionType, ContainerNode& parentOfInsertedTree)
 {
-    auto result = SVGGeometryElement::insertedIntoAncestor(insertionType, parentOfInsertedTree);
+    auto result = SVGGeometryElement::insertionSteps(insertionType, parentOfInsertedTree);
     invalidateMPathDependencies();
     return result;
 }
 
-void SVGPathElement::removedFromAncestor(RemovalType removalType, ContainerNode& oldParentOfRemovedTree)
+void SVGPathElement::removingSteps(RemovalType removalType, ContainerNode& oldParentOfRemovedTree)
 {
-    SVGGeometryElement::removedFromAncestor(removalType, oldParentOfRemovedTree);
+    SVGGeometryElement::removingSteps(removalType, oldParentOfRemovedTree);
     invalidateMPathDependencies();
 }
 
 float SVGPathElement::getTotalLength() const
 {
-    protectedDocument()->updateLayoutIgnorePendingStylesheets({ LayoutOptions::TreatContentVisibilityHiddenAsVisible, LayoutOptions::TreatContentVisibilityAutoAsVisible }, this);
+    protect(document())->updateLayoutIgnorePendingStylesheets({ LayoutOptions::TreatContentVisibilityHiddenAsVisible, LayoutOptions::TreatContentVisibilityAutoAsVisible }, this);
 
     return getTotalLengthOfSVGPathByteStream(pathByteStream());
 }
 
 ExceptionOr<Ref<SVGPoint>> SVGPathElement::getPointAtLength(float distance) const
 {
-    protectedDocument()->updateLayoutIgnorePendingStylesheets({ LayoutOptions::TreatContentVisibilityHiddenAsVisible, LayoutOptions::TreatContentVisibilityAutoAsVisible }, this);
+    protect(document())->updateLayoutIgnorePendingStylesheets({ LayoutOptions::TreatContentVisibilityHiddenAsVisible, LayoutOptions::TreatContentVisibilityAutoAsVisible }, this);
 
     // Spec: If it is not able to compute the total length of path, then throw.
     if (pathByteStream().isEmpty())
@@ -205,15 +205,15 @@ ExceptionOr<Ref<SVGPoint>> SVGPathElement::getPointAtLength(float distance) cons
 
 unsigned SVGPathElement::getPathSegAtLength(float length) const
 {
-    protectedDocument()->updateLayoutIgnorePendingStylesheets({ LayoutOptions::TreatContentVisibilityHiddenAsVisible, LayoutOptions::TreatContentVisibilityAutoAsVisible }, this);
+    protect(document())->updateLayoutIgnorePendingStylesheets({ LayoutOptions::TreatContentVisibilityHiddenAsVisible, LayoutOptions::TreatContentVisibilityAutoAsVisible }, this);
 
     return getSVGPathSegAtLengthFromSVGPathByteStream(pathByteStream(), length);
 }
 
 FloatRect SVGPathElement::getBBox(StyleUpdateStrategy styleUpdateStrategy)
 {
-    if (styleUpdateStrategy == AllowStyleUpdate)
-        protectedDocument()->updateLayoutIgnorePendingStylesheets({ LayoutOptions::TreatContentVisibilityHiddenAsVisible, LayoutOptions::TreatContentVisibilityAutoAsVisible }, this);
+    if (styleUpdateStrategy == StyleUpdateStrategy::Allow)
+        protect(document())->updateLayoutIgnorePendingStylesheets({ LayoutOptions::TreatContentVisibilityHiddenAsVisible, LayoutOptions::TreatContentVisibilityAutoAsVisible }, this);
 
     // FIXME: Eventually we should support getBBox for detached elements.
     // FIXME: If the path is null it means we're calling getBBox() before laying out this element,
@@ -228,7 +228,7 @@ FloatRect SVGPathElement::getBBox(StyleUpdateStrategy styleUpdateStrategy)
     return { };
 }
 
-RenderPtr<RenderElement> SVGPathElement::createElementRenderer(RenderStyle&& style, const RenderTreePosition&)
+RenderPtr<RenderElement> SVGPathElement::createElementRenderer(Style::ComputedStyle&& style, const RenderTreePosition&)
 {
     if (document().settings().layerBasedSVGEngineEnabled())
         return createRenderer<RenderSVGPath>(*this, WTF::move(style));
@@ -243,6 +243,12 @@ const SVGPathByteStream& SVGPathElement::pathByteStream() const
                 return pathFunction->parameters.data.byteStream;
             return SVGPathByteStream::empty();
         }
+
+        if (CheckedPtr style = const_cast<SVGPathElement&>(*this).computedStyle()) {
+            if (auto& pathFunction = style->d().tryPath())
+                return pathFunction->parameters.data.byteStream;
+            return SVGPathByteStream::empty();
+        }
     }
 
     return Ref { m_pathSegList }->currentPathByteStream();
@@ -252,8 +258,9 @@ Path SVGPathElement::path() const
 {
     if (document().settings().cssDPropertyEnabled()) {
         if (CheckedPtr renderer = this->renderer()) {
-            if (auto& pathFunction = renderer->style().d().tryPath())
-                return Style::path(pathFunction->parameters, FloatRect { });
+            CheckedRef style = renderer->style();
+            if (auto& pathFunction = style->d().tryPath())
+                return Style::path(pathFunction->parameters, FloatRect { }, style->usedZoomForLength());
             return { };
         }
     }
@@ -282,7 +289,7 @@ void SVGPathElement::collectDPresentationalHint(MutableStyleProperties& style)
     ASSERT(document().settings().cssDPropertyEnabled());
     // In the case of the `d` property, we want to avoid providing a string value since it will require
     // the path data to be parsed again and path data can be unwieldy.
-    auto property = cssPropertyIdForSVGAttributeName(SVGNames::dAttr, document().settings());
+    auto property = cssPropertyIdForSVGAttributeName(SVGNames::dAttr);
     // The fill rule value passed here is not relevant for the `d` property.
     auto cssPathValue = CSSPathValue::create(CSS::PathFunction { CSS::Keyword::Nonzero { }, CSS::Path::Data { Ref { m_pathSegList }->currentPathByteStream() } });
     addPropertyToPresentationalHintStyle(style, property, WTF::move(cssPathValue));

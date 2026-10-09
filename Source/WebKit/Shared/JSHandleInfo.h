@@ -25,6 +25,10 @@
 
 #pragma once
 
+#include <wtf/Platform.h>
+
+#if !PLATFORM(COCOA) || !__has_feature(modules) || (defined(WK_SUPPORTS_SWIFT_OBJCXX_INTEROP) && WK_SUPPORTS_SWIFT_OBJCXX_INTEROP)
+
 #include "FrameInfoData.h"
 #include <WebCore/ProcessQualified.h>
 
@@ -42,7 +46,7 @@ struct JSHandleInfo {
     WTF_MAKE_STRUCT_TZONE_ALLOCATED(JSHandleInfo);
     JSHandleInfo(WebCore::JSHandleIdentifier, ContentWorldIdentifier, FrameInfoData&&, Markable<WebCore::FrameIdentifier>);
 
-    bool operator==(const JSHandleInfo&) const;
+    bool NODELETE operator==(const JSHandleInfo&) const;
 
     WebCore::JSHandleIdentifier identifier;
     ContentWorldIdentifier worldIdentifier;
@@ -51,3 +55,5 @@ struct JSHandleInfo {
 };
 
 }
+
+#endif // !PLATFORM(COCOA) || !__has_feature(modules) || (defined(WK_SUPPORTS_SWIFT_OBJCXX_INTEROP) && WK_SUPPORTS_SWIFT_OBJCXX_INTEROP)

@@ -20,19 +20,18 @@
 
 #pragma once
 
+#include <bmalloc/BPlatform.h>
+#include <bmalloc/Gigacage.h>
 #include <new>
 #include <stdlib.h>
 #include <wtf/DebugHeap.h>
 #include <wtf/MallocCommon.h>
 #include <wtf/StdLibExtras.h>
 
-#if !USE(SYSTEM_MALLOC)
-#include <bmalloc/BPlatform.h>
 // Enable USE(LIBPAS)
 // FIXME: Replaces uses of `#if !USE(SYSTEM_MALLOC) \n #if BUSE(LIBPAS)` with `#if USE(LIBPAS)`
 #if BUSE(LIBPAS)
 #define USE_LIBPAS 1
-#endif
 #endif
 
 namespace WTF {
@@ -105,7 +104,7 @@ namespace WTF {
 // - WTF_MAKE_COMPACT_TZONE_ALLOCATED(ClassName)
 // - WTF_MAKE_COMPACT_TZONE_ALLOCATED_EXPORT(ClassName, exportMacro)
 //     class / struct / template is allocated from a fixed set of shared libpas heaps with the same size and alignment. Each set of shared heaps is
-//     known as a TZoneTypeBuckets. The particular bucket is selected using SHA 256 hashing on a process startup value along with particulars of the
+//     known as a TZone Group. The particular bucket is selected using SHA 256 hashing on a process startup value along with particulars of the
 //     class / struct being allocated. This sharing provides protections from type confusion and use-after-free bugs, but with less memory overhead of
 //     IsoHeap allocated objects. This is the preferred allocation method.
 //     For example, if Event is annotated with WTF_MAKE_TZONE_ALLOCATED(Event), all derived classes of Event must be annotated with
@@ -147,10 +146,8 @@ WTF_EXPORT_PRIVATE TryMallocReturnValue tryFastRealloc(void*, size_t);
 
 WTF_EXPORT_PRIVATE void fastFree(void*);
 
-// Allocations from fastAlignedMalloc() must be freed using fastAlignedFree().
 WTF_EXPORT_PRIVATE void* fastAlignedMalloc(size_t alignment, size_t) RETURNS_NONNULL;
 WTF_EXPORT_PRIVATE void* tryFastAlignedMalloc(size_t alignment, size_t);
-WTF_EXPORT_PRIVATE void fastAlignedFree(void*);
 
 // These functions behave like their non-compact counterparts, but guarantee
 // that the pointer returned can be stored as a CompactPtr or PackedPtr.
@@ -183,6 +180,10 @@ WTF_EXPORT_PRIVATE void fastEnableMiniMode(bool forceMiniMode = false);
 
 WTF_EXPORT_PRIVATE void fastDisableScavenger();
 
+#if HAVE(QOS_CLASSES)
+WTF_EXPORT_PRIVATE void fastSetScavengerThreadQOSClass(unsigned);
+#endif
+
 // allocate with guard pages at a rate of 1/guardMallocRate
 WTF_EXPORT_PRIVATE void forceEnablePGM(uint16_t guardMallocRate);
 
@@ -193,7 +194,7 @@ struct FastMallocStatistics {
 };
 WTF_EXPORT_PRIVATE FastMallocStatistics fastMallocStatistics();
 
-WTF_EXPORT_PRIVATE void fastMallocDumpMallocStats();
+WTF_EXPORT_PRIVATE void NODELETE fastMallocDumpMallocStats();
 
 // This defines a type which holds an unsigned integer and is the same
 // size as the minimally aligned memory allocation.
@@ -279,7 +280,7 @@ struct FastMalloc {
 struct FastAlignedMalloc {
     static void* alignedMalloc(size_t alignment, size_t size) { return fastAlignedMalloc(alignment, size); }
     static void* tryAlignedMalloc(size_t alignment, size_t size) { return tryFastAlignedMalloc(alignment, size); }
-    static void free(void* p) { fastAlignedFree(p); }
+    static void free(void* p) { fastFree(p); }
 };
 
 struct FastCompactMalloc {
@@ -366,6 +367,25 @@ inline constexpr bool usesTZoneHeap()
 
 } // namespace WTF
 
+namespace Gigacage {
+
+WTF_EXPORT_PRIVATE void* tryAlignedMalloc(Kind, size_t alignment, size_t);
+WTF_EXPORT_PRIVATE void* tryMalloc(Kind, size_t);
+WTF_EXPORT_PRIVATE void* tryZeroedMalloc(Kind, size_t);
+WTF_EXPORT_PRIVATE void* tryRealloc(Kind, void*, size_t);
+WTF_EXPORT_PRIVATE void free(Kind, void*);
+
+WTF_EXPORT_PRIVATE void* tryAllocateZeroedVirtualPages(Kind, size_t);
+WTF_EXPORT_PRIVATE void freeVirtualPages(Kind, void* basePtr, size_t);
+
+WTF_EXPORT_PRIVATE void* tryMallocArray(Kind, size_t numElements, size_t elementSize);
+
+WTF_EXPORT_PRIVATE void* malloc(Kind, size_t);
+WTF_EXPORT_PRIVATE void* zeroedMalloc(Kind, size_t);
+WTF_EXPORT_PRIVATE void* mallocArray(Kind, size_t numElements, size_t elementSize);
+
+} // namespace Gigacage
+
 #if !defined(NDEBUG)
 using WTF::fastSetMaxSingleAllocationSize;
 #endif
@@ -425,7 +445,6 @@ using WTF::tryFastCalloc;
 using WTF::tryFastMalloc;
 using WTF::tryFastZeroedMalloc;
 using WTF::fastAlignedMalloc;
-using WTF::fastAlignedFree;
 using WTF::fastCompactCalloc;
 using WTF::fastCompactMalloc;
 using WTF::fastCompactMemDup;

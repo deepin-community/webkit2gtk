@@ -46,9 +46,9 @@ public:
     struct Min { Min isolatedCopy() const { return { }; } };
     struct Max { Max isolatedCopy() const { return { }; } };
     struct Invalid { Invalid isolatedCopy() const { return { }; } };
+    using ValueVariant = Variant<std::nullptr_t, Invalid, Vector<IDBKeyData>, String, double, Date, ThreadSafeDataBuffer, Min, Max>;
 
     enum IsolatedCopyTag { IsolatedCopy };
-    using ValueVariant = Variant<std::nullptr_t, Invalid, Vector<IDBKeyData>, String, double, Date, ThreadSafeDataBuffer, Min, Max>;
 
     IDBKeyData() = default;
     IDBKeyData(ValueVariant&& value)
@@ -130,9 +130,9 @@ public:
         return std::get<Vector<IDBKeyData>>(m_value);
     }
 
-    const ValueVariant& value() const { return m_value; }
+    size_t size() const;
 
-    size_t size() const;;
+    const ValueVariant& value() const LIFETIME_BOUND { return m_value; };
 
 private:
     friend struct IDBKeyDataHashTraits;

@@ -52,7 +52,7 @@ void ScrollbarsControllerCoordinated::scrollbarLayoutDirectionChanged(WebCore::U
     WebCore::ScrollbarsControllerGeneric::scrollbarLayoutDirectionChanged(scrollbarLayoutDirection);
 
     if (RefPtr scrollingCoordinator = m_coordinator.get())
-        scrollingCoordinator->setScrollbarLayoutDirection(checkedScrollableArea(), scrollbarLayoutDirection);
+        scrollingCoordinator->setScrollbarLayoutDirection(protect(scrollableArea()), scrollbarLayoutDirection);
 }
 
 bool ScrollbarsControllerCoordinated::shouldDrawIntoScrollbarLayer(WebCore::Scrollbar& scrollbar) const
@@ -77,31 +77,31 @@ void ScrollbarsControllerCoordinated::updateScrollbarStyle()
     // and length are properly updated.
     updateScrollbarsThickness();
 
-    checkedScrollableArea()->scrollbarStyleChanged(theme.usesOverlayScrollbars() ? WebCore::ScrollbarStyle::Overlay : WebCore::ScrollbarStyle::AlwaysVisible, true);
+    protect(scrollableArea())->scrollbarStyleChanged(theme.usesOverlayScrollbars() ? WebCore::ScrollbarStyle::Overlay : WebCore::ScrollbarStyle::AlwaysVisible, true);
 }
 
 void ScrollbarsControllerCoordinated::scrollbarOpacityChanged()
 {
     if (auto scrollingCoordinator = m_coordinator.get())
-        scrollingCoordinator->setScrollbarOpacity(checkedScrollableArea());
+        scrollingCoordinator->setScrollbarOpacity(protect(scrollableArea()));
 }
 
 void ScrollbarsControllerCoordinated::hoveredPartChanged(WebCore::Scrollbar& scrollbar)
 {
     if (auto scrollingCoordinator = m_coordinator.get())
-        scrollingCoordinator->setHoveredAndPressedScrollbarParts(checkedScrollableArea());
+        scrollingCoordinator->setHoveredAndPressedScrollbarParts(protect(scrollableArea()));
 }
 
 void ScrollbarsControllerCoordinated::pressedPartChanged(WebCore::Scrollbar& scrollbar)
 {
     if (auto scrollingCoordinator = m_coordinator.get())
-        scrollingCoordinator->setHoveredAndPressedScrollbarParts(checkedScrollableArea());
+        scrollingCoordinator->setHoveredAndPressedScrollbarParts(protect(scrollableArea()));
 }
 
 void ScrollbarsControllerCoordinated::scrollbarColorChanged(std::optional<WebCore::ScrollbarColor> color)
 {
     if (auto scrollingCoordinator = m_coordinator.get())
-        scrollingCoordinator->setScrollbarColor(scrollableArea(), color);
+        scrollingCoordinator->setScrollbarColor(protect(scrollableArea()), color);
 }
 
 String ScrollbarsControllerCoordinated::scrollbarStateForTesting(WebCore::Scrollbar* scrollbar) const
@@ -112,7 +112,7 @@ String ScrollbarsControllerCoordinated::scrollbarStateForTesting(WebCore::Scroll
     StringBuilder result;
     result.append(scrollbar->enabled() ? "enabled"_s : "disabled"_s);
 
-    auto scrollbarColor = scrollableArea().scrollbarColorStyle();
+    auto scrollbarColor = protect(scrollableArea())->scrollbarColorStyle();
     if (scrollbarColor) {
         result.append(",trackColor:"_s);
         result.append(scrollbarColor->trackColor.debugDescription());
@@ -125,12 +125,12 @@ String ScrollbarsControllerCoordinated::scrollbarStateForTesting(WebCore::Scroll
 
 String ScrollbarsControllerCoordinated::horizontalScrollbarStateForTesting() const
 {
-    return scrollbarStateForTesting(scrollableArea().horizontalScrollbar());
+    return scrollbarStateForTesting(protect(protect(scrollableArea())->horizontalScrollbar()).get());
 }
 
 String ScrollbarsControllerCoordinated::verticalScrollbarStateForTesting() const
 {
-    return scrollbarStateForTesting(scrollableArea().verticalScrollbar());
+    return scrollbarStateForTesting(protect(protect(scrollableArea())->verticalScrollbar()).get());
 }
 
 }

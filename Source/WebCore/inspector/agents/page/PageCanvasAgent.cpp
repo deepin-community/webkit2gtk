@@ -44,7 +44,6 @@
 #include "InstrumentingAgents.h"
 #include "LocalFrame.h"
 #include "NodeDocument.h"
-#include "NodeInlines.h"
 #include <wtf/TZoneMallocInlines.h>
 
 #if ENABLE(OFFSCREEN_CANVAS)
@@ -92,13 +91,13 @@ Inspector::Protocol::ErrorStringOr<Inspector::Protocol::DOM::NodeId> PageCanvasA
     if (!inspectorCanvas)
         return makeUnexpected(errorString);
 
-    auto* node = inspectorCanvas->canvasElement();
+    RefPtr node = inspectorCanvas->canvasElement();
     if (!node)
         return makeUnexpected("Missing element of canvas for given canvasId"_s);
 
     // FIXME: <https://webkit.org/b/213499> Web Inspector: allow DOM nodes to be instrumented at any point, regardless of whether the main document has also been instrumented
     Ref agents = m_instrumentingAgents.get();
-    int documentNodeId = agents->persistentDOMAgent()->boundNodeId(&node->document());
+    int documentNodeId = agents->persistentDOMAgent()->boundNodeId(protect(node->document()).ptr());
     if (!documentNodeId)
         return makeUnexpected("Document must have been requested"_s);
 
@@ -109,7 +108,7 @@ Inspector::Protocol::ErrorStringOr<Ref<JSON::ArrayOf<Inspector::Protocol::DOM::N
 {
     Inspector::Protocol::ErrorString errorString;
 
-    auto* domAgent = Ref { m_instrumentingAgents.get() }->persistentDOMAgent();
+    CheckedPtr domAgent = Ref { m_instrumentingAgents.get() }->persistentDOMAgent();
     if (!domAgent)
         return makeUnexpected("DOM domain must be enabled"_s);
 
@@ -120,7 +119,7 @@ Inspector::Protocol::ErrorStringOr<Ref<JSON::ArrayOf<Inspector::Protocol::DOM::N
     auto clientNodeIds = JSON::ArrayOf<Inspector::Protocol::DOM::NodeId>::create();
     for (auto& clientNode : inspectorCanvas->clientNodes()) {
         // FIXME: <https://webkit.org/b/213499> Web Inspector: allow DOM nodes to be instrumented at any point, regardless of whether the main document has also been instrumented
-        if (auto documentNodeId = domAgent->boundNodeId(&clientNode->document()))
+        if (auto documentNodeId = domAgent->boundNodeId(protect(clientNode->document()).ptr()))
             clientNodeIds->addItem(domAgent->pushNodeToFrontend(errorString, documentNodeId, clientNode));
     }
     return clientNodeIds;
@@ -135,18 +134,18 @@ void PageCanvasAgent::frameNavigated(LocalFrame& frame)
 
     Vector<InspectorCanvas*> inspectorCanvases;
     for (auto& inspectorCanvas : m_identifierToInspectorCanvas.values()) {
-        if (auto* canvasElement = inspectorCanvas->canvasElement()) {
+        if (RefPtr canvasElement = inspectorCanvas->canvasElement()) {
             if (canvasElement->document().frame() == &frame)
                 inspectorCanvases.append(inspectorCanvas.ptr());
         }
     }
-    for (auto* inspectorCanvas : inspectorCanvases)
+    for (RefPtr inspectorCanvas : inspectorCanvases)
         unbindCanvas(*inspectorCanvas);
 }
 
 void PageCanvasAgent::didChangeCSSCanvasClientNodes(CanvasBase& canvasBase)
 {
-    auto* context = canvasBase.renderingContext();
+    RefPtr context = canvasBase.renderingContext();
     if (!context) {
         ASSERT_NOT_REACHED();
         return;

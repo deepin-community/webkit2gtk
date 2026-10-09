@@ -34,7 +34,7 @@
 ] interface DOMMatrix : DOMMatrixReadOnly {
     [CallWith=CurrentScriptExecutionContext] constructor(optional (DOMString or sequence<unrestricted double>) init);
 
-    [NewObject] static DOMMatrix fromMatrix(optional DOMMatrixInit other);
+    [NewObject] static DOMMatrix fromMatrix(optional DOMMatrixInit other = {});
     [NewObject] static DOMMatrix fromFloat32Array(Float32Array array32);
     [NewObject] static DOMMatrix fromFloat64Array(Float64Array array64);
 
@@ -64,8 +64,8 @@
     inherit attribute unrestricted double m44;
 
     // Mutable transform methods
-    DOMMatrix multiplySelf(optional DOMMatrixInit other);
-    DOMMatrix preMultiplySelf(optional DOMMatrixInit other);
+    DOMMatrix multiplySelf(optional DOMMatrixInit other = {});
+    DOMMatrix preMultiplySelf(optional DOMMatrixInit other = {});
     DOMMatrix translateSelf(optional unrestricted double tx = 0,
                             optional unrestricted double ty = 0,
                             optional unrestricted double tz = 0);
@@ -92,5 +92,5 @@
     DOMMatrix skewYSelf(optional unrestricted double sy = 0); // Angle is in degrees.
     DOMMatrix invertSelf();
 
-    [Exposed=Window, ImplementedAs=setMatrixValueForBindings] DOMMatrix setMatrixValue(DOMString transformList);
+    [Exposed=Window, CallWith=CurrentDocument, ImplementedAs=setMatrixValueForBindings] DOMMatrix setMatrixValue(DOMString transformList);
 };

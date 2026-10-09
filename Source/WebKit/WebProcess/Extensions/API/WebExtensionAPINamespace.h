@@ -85,7 +85,6 @@ public:
     WebExtensionAPIAction& pageAction() { return action(); }
     WebExtensionAPIPermissions& permissions();
     WebExtensionAPIRuntime& runtime() const final;
-    Ref<WebExtensionAPIRuntime> protectedRuntime() const { return runtime(); }
     WebExtensionAPIScripting& scripting();
 #if ENABLE(WK_WEB_EXTENSIONS_SIDEBAR)
     WebExtensionAPISidePanel& sidePanel();
@@ -96,7 +95,9 @@ public:
 #endif
     WebExtensionAPIStorage& storage();
     WebExtensionAPITabs& tabs();
+#endif
     WebExtensionAPITest& test();
+#if PLATFORM(COCOA)
     WebExtensionAPIWindows& windows();
     WebExtensionAPIWebNavigation& webNavigation();
     WebExtensionAPIWebRequest& webRequest();

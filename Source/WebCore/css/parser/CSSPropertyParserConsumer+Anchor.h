@@ -62,8 +62,8 @@ enum class ValueType {
 //   (e.g "block-start inline-end" becomes "start end")
 //
 // Returns null if the keywords aren't valid/compatible. Otherwise, return a
-// CSSPrimitiveValue or CSSValuePair depending on if the keywords can be collapsed.
-RefPtr<CSSValue> valueForPositionArea(CSSValueID, CSSValueID, ValueType);
+// CSSKeywordValue or CSSValuePair depending on if the keywords can be collapsed.
+RefPtr<CSSValue> NODELETE valueForPositionArea(CSSValueID, CSSValueID, ValueType);
 
 // MARK: <'position-area'>
 // https://drafts.csswg.org/css-anchor-position-1/#propdef-position-area

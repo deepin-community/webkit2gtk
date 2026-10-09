@@ -25,7 +25,10 @@
 
 #pragma once
 
-#include <WebCore/WritableStreamSink.h>
+#include "WritableStreamSink.h"
+#include <wtf/Ref.h>
+#include <wtf/ThreadSafeWeakPtr.h>
+#include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
@@ -42,15 +45,15 @@ public:
 
     WebTransportStreamIdentifier identifier() const { return m_identifier; }
     void setStream(WritableStream& stream) { m_stream = stream; }
-    RefPtr<WritableStream> stream() const;
+    RefPtr<WritableStream> NODELETE stream() const;
     void sendError(JSDOMGlobalObject&, JSC::JSValue error);
 
 private:
     WEBCORE_EXPORT WebTransportSendStreamSink(WebTransport&, WebTransportStreamIdentifier);
 
     void write(ScriptExecutionContext&, JSC::JSValue, DOMPromiseDeferred<void>&&) final;
-    void close() final;
-    void abort(JSC::JSValue) final;
+    void close(JSDOMGlobalObject&) final;
+    void abort(JSDOMGlobalObject&, JSC::JSValue, DOMPromiseDeferred<void>&&) final;
 
     const ThreadSafeWeakPtr<WebTransport> m_transport;
     const WebTransportStreamIdentifier m_identifier;

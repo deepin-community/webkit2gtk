@@ -35,6 +35,7 @@
 #include "WebPageTestingMessages.h"
 #include "WebProcess.h"
 #include <WebCore/BackForwardController.h>
+#include <WebCore/Document.h>
 #include <WebCore/DocumentView.h>
 #include <WebCore/Editor.h>
 #include <WebCore/FocusController.h>
@@ -43,6 +44,7 @@
 #include <WebCore/LocalFrameView.h>
 #include <WebCore/NotificationController.h>
 #include <WebCore/Page.h>
+#include <WebCore/WheelEventTestMonitor.h>
 #include <wtf/TZoneMallocInlines.h>
 
 namespace WebKit {
@@ -72,6 +74,11 @@ void WebPageTesting::isLayerTreeFrozen(CompletionHandler<void(bool)>&& completio
     completionHandler(m_page && !!m_page->layerTreeFreezeReasons());
 }
 
+void WebPageTesting::numberOfLiveDocuments(CompletionHandler<void(uint64_t)>&& completionHandler)
+{
+    completionHandler(WebCore::Document::allDocuments().size());
+}
+
 void WebPageTesting::setPermissionLevel(const String& origin, bool allowed)
 {
 #if ENABLE(NOTIFICATIONS)
@@ -99,7 +106,7 @@ void WebPageTesting::isEditingCommandEnabled(const String& commandName, Completi
         return completionHandler(pluginView->isEditingCommandEnabled(commandName));
 #endif
 
-    auto command = frame->protectedEditor()->command(commandName);
+    auto command = protect(frame->editor())->command(commandName);
     completionHandler(command.isSupported() && command.isEnabled());
 }
 
@@ -121,6 +128,32 @@ void WebPageTesting::clearWheelEventTestMonitor()
     page->clearWheelEventTestMonitor();
 }
 
+void WebPageTesting::startMonitoringWheelEventsForTesting(CompletionHandler<void()>&& completionHandler)
+{
+    RefPtr page = m_page ? m_page->corePage() : nullptr;
+    if (!page) {
+        completionHandler();
+        return;
+    }
+
+    page->startMonitoringWheelEvents(true);
+    completionHandler();
+}
+
+void WebPageTesting::waitForWheelEventsToCompleteForTesting(CompletionHandler<void()>&& completionHandler)
+{
+    RefPtr page = m_page ? m_page->corePage() : nullptr;
+    if (!page || !page->isMonitoringWheelEvents()) {
+        completionHandler();
+        return;
+    }
+
+    if (auto wheelEventTestMonitor = page->wheelEventTestMonitor())
+        wheelEventTestMonitor->setTestCallbackAndStartMonitoring(true, false, WTF::move(completionHandler));
+    else
+        completionHandler();
+}
+
 void WebPageTesting::setObscuredContentInsets(float top, float right, float bottom, float left, CompletionHandler<void()>&& completionHandler)
 {
     if (RefPtr page = m_page.get())
@@ -138,7 +171,7 @@ void WebPageTesting::resetStateBetweenTests()
         mainFrame->disownOpener();
         mainFrame->tree().clearName();
     }
-    if (RefPtr corePage = page->corePage()) {
+    if (auto* corePage = page->corePage()) {
         // Force consistent "responsive" behavior for WebPage::eventThrottlingDelay() for testing. Tests can override via internals.
         corePage->setEventThrottlingBehaviorOverride(WebCore::EventThrottlingBehavior::Responsive);
     }
@@ -178,7 +211,7 @@ void WebPageTesting::displayAndTrackRepaints(CompletionHandler<void()>&& complet
     if (!corePage)
         return completionHandler();
 
-    page->protectedDrawingArea()->updateRenderingWithForcedRepaint();
+    protect(page->drawingArea())->updateRenderingWithForcedRepaint();
     for (auto& rootFrame : corePage->rootFrames()) {
         if (RefPtr view = rootFrame->view()) {
             view->setTracksRepaints(true);

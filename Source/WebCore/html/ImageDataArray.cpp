@@ -29,22 +29,13 @@
 #include "config.h"
 #include "ImageDataArray.h"
 
-#include <JavaScriptCore/Float16Array.h>
 #include <JavaScriptCore/GenericTypedArrayViewInlines.h>
-#include <JavaScriptCore/Uint8ClampedArray.h>
+#include <WebCore/ArrayPixelBuffer.h>
 #include <wtf/StdLibExtras.h>
-
-// Needed for `downcast` below.
-SPECIALIZE_TYPE_TRAITS_BEGIN(JSC::Uint8ClampedArray)
-    static bool isType(const JSC::ArrayBufferView& arrayBufferView) { return arrayBufferView.getType() == JSC::TypeUint8Clamped; }
-SPECIALIZE_TYPE_TRAITS_END()
-SPECIALIZE_TYPE_TRAITS_BEGIN(JSC::Float16Array)
-    static bool isType(const JSC::ArrayBufferView& arrayBufferView) { return arrayBufferView.getType() == JSC::TypeFloat16; }
-SPECIALIZE_TYPE_TRAITS_END()
 
 namespace WebCore {
 
-template <typename F>
+template<typename F>
 static auto visitArrayBufferView(JSC::ArrayBufferView& bufferView, F&& f)
 {
     // Always try Uint8ClampedArray first, as it should be the most frequent.
@@ -98,6 +89,7 @@ std::optional<ImageDataArray> ImageDataArray::tryCreate(size_t length, ImageData
             fillTypedArray(*typedArray, optionalBytes);
             array.emplace(typedArray.releaseNonNull());
         }
+        break;
     }
     return array;
 }
@@ -119,7 +111,7 @@ struct TypedArrayItemConverter;
 
 template <>
 struct TypedArrayItemConverter<JSC::Uint8ClampedArray, JSC::Float16Array> {
-    static constexpr JSC::Float16Adaptor::Type convert(JSC::Uint8ClampedAdaptor::Type value)
+    static constexpr JSC::Float16Adaptor::Type NODELETE convert(JSC::Uint8ClampedAdaptor::Type value)
     {
         return double(value) / 255.0;
     }
@@ -127,7 +119,7 @@ struct TypedArrayItemConverter<JSC::Uint8ClampedArray, JSC::Float16Array> {
 
 template <>
 struct TypedArrayItemConverter<JSC::Float16Array, JSC::Uint8ClampedArray> {
-    static constexpr JSC::Uint8ClampedAdaptor::Type convert(JSC::Float16Adaptor::Type value)
+    static constexpr JSC::Uint8ClampedAdaptor::Type NODELETE convert(JSC::Float16Adaptor::Type value)
     {
         auto d = double(value);
         if (d <= 0)
@@ -168,23 +160,25 @@ Ref<JSC::Float16Array> ImageDataArray::asFloat16Array() const
 
 size_t ImageDataArray::length() const
 {
-    return visitArrayBufferView(
-        m_arrayBufferView.get(),
+    return visitArrayBufferView(m_arrayBufferView.get(),
         [](const auto& array) {
             return array.length();
-        });
+        }
+    );
 }
 
 Ref<JSON::Value> ImageDataArray::copyToJSONArray() const
 {
-    return visitArrayBufferView(m_arrayBufferView.get(), []<typename T>(const T& array) -> Ref<JSON::Value> {
-        static_assert(std::is_same_v<T, JSC::Uint8ClampedArray> || std::is_same_v<T, JSC::Float16Array>);
-        using CType = std::conditional_t<std::is_same_v<T, JSC::Uint8ClampedArray>, int, double>;
-        Ref jsArray = JSON::ArrayOf<CType>::create();
-        for (const auto& item : array.typedSpan())
-            jsArray->addItem(CType(item));
-        return jsArray;
-    });
+    return visitArrayBufferView(m_arrayBufferView.get(),
+        []<typename T>(const T& array) -> Ref<JSON::Value> {
+            static_assert(std::is_same_v<T, JSC::Uint8ClampedArray> || std::is_same_v<T, JSC::Float16Array>);
+            using CType = std::conditional_t<std::is_same_v<T, JSC::Uint8ClampedArray>, int, double>;
+            Ref jsArray = JSON::ArrayOf<CType>::create();
+            for (const auto& item : array.typedSpan())
+                jsArray->addItem(CType(item));
+            return jsArray;
+        }
+    );
 }
 
 Ref<ArrayBufferView> ImageDataArray::extractBufferViewWithPixelFormat(std::optional<ImageDataPixelFormat> overridingPixelFormat) &&
@@ -201,8 +195,8 @@ Ref<ArrayBufferView> ImageDataArray::extractBufferViewWithPixelFormat(std::optio
 
 ImageDataArray::operator DataVariant() const
 {
-    return visitArrayBufferView(m_arrayBufferView.get(), [](auto& a) {
-        return DataVariant(RefPtr(&a));
+    return visitArrayBufferView(m_arrayBufferView.get(), [](auto& array) {
+        return DataVariant(Ref { array });
     });
 }
 

@@ -27,6 +27,8 @@
 
 namespace WebCore {
 
+template<size_t, size_t> class ColorMatrix;
+
 enum class ColorMatrixType : uint8_t {
     FECOLORMATRIX_TYPE_UNKNOWN          = 0,
     FECOLORMATRIX_TYPE_MATRIX           = 1,
@@ -40,18 +42,19 @@ class FEColorMatrix final : public FilterEffect {
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(FEColorMatrix);
 public:
     WEBCORE_EXPORT static Ref<FEColorMatrix> create(ColorMatrixType, Vector<float>&&, DestinationColorSpace = DestinationColorSpace::SRGB());
+    static Ref<FEColorMatrix> create(ColorMatrixType, const ColorMatrix<5, 4>&, DestinationColorSpace = DestinationColorSpace::SRGB());
 
     bool operator==(const FEColorMatrix&) const;
 
     ColorMatrixType type() const { return m_type; }
-    bool setType(ColorMatrixType);
+    bool NODELETE setType(ColorMatrixType);
 
-    const Vector<float>& values() const { return m_values; }
+    const Vector<float>& values() const LIFETIME_BOUND { return m_values; }
     bool setValues(const Vector<float>&);
 
     WEBCORE_EXPORT static bool areValuesValidForType(ColorMatrixType, const Vector<float>& values);
-    static void calculateSaturateComponents(std::span<float, 9> components, float value);
-    static void calculateHueRotateComponents(std::span<float, 9> components, float value);
+    static void NODELETE calculateSaturateComponents(std::span<float, 9> components, float value);
+    static void NODELETE calculateHueRotateComponents(std::span<float, 9> components, float value);
     static Vector<float> normalizedFloats(const Vector<float>& values);
 
 private:

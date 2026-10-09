@@ -26,13 +26,12 @@
 #include "config.h"
 #include "WasmBreakpointManager.h"
 
-#if ENABLE(WEBASSEMBLY)
+#if ENABLE(WEBASSEMBLY_DEBUGGER)
 
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 #include "Options.h"
 #include <wtf/DataLog.h>
-#include <wtf/RawPointer.h>
 #include <wtf/TZoneMallocInlines.h>
 
 namespace JSC {
@@ -116,4 +115,4 @@ void BreakpointManager::clearAllBreakpoints()
 
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
-#endif // ENABLE(WEBASSEMBLY)
+#endif // ENABLE(WEBASSEMBLY_DEBUGGER)

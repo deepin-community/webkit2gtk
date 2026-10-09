@@ -28,7 +28,9 @@
 #import <utility>
 #import <wtf/CompletionHandler.h>
 #import <wtf/FastMalloc.h>
+#import <wtf/HashMap.h>
 #import <wtf/Ref.h>
+#import <wtf/ThreadSafeWeakPtr.h>
 #import <wtf/WeakPtr.h>
 #include <wtf/RefCountedAndCanMakeWeakPtr.h>
 
@@ -56,9 +58,9 @@ public:
 
     ~XRSubImage();
 
-    void setLabel(String&&);
+    void NODELETE setLabel(String&&);
 
-    bool isValid() const;
+    bool NODELETE isValid() const;
     void update(const XRProjectionLayer&);
     Texture* colorTexture();
     Texture* depthTexture();

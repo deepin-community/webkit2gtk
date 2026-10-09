@@ -62,7 +62,7 @@ SPDX-License-Identifier: BSD, LGPL-2.1
         <h3><a href="index.html">WebKitWebProcessExtension</a></h3>
         <p>API Version: 6.0</p>
         
-        <p>Library Version: 2.52.5</p>
+        <p>Library Version: 2.54.0</p>
         
       </div>
       
@@ -157,7 +157,7 @@ SPDX-License-Identifier: BSD, LGPL-2.1
         <div class="docblock">
           <p>Represents an extension of the web&nbsp;process.</p>
 <p>WebKitWebProcessExtension is a loadable module for the web process. It allows you to execute code in the
-web process and being able to use the <span class="caps">DOM</span> <span class="caps">API</span>, to change any request or to inject custom
+web process and to use the <span class="caps">DOM</span> <span class="caps">API</span>, to change any request or to inject custom
 JavaScript code, for&nbsp;example.</p>
 <p>To create a WebKitWebProcessExtension you should write a module with an initialization function that could
 be either <code>webkit_web_process_extension_initialize()</code> with prototype <code>WebKitWebProcessExtensionInitializeFunction</code> or
@@ -186,34 +186,35 @@ web process is&nbsp;initialized.</p>
 <p>The previous piece of code shows a trivial example of an extension that notifies when
 a <code>WebKitWebPage</code> is&nbsp;created.</p>
 <p>WebKit has to know where it can find the created WebKitWebProcessExtension. To do so you
-should use the <code>webkit_web_context_set_web_extensions_directory()</code> function. The signal
-<code>WebKitWebContext::initialize-web-extensions</code> is the recommended place to call&nbsp;it.</p>
+should use the <code>webkit_web_context_set_web_process_extensions_directory()</code> function. The signal
+<code>WebKitWebContext::initialize-web-process-extensions</code> is the recommended place to call&nbsp;it.</p>
 <p>To provide the initialization data used by the <code>webkit_web_process_extension_initialize_with_user_data()</code>
-function, you have to call <code>webkit_web_context_set_web_extensions_initialization_user_data()</code> with
+function, you have to call <code>webkit_web_context_set_web_process_extensions_initialization_user_data()</code> with
 the desired data as parameter. You can see an example of this in the following piece of&nbsp;code:</p>
-<div class="codehilite"><pre><span></span><code><span class="cp">#define WEB_EXTENSIONS_DIRECTORY </span><span class="c1">// ...</span>
+<div class="codehilite"><pre><span></span><code><span class="cp">#define WEB_PROCESS_EXTENSIONS_DIRECTORY </span><span class="c1">// ...</span>
 
 <span class="k">static</span><span class="w"> </span><span class="kt">void</span>
-<span class="nf">initialize_web_extensions</span><span class="w"> </span><span class="p">(</span><span class="n">WebKitWebContext</span><span class="w"> </span><span class="o">*</span><span class="n">context</span><span class="p">,</span>
-<span class="w">                           </span><span class="n">gpointer</span><span class="w">          </span><span class="n">user_data</span><span class="p">)</span>
+<span class="nf">initialize_web_process_extensions</span><span class="w"> </span><span class="p">(</span><span class="n">WebKitWebContext</span><span class="w"> </span><span class="o">*</span><span class="n">context</span><span class="p">,</span>
+<span class="w">                                   </span><span class="n">gpointer</span><span class="w">          </span><span class="n">user_data</span><span class="p">)</span>
 <span class="p">{</span>
-<span class="w">  </span><span class="c1">// Web Extensions get a different ID for each Web Process</span>
+<span class="w">  </span><span class="c1">// Web process extensions get a different ID for each web process</span>
 <span class="w">  </span><span class="k">static</span><span class="w"> </span><span class="n">guint32</span><span class="w"> </span><span class="n">unique_id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span>
 
-<span class="w">  </span><span class="n">webkit_web_context_set_web_extensions_directory</span><span class="w"> </span><span class="p">(</span>
-<span class="w">     </span><span class="n">context</span><span class="p">,</span><span class="w"> </span><span class="n">WEB_EXTENSIONS_DIRECTORY</span><span class="p">);</span>
-<span class="w">  </span><span class="n">webkit_web_context_set_web_extensions_initialization_user_data</span><span class="w"> </span><span class="p">(</span>
+<span class="w">  </span><span class="n">webkit_web_context_set_web_process_extensions_directory</span><span class="w"> </span><span class="p">(</span>
+<span class="w">     </span><span class="n">context</span><span class="p">,</span><span class="w"> </span><span class="n">WEB_PROCESS_EXTENSIONS_DIRECTORY</span><span class="p">);</span>
+<span class="w">  </span><span class="n">webkit_web_context_set_web_process_extensions_initialization_user_data</span><span class="w"> </span><span class="p">(</span>
 <span class="w">     </span><span class="n">context</span><span class="p">,</span><span class="w"> </span><span class="n">g_variant_new_uint32</span><span class="w"> </span><span class="p">(</span><span class="n">unique_id</span><span class="o">++</span><span class="p">));</span>
 <span class="p">}</span>
 
 <span class="kt">int</span><span class="w"> </span><span class="nf">main</span><span class="w"> </span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">argc</span><span class="p">,</span><span class="w"> </span><span class="kt">char</span><span class="w"> </span><span class="o">**</span><span class="n">argv</span><span class="p">)</span>
 <span class="p">{</span>
 <span class="w">  </span><span class="n">g_signal_connect</span><span class="w"> </span><span class="p">(</span><span class="n">webkit_web_context_get_default</span><span class="w"> </span><span class="p">(),</span>
-<span class="w">                   </span><span class="s">&quot;initialize-web-extensions&quot;</span><span class="p">,</span>
-<span class="w">                    </span><span class="n">G_CALLBACK</span><span class="w"> </span><span class="p">(</span><span class="n">initialize_web_extensions</span><span class="p">),</span>
+<span class="w">                    </span><span class="s">&quot;initialize-web-process-extensions&quot;</span><span class="p">,</span>
+<span class="w">                    </span><span class="n">G_CALLBACK</span><span class="w"> </span><span class="p">(</span><span class="n">initialize_web_process_extensions</span><span class="p">),</span>
 <span class="w">                    </span><span class="nb">NULL</span><span class="p">);</span>
 
-<span class="w">  </span><span class="n">GtkWidget</span><span class="w"> </span><span class="o">*</span><span class="n">view</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">webkit_web_view_new</span><span class="w"> </span><span class="p">();</span>
+<span class="w">  </span><span class="c1">// With the legacy libwpe backend, WPE also needs the &quot;backend&quot; property</span>
+<span class="w">  </span><span class="n">WebKitWebView</span><span class="w"> </span><span class="o">*</span><span class="n">view</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">g_object_new</span><span class="w"> </span><span class="p">(</span><span class="n">WEBKIT_TYPE_WEB_VIEW</span><span class="p">,</span><span class="w"> </span><span class="nb">NULL</span><span class="p">);</span>
 
 <span class="w">  </span><span class="c1">// ...</span>
 <span class="p">}</span>
@@ -393,7 +394,7 @@ the Web&nbsp;Process.</p>
           <div class="docblock">
             <p>This signal is emitted when a <code>WebKitUserMessage</code> is received from the
 <code>WebKitWebContext</code> corresponding to <code>extension</code>. Messages sent by <code>WebKitWebContext</code>
-are always broadcasted to all web extensions and they can&#8217;t be
+are always broadcast to all web extensions and they can&#8217;t be
 replied to. Calling <code>webkit_user_message_send_reply()</code> will do&nbsp;nothing.</p>
           </div>
           <div class="docblock">

@@ -26,18 +26,19 @@
 #ifndef APIUtils_h
 #define APIUtils_h
 
-#include "CatchScope.h"
 #include "Exception.h"
 #include "JSCJSValue.h"
+#include "JSGlobalObject.h"
 #include "JSGlobalObjectInspectorController.h"
 #include "JSValueRef.h"
+#include "TopExceptionScope.h"
 
 enum class ExceptionStatus {
     DidThrow,
     DidNotThrow
 };
 
-inline ExceptionStatus handleExceptionIfNeeded(JSC::CatchScope& scope, JSContextRef ctx, JSValueRef* returnedExceptionRef)
+inline ExceptionStatus handleExceptionIfNeeded(JSC::TopExceptionScope& scope, JSContextRef ctx, JSValueRef* returnedExceptionRef)
 {
     JSC::JSGlobalObject* globalObject = toJS(ctx);
     if (scope.exception()) [[unlikely]] {
@@ -46,7 +47,7 @@ inline ExceptionStatus handleExceptionIfNeeded(JSC::CatchScope& scope, JSContext
             *returnedExceptionRef = toRef(globalObject, exception->value());
         scope.clearException();
 #if ENABLE(REMOTE_INSPECTOR)
-        globalObject->checkedInspectorController()->reportAPIException(globalObject, exception);
+        protect(globalObject->inspectorController())->reportAPIException(globalObject, exception);
 #endif
         return ExceptionStatus::DidThrow;
     }
@@ -60,7 +61,7 @@ inline void setException(JSContextRef ctx, JSValueRef* returnedExceptionRef, JSC
         *returnedExceptionRef = toRef(globalObject, exception);
 #if ENABLE(REMOTE_INSPECTOR)
     JSC::VM& vm = getVM(globalObject);
-    globalObject->checkedInspectorController()->reportAPIException(globalObject, JSC::Exception::create(vm, exception));
+    protect(globalObject->inspectorController())->reportAPIException(globalObject, JSC::Exception::create(vm, exception));
 #endif
 }
 

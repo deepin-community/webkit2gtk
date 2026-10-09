@@ -21,13 +21,13 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
 // THE POSSIBILITY OF SUCH DAMAGE.
 
-#if ENABLE_SWIFTUI && compiler(>=6.0)
+#if ENABLE_SWIFTUI
 
 import Foundation
 
 extension WebPage {
     /// A particular state that occurs during the progression of a navigation.
-    @available(iOS 26.0, macOS 26.0, visionOS 26.0, *)
+    @available(anyAppleOSAndDownlevels 26.0, *)
     @available(watchOS, unavailable)
     @available(tvOS, unavailable)
     public enum NavigationEvent: Hashable, Sendable {
@@ -48,7 +48,7 @@ extension WebPage {
     }
 
     /// A specific error that caused a navigation to fail.
-    @available(iOS 26.0, macOS 26.0, visionOS 26.0, *)
+    @available(anyAppleOSAndDownlevels 26.0, *)
     @available(watchOS, unavailable)
     @available(tvOS, unavailable)
     public enum NavigationError: Error {
@@ -66,4 +66,4 @@ extension WebPage {
     }
 }
 
-#endif // ENABLE_SWIFTUI && compiler(>=6.0)
+#endif // ENABLE_SWIFTUI

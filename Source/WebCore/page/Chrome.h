@@ -22,6 +22,7 @@
 #pragma once
 
 #include <WebCore/Cursor.h>
+#include <WebCore/DigitalCredentialsRequestData.h>
 #include <WebCore/DisabledAdaptations.h>
 #include <WebCore/FocusDirection.h>
 #include <WebCore/HostWindow.h>
@@ -33,6 +34,7 @@
 #include <wtf/RefPtr.h>
 #include <wtf/TZoneMalloc.h>
 #include <wtf/UniqueRef.h>
+#include <wtf/Variant.h>
 #include <wtf/Vector.h>
 
 #if PLATFORM(COCOA)
@@ -93,10 +95,8 @@ struct ShareDataWithParsedURL;
 struct ViewportArguments;
 struct WindowFeatures;
 
-#if HAVE(DIGITAL_CREDENTIALS_UI)
+#if ENABLE(WEB_AUTHN)
 class SecurityOriginData;
-
-struct DigitalCredentialsRequestData;
 struct DigitalCredentialsResponseData;
 struct ExceptionData;
 struct MobileDocumentRequest;
@@ -108,8 +108,8 @@ public:
     Chrome(Page&, UniqueRef<ChromeClient>&&);
     virtual ~Chrome();
 
-    ChromeClient& client() { return m_client; }
-    const ChromeClient& client() const { return m_client; }
+    ChromeClient& client() LIFETIME_BOUND { return m_client; }
+    const ChromeClient& client() const LIFETIME_BOUND { return m_client; }
 
     // HostWindow methods.
     void invalidateRootView(const IntRect&) override;
@@ -144,7 +144,7 @@ public:
     RefPtr<ShapeDetection::FaceDetector> createFaceDetector(const ShapeDetection::FaceDetectorOptions&) const;
     RefPtr<ShapeDetection::TextDetector> createTextDetector() const;
 
-    PlatformDisplayID displayID() const override;
+    PlatformDisplayID NODELETE displayID() const override;
     void windowScreenDidChange(PlatformDisplayID, std::optional<FramesPerSecond>) override;
 
     FloatSize screenSize() const override;
@@ -156,6 +156,7 @@ public:
     WEBCORE_EXPORT void scrollMainFrameToRevealRect(const IntRect&) const;
 
     void contentsSizeChanged(LocalFrame&, const IntSize&) const;
+    void scrollOriginDidChange(const LocalFrame&) const;
 
     WEBCORE_EXPORT void setWindowRect(const FloatRect&);
     WEBCORE_EXPORT FloatRect windowRect() const;
@@ -177,10 +178,7 @@ public:
     bool canRunModal() const;
     void runModal();
 
-    bool toolbarsVisible() const;
-    bool statusbarVisible() const;
-    bool scrollbarsVisible() const;
-    bool menubarVisible() const;
+    bool isPopup() const;
 
     void setResizable(bool);
 
@@ -209,12 +207,13 @@ public:
     std::unique_ptr<WorkerClient> createWorkerClient(SerialFunctionDispatcher&);
 
     void runOpenPanel(LocalFrame&, FileChooser&);
+    void transcodeChosenFiles(Vector<String>&& transcodingPaths, String&& destinationUTI, String&& destinationExtension, CompletionHandler<void(Vector<String>&&)>&&);
     void showShareSheet(ShareDataWithParsedURL&&, CompletionHandler<void(bool)>&&);
     void showContactPicker(ContactsRequestData&&, CompletionHandler<void(std::optional<Vector<ContactInfo>>&&)>&&);
 
-#if HAVE(DIGITAL_CREDENTIALS_UI)
-    void showDigitalCredentialsPicker(const DigitalCredentialsRequestData&, WTF::CompletionHandler<void(Expected<WebCore::DigitalCredentialsResponseData, WebCore::ExceptionData>&&)>&&);
-    void dismissDigitalCredentialsPicker(CompletionHandler<void(bool)>&&);
+#if ENABLE(WEB_AUTHN)
+    void showDigitalCredentialsChooser(const DigitalCredentialsRequestData&, WTF::CompletionHandler<void(Expected<WebCore::DigitalCredentialsResponseData, WebCore::ExceptionData>&&)>&&);
+    void dismissDigitalCredentialsChooser(CompletionHandler<void(bool)>&&);
 #endif
 
     void loadIconForFiles(const Vector<String>&, FileIconLoader&);
@@ -228,8 +227,6 @@ public:
     WEBCORE_EXPORT void focusNSView(NSView*);
 #endif
 
-    bool selectItemWritingDirectionIsNatural();
-    bool selectItemAlignmentFollowsMenuWritingDirection();
     RefPtr<PopupMenu> createPopupMenu(PopupMenuClient&) const;
     RefPtr<SearchPopupMenu> createSearchPopupMenu(PopupMenuClient&) const;
 
@@ -247,7 +244,6 @@ public:
 
 private:
     void notifyPopupOpeningObservers() const;
-    Ref<Page> protectedPage() const;
 
     WeakRef<Page> m_page;
     const UniqueRef<ChromeClient> m_client;

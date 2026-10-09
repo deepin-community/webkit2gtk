@@ -19,7 +19,7 @@
 #include "include/core/SkSpan.h"
 #include "include/core/SkTypes.h"
 #include "include/private/SkPathRef.h"
-#include "include/private/base/SkTArray.h"
+#include "include/private/SkTArray.h"
 
 #include <cstdint>
 #include <optional>
@@ -30,10 +30,15 @@ class SkRRect;
 struct SkPathRaw;
 class SkString;
 
+// todo: add this flag to clients
+#ifndef SK_SUPPORT_LEGACY_PATHBUILDER_SETLASTPT
+#define SK_SUPPORT_LEGACY_PATHBUILDER_SETLASTPT
+#endif
+
 class SK_API SkPathBuilder {
-    using PointsArray = skia_private::STArray<4, SkPoint>;
-    using VerbsArray = skia_private::STArray<4, SkPathVerb>;
-    using ConicWeightsArray = skia_private::STArray<2, float>;
+    using PointsArray       = skia_private::STArray<32, SkPoint>;
+    using VerbsArray        = skia_private::STArray<32, SkPathVerb>;
+    using ConicWeightsArray = skia_private::STArray<16, float>;
 public:
     /** Constructs an empty SkPathBuilder. By default, SkPathBuilder has no verbs, no SkPoint, and
         no weights. FillType is set to kWinding.
@@ -41,6 +46,12 @@ public:
         @return  empty SkPathBuilder
     */
     SkPathBuilder();
+
+    SkPathBuilder(const SkPathBuilder&);
+    SkPathBuilder& operator=(const SkPathBuilder&);
+    SkPathBuilder(SkPathBuilder&&);
+    SkPathBuilder& operator=(SkPathBuilder&&);
+    ~SkPathBuilder();
 
     /** Constructs an empty SkPathBuilder with the given FillType. By default, SkPathBuilder has no
         verbs, no SkPoint, and no weights.
@@ -58,9 +69,6 @@ public:
     */
     explicit SkPathBuilder(const SkPath& path);
 
-    SkPathBuilder(const SkPathBuilder&) = default;
-    ~SkPathBuilder();
-
     /** Sets an SkPathBuilder to be a copy of an existing SkPath.
         Copies the FillType and replays all of the verbs from the SkPath into the SkPathBuilder.
 
@@ -68,7 +76,6 @@ public:
         @return      SkPathBuilder
     */
     SkPathBuilder& operator=(const SkPath&);
-    SkPathBuilder& operator=(const SkPathBuilder&) = default;
 
     bool operator==(const SkPathBuilder&) const;
     bool operator!=(const SkPathBuilder& o) const { return !(*this == o); }
@@ -245,11 +252,13 @@ public:
 
         Appends kMove_Verb to verb array and (0, 0) to SkPoint array, if needed.
 
-        If w is finite and not one, appends kConic_Verb to verb array;
+        If w is finite, positive, and not one, appends kConic_Verb to verb array;
         and pt1, pt2 to SkPoint array; and w to conic weights.
 
         If w is one, appends kQuad_Verb to verb array, and
         pt1, pt2 to SkPoint array.
+
+        If w is zero, this is the same as lineTo(pt2)
 
         If w is not finite, appends kLine_Verb twice to verb array, and
         pt1, pt2 to SkPoint array.
@@ -790,20 +799,22 @@ public:
         return this->addOval(oval, dir, 1);
     }
 
-    /** Adds circle centered at (x, y) of size radius to SkPathBuilder, appending kMove_Verb,
-        four kConic_Verb, and kClose_Verb. Circle begins at: (x + radius, y), continuing
-        clockwise if dir is kCW_Direction, and counterclockwise if dir is kCCW_Direction.
+    /** Adds circle with center and radius to SkPathBuilder, appending kMove_Verb,
+        four kConic_Verb, and kClose_Verb. Circle begins at: (center.fX + radius, center.fY).
 
         Has no effect if radius is zero or negative.
 
-        @param x       center of circle
-        @param y       center of circle
+        @param center  center of circle
         @param radius  distance from center to edge
         @param dir     SkPath::Direction to wind circle
         @return        reference to SkPathBuilder
     */
-    SkPathBuilder& addCircle(SkScalar x, SkScalar y, SkScalar radius,
+    SkPathBuilder& addCircle(SkPoint center, float radius,
                              SkPathDirection dir = SkPathDirection::kDefault);
+    SkPathBuilder& addCircle(float x, float y, float radius,
+                             SkPathDirection dir = SkPathDirection::kDefault) {
+        return this->addCircle({x, y}, radius, dir);
+    }
 
     /** Adds contour created from line array, adding (pts.size() - 1) line segments.
         Contour added starts at pts[0], then adds a line for every additional SkPoint
@@ -935,13 +946,24 @@ public:
      */
     void setPoint(size_t index, SkPoint p);
 
-    /** Sets the last point on the path. If SkPoint array is empty, append kMove_Verb to
-        verb array and append p to SkPoint array.
+    /** Change the last point in the builder.
+     *  If the builder is empty, the call does nothing.
+     *
+     *  @param p the new point value
+     */
+    void setLastPoint(SkPoint p) {
+        this->setPoint(this->points().size() - 1, p);
+    }
 
-        @param x  x-value of last point
-        @param y  y-value of last point
+#ifdef SK_SUPPORT_LEGACY_PATHBUILDER_SETLASTPT
+    /** DEPRECATED: use setLastPoint() or setPoint()
+        Sets the last point on the path. If SkPoint array is empty, this behaves like moveTo().
+
+        @param pt the new value for the last point in the path
     */
-    void setLastPt(SkScalar x, SkScalar y);
+    void setLastPt(SkPoint pt);
+    void setLastPt(float x, float y) { this->setLastPt({x, y}); }
+#endif
 
     /** Returns the number of points in SkPathBuilder.
         SkPoint count is initially zero.
@@ -957,15 +979,6 @@ public:
     */
     bool isInverseFillType() const { return SkPathFillType_IsInverse(fFillType); }
 
-#ifdef SK_SUPPORT_UNSPANNED_APIS
-    SkPathBuilder& addPolygon(const SkPoint pts[], int count, bool close) {
-        return this->addPolygon({pts, count}, close);
-    }
-    SkPathBuilder& polylineTo(const SkPoint pts[], int count) {
-        return this->polylineTo({pts, count});
-    }
-#endif
-
     SkSpan<const SkPoint> points() const {
         return fPts;
     }
@@ -976,7 +989,13 @@ public:
         return fConicWeights;
     }
 
-    SkPathBuilder& addRaw(const SkPathRaw&);
+    enum class Reserve {
+        // Reserves the exact amount of storage needed for pathraw (never overallocates).
+        kExact,
+        // Allows the storage buffers to overallocate, based on their internal growth policy.
+        kGrow
+    };
+    SkPathBuilder& addRaw(const SkPathRaw&, Reserve);
 
     SkPathIter iter() const;
 

@@ -29,6 +29,7 @@
 #include "ContextDestructionObserverInlines.h"
 
 #include "DOMException.h"
+#include "EventLoop.h"
 #include "ExceptionOr.h"
 #include "JSDOMConvertBufferSource.h"
 #include "JSDOMGlobalObject.h"
@@ -36,6 +37,7 @@
 #include "ReadableStreamDefaultReader.h"
 #include "ScriptExecutionContext.h"
 #include "SharedBuffer.h"
+#include <JavaScriptCore/JSGenericTypedArrayViewInlines.h>
 
 namespace WebCore {
 
@@ -47,8 +49,10 @@ public:
     JSDOMGlobalObject* globalObject() final
     {
         RefPtr context = m_context.get();
-        return context ? JSC::jsCast<JSDOMGlobalObject*>(context->globalObject()): nullptr;
+        return context ? downcast<JSDOMGlobalObject>(context->globalObject()): nullptr;
     }
+
+    ScriptExecutionContext* NODELETE context() const { return m_context.get(); }
 
 private:
     SinkReadRequest(ReadableStreamToSharedBufferSink& sink, ScriptExecutionContext& context)
@@ -111,7 +115,7 @@ ReadableStreamToSharedBufferSink::~ReadableStreamToSharedBufferSink() = default;
 void ReadableStreamToSharedBufferSink::pipeFrom(ReadableStream& stream)
 {
     RefPtr context = stream.scriptExecutionContext();
-    auto* globalObject = context ? JSC::jsCast<JSDOMGlobalObject*>(context->globalObject()): nullptr;
+    auto* globalObject = context ? downcast<JSDOMGlobalObject>(context->globalObject()): nullptr;
     if (!globalObject) {
         error(Exception { ExceptionCode::TypeError, "no global object"_s });
         return;
@@ -136,6 +140,18 @@ void ReadableStreamToSharedBufferSink::enqueue(const Ref<JSC::Uint8Array>& buffe
             m_callback(buffer->span());
     }
 
+    RefPtr context = m_readRequest ? m_readRequest->context() : nullptr;
+    if (!context)
+        return;
+
+    protect(context->eventLoop())->queueMicrotask(context->vm(), [weakThis = WeakPtr { *this }] {
+        if (RefPtr protectedThis = weakThis)
+            protectedThis->keepReading();
+    });
+}
+
+void ReadableStreamToSharedBufferSink::keepReading()
+{
     RefPtr readRequest = m_readRequest;
     if (!readRequest)
         return;

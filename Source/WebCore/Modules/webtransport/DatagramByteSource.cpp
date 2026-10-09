@@ -32,13 +32,12 @@
 #include "ReadableStream.h"
 #include "ReadableStreamBYOBRequest.h"
 #include <JavaScriptCore/ArrayBuffer.h>
+#include <JavaScriptCore/HeapCellInlines.h>
 #include <wtf/StdLibExtras.h>
 
 namespace WebCore {
 
-DatagramByteSource::DatagramByteSource()
-{
-}
+DatagramByteSource::DatagramByteSource() = default;
 
 DatagramByteSource::~DatagramByteSource() = default;
 
@@ -71,7 +70,7 @@ void DatagramByteSource::receiveDatagram(std::span<const uint8_t> datagram, bool
     }
 
     RefPtr controller = m_controller;
-    auto* globalObject = controller->protectedStream()->globalObject();
+    auto* globalObject = protect(controller->stream())->globalObject();
     if (!globalObject)
         return;
 
@@ -114,7 +113,7 @@ void DatagramByteSource::closeStreamIfPossible()
         return;
 
     RefPtr controller = m_controller;
-    auto* globalObject = controller->protectedStream()->globalObject();
+    auto* globalObject = protect(controller->stream())->globalObject();
     if (!globalObject)
         return;
 
@@ -143,7 +142,7 @@ void DatagramByteSource::closeStream(JSDOMGlobalObject& globalObject, ReadableBy
 void DatagramByteSource::tryEnqueuing(JSC::ArrayBuffer& buffer, ReadableByteStreamController& controller, Ref<DeferredPromise>&& promise, JSDOMGlobalObject* globalObject)
 {
     if (!globalObject) {
-        globalObject = controller.protectedStream()->globalObject();
+        globalObject = protect(controller.stream())->globalObject();
         if (!globalObject) {
             // FIXME: We should probably error.
             promise->resolve();
@@ -188,7 +187,7 @@ void DatagramByteSource::tryEnqueuing(JSC::ArrayBuffer& buffer, ReadableByteStre
 void DatagramByteSource::error(JSC::JSGlobalObject& globalObject, JSC::JSValue value)
 {
     if (RefPtr controller = m_controller) {
-        auto& jsDOMGlobalObject = *JSC::jsCast<JSDOMGlobalObject*>(&globalObject);
+        auto& jsDOMGlobalObject = downcast<JSDOMGlobalObject>(globalObject);
         controller->error(jsDOMGlobalObject, value);
     }
 }

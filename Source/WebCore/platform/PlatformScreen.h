@@ -27,6 +27,7 @@
 
 #include <WebCore/ContentsFormat.h>
 #include <WebCore/ScreenProperties.h>
+#include <memory>
 #include <wtf/Forward.h>
 #include <wtf/Platform.h>
 #include <wtf/ThreadSafeRefCounted.h>
@@ -73,7 +74,7 @@ double fontDPI(); // dpi to use for font scaling
 double screenDPI(PlatformDisplayID); // dpi of the display device, corrected for device scaling
 #endif
 
-FloatRect screenRect(Widget*);
+WEBCORE_EXPORT FloatRect screenRect(Widget*);
 FloatRect screenAvailableRect(Widget*);
 
 WEBCORE_EXPORT OptionSet<ContentsFormat> screenContentsFormats(Widget* = nullptr);
@@ -132,13 +133,10 @@ WEBCORE_EXPORT bool suppressEDRForDisplay(PlatformDisplayID);
 WEBCORE_EXPORT PlatformDisplayID displayID(NSScreen *);
 
 WEBCORE_EXPORT NSScreen *screen(NSWindow *);
-WEBCORE_EXPORT RetainPtr<NSScreen> protectedScreen(NSWindow *);
 NSScreen *screen(PlatformDisplayID);
-RetainPtr<NSScreen> protectedScreen(PlatformDisplayID);
 
 WEBCORE_EXPORT FloatRect screenRectForDisplay(PlatformDisplayID);
 WEBCORE_EXPORT FloatRect screenRectForPrimaryScreen();
-WEBCORE_EXPORT FloatRect availableScreenRect(NSScreen *);
 
 WEBCORE_EXPORT FloatRect toUserSpace(const NSRect&, NSWindow *destination);
 WEBCORE_EXPORT FloatRect toUserSpaceForPrimaryScreen(const NSRect&);

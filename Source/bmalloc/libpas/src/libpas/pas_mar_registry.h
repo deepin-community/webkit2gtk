@@ -39,6 +39,16 @@ invoked.
 #include "pas_platform.h"
 
 #if PAS_OS(DARWIN)
+#define PAS_MAR_SHOULD_LOG(allocation_mode, address) (pas_mar_enabled && allocation_mode == pas_non_compact_allocation_mode && pas_mar_is_address_in_qualifying_page(address))
+#define PAS_MAR_TRACK_ALLOCATION(address, size) pas_mar_did_allocate(&pas_mar_global_registry, address, size)
+#define PAS_MAR_TRACK_ALLOCATION_AND_ZERO(address, size) pas_mar_did_allocate_and_zero(&pas_mar_global_registry, address, size)
+#else
+#define PAS_MAR_SHOULD_LOG(allocation_mode, address) false
+#define PAS_MAR_TRACK_ALLOCATION(address, size) address
+#define PAS_MAR_TRACK_ALLOCATION_AND_ZERO(result, size) ((void*) result.begin)
+#endif
+
+#if PAS_OS(DARWIN)
 
 #include "pas_allocation_result.h"
 #include "pas_lock.h"
@@ -46,7 +56,6 @@ invoked.
 #include "pas_utils.h"
 
 #include <assert.h>
-#include <execinfo.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
@@ -178,7 +187,7 @@ extern unsigned pas_mar_qualifying_page_index;
 extern struct pas_mar_registry pas_mar_global_registry;
 extern struct pas_mar_registry* pas_mar_registry_for_crash_reporter_enumeration;
 
-PAS_ALWAYS_INLINE bool pas_mar_is_address_in_qualifying_page(void* address)
+static PAS_ALWAYS_INLINE bool pas_mar_is_address_in_qualifying_page(void* address)
 {
     return pas_mar_address_to_virtual_page_number(address) % PAS_MAR_PROBABILITY == pas_mar_qualifying_page_index;
 }

@@ -26,9 +26,13 @@
 #include "config.h"
 #include "LLIntThunks.h"
 
+#include "Gate.h"
 #include "InPlaceInterpreter.h"
+#include "JITOperations.h"
+#include "JSCConfig.h"
 #include "JSCJSValueInlines.h"
 #include "JSInterfaceJIT.h"
+#include "JSWebAssemblyInstance.h"
 #include "LLIntCLoop.h"
 #include "LLIntData.h"
 #include "LinkBuffer.h"
@@ -699,6 +703,43 @@ MacroAssemblerCodeRef<NativeToJITGatePtrTag> untagGateThunk(void* pointer)
 #endif // CPU(ARM64E)
 
 #if ENABLE(JIT_CAGE)
+#if ENABLE(WEBASSEMBLY)
+MacroAssemblerCodeRef<NativeToJITGatePtrTag> wasmRestoreFrameGateThunk()
+{
+    static LazyNeverDestroyed<MacroAssemblerCodeRef<NativeToJITGatePtrTag>> codeRef;
+    static std::once_flag onceKey;
+    std::call_once(onceKey, [&] {
+        CCallHelpers jit;
+
+        JIT_COMMENT(jit, "wasmRestoreFrame gate: restore instance and memory");
+        jit.loadPtr(CCallHelpers::Address(GPRInfo::callFrameRegister, CallFrameSlot::codeBlock * sizeof(Register)), GPRInfo::wasmContextInstancePointer);
+        jit.loadPairPtr(GPRInfo::wasmContextInstancePointer, CCallHelpers::TrustedImm32(JSWebAssemblyInstance::offsetOfCachedMemoryBaseSizePair(0)), GPRInfo::wasmBaseMemoryPointer, GPRInfo::wasmBoundsCheckingSizeRegister);
+        jit.cageConditionally(Gigacage::Primitive, GPRInfo::wasmBaseMemoryPointer, GPRInfo::wasmBoundsCheckingSizeRegister, Wasm::wasmCallingConvention().prologueScratchGPRs[0]);
+
+        JIT_COMMENT(jit, "wasmRestoreFrame gate: untag return PC, load caller frame, retag, return");
+#if CPU(ARM64E)
+        jit.loadPtr(CCallHelpers::Address(GPRInfo::callFrameRegister, CallFrame::returnPCOffset()), ARM64Registers::lr);
+        jit.addPtr(CCallHelpers::TrustedImm32(sizeof(CallerFrameAndPC)), GPRInfo::callFrameRegister, jit.scratchRegister());
+        jit.untagPtr(jit.scratchRegister(), ARM64Registers::lr);
+        jit.validateUntaggedPtr(ARM64Registers::lr, jit.scratchRegister());
+        jit.loadPtr(CCallHelpers::Address(GPRInfo::callFrameRegister), GPRInfo::callFrameRegister);
+        jit.tagPtr(MacroAssembler::stackPointerRegister, ARM64Registers::lr);
+        jit.ret();
+#elif CPU(ARM64)
+        jit.loadPairPtr(GPRInfo::callFrameRegister, GPRInfo::callFrameRegister, ARM64Registers::lr);
+        jit.ret();
+#elif CPU(X86_64)
+        jit.loadPtr(CCallHelpers::Address(GPRInfo::callFrameRegister, CallFrame::returnPCOffset()), GPRInfo::nonPreservedNonArgumentGPR0);
+        jit.loadPtr(CCallHelpers::Address(GPRInfo::callFrameRegister), GPRInfo::callFrameRegister);
+        jit.farJump(GPRInfo::nonPreservedNonArgumentGPR0, NoPtrTag);
+#endif
+
+        LinkBuffer patchBuffer(jit, GLOBAL_THUNK_ID, LinkBuffer::Profile::LLIntThunk);
+        codeRef.construct(FINALIZE_CODE(patchBuffer, NativeToJITGatePtrTag, "wasmRestoreFrame"_s, "wasmRestoreFrame thunk"));
+    });
+    return codeRef;
+}
+#endif // ENABLE(WEBASSEMBLY)
 
 MacroAssemblerCodeRef<NativeToJITGatePtrTag> jitCagePtrThunk()
 {
@@ -743,6 +784,16 @@ MacroAssemblerCodeRef<JSEntryPtrTag> checkpointOSRExitFromInlinedCallTrampolineT
     static std::once_flag onceKey;
     std::call_once(onceKey, [&] {
         codeRef.construct(generateThunkWithJumpToLLIntReturnPoint<JSEntryPtrTag>(checkpoint_osr_exit_from_inlined_call_trampoline, "checkpoint_osr_exit_from_inlined_call_trampoline thunk"));
+    });
+    return codeRef;
+}
+
+MacroAssemblerCodeRef<JSEntryPtrTag> arraySortComparatorReturnTrampolineThunk()
+{
+    static LazyNeverDestroyed<MacroAssemblerCodeRef<JSEntryPtrTag>> codeRef;
+    static std::once_flag onceKey;
+    std::call_once(onceKey, [&] {
+        codeRef.construct(generateThunkWithJumpToLLIntReturnPoint<JSEntryPtrTag>(array_sort_comparator_return_trampoline, "array_sort_comparator_return_trampoline thunk"));
     });
     return codeRef;
 }
@@ -810,6 +861,48 @@ MacroAssemblerCodeRef<JITThunkPtrTag> inPlaceInterpreterEntryThunk()
     });
     return codeRef;
 }
+
+#if CPU(ARM64E)
+MacroAssemblerCodeRef<NativeToJITGatePtrTag> relocateJITReturnPCThunk(void* returnLocation)
+{
+    CCallHelpers jit;
+
+    jit.untagPtr(GPRInfo::argumentGPR1, GPRInfo::argumentGPR0);
+    jit.validateUntaggedPtr(GPRInfo::argumentGPR0, GPRInfo::wasmScratchGPR0);
+    jit.tagPtr(GPRInfo::argumentGPR2, GPRInfo::argumentGPR0);
+    jit.move(CCallHelpers::TrustedImmPtr(returnLocation), GPRInfo::wasmScratchGPR1);
+    jit.farJump(GPRInfo::wasmScratchGPR1, OperationPtrTag);
+
+    LinkBuffer patchBuffer(jit, GLOBAL_THUNK_ID, LinkBuffer::Profile::LLIntThunk);
+    return FINALIZE_THUNK(patchBuffer, NativeToJITGatePtrTag, "relocateJITReturnPC"_s, "relocate JIT return PC thunk");
+}
+
+MacroAssemblerCodeRef<NativeToJITGatePtrTag> exitImplantedSliceGateThunk(void* target)
+{
+    CCallHelpers jit;
+
+    jit.move(CCallHelpers::TrustedImmPtr(target), GPRInfo::wasmScratchGPR0);
+    jit.farJump(GPRInfo::wasmScratchGPR0, OperationPtrTag);
+
+    LinkBuffer patchBuffer(jit, GLOBAL_THUNK_ID, LinkBuffer::Profile::LLIntThunk);
+    return FINALIZE_THUNK(patchBuffer, NativeToJITGatePtrTag, "exitImplantedSliceGate"_s, "exit implanted slice gate thunk");
+}
+
+MacroAssemblerCodeRef<NativeToJITGatePtrTag> getSentinelFrameReturnPCGateThunk(void* returnLocation)
+{
+    CCallHelpers jit;
+
+    jit.move(CCallHelpers::TrustedImmPtr(&g_jscConfig), GPRInfo::wasmScratchGPR0);
+    jit.loadPtr(CCallHelpers::Address(GPRInfo::wasmScratchGPR0, offsetof(JSC::Config, llint.gateMap) + static_cast<unsigned>(Gate::exitImplantedSliceGate) * sizeof(void*)), GPRInfo::wasmScratchGPR0);
+    jit.tagPtr(GPRInfo::argumentGPR0, GPRInfo::wasmScratchGPR0);
+    jit.move(GPRInfo::wasmScratchGPR0, GPRInfo::argumentGPR0);
+    jit.move(CCallHelpers::TrustedImmPtr(returnLocation), GPRInfo::wasmScratchGPR1);
+    jit.farJump(GPRInfo::wasmScratchGPR1, OperationPtrTag);
+
+    LinkBuffer patchBuffer(jit, GLOBAL_THUNK_ID, LinkBuffer::Profile::LLIntThunk);
+    return FINALIZE_THUNK(patchBuffer, NativeToJITGatePtrTag, "getSentinelFrameReturnPCGate"_s, "sign exit implanted slice gate thunk");
+}
+#endif // CPU(ARM64E)
 
 #define DEFINE_IPINT_THUNK_FOR_CATCH(funcName, target) \
     MacroAssemblerCodeRef<JITThunkPtrTag> funcName() \

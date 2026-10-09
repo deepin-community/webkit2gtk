@@ -26,9 +26,11 @@
 #pragma once
 
 #include "ResourceLoadStatisticsParameters.h"
+#include "TimeBasedEvictionMode.h"
 #include "UnifiedOriginStorageLevel.h"
 #include "WebPushDaemonConnectionConfiguration.h"
 #include <WebCore/NetworkStorageSession.h>
+#include <WebCore/SecurityOriginData.h>
 #include <pal/SessionID.h>
 #include <wtf/Seconds.h>
 #include <wtf/URL.h>
@@ -53,11 +55,9 @@ struct NetworkSessionCreationParameters {
     Markable<WTF::UUID> dataStoreIdentifier;
     String boundInterfaceIdentifier;
     AllowsCellularAccess allowsCellularAccess { AllowsCellularAccess::Yes };
-#if PLATFORM(COCOA) || USE(SOUP)
-    String sourceApplicationBundleIdentifier;
-#endif
 #if PLATFORM(COCOA)
     RetainPtr<CFDictionaryRef> proxyConfiguration;
+    String sourceApplicationBundleIdentifier;
     String sourceApplicationSecondaryIdentifier;
     bool shouldLogCookieInformation { false };
     URL httpProxy;
@@ -128,6 +128,11 @@ struct NetworkSessionCreationParameters {
     bool serviceWorkerProcessTerminationDelayEnabled { true };
     bool inspectionForServiceWorkersAllowed { true };
     bool storageSiteValidationEnabled { false };
+    TimeBasedEvictionMode timeBasedEvictionMode { TimeBasedEvictionMode::Disabled };
+    Seconds timeBasedEvictionThreshold { 180 * 24_h };
+    std::optional<Seconds> lastModificationTimeUpdateIntervalOverride;
+    std::optional<Seconds> timeBasedEvictionIntervalOverride;
+    Vector<WebCore::SecurityOriginData> mockPushSubscriptionOriginsForTesting;
 #if ENABLE(DECLARATIVE_WEB_PUSH)
     bool isDeclarativeWebPushEnabled { false };
 #endif

@@ -43,7 +43,7 @@ namespace WebCore {
 namespace {
 
 template<typename CharacterType>
-static bool isVCHAR(CharacterType c)
+static bool NODELETE isVCHAR(CharacterType c)
 {
     return c >= 0x21 && c <= 0x7e;
 }
@@ -115,13 +115,13 @@ std::optional<Vector<EncodedResourceCryptographicDigest>> parseIntegrityMetadata
     return result;
 }
 
-static bool isResponseEligible(const CachedResource& resource)
+static bool NODELETE isResponseEligible(const CachedResource& resource)
 {
     // FIXME: The spec says this should check XXX.
     return resource.isCORSSameOrigin();
 }
 
-static std::optional<EncodedResourceCryptographicDigest::Algorithm> prioritizedHashFunction(EncodedResourceCryptographicDigest::Algorithm a, EncodedResourceCryptographicDigest::Algorithm b)
+static std::optional<EncodedResourceCryptographicDigest::Algorithm> NODELETE prioritizedHashFunction(EncodedResourceCryptographicDigest::Algorithm a, EncodedResourceCryptographicDigest::Algorithm b)
 {
     if (a == b)
         return std::nullopt;
@@ -203,7 +203,7 @@ static String addHashPrefix(ResourceCryptographicDigest::Algorithm algorithm, St
     return String();
 }
 
-static std::optional<ResourceCryptographicDigest::Algorithm> findStrongestAlgorithm(HashAlgorithmSet algorithmSet)
+static std::optional<ResourceCryptographicDigest::Algorithm> NODELETE findStrongestAlgorithm(HashAlgorithmSet algorithmSet)
 {
     for (int i = ResourceCryptographicDigest::algorithmCount - 1; i >= 0; --i) {
         uint8_t algorithm = (1 << i);
@@ -215,6 +215,9 @@ static std::optional<ResourceCryptographicDigest::Algorithm> findStrongestAlgori
 
 void reportHashesIfNeeded(const CachedResource& resource)
 {
+    if (!resource.isHashReportingNeeded())
+        return;
+
     RefPtr loader = resource.loader();
     if (!loader)
         return;

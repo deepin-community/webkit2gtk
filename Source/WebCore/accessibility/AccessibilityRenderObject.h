@@ -103,14 +103,13 @@ public:
 #endif
 
     // Should be called on the root accessibility object to kick off a hit test.
-    AccessibilityObject* accessibilityHitTest(const IntPoint&) const final;
+    RefPtr<AXCoreObject> accessibilityHitTest(const IntPoint&) const final;
 
     Element* anchorElement() const final;
 
     LayoutRect boundingBoxRect() const final;
 
     RenderObject* renderer() const final { return m_renderer.get(); }
-    CheckedPtr<RenderObject> checkedRenderer() const { return renderer(); }
     Document* document() const final;
 
     URL url() const final;
@@ -119,11 +118,11 @@ public:
     String stringValue() const override;
     String textUnderElement(TextUnderElementMode = TextUnderElementMode()) const override;
     String selectedText() const final;
-#if ENABLE(AX_THREAD_TEXT_APIS)
+#if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
     AXTextRuns textRuns() final;
     AXTextRunLineID listMarkerLineID() const final;
     String listMarkerText() const final;
-#endif // ENABLE(AX_THREAD_TEXT_APIS)
+#endif
 
     bool isWidget() const final;
     Widget* widget() const final;
@@ -189,6 +188,7 @@ protected:
 private:
     bool isAccessibilityRenderObject() const final { return true; }
     bool isAllowedChildOfTree() const;
+    bool isInsideIgnoredImageOverlay() const;
     AccessibilityObject* containingTree() const;
     CharacterRange documentBasedSelectedTextRange() const;
     RefPtr<Element> rootEditableElementForPosition(const Position&) const;
@@ -197,7 +197,7 @@ private:
 
     AccessibilityObject* accessibilityImageMapHitTest(HTMLAreaElement&, const IntPoint&) const;
     AccessibilityObject* associatedImageObject(HTMLMapElement&) const;
-    AccessibilityObject* elementAccessibilityHitTest(const IntPoint&) const override;
+    RefPtr<AccessibilityObject> elementAccessibilityHitTest(const IntPoint&) const override;
 
     bool renderObjectIsObservable(RenderObject&) const;
     RenderObject* renderParentObject() const;
@@ -207,9 +207,8 @@ private:
     void detachRemoteSVGRoot();
     enum class CreateIfNecessary : bool { No, Yes };
     AccessibilitySVGObject* remoteSVGRootElement(CreateIfNecessary) const;
-    AccessibilityObject* remoteSVGElementHitTest(const IntPoint&) const;
+    RefPtr<AccessibilityObject> remoteSVGElementHitTest(const IntPoint&) const;
     void offsetBoundingBoxForRemoteSVGElement(LayoutRect&) const;
-    bool supportsPath() const final;
 
 #if USE(ATSPI)
     void addNodeOnlyChildren();
@@ -226,10 +225,10 @@ private:
 
     bool inheritsPresentationalRole() const override;
 
-    bool shouldGetTextFromNode(const TextUnderElementMode&) const;
+    bool NODELETE shouldGetTextFromNode(const TextUnderElementMode&) const;
 
 #if ENABLE(APPLE_PAY)
-    bool isApplePayButton() const;
+    bool NODELETE isApplePayButton() const;
     ApplePayButtonType applePayButtonType() const;
     String applePayButtonDescription() const;
 #endif

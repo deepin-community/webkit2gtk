@@ -42,18 +42,19 @@ public:
     PlatformGLObject object() const { return 0; }
     bool hasStencil() const { return m_hasStencil; }
     bool hasDepth() const { return m_hasDepth; }
-    IntSize size() const;
+    IntSize NODELETE size() const;
     void reshape(IntSize);
     GCGLbitfield dirtyBuffers() const { return m_dirtyBuffers; }
-    void markBuffersClear(GCGLbitfield clearBuffers);
-    void markAllUnpreservedBuffersDirty();
-    void markAllBuffersDirty();
+    void NODELETE markBuffersClear(GCGLbitfield clearBuffers);
+    void NODELETE markAllUnpreservedBuffersDirty();
+    void NODELETE markAllBuffersDirty();
 
 private:
     WebGLDefaultFramebuffer(WebGLRenderingContextBase&);
 
     WeakRef<WebGLRenderingContextBase> m_context;
 
+    IntSize m_size;
     GCGLbitfield m_unpreservedBuffers { 0 };
     GCGLbitfield m_dirtyBuffers { 0 };
     bool m_hasStencil : 1;

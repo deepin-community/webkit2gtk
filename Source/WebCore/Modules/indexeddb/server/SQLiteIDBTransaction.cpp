@@ -63,7 +63,7 @@ IDBError SQLiteIDBTransaction::begin(SQLiteDatabase& database)
         return IDBError { };
     }
 
-    m_sqliteTransaction = makeUnique<SQLiteTransaction>(database, true);
+    m_sqliteTransaction = makeUnique<SQLiteTransaction>(database, false);
     m_sqliteTransaction->begin();
 
     if (m_sqliteTransaction->inProgress())
@@ -158,11 +158,11 @@ void SQLiteIDBTransaction::reset()
     ASSERT(m_blobTemporaryAndStoredFilenames.isEmpty());
 }
 
-std::unique_ptr<SQLiteIDBCursor> SQLiteIDBTransaction::maybeOpenBackingStoreCursor(IDBObjectStoreIdentifier objectStoreID, std::optional<IDBIndexIdentifier> indexID, const IDBKeyRangeData& range)
+std::unique_ptr<SQLiteIDBCursor> SQLiteIDBTransaction::maybeOpenBackingStoreCursor(IDBObjectStoreIdentifier objectStoreID, std::optional<IDBIndexIdentifier> indexID, const IDBKeyRangeData& range, IndexedDB::CursorDirection cursorDirection)
 {
     ASSERT(inProgressOrReadOnly());
 
-    auto cursor = SQLiteIDBCursor::maybeCreateBackingStoreCursor(*this, objectStoreID, indexID, range);
+    auto cursor = SQLiteIDBCursor::maybeCreateBackingStoreCursor(*this, objectStoreID, indexID, range, cursorDirection);
 
     if (cursor)
         m_backingStoreCursors.add(cursor.get());

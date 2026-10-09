@@ -59,8 +59,8 @@ class WebXRWebGLLayer : public WebXRLayer, private CanvasObserver, public CanMak
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(WebXRWebGLLayer);
 public:
     using WebXRRenderingContext = Variant<
-        RefPtr<WebGLRenderingContext>,
-        RefPtr<WebGL2RenderingContext>
+        Ref<WebGLRenderingContext>,
+        Ref<WebGL2RenderingContext>
     >;
 
     static ExceptionOr<Ref<WebXRWebGLLayer>> create(WebXRSession&, WebXRRenderingContext&&, const XRWebGLLayerInit&);
@@ -90,7 +90,8 @@ public:
 
     // WebXRLayer
     void startFrame(PlatformXR::FrameData&) final;
-    PlatformXR::Device::Layer endFrame() final;
+    PlatformXR::DeviceLayer endFrame() final;
+    PlatformXR::LayerHandle layerHandle() const final;
 
 private:
     WebXRWebGLLayer(WebXRSession&, WebXRRenderingContext&&, std::unique_ptr<WebXROpaqueFramebuffer>&&, bool antialias, bool ignoreDepthValues, bool isCompositionEnabled);

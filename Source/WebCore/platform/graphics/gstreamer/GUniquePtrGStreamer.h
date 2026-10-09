@@ -48,6 +48,7 @@ WTF_DEFINE_GPTR_DELETER(GstByteReader, gst_byte_reader_free)
 WTF_DEFINE_GPTR_DELETER(GstVideoConverter, gst_video_converter_free)
 WTF_DEFINE_GPTR_DELETER(GstAudioConverter, gst_audio_converter_free)
 WTF_DEFINE_GPTR_DELETER(GstAudioInfo, gst_audio_info_free)
+WTF_DEFINE_GPTR_DELETER(GstVideoInfo, gst_video_info_free)
 WTF_DEFINE_GPTR_DELETER(GstFFTF32, gst_fft_f32_free)
 
 #if defined(BUILDING_WebCore) && USE(GSTREAMER_WEBRTC)
@@ -55,10 +56,10 @@ WTF_DEFINE_GPTR_DELETER(GstWebRTCSessionDescription, gst_webrtc_session_descript
 WTF_DEFINE_GPTR_DELETER(GstSDPMessage, gst_sdp_message_free)
 WTF_DEFINE_GPTR_DELETER(GstSDPMedia, gst_sdp_media_free)
 
-#if GST_CHECK_VERSION(1, 27, 0)
+#if GST_CHECK_VERSION(1, 28, 0)
 WTF_DEFINE_GPTR_DELETER(GstWebRTCICECandidate, gst_webrtc_ice_candidate_free)
 WTF_DEFINE_GPTR_DELETER(GstWebRTCICECandidatePair, gst_webrtc_ice_candidate_pair_free)
-#endif // GST_CHECK_VERSION(1, 27, 0)
+#endif // GST_CHECK_VERSION(1, 28, 0)
 #endif
 }
 

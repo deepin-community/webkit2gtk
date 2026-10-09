@@ -47,7 +47,7 @@ void JSArrayBuffer::finishCreation(VM& vm, JSGlobalObject* globalObject)
     Base::finishCreation(vm);
     // This probably causes GCs in the various VMs to overcount the impact of the array buffer.
     vm.heap.addReference(this, impl());
-    vm.m_typedArrayController->registerWrapper(globalObject, impl(), this);
+    vm.m_typedArrayController->registerWrapper(globalObject, *impl(), *this);
 }
 
 JSArrayBuffer* JSArrayBuffer::create(
@@ -56,7 +56,7 @@ JSArrayBuffer* JSArrayBuffer::create(
     JSArrayBuffer* result =
         new (NotNull, allocateCell<JSArrayBuffer>(vm))
         JSArrayBuffer(vm, structure, WTF::move(buffer));
-    result->finishCreation(vm, structure->globalObject());
+    result->finishCreation(vm, structure->realm());
     return result;
 }
 
@@ -80,7 +80,7 @@ ArrayBufferSharingMode JSArrayBuffer::sharingMode() const
 
 size_t JSArrayBuffer::estimatedSize(JSCell* cell, VM& vm)
 {
-    JSArrayBuffer* thisObject = jsCast<JSArrayBuffer*>(cell);
+    JSArrayBuffer* thisObject = uncheckedDowncast<JSArrayBuffer>(cell);
     size_t bufferEstimatedSize = thisObject->impl()->gcSizeEstimateInBytes();
     return Base::estimatedSize(cell, vm) + bufferEstimatedSize;
 }
@@ -106,7 +106,7 @@ void JSArrayBuffer::clearAssociatedWasmMemoryWrapper()
 template<typename Visitor>
 void JSArrayBuffer::visitChildrenImpl(JSCell* cell, Visitor& visitor)
 {
-    auto* thisObject = jsCast<JSArrayBuffer*>(cell);
+    auto* thisObject = uncheckedDowncast<JSArrayBuffer>(cell);
     ASSERT_GC_OBJECT_INHERITS(thisObject, info());
     Base::visitChildren(thisObject, visitor);
 #if ENABLE(WEBASSEMBLY)

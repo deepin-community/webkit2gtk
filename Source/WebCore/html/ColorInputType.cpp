@@ -48,6 +48,7 @@
 #include "HTMLInputElement.h"
 #include "HTMLOptionElement.h"
 #include "InputTypeNames.h"
+#include "PlatformRenderTheme.h"
 #include "PseudoClassChangeInvalidation.h"
 #include "RenderTheme.h"
 #include "RenderView.h"
@@ -66,7 +67,7 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(ColorInputType);
 using namespace HTMLNames;
 
 // https://html.spec.whatwg.org/multipage/infrastructure.html#valid-simple-colour
-static bool isValidSimpleColor(StringView string)
+static bool NODELETE isValidSimpleColor(StringView string)
 {
     if (string.length() != 7)
         return false;
@@ -80,7 +81,7 @@ static bool isValidSimpleColor(StringView string)
 }
 
 // https://html.spec.whatwg.org/multipage/common-microsyntaxes.html#rules-for-parsing-simple-colour-values
-static std::optional<SRGBA<uint8_t>> parseSimpleColorValue(StringView string)
+static std::optional<SRGBA<uint8_t>> NODELETE parseSimpleColorValue(StringView string)
 {
     if (!isValidSimpleColor(string))
         return std::nullopt;
@@ -142,14 +143,14 @@ ColorInputType::~ColorInputType()
 bool ColorInputType::isMouseFocusable() const
 {
     ASSERT(element());
-    return protectedElement()->isTextFormControlFocusable();
+    return protect(element())->isTextFormControlFocusable();
 }
 
 bool ColorInputType::isKeyboardFocusable(const FocusEventData&) const
 {
     ASSERT(element());
 #if PLATFORM(IOS_FAMILY)
-    return element()->isTextFormControlFocusable();
+    return protect(element())->isTextFormControlFocusable();
 #else
     return false;
 #endif
@@ -159,7 +160,7 @@ void ColorInputType::setPopupIsVisible(bool visible)
 {
     if (m_popupIsVisible == visible || !element())
         return;
-    Style::PseudoClassChangeInvalidation styleInvalidation(*protectedElement(), CSSSelector::PseudoClass::Open, visible);
+    Style::PseudoClassChangeInvalidation styleInvalidation(*protect(element()), CSSSelector::PseudoClass::Open, visible);
     m_popupIsVisible = visible;
 }
 
@@ -171,7 +172,7 @@ const AtomString& ColorInputType::formControlType() const
 ValueOrReference<String> ColorInputType::fallbackValue() const
 {
     ASSERT(element());
-    return serializeColorValue(Color::black, *protectedElement());
+    return serializeColorValue(Color::black, *protect(element()));
 }
 
 ValueOrReference<String> ColorInputType::sanitizeValue(const String& proposedValue LIFETIME_BOUND) const
@@ -208,7 +209,7 @@ void ColorInputType::createShadowSubtree()
     Ref wrapperElement = HTMLDivElement::create(document);
     Ref colorSwatch = HTMLDivElement::create(document);
 
-    Ref shadowRoot = *protectedElement()->userAgentShadowRoot();
+    Ref shadowRoot = *element()->userAgentShadowRoot();
     ScriptDisallowedScope::EventAllowedScope eventAllowedScope { shadowRoot };
     shadowRoot->appendChild(ContainerNode::ChildChange::Source::Parser, wrapperElement);
 
@@ -239,7 +240,7 @@ void ColorInputType::attributeChanged(const QualifiedName& name)
         updateColorSwatch();
 
         Ref input = *element();
-        if (CheckedPtr cache = input->protectedDocument()->existingAXObjectCache())
+        if (CheckedPtr cache = protect(input->document())->existingAXObjectCache())
             cache->valueChanged(input);
     }
 
@@ -301,7 +302,7 @@ void ColorInputType::didChooseColor(const Color& color)
     updateColorSwatch();
     input->dispatchFormControlChangeEvent();
 
-    if (CheckedPtr cache = input->protectedDocument()->existingAXObjectCache())
+    if (CheckedPtr cache = protect(input->document())->existingAXObjectCache())
         cache->valueChanged(input);
 }
 
@@ -332,11 +333,11 @@ void ColorInputType::updateColorSwatch()
 HTMLElement* ColorInputType::shadowColorSwatch() const
 {
     ASSERT(element());
-    RefPtr shadow = protectedElement()->userAgentShadowRoot();
+    auto* shadow = element()->userAgentShadowRoot();
     if (!shadow)
         return nullptr;
 
-    RefPtr wrapper = shadow->firstChild();
+    auto* wrapper = shadow->firstChild();
     return wrapper ? downcast<HTMLElement>(wrapper->firstChild()) : nullptr;
 }
 
@@ -347,18 +348,18 @@ IntRect ColorInputType::elementRectRelativeToRootView() const
     CheckedPtr renderer = element->renderer();
     if (!renderer)
         return IntRect();
-    return element->protectedDocument()->protectedView()->contentsToRootView(renderer->absoluteBoundingBoxRect());
+    return protect(element->document().view())->contentsToRootView(renderer->absoluteBoundingBoxRect());
 }
 
 std::optional<FrameIdentifier> ColorInputType::rootFrameID() const
 {
-    return element()->protectedDocument()->protectedView()->rootFrameID();
+    return element()->document().view()->rootFrameID();
 }
 
 bool ColorInputType::supportsAlpha() const
 {
     ASSERT(element());
-    return protectedElement()->alpha();
+    return element()->alpha();
 }
 
 Vector<Color> ColorInputType::suggestedColors() const
@@ -378,7 +379,7 @@ Vector<Color> ColorInputType::suggestedColors() const
 void ColorInputType::selectColor(StringView string)
 {
     ASSERT(element());
-    if (auto color = parseColorValue(string, *protectedElement()))
+    if (auto color = parseColorValue(string, *protect(element())))
         didChooseColor(*color);
 }
 

@@ -60,7 +60,7 @@ void SVGFECompositeElement::attributeChanged(const QualifiedName& name, const At
     switch (name.nodeName()) {
     case AttributeNames::operatorAttr: {
         CompositeOperationType propertyValue = SVGPropertyTraits<CompositeOperationType>::fromString(*this, newValue);
-        if (enumToUnderlyingType(propertyValue))
+        if (std::to_underlying(propertyValue))
             Ref { m_svgOperator }->setBaseValInternal<CompositeOperationType>(propertyValue);
         break;
     }
@@ -71,16 +71,16 @@ void SVGFECompositeElement::attributeChanged(const QualifiedName& name, const At
         Ref { m_in2 }->setBaseValInternal(newValue);
         break;
     case AttributeNames::k1Attr:
-        Ref { m_k1 }->setBaseValInternal(newValue.toFloat());
+        m_k1->setBaseValInternal(newValue.toFloat());
         break;
     case AttributeNames::k2Attr:
-        Ref { m_k2 }->setBaseValInternal(newValue.toFloat());
+        m_k2->setBaseValInternal(newValue.toFloat());
         break;
     case AttributeNames::k3Attr:
-        Ref { m_k3 }->setBaseValInternal(newValue.toFloat());
+        m_k3->setBaseValInternal(newValue.toFloat());
         break;
     case AttributeNames::k4Attr:
-        Ref { m_k4 }->setBaseValInternal(newValue.toFloat());
+        m_k4->setBaseValInternal(newValue.toFloat());
         break;
     default:
         break;

@@ -38,7 +38,7 @@
 #include <wtf/HashFunctions.h>
 #include <wtf/HashTraits.h>
 #include <wtf/MathExtras.h>
-#include <wtf/SaturatedArithmetic.h>
+#include <wtf/SaturatingArithmetic.h>
 
 namespace WTF {
 class TextStream;
@@ -86,7 +86,7 @@ public:
     }
 
     LayoutUnit& operator=(const LayoutUnit&) = default;
-    LayoutUnit& operator=(const float& other) { return *this = LayoutUnit(other); }
+    LayoutUnit& operator=(float other) { return *this = LayoutUnit(other); }
 
     friend auto operator<=>(LayoutUnit, LayoutUnit) = default;
 
@@ -126,7 +126,7 @@ public:
 
     LayoutUnit& operator++()
     {
-        m_value = saturatedSum<int>(m_value, kFixedPointDenominator);
+        m_value = saturatingSum<int>(m_value, kFixedPointDenominator);
         return *this;
     }
 
@@ -439,7 +439,7 @@ inline LayoutUnit operator/(unsigned long long a, const LayoutUnit& b)
 
 inline LayoutUnit operator+(const LayoutUnit& a, const LayoutUnit& b)
 {
-    return LayoutUnit::fromRawValue(saturatedSum<int>(a.rawValue(), b.rawValue()));
+    return LayoutUnit::fromRawValue(saturatingSum<int>(a.rawValue(), b.rawValue()));
 }
 
 inline LayoutUnit operator+(const LayoutUnit& a, int b)
@@ -474,7 +474,7 @@ inline double operator+(const double a, const LayoutUnit& b)
 
 inline LayoutUnit operator-(const LayoutUnit& a, const LayoutUnit& b)
 {
-    return LayoutUnit::fromRawValue(saturatedDifference<int>(a.rawValue(), b.rawValue()));
+    return LayoutUnit::fromRawValue(saturatingDifference<int>(a.rawValue(), b.rawValue()));
 }
 
 inline LayoutUnit operator-(const LayoutUnit& a, int b)
@@ -537,7 +537,7 @@ inline LayoutUnit operator%(int a, const LayoutUnit& b)
 
 inline LayoutUnit& operator+=(LayoutUnit& a, const LayoutUnit& b)
 {
-    a.setRawValue(saturatedSum<int>(a.rawValue(), b.rawValue()));
+    a.setRawValue(saturatingSum<int>(a.rawValue(), b.rawValue()));
     return a;
 }
 
@@ -567,7 +567,7 @@ inline LayoutUnit& operator-=(LayoutUnit& a, int b)
 
 inline LayoutUnit& operator-=(LayoutUnit& a, const LayoutUnit& b)
 {
-    a.setRawValue(saturatedDifference<int>(a.rawValue(), b.rawValue()));
+    a.setRawValue(saturatingDifference<int>(a.rawValue(), b.rawValue()));
     return a;
 }
 
@@ -698,7 +698,7 @@ template<> struct DefaultHash<WebCore::LayoutUnit> {
 // good candidates to represent the deleted and empty values in HashMaps as well.
 template<> struct HashTraits<WebCore::LayoutUnit> : GenericHashTraits<WebCore::LayoutUnit> {
     static constexpr bool emptyValueIsZero = false;
-    static WebCore::LayoutUnit emptyValue()
+    static constexpr WebCore::LayoutUnit emptyValue()
     {
         return WebCore::LayoutUnit::fromRawValue(std::numeric_limits<int>::min());
     }
@@ -708,14 +708,14 @@ template<> struct HashTraits<WebCore::LayoutUnit> : GenericHashTraits<WebCore::L
 
 template<>
 struct MarkableTraits<WebCore::LayoutUnit> {
-    static bool isEmptyValue(WebCore::LayoutUnit value)
+    static constexpr bool isEmptyValue(WebCore::LayoutUnit value)
     {
-        return value == WebCore::LayoutUnit(-1);
+        return value == emptyValue();
     }
 
-    static WebCore::LayoutUnit emptyValue()
+    static constexpr WebCore::LayoutUnit emptyValue()
     {
-        return WebCore::LayoutUnit(-1);
+        return HashTraits<WebCore::LayoutUnit>::emptyValue();
     }
 };
 

@@ -58,7 +58,7 @@ RefPtr<JSON::Object> mergeJSON(RefPtr<JSON::Object>, RefPtr<JSON::Object>);
 String toErrorString(const String& callingAPIName, const String& sourceKey, const String& underlyingErrorString);
 
 /// Returns an error for Expected results in CompletionHandler.
-inline Unexpected<WebExtensionError> toWebExtensionError(const String& callingAPIName, const String& sourceKey, const String& underlyingErrorString)
+inline std::unexpected<WebExtensionError> toWebExtensionError(const String& callingAPIName, const String& sourceKey, const String& underlyingErrorString)
 {
     return makeUnexpected(toErrorString(callingAPIName, sourceKey, underlyingErrorString));
 }
@@ -138,7 +138,7 @@ inline NSNumber *toWebAPI(size_t index)
 
 #endif // __OBJC__
 
-Markable<WTF::UUID> toDocumentIdentifier(WebFrame&);
+Markable<WTF::UUID> NODELETE toDocumentIdentifier(WebFrame&);
 
 } // namespace WebKit
 

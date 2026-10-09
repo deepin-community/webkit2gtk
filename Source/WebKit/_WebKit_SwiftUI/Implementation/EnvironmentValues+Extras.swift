@@ -24,7 +24,7 @@
 #if ENABLE_SWIFTUI
 
 import Foundation
-public import SwiftUI
+import SwiftUI
 
 extension EnvironmentValues {
     @Entry
@@ -59,6 +59,14 @@ extension EnvironmentValues {
 
     @Entry
     var webViewScrollEdgeEffectStyleContext: ScrollEdgeEffectStyleContext? = nil
+
+    @Entry
+    var webViewObscuredContentInsetsContext: EdgeInsets? = nil
+
+    #if ENABLE_MODEL_ELEMENT_IMMERSIVE
+    @Entry
+    var webViewImmersiveEnvironmentRequestContext: ImmersiveEnvironmentRequestContext? = nil
+    #endif
 }
 
 #endif

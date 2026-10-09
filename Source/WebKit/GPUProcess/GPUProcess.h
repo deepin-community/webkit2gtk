@@ -96,7 +96,6 @@ class GPUProcess final : public AuxiliaryProcess, public ThreadSafeRefCounted<GP
     WTF_DEPRECATED_MAKE_FAST_ALLOCATED(GPUProcess);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(GPUProcess);
 public:
-    GPUProcess();
     ~GPUProcess();
 
     static GPUProcess& singleton();
@@ -109,23 +108,22 @@ public:
 
     void prepareToSuspend(bool isSuspensionImminent, MonotonicTime estimatedSuspendTime, CompletionHandler<void()>&&);
     void processDidResume();
-    void resume();
+    void NODELETE resume();
 
-    void connectionToWebProcessClosed(IPC::Connection&);
+    void NODELETE connectionToWebProcessClosed(IPC::Connection&);
 
     GPUConnectionToWebProcess* webProcessConnection(WebCore::ProcessIdentifier) const;
 
-    const String& mediaCacheDirectory(PAL::SessionID) const;
+    const String& NODELETE mediaCacheDirectory(PAL::SessionID) const LIFETIME_BOUND;
 #if ENABLE(LEGACY_ENCRYPTED_MEDIA) || ENABLE(ENCRYPTED_MEDIA)
-    const String& mediaKeysStorageDirectory(PAL::SessionID) const;
+    const String& NODELETE mediaKeysStorageDirectory(PAL::SessionID) const LIFETIME_BOUND;
 #endif
 
 #if ENABLE(GPU_PROCESS) && USE(AUDIO_SESSION)
     RemoteAudioSessionProxyManager& audioSessionManager() const;
-    Ref<RemoteAudioSessionProxyManager> protectedAudioSessionManager() const;
 #endif
 
-    WebCore::NowPlayingManager& nowPlayingManager();
+    WebCore::NowPlayingManager& nowPlayingManager() LIFETIME_BOUND;
 
 #if ENABLE(MEDIA_STREAM) && PLATFORM(COCOA)
     WorkQueue& videoMediaStreamTrackRendererQueue();
@@ -137,12 +135,12 @@ public:
 #endif
 
 #if USE(GRAPHICS_LAYER_WC)
-    WCSharedSceneContextHolder& sharedSceneContext() { return m_sharedSceneContext; }
+    WCSharedSceneContextHolder& sharedSceneContext() LIFETIME_BOUND { return m_sharedSceneContext; }
 #endif
 
     void tryExitIfUnusedAndUnderMemoryPressure();
 
-    const String& applicationVisibleName() const { return m_applicationVisibleName; }
+    const String& applicationVisibleName() const LIFETIME_BOUND { return m_applicationVisibleName; }
 
     void webProcessConnectionCountForTesting(CompletionHandler<void(uint64_t)>&&);
 
@@ -155,7 +153,7 @@ public:
 #endif
 
 #if ENABLE(WEBXR)
-    std::optional<WebCore::ProcessIdentity> immersiveModeProcessIdentity() const;
+    std::optional<WebCore::ProcessIdentity> NODELETE immersiveModeProcessIdentity() const;
 #endif
 
 #if HAVE(AUDIT_TOKEN)
@@ -166,7 +164,9 @@ public:
     RefPtr<RemoteSnapshot> snapshot(RemoteSnapshotIdentifier);
 
 #if PLATFORM(VISION) && ENABLE(MODEL_PROCESS)
+#if HAVE(CORE_RE)
     void requestSharedSimulationConnection(CoreIPCAuditToken&&, CompletionHandler<void(std::optional<IPC::SharedFileHandle>)>&&);
+#endif
 #if HAVE(TASK_IDENTITY_TOKEN)
     void createMemoryAttributionIDForTask(WebCore::ProcessIdentity, CompletionHandler<void(const std::optional<String>&)>&&);
     void unregisterMemoryAttributionID(const String&, CompletionHandler<void()>&&);
@@ -179,7 +179,10 @@ public:
 #endif
 
     void terminateWebProcess(WebCore::ProcessIdentifier);
+
 private:
+    GPUProcess();
+
     void lowMemoryHandler(Critical, Synchronous);
 
     // AuxiliaryProcess
@@ -204,7 +207,7 @@ private:
     void removeSession(PAL::SessionID);
     void updateSandboxAccess(const Vector<SandboxExtension::Handle>&);
 
-    bool updatePreference(std::optional<bool>& oldPreference, std::optional<bool>& newPreference);
+    bool NODELETE updatePreference(std::optional<bool>& oldPreference, std::optional<bool>& newPreference);
     void userPreferredLanguagesChanged(Vector<String>&&);
 
 #if ENABLE(MEDIA_STREAM)
@@ -228,7 +231,7 @@ private:
     void cancelGetDisplayMediaPrompt();
 #endif
 #if PLATFORM(MAC)
-    void setScreenProperties(const WebCore::ScreenProperties&);
+    void NODELETE setScreenProperties(const WebCore::ScreenProperties&);
     void updateProcessName();
 #endif
 #if PLATFORM(COCOA)

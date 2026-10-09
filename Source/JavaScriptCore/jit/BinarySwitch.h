@@ -75,7 +75,7 @@ public:
     
     bool advance(MacroAssembler&);
     
-    MacroAssembler::JumpList& fallThrough() { return m_fallThrough; }
+    MacroAssembler::JumpList& fallThrough() LIFETIME_BOUND { return m_fallThrough; }
     
 private:
     void build(unsigned start, bool hardStart, unsigned end);
@@ -89,7 +89,7 @@ private:
         {
         }
         
-        bool operator<(const Case& other) const
+        bool NODELETE operator<(const Case& other) const
         {
             return value < other.value;
         }

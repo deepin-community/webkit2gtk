@@ -51,7 +51,7 @@ Ref<CStringBuffer> CStringBuffer::createUninitialized(size_t length)
 
 CString::CString(ASCIILiteral string)
 {
-    if (!string)
+    if (string.isNull())
         return;
 
     init(string.span());
@@ -154,10 +154,7 @@ unsigned CString::hash() const
 {
     if (isNull())
         return 0;
-    SuperFastHash hasher;
-    for (auto character : span())
-        hasher.addCharacter(character);
-    return hasher.hash();
+    return SuperFastHash::computeHash(span());
 }
 
 bool operator<(const CString& a, const CString& b)

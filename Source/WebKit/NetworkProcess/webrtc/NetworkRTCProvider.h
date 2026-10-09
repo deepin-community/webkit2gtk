@@ -45,7 +45,6 @@
 
 WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
 #include <webrtc/p2p/base/basic_packet_socket_factory.h>
-#include <webrtc/rtc_base/third_party/sigslot/sigslot.h>
 WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
 
 #endif
@@ -93,7 +92,7 @@ public:
     void ref() const final { ThreadSafeRefCounted::ref(); }
     void deref() const final { ThreadSafeRefCounted::deref(); }
 
-    void didReceiveNetworkRTCMonitorMessage(IPC::Connection& connection, IPC::Decoder& decoder) { protectedRTCMonitor()->didReceiveMessage(connection, decoder); }
+    void didReceiveNetworkRTCMonitorMessage(IPC::Connection& connection, IPC::Decoder& decoder) { protect(m_rtcMonitor)->didReceiveMessage(connection, decoder); }
 
     class Socket {
     public:
@@ -116,14 +115,13 @@ public:
     void callOnRTCNetworkThread(Function<void()>&&);
 
     IPC::Connection& connection() { return m_ipcConnection.get(); }
-    Ref<IPC::Connection> protectedConnection() { return m_ipcConnection.get(); }
 
     void closeSocket(WebCore::LibWebRTCSocketIdentifier);
 
 #if PLATFORM(COCOA)
-    bool webRTCInterfaceMonitoringViaNWEnabled() const;
-    const std::optional<audit_token_t>& sourceApplicationAuditToken() const { return m_sourceApplicationAuditToken; }
-    const char* applicationBundleIdentifier() const { return m_applicationBundleIdentifier.data(); }
+    bool NODELETE webRTCInterfaceMonitoringViaNWEnabled() const;
+    const std::optional<audit_token_t>& sourceApplicationAuditToken() const LIFETIME_BOUND { return m_sourceApplicationAuditToken; }
+    const char* applicationBundleIdentifier() const LIFETIME_BOUND { return m_applicationBundleIdentifier.data(); }
 #endif
 
     std::optional<SharedPreferencesForWebProcess> sharedPreferencesForWebProcess(IPC::Connection&);
@@ -159,9 +157,7 @@ private:
 
     void signalSocketIsClosed(WebCore::LibWebRTCSocketIdentifier);
 
-    void assertIsRTCNetworkThread();
-
-    Ref<NetworkRTCMonitor> protectedRTCMonitor();
+    void NODELETE assertIsRTCNetworkThread();
 
     static constexpr size_t maxSockets { 256 };
 

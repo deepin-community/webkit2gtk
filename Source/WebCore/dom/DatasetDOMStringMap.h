@@ -44,7 +44,7 @@ public:
 
     ~DatasetDOMStringMap();
 
-    void ref();
+    void NODELETE ref();
     void deref();
 
     bool isSupportedPropertyName(const String& name) const;
@@ -54,8 +54,7 @@ public:
     ExceptionOr<void> setNamedItem(const String& name, const AtomString& value);
     bool deleteNamedProperty(const String& name);
 
-    Element& element() { return m_element.get(); }
-    Ref<Element> protectedElement() const;
+    Element& element() { return m_element; }
 
 private:
     const AtomString* item(const String& name) const;

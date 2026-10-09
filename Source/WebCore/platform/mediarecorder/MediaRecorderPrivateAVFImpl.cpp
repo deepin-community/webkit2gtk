@@ -60,7 +60,7 @@ bool MediaRecorderPrivateAVFImpl::isTypeSupported(Document& document, ContentTyp
         for (auto& codec : mimeType.codecs()) {
             // FIXME: We should further validate parameters.
             if (!startsWithLettersIgnoringASCIICase(codec, "avc1"_s)
-#if ENABLE(AV1)
+#if ENABLE(AV1) && ENABLE(WEB_RTC)
                 && !(codec.startsWith("av01."_s) && document.settings().webRTCAV1CodecEnabled())
 #endif
 #if ENABLE(WEB_RTC)
@@ -141,7 +141,7 @@ MediaRecorderPrivateAVFImpl::~MediaRecorderPrivateAVFImpl()
 
 void MediaRecorderPrivateAVFImpl::startRecording(StartRecordingCallback&& callback)
 {
-    // FIMXE: In case of of audio recording, we should wait for the audio compression to start to give back the exact bit rate.
+    // FIXME: In case of of audio recording, we should wait for the audio compression to start to give back the exact bit rate.
     callback(String(m_encoder->mimeType()), m_encoder->audioBitRate(), m_encoder->videoBitRate());
 }
 

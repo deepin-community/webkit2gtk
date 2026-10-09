@@ -28,7 +28,6 @@
 #include "GPUBufferMapState.h"
 #include "GPUIntegralTypes.h"
 #include "GPUMapMode.h"
-#include "JSDOMPromiseDeferred.h"
 #include "JSDOMPromiseDeferredForward.h"
 #include "WebGPUBuffer.h"
 #include <JavaScriptCore/ArrayBuffer.h>
@@ -45,6 +44,7 @@
 namespace WebCore {
 
 class GPUDevice;
+class ScriptExecutionContext;
 class WeakPtrImplWithEventTargetData;
 template<typename> class ExceptionOr;
 
@@ -55,12 +55,12 @@ public:
         return adoptRef(*new GPUBuffer(WTF::move(backing), bufferSize, usage, mappedAtCreation, device));
     }
 
-    String label() const;
+    String NODELETE label() const;
     void setLabel(String&&);
 
     using MapAsyncPromise = DOMPromiseDeferred<IDLNull>;
-    void mapAsync(GPUMapModeFlags, std::optional<GPUSize64> offset, std::optional<GPUSize64> sizeForMap, MapAsyncPromise&&);
-    ExceptionOr<Ref<JSC::ArrayBuffer>> getMappedRange(std::optional<GPUSize64> offset, std::optional<GPUSize64> rangeSize);
+    void mapAsync(GPUMapModeFlags, GPUSize64 offset, std::optional<GPUSize64> sizeForMap, MapAsyncPromise&&);
+    ExceptionOr<Ref<JSC::ArrayBuffer>> getMappedRange(GPUSize64 offset, std::optional<GPUSize64> rangeSize);
     void unmap(ScriptExecutionContext&);
 
     void destroy(ScriptExecutionContext&);
@@ -89,7 +89,7 @@ private:
     size_t m_mappedRangeSize { 0 };
     const GPUBufferUsageFlags m_usage { 0 };
     GPUBufferMapState m_mapState { GPUBufferMapState::Unmapped };
-    std::optional<MapAsyncPromise> m_pendingMapPromise;
+    std::unique_ptr<MapAsyncPromise> m_pendingMapPromise;
     WeakPtr<GPUDevice, WeakPtrImplWithEventTargetData> m_device;
     using MappedRanges = WTF::RangeSet<WTF::Range<size_t>>;
     MappedRanges m_mappedRanges;

@@ -72,14 +72,18 @@ public:
 private:
     bool isLibWebRTCProvider() const final { return true; }
 
-    std::unique_ptr<SuspendableSocketFactory> createSocketFactory(String&& /* userAgent */, WebCore::ScriptExecutionContextIdentifier, bool /* isFirstParty */, WebCore::RegistrableDomain&&) final;
+    void clearCodecsConnectionForTesting() final;
+
+    std::unique_ptr<SuspendableSocketFactory> createSocketFactory(String&& /* userAgent */, WebCore::ScriptExecutionContextIdentifier, bool /* isFirstParty */, WebCore::RegistrableDomain&&, bool /* enableServiceClass */) final;
 
     webrtc::scoped_refptr<webrtc::PeerConnectionInterface> createPeerConnection(WebCore::ScriptExecutionContextIdentifier, webrtc::PeerConnectionObserver&, webrtc::PacketSocketFactory*, webrtc::PeerConnectionInterface::RTCConfiguration&&) final;
 
 #if PLATFORM(COCOA) && USE(LIBWEBRTC)
     bool isSupportingVP9HardwareDecoder() const final;
     void setVP9HardwareSupportForTesting(std::optional<bool>) final;
+    bool isSupportingAV1HardwareDecoder() const final;
 #endif
+
     void disableNonLocalhostConnections() final;
     void startedNetworkThread() final;
     RefPtr<WebCore::RTCDataChannelRemoteHandlerConnection> createRTCDataChannelRemoteHandlerConnection() final;
@@ -114,6 +118,8 @@ inline UniqueRef<LibWebRTCProvider> createLibWebRTCProvider(WebPage&)
 
 } // namespace WebKit
 
+#if USE(LIBWEBRTC)
 SPECIALIZE_TYPE_TRAITS_BEGIN(WebKit::LibWebRTCProvider) \
 static bool isType(const WebCore::WebRTCProvider& provider) { return provider.isLibWebRTCProvider(); } \
 SPECIALIZE_TYPE_TRAITS_END()
+#endif

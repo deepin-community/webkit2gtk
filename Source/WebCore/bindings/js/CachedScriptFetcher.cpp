@@ -46,13 +46,13 @@ CachedResourceHandle<CachedScript> CachedScriptFetcher::requestModuleScript(Docu
     return requestScriptWithCache(document, sourceURL, destination, String { }, WTF::move(integrity), { }, serviceWorkersMode);
 }
 
-CachedResourceHandle<CachedScript> CachedScriptFetcher::requestScriptWithCache(Document& document, const URL& sourceURL, FetchOptionsDestination destination, const String& crossOriginMode, String&& integrity, std::optional<ResourceLoadPriority> resourceLoadPriority, std::optional<ServiceWorkersMode> serviceWorkersMode) const
+RefPtr<CachedScript> CachedScriptFetcher::requestScriptWithCache(Document& document, const URL& sourceURL, FetchOptionsDestination destination, const String& crossOriginMode, String&& integrity, std::optional<ResourceLoadPriority> resourceLoadPriority, std::optional<ServiceWorkersMode> serviceWorkersMode) const
 {
     if (!document.settings().isScriptEnabled())
         return nullptr;
 
     ASSERT(document.contentSecurityPolicy());
-    bool hasKnownNonce = document.checkedContentSecurityPolicy()->allowScriptWithNonce(m_nonce, m_isInUserAgentShadowTree);
+    bool hasKnownNonce = protect(document.contentSecurityPolicy())->allowScriptWithNonce(m_nonce, m_isInUserAgentShadowTree);
     ResourceLoaderOptions options = CachedResourceLoader::defaultCachedResourceOptions();
     options.contentSecurityPolicyImposition = hasKnownNonce ? ContentSecurityPolicyImposition::SkipPolicyCheck : ContentSecurityPolicyImposition::DoPolicyCheck;
     options.sameOriginDataURLFlag = SameOriginDataURLFlag::Set;
@@ -71,7 +71,8 @@ CachedResourceHandle<CachedScript> CachedScriptFetcher::requestScriptWithCache(D
     if (!m_initiatorType.isNull())
         request.setInitiatorType(m_initiatorType);
 
-    return document.protectedCachedResourceLoader()->requestScript(WTF::move(request)).value_or(nullptr);
+    auto result = protect(document.cachedResourceLoader())->requestScript(WTF::move(request));
+    return result ? RefPtr { WTF::move(result.value()) } : nullptr;
 }
 
 }

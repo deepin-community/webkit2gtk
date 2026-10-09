@@ -62,7 +62,7 @@ SPDX-License-Identifier: BSD, LGPL-2.1
         <h3><a href="index.html">WebKit</a></h3>
         <p>API Version: 6.0</p>
         
-        <p>Library Version: 2.52.5</p>
+        <p>Library Version: 2.54.0</p>
         
       </div>
       
@@ -174,7 +174,7 @@ SPDX-License-Identifier: BSD, LGPL-2.1
         Description
         <a href="#description" class="anchor"></a>
         
-        <a class="srclink" title="go to source location" href="https://github.com/WebKit/WebKit/tree/main/Source/WebKit/UIProcess/API/glib/WebKitWebView.cpp#L2136">[src]</a>
+        <a class="srclink" title="go to source location" href="https://github.com/WebKit/WebKit/tree/main/Source/WebKit/UIProcess/API/glib/WebKitWebView.cpp#L2203">[src]</a>
         
       </h4>
 
@@ -183,7 +183,7 @@ SPDX-License-Identifier: BSD, LGPL-2.1
 decide about a permission request, such as allowing the browser
 to switch to fullscreen mode, sharing its location or similar&nbsp;operations.</p>
 <p>A possible way to use this signal could be through a dialog
-allowing the user decide what to do with the&nbsp;request:</p>
+allowing the user to decide what to do with the&nbsp;request:</p>
 <div class="codehilite"><pre><span></span><code><span class="k">static</span><span class="w"> </span><span class="n">gboolean</span><span class="w"> </span><span class="nf">permission_request_cb</span><span class="w"> </span><span class="p">(</span><span class="n">WebKitWebView</span><span class="w"> </span><span class="o">*</span><span class="n">web_view</span><span class="p">,</span>
 <span class="w">                                       </span><span class="n">WebKitPermissionRequest</span><span class="w"> </span><span class="o">*</span><span class="n">request</span><span class="p">,</span>
 <span class="w">                                       </span><span class="n">GtkWindow</span><span class="w"> </span><span class="o">*</span><span class="n">parent_window</span><span class="p">)</span>

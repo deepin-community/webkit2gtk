@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include <JavaScriptCore/WeakGCSet.h>
 #include <WebCore/DOMTimer.h>
 #include <WebCore/EventLoop.h>
 #include <WebCore/ScriptExecutionContext.h>
@@ -49,11 +50,6 @@ inline DOMTimer* ScriptExecutionContext::findTimeout(int timeoutId)
     return m_timeouts.get(timeoutId);
 }
 
-inline CheckedRef<EventLoopTaskGroup> ScriptExecutionContext::checkedEventLoop()
-{
-    return eventLoop();
-}
-
 template<typename... Arguments>
 inline void ScriptExecutionContext::postCrossThreadTask(Arguments&&... arguments)
 {
@@ -67,7 +63,7 @@ void ScriptExecutionContext::enqueueTaskWhenSettled(Ref<Promise>&& promise, Task
 {
     auto request = NativePromiseRequest::create();
     WeakPtr weakRequest { request.get() };
-    auto command = promise->whenSettled(protectedNativePromiseDispatcher(), [weakThis = WeakPtr { *this }, taskSource, task = WTF::move(task), request = WTF::move(request)] (auto&& result) mutable {
+    auto command = promise->whenSettled(protect(nativePromiseDispatcher()), [weakThis = WeakPtr { *this }, taskSource, task = WTF::move(task), request = WTF::move(request)] (auto&& result) mutable {
         request->complete();
         RefPtr protectedThis = weakThis.get();
         if (!protectedThis)
@@ -100,6 +96,17 @@ inline ScriptExecutionContext::AddConsoleMessageTask::AddConsoleMessageTask(Mess
         context.addConsoleMessage(source, level, message);
     })
 {
+}
+
+template<typename Functor>
+void ScriptExecutionContext::forEachMicrotaskGlobalObject(const Functor& functor)
+{
+    if (!m_microtaskGlobalObjects)
+        return;
+    for (auto& weak : *m_microtaskGlobalObjects) {
+        if (SUPPRESS_FORWARD_DECL_ARG auto* globalObject = weak.get())
+            functor(*globalObject);
+    }
 }
 
 } // namespace WebCore

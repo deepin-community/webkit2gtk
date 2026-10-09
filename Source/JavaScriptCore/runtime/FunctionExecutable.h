@@ -235,10 +235,7 @@ public:
         return m_singleton;
     }
 
-    void notifyCreation(VM& vm, JSFunction* function, const char* reason)
-    {
-        m_singleton.notifyWrite(vm, this, function, reason);
-    }
+    void notifyCreation(VM&, JSFunction*, const char* reason);
 
     // Cached poly proto structure for the result of constructing this executable.
     Structure* cachedPolyProtoStructure()
@@ -261,7 +258,7 @@ public:
 
     Box<InlineWatchpointSet> sharedPolyProtoWatchpoint() const { return m_polyProtoWatchpoint; }
 
-    ScriptExecutable* topLevelExecutable() const { return m_topLevelExecutable.get(); }
+    ScriptExecutable* topLevelExecutable() const LIFETIME_BOUND { return m_topLevelExecutable.get(); }
 
     TemplateObjectMap& ensureTemplateObjectMap(VM&);
 

@@ -62,7 +62,7 @@ SPDX-License-Identifier: BSD, LGPL-2.1
         <h3><a href="index.html">WebKit</a></h3>
         <p>API Version: 6.0</p>
         
-        <p>Library Version: 2.52.5</p>
+        <p>Library Version: 2.54.0</p>
         
       </div>
       
@@ -150,11 +150,15 @@ SPDX-License-Identifier: BSD, LGPL-2.1
   
     <a class="method" href="method.WebView.get_is_web_process_responsive.html">get_is_web_process_responsive</a>
   
+    <a class="method" href="method.WebView.get_magnification.html">get_magnification</a>
+  
     <a class="method" href="method.WebView.get_main_resource.html">get_main_resource</a>
   
     <a class="method" href="method.WebView.get_microphone_capture_state.html">get_microphone_capture_state</a>
   
     <a class="method" href="method.WebView.get_network_session.html">get_network_session</a>
+  
+    <a class="method" href="method.WebView.get_page_icons.html">get_page_icons</a>
   
     <a class="method" href="method.WebView.get_page_id.html">get_page_id</a>
   
@@ -248,6 +252,8 @@ SPDX-License-Identifier: BSD, LGPL-2.1
   
     <a class="method" href="method.WebView.set_is_muted.html">set_is_muted</a>
   
+    <a class="method" href="method.WebView.set_magnification.html">set_magnification</a>
+  
     <a class="method" href="method.WebView.set_microphone_capture_state.html">set_microphone_capture_state</a>
   
     <a class="method" href="method.WebView.set_settings.html">set_settings</a>
@@ -296,9 +302,13 @@ SPDX-License-Identifier: BSD, LGPL-2.1
   
     <a class="property" href="property.WebView.is-web-process-responsive.html">is-web-process-responsive</a>
   
+    <a class="property" href="property.WebView.magnification.html">magnification</a>
+  
     <a class="property" href="property.WebView.microphone-capture-state.html">microphone-capture-state</a>
   
     <a class="property" href="property.WebView.network-session.html">network-session</a>
+  
+    <a class="property" href="property.WebView.page-icons.html">page-icons</a>
   
     <a class="property" href="property.WebView.page-id.html">page-id</a>
   
@@ -486,7 +496,7 @@ SPDX-License-Identifier: BSD, LGPL-2.1
           Description
           <a href="#description" class="anchor"></a>
           
-          <a class="srclink" title="go to source location" href="https://github.com/WebKit/WebKit/tree/main/Source/WebKit/UIProcess/API/glib/WebKitWebView.cpp#L136">[src]</a>
+          <a class="srclink" title="go to source location" href="https://github.com/WebKit/WebKit/tree/main/Source/WebKit/UIProcess/API/glib/WebKitWebView.cpp#L144">[src]</a>
           
         </h4>
 
@@ -747,7 +757,7 @@ you don&#8217;t need to embed it in a <code>GtkScrolledWindow</code>.</p>
             <p>Asynchronously call <code>body</code> with <code>arguments</code> in the script world with name <code>world_name</code> of the main frame current context in <code>web_view</code>.
 The <code>arguments</code> values must be one of the following types, or contain only the following GVariant types: number, string and dictionary.
 The result of the operation can be a Promise that will be properly passed to the callback.
-If <code>world_name</code> is <code>NULL</code>, the default world is used. Any value that is not <code>NULL</code> is a distin ct world.
+If <code>world_name</code> is <code>NULL</code>, the default world is used. Any value that is not <code>NULL</code> is a distinct world.
 The <code>source_uri</code> will be shown in exceptions and doesn&#8217;t affect the behavior of the script.
 When not provided, the document <span class="caps">URL</span> is&nbsp;used.</p>
           </div>
@@ -969,13 +979,13 @@ When not provided, the document <span class="caps">URL</span> is&nbsp;used.</p>
           </div>
         </div>
       
-        <div class="">
+        <div class="deprecated">
           <h6><a href="method.WebView.get_favicon.html">webkit_web_view_get_favicon</a></h6>
           <div class="docblock">
-            <p>Returns favicon currently associated to <code>web_view</code>.</p>
+            <p>Returns favicon currently associated with <code>web_view</code>.</p>
           </div>
           <div class="docblock">
-            <p></p>
+            <p><span class="emblem deprecated">deprecated: 2.54</span>&nbsp;</p>
           </div>
         </div>
       
@@ -1002,7 +1012,7 @@ When not provided, the document <span class="caps">URL</span> is&nbsp;used.</p>
         <div class="">
           <h6><a href="method.WebView.get_inspector.html">webkit_web_view_get_inspector</a></h6>
           <div class="docblock">
-            <p>Get the <code>WebKitWebInspector</code> associated to <code>web_view</code>.</p>
+            <p>Get the <code>WebKitWebInspector</code> associated with <code>web_view</code>.</p>
           </div>
           <div class="docblock">
             <p></p>
@@ -1030,6 +1040,16 @@ When not provided, the document <span class="caps">URL</span> is&nbsp;used.</p>
         </div>
       
         <div class="">
+          <h6><a href="method.WebView.get_magnification.html">webkit_web_view_get_magnification</a></h6>
+          <div class="docblock">
+            <p>Get the magnification factor of <code>web_view</code>.</p>
+          </div>
+          <div class="docblock">
+            <p><span class="emblem available">since: 2.54</span></p>
+          </div>
+        </div>
+      
+        <div class="">
           <h6><a href="method.WebView.get_main_resource.html">webkit_web_view_get_main_resource</a></h6>
           <div class="docblock">
             <p>Return the main resource of <code>web_view</code>.</p>
@@ -1052,10 +1072,20 @@ When not provided, the document <span class="caps">URL</span> is&nbsp;used.</p>
         <div class="">
           <h6><a href="method.WebView.get_network_session.html">webkit_web_view_get_network_session</a></h6>
           <div class="docblock">
-            <p>Get the <code>WebKitNetworkSession</code> associated to <code>web_view</code>.</p>
+            <p>Get the <code>WebKitNetworkSession</code> associated with <code>web_view</code>.</p>
           </div>
           <div class="docblock">
             <p><span class="emblem available">since: 2.40</span></p>
+          </div>
+        </div>
+      
+        <div class="">
+          <h6><a href="method.WebView.get_page_icons.html">webkit_web_view_get_page_icons</a></h6>
+          <div class="docblock">
+            <p>Returns the page icons for the content loaded in the web&nbsp;view.</p>
+          </div>
+          <div class="docblock">
+            <p><span class="emblem available">since: 2.54</span></p>
           </div>
         </div>
       
@@ -1156,7 +1186,7 @@ with transparent black&nbsp;content.</p>
         <div class="">
           <h6><a href="method.WebView.get_user_content_manager.html">webkit_web_view_get_user_content_manager</a></h6>
           <div class="docblock">
-            <p>Gets the user content manager associated to <code>web_view</code>.</p>
+            <p>Gets the user content manager associated with <code>web_view</code>.</p>
           </div>
           <div class="docblock">
             <p><span class="emblem available">since: 2.6</span></p>
@@ -1196,7 +1226,7 @@ with transparent black&nbsp;content.</p>
         <div class="">
           <h6><a href="method.WebView.get_zoom_level.html">webkit_web_view_get_zoom_level</a></h6>
           <div class="docblock">
-            <p>Set the zoom level of <code>web_view</code>.</p>
+            <p>Get the zoom level of <code>web_view</code>.</p>
           </div>
           <div class="docblock">
             <p></p>
@@ -1526,6 +1556,16 @@ using any cached&nbsp;data.</p>
         </div>
       
         <div class="">
+          <h6><a href="method.WebView.set_magnification.html">webkit_web_view_set_magnification</a></h6>
+          <div class="docblock">
+            <p>Set the magnification factor of <code>web_view</code>.</p>
+          </div>
+          <div class="docblock">
+            <p><span class="emblem available">since: 2.54</span></p>
+          </div>
+        </div>
+      
+        <div class="">
           <h6><a href="method.WebView.set_microphone_capture_state.html">webkit_web_view_set_microphone_capture_state</a></h6>
           <div class="docblock">
             <p>Set the microphone capture state of a <code>WebKitWebView</code>.</p>
@@ -1568,7 +1608,7 @@ using any cached&nbsp;data.</p>
         <div class="">
           <h6><a href="method.WebView.terminate_web_process.html">webkit_web_view_terminate_web_process</a></h6>
           <div class="docblock">
-            <p>Terminates the web process associated to <code>web_view</code>.</p>
+            <p>Terminates the web process associated with <code>web_view</code>.</p>
           </div>
           <div class="docblock">
             <p><span class="emblem available">since: 2.34</span></p>
@@ -1752,8 +1792,8 @@ by an <span class="caps">HTTP</span>&nbsp;header.</p>
           <h6><a href="property.WebView.display-capture-state.html">WebKit.WebView:display-capture-state</a></h6>
           <div class="docblock">
             <p>Capture state of the display device. Whenever the user grants a media-request sent by the web
-page, requesting screencasting capabilities (<code>navigator.mediaDevices.getDisplayMedia() this
-property will be set to</code>WEBKIT_MEDIA_CAPTURE_STATE_ACTIVE`.</p>
+page, requesting screencasting capabilities (<code>navigator.mediaDevices.getDisplayMedia()</code>) this
+property will be set to <code>WEBKIT_MEDIA_CAPTURE_STATE_ACTIVE</code>.</p>
           </div>
           <div class="docblock">
             <p><span class="emblem available">since: 2.34</span></p>
@@ -1787,14 +1827,14 @@ and child&nbsp;documents.</p>
           </div>
         </div>
       
-        <div class="">
+        <div class="deprecated">
           <h6><a href="property.WebView.favicon.html">WebKit.WebView:favicon</a></h6>
           <div class="docblock">
-            <p>The favicon currently associated to the <code>WebKitWebView</code>.
+            <p>The favicon currently associated with the <code>WebKitWebView</code>.
 See <code>webkit_web_view_get_favicon()</code> for more&nbsp;details.</p>
           </div>
           <div class="docblock">
-            <p></p>
+            <p><span class="emblem deprecated">deprecated: 2.54</span>&nbsp;</p>
           </div>
         </div>
       
@@ -1862,10 +1902,20 @@ the property is set back to <code>FALSE</code>.</p>
         <div class="">
           <h6><a href="property.WebView.is-web-process-responsive.html">WebKit.WebView:is-web-process-responsive</a></h6>
           <div class="docblock">
-            <p>Whether the web process currently associated to the <code>WebKitWebView</code> is&nbsp;responsive.</p>
+            <p>Whether the web process currently associated with the <code>WebKitWebView</code> is&nbsp;responsive.</p>
           </div>
           <div class="docblock">
             <p><span class="emblem available">since: 2.34</span></p>
+          </div>
+        </div>
+      
+        <div class="">
+          <h6><a href="property.WebView.magnification.html">WebKit.WebView:magnification</a></h6>
+          <div class="docblock">
+            <p>The magnification factor of the <code>WebKitWebView</code> content.</p>
+          </div>
+          <div class="docblock">
+            <p><span class="emblem available">since: 2.54</span></p>
           </div>
         </div>
       
@@ -1888,6 +1938,16 @@ true})</code>) this property will be set to <code>WEBKIT_MEDIA_CAPTURE_STATE_ACT
           </div>
           <div class="docblock">
             <p><span class="emblem available">since: 2.40</span></p>
+          </div>
+        </div>
+      
+        <div class="">
+          <h6><a href="property.WebView.page-icons.html">WebKit.WebView:page-icons</a></h6>
+          <div class="docblock">
+            <p>The page icons (favicons) associated with the currently loaded content, if&nbsp;any.</p>
+          </div>
+          <div class="docblock">
+            <p><span class="emblem available">since: 2.54</span></p>
           </div>
         </div>
       
@@ -2187,7 +2247,7 @@ entirely, connect to this signal and simply return <code>TRUE</code>.</p>
           <h6><a href="signal.WebView.close.html">WebKit.WebView::close</a></h6>
           <div class="docblock">
             <p>Emitted when closing a <code>WebKitWebView</code> is requested. This occurs when a
-call is made from JavaScript&#8217;s <function>window.close</function> function or
+call is made from JavaScript&#8217;s <code>window.close</code> function or
 after trying to close the <code>web_view</code> with webkit_web_view_try_close().
 It is the owner&#8217;s responsibility to handle this signal to hide or
 destroy the <code>WebKitWebView</code>, if&nbsp;necessary.</p>
@@ -2202,31 +2262,7 @@ destroy the <code>WebKitWebView</code>, if&nbsp;necessary.</p>
           <div class="docblock">
             <p>Emitted when a context menu is about to be displayed to give the application
 a chance to customize the proposed menu, prevent the menu from being displayed,
-or build its own context menu.
-<itemizedlist>
-<listitem><para>
- To customize the proposed menu you can use webkit_context_menu_prepend(),
- <code>webkit_context_menu_append()</code> or <code>webkit_context_menu_insert()</code> to add new
- <code>WebKitContextMenuItem</code><!-- -->s to <code>context_menu</code>, <code>webkit_context_menu_move_item()</code>
- to reorder existing items, or <code>webkit_context_menu_remove()</code> to remove an
- existing item. The signal handler should return <code>FALSE</code>, and the menu represented
- by <code>context_menu</code> will be shown.
-</para></listitem>
-<listitem><para>
- To prevent the menu from being displayed you can just connect to this signal
- and return <code>TRUE</code> so that the proposed menu will not be shown.
-</para></listitem>
-<listitem><para>
- To build your own menu, you can remove all items from the proposed menu with
- webkit_context_menu_remove_all(), add your own items and return <code>FALSE</code> so
- that the menu will be shown. You can also ignore the proposed <code>WebKitContextMenu</code>,
- build your own <code>GtkMenu</code> and return <code>TRUE</code> to prevent the proposed menu from being shown.
-</para></listitem>
-<listitem><para>
- If you just want the default menu to be shown always, simply don&#8217;t connect to this
- signal because showing the proposed context menu is the default behaviour.
-</para></listitem>
-</itemizedlist></p>
+or build its own context&nbsp;menu.</p>
           </div>
           <div class="docblock">
             <p></p>
@@ -2261,8 +2297,8 @@ newly created <code>WebKitWebView</code>.</p>
           <div class="docblock">
             <p>This signal is emitted when WebKit is requesting the client to decide a policy
 decision, such as whether to navigate to a page, open a new window or whether or
-not to download a resource. The <code>WebKitNavigationPolicyDecision</code> passed in the
-<code>decision</code> argument is a generic type, but should be casted to a more
+not to download a resource. The <code>WebKitPolicyDecision</code> passed in the
+<code>decision</code> argument is a generic type, but should be cast to a more
 specific type when making the decision. For&nbsp;example:</p>
           </div>
           <div class="docblock">
@@ -2274,10 +2310,10 @@ specific type when making the decision. For&nbsp;example:</p>
           <h6><a href="signal.WebView.enter-fullscreen.html">WebKit.WebView::enter-fullscreen</a></h6>
           <div class="docblock">
             <p>Emitted when JavaScript code calls
-<function>element.webkitRequestFullScreen</function>. If the
+<code>element.webkitRequestFullScreen</code>. If the
 signal is not handled the <code>WebKitWebView</code> will proceed to full screen
 its top level window. This signal can be used by client code to
-request permission to the user prior doing the full screen
+request permission to the user prior to doing the full screen
 transition and eventually prepare the top-level window
 (e.g. hide some widgets that would otherwise be part of the
 full screen&nbsp;window).</p>
@@ -2450,7 +2486,7 @@ of <code>resource</code>.</p>
           <div class="docblock">
             <p>Emitted after <code>WebKitWebView::ready-to-show</code> on the newly
 created <code>WebKitWebView</code> when JavaScript code calls
-<function>window.showModalDialog</function>. The purpose of
+<code>window.showModalDialog</code>. The purpose of
 this signal is to allow the client application to prepare the
 new view to behave as modal. Once the signal is emitted a new
 main loop will be run to block user interaction in the parent
@@ -2497,27 +2533,12 @@ argument.</p>
         <div class="">
           <h6><a href="signal.WebView.script-dialog.html">WebKit.WebView::script-dialog</a></h6>
           <div class="docblock">
-            <p>Emitted when JavaScript code calls <function>window.alert</function>,
-<function>window.confirm</function> or <function>window.prompt</function>,
-or when <function>onbeforeunload</function> event is fired.
+            <p>Emitted when JavaScript code calls <code>window.alert</code>,
+<code>window.confirm</code> or <code>window.prompt</code>,
+or when <code>onbeforeunload</code> event is fired.
 The <code>dialog</code> parameter should be used to build the dialog.
 If the signal is not handled a different dialog will be built and shown depending
-on the dialog type:
-<itemizedlist>
-<listitem><para>
- <code>WEBKIT_SCRIPT_DIALOG_ALERT</code>: message dialog with a single Close button.
-</para></listitem>
-<listitem><para>
- <code>WEBKIT_SCRIPT_DIALOG_CONFIRM</code>: message dialog with <span class="caps">OK</span> and Cancel buttons.
-</para></listitem>
-<listitem><para>
- <code>WEBKIT_SCRIPT_DIALOG_PROMPT</code>: message dialog with <span class="caps">OK</span> and Cancel buttons and
- a text entry with the default text.
-</para></listitem>
-<listitem><para>
- <code>WEBKIT_SCRIPT_DIALOG_BEFORE_UNLOAD_CONFIRM</code>: message dialog with Stay and Leave buttons.
-</para></listitem>
-</itemizedlist></p>
+on the dialog&nbsp;type:</p>
           </div>
           <div class="docblock">
             <p></p>

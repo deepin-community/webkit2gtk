@@ -26,6 +26,7 @@
 #include "config.h"
 #include "AccessibilityMenuList.h"
 
+#include "AccessibilityNodeObjectInlines.h"
 #include "AXLoggerBase.h"
 #include "AXNotifications.h"
 #include "AccessibilityObjectInlines.h"
@@ -33,19 +34,18 @@
 #include "AccessibilityMenuListPopup.h"
 #include "FrameDestructionObserverInlines.h"
 #include "HTMLSelectElement.h"
-#include "RenderMenuList.h"
 #include "RenderObjectDocument.h"
 #include <wtf/Scope.h>
 
 namespace WebCore {
 
-AccessibilityMenuList::AccessibilityMenuList(AXID axID, RenderMenuList& renderer, AXObjectCache& cache)
+AccessibilityMenuList::AccessibilityMenuList(AXID axID, RenderObject& renderer, AXObjectCache& cache)
     : AccessibilityRenderObject(axID, renderer, cache)
     , m_popup(downcast<AccessibilityMenuListPopup>(*cache.create(AccessibilityRole::MenuListPopup)))
 {
 }
 
-Ref<AccessibilityMenuList> AccessibilityMenuList::create(AXID axID, RenderMenuList& renderer, AXObjectCache& cache)
+Ref<AccessibilityMenuList> AccessibilityMenuList::create(AXID axID, RenderObject& renderer, AXObjectCache& cache)
 {
     Ref menuList = adoptRef(*new AccessibilityMenuList(axID, renderer, cache));
     // We have to do this setup here and not in the constructor to avoid an
@@ -65,10 +65,12 @@ bool AccessibilityMenuList::press()
     RefPtr selectElement = dynamicDowncast<HTMLSelectElement>(element());
     auto notification = AXNotification::PressDidFail;
     if (selectElement && !selectElement->isDisabledFormControl()) {
+        // Note that hiding or showing the popup could trigger JS.
         if (selectElement->popupIsVisible())
             selectElement->hidePopup();
         else
             selectElement->showPopup();
+
         notification = AXNotification::PressDidSucceed;
     }
     if (CheckedPtr cache = axObjectCache())
@@ -147,7 +149,7 @@ void AccessibilityMenuList::didUpdateActiveOption(int optionIndex)
     }
 
     if (CheckedPtr cache = document->axObjectCache())
-        cache->deferMenuListValueChange(element());
+        cache->deferMenuListValueChange(protect(element()));
 }
 
 } // namespace WebCore
