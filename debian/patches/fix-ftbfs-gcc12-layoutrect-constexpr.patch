@@ -1,0 +1,98 @@
+From: lichenggang <lichenggang@uniontech.com>
+Description: Make LayoutRect constructor chain constexpr to fix FTBFS with GCC 12
+ LayoutRect::infiniteRect() and LayoutRect::renderableInfiniteRect() are
+ "static constexpr" but call the templated LayoutRect(T1, T2, U1, U2)
+ constructor, which in turn uses the non-constexpr LayoutPoint/LayoutSize
+ templated constructors and LayoutUnit arithmetic.  Since no invocation
+ could be a constant expression, the code is ill-formed NDR and GCC 12
+ rejects it with "call to non-constexpr function" when compiling the
+ WebCore precompiled header.  Newer compilers (clang, GCC >= 13) do not
+ diagnose this case, which is why Debian's clang-19 builds are unaffected.
+ .
+ Mark the LayoutRect/LayoutPoint/LayoutSize templated constructors, the
+ LayoutUnit(int) constructor, LayoutUnit::setValue(int) and the
+ LayoutUnit operator/ overloads used here as constexpr.  This makes the
+ functions genuinely usable in constant expressions and keeps the
+ upstream intent of the "static constexpr" API.
+Forwarded: no
+---
+
+Index: webkit2gtk/Source/WebCore/platform/LayoutUnit.h
+===================================================================
+--- webkit2gtk.orig/Source/WebCore/platform/LayoutUnit.h
++++ webkit2gtk/Source/WebCore/platform/LayoutUnit.h
+@@ -69,7 +69,7 @@ class LayoutUnit {
+ public:
+     constexpr LayoutUnit() : m_value(0) { }
+     LayoutUnit(const LayoutUnit&) = default;
+-    LayoutUnit(int value) { setValue(value); }
++    constexpr LayoutUnit(int value) { setValue(value); }
+     LayoutUnit(unsigned short value) { setValue(value); }
+     LayoutUnit(unsigned value) { setValue(value); }
+     explicit LayoutUnit(unsigned long value)
+@@ -227,7 +227,7 @@ private:
+         return ::abs(value) <= std::numeric_limits<int>::max() / kFixedPointDenominator;
+     }
+ 
+-    inline void setValue(int value)
++    constexpr void setValue(int value)
+     {
+         if (value > intMaxForLayoutUnit)
+             m_value = std::numeric_limits<int>::max();
+@@ -361,7 +361,7 @@ inline double operator*(const double a,
+     return a * b.toDouble();
+ }
+ 
+-inline LayoutUnit operator/(const LayoutUnit& a, const LayoutUnit& b)
++constexpr LayoutUnit operator/(const LayoutUnit& a, const LayoutUnit& b)
+ {
+     long long rawVal = static_cast<long long>(kFixedPointDenominator) * a.rawValue() / b.rawValue();
+     return LayoutUnit::fromRawValue(clampTo<int>(rawVal));
+@@ -377,7 +377,7 @@ inline double operator/(const LayoutUnit
+     return a.toDouble() / b;
+ }
+ 
+-inline LayoutUnit operator/(const LayoutUnit& a, int b)
++constexpr LayoutUnit operator/(const LayoutUnit& a, int b)
+ {
+     return a / LayoutUnit(b);
+ }
+Index: webkit2gtk/Source/WebCore/platform/graphics/LayoutPoint.h
+===================================================================
+--- webkit2gtk.orig/Source/WebCore/platform/graphics/LayoutPoint.h
++++ webkit2gtk/Source/WebCore/platform/graphics/LayoutPoint.h
+@@ -39,7 +39,7 @@ namespace WebCore {
+ class LayoutPoint {
+ public:
+     constexpr LayoutPoint() = default;
+-    template<typename T, typename U> LayoutPoint(T x, U y) : m_x(x), m_y(y) { }
++    template<typename T, typename U> constexpr LayoutPoint(T x, U y) : m_x(x), m_y(y) { }
+     LayoutPoint(const IntPoint& point) : m_x(point.x()), m_y(point.y()) { }
+     explicit LayoutPoint(const FloatPoint& size)
+         : m_x(size.x()), m_y(size.y()) { }
+Index: webkit2gtk/Source/WebCore/platform/graphics/LayoutRect.h
+===================================================================
+--- webkit2gtk.orig/Source/WebCore/platform/graphics/LayoutRect.h
++++ webkit2gtk/Source/WebCore/platform/graphics/LayoutRect.h
+@@ -50,7 +50,7 @@ public:
+     LayoutRect(const LayoutPoint& location, const LayoutSize& size)
+         : m_location(location), m_size(size) { }
+     template<typename T1, typename T2, typename U1, typename U2>
+-    LayoutRect(T1 x, T2 y, U1 width, U2 height)
++    constexpr LayoutRect(T1 x, T2 y, U1 width, U2 height)
+         : m_location(LayoutPoint(x, y)), m_size(LayoutSize(width, height)) { }
+     LayoutRect(const LayoutPoint& topLeft, const LayoutPoint& bottomRight)
+         : m_location(topLeft), m_size(LayoutSize(bottomRight.x() - topLeft.x(), bottomRight.y() - topLeft.y())) { }
+Index: webkit2gtk/Source/WebCore/platform/graphics/LayoutSize.h
+===================================================================
+--- webkit2gtk.orig/Source/WebCore/platform/graphics/LayoutSize.h
++++ webkit2gtk/Source/WebCore/platform/graphics/LayoutSize.h
+@@ -51,7 +51,7 @@ class LayoutSize {
+ public:
+     LayoutSize() = default;
+     LayoutSize(const IntSize& size) : m_width(size.width()), m_height(size.height()) { }
+-    template<typename T, typename U> LayoutSize(T width, U height) : m_width(width), m_height(height) { }
++    template<typename T, typename U> constexpr LayoutSize(T width, U height) : m_width(width), m_height(height) { }
+ 
+     explicit LayoutSize(const FloatSize& size) : m_width(size.width()), m_height(size.height()) { }
+     

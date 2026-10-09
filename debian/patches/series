@@ -1,6 +1,7 @@
 fix-ftbfs-riscv64.patch
 fix-ftbfs-x32.patch
 fix-ftbfs-gcc12-angle-resource-map.patch
+fix-ftbfs-gcc12-layoutrect-constexpr.patch
 disable-nvidia-dmabuf.patch
 no-must-tail.patch
 fix-eclipse-crash.patch
