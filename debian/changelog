@@ -1,3 +1,9 @@
+webkit2gtk (2.54.0-1~deb13u2deepin1) unstable; urgency=medium
+
+  * feat: add sw64 support.
+
+ -- lichenggang <lichenggang@uniontech.com>  Fri, 09 Oct 2026 10:14:30 +0800
+
 webkit2gtk (2.54.0-1~deb13u2) trixie-security; urgency=medium
 
   * debian/patches/fix-eclipse-crash.patch:
