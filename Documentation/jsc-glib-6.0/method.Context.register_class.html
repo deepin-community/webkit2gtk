@@ -62,7 +62,7 @@ SPDX-License-Identifier: BSD, LGPL-2.1
         <h3><a href="index.html">JavaScriptCore</a></h3>
         <p>API Version: 6.0</p>
         
-        <p>Library Version: 2.52.5</p>
+        <p>Library Version: 2.54.0</p>
         
       </div>
       
@@ -162,14 +162,14 @@ SPDX-License-Identifier: BSD, LGPL-2.1
         Description
         <a class="anchor" href="#description"></a>
         
-        <a class="srclink" title="go to source location" href="https://github.com/WebKit/WebKit/tree/Source/JavaScriptCore/API/glib/JSCContext.cpp#L1097">[src]</a>
+        <a class="srclink" title="go to source location" href="https://github.com/WebKit/WebKit/tree/Source/JavaScriptCore/API/glib/JSCContext.cpp#L1089">[src]</a>
         
       </h4>
 
       <div class="docblock">
         <p>Register a custom class in <code>context</code> using the given <code>name</code>. If the new class inherits from
 another <code>JSCClass</code>, the parent should be passed as <code>parent_class</code>, otherwise <code>NULL</code> should be
-used. The optional <code>vtable</code> parameter allows to provide a custom implementation for handling
+used. The optional <code>vtable</code> parameter allows providing a custom implementation for handling
 the class, for example, to handle external properties not added to the prototype.
 When an instance of the <code>JSCClass</code> is cleared in the context, <code>destroy_notify</code> is called with
 the instance as&nbsp;parameter.</p>

@@ -38,12 +38,12 @@ ScreenManager& ScreenManager::singleton()
     return manager;
 }
 
-PlatformDisplayID ScreenManager::displayID(NativePlatformScreen* screen) const
+PlatformDisplayID ScreenManager::displayID(PlatformScreen* screen) const
 {
     return m_screenToDisplayIDMap.get(screen);
 }
 
-NativePlatformScreen* ScreenManager::screen(PlatformDisplayID displayID) const
+PlatformScreen* ScreenManager::screen(PlatformDisplayID displayID) const
 {
     for (const auto& iter : m_screenToDisplayIDMap) {
         if (iter.value == displayID)
@@ -52,13 +52,13 @@ NativePlatformScreen* ScreenManager::screen(PlatformDisplayID displayID) const
     return nullptr;
 }
 
-void ScreenManager::addScreen(NativePlatformScreen* screen)
+void ScreenManager::addScreen(PlatformScreen* screen)
 {
     m_screens.append(screen);
     m_screenToDisplayIDMap.add(screen, generatePlatformDisplayID(screen));
 }
 
-void ScreenManager::removeScreen(NativePlatformScreen* screen)
+void ScreenManager::removeScreen(PlatformScreen* screen)
 {
     m_screenToDisplayIDMap.remove(screen);
     m_screens.removeFirstMatching([screen](const auto& item) {

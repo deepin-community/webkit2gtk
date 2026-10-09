@@ -26,6 +26,7 @@
 #include "config.h"
 #include "DatagramSource.h"
 
+#include "Exception.h"
 #include <JavaScriptCore/ArrayBuffer.h>
 #include <wtf/StdLibExtras.h>
 
@@ -61,6 +62,7 @@ void DatagramDefaultSource::receiveDatagram(std::span<const uint8_t> datagram, b
 void DatagramDefaultSource::doCancel()
 {
     m_isCancelled = true;
+    cancelFinished();
 }
 
 void DatagramDefaultSource::error(JSC::JSGlobalObject& globalObject, JSC::JSValue value)

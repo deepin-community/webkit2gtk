@@ -37,7 +37,7 @@
 #include <WebCore/IterationCompositeOperation.h>
 #include <WebCore/KeyframeEffectOptions.h>
 #include <WebCore/KeyframeInterpolation.h>
-#include <WebCore/RenderStyle.h>
+#include <WebCore/StyleComputedStyle.h>
 #include <WebCore/StyleInterpolationClient.h>
 #include <WebCore/Styleable.h>
 #include <WebCore/WebAnimationTypes.h>
@@ -51,20 +51,20 @@ class Element;
 class FilterOperations;
 class GraphicsLayerAnimation;
 class MutableStyleProperties;
-class RenderStyle;
 
 #if ENABLE(THREADED_ANIMATIONS)
 class AcceleratedEffect;
 #endif
 
 namespace Style {
+class ComputedStyle;
 struct ResolutionContext;
 }
 
 class KeyframeEffect final : public AnimationEffect, public Style::Interpolation::Client, public KeyframeInterpolation {
     WTF_MAKE_TZONE_ALLOCATED(KeyframeEffect);
 public:
-    static ExceptionOr<Ref<KeyframeEffect>> create(JSC::JSGlobalObject&, Document&, Element*, JSC::Strong<JSC::JSObject>&&, std::optional<Variant<double, KeyframeEffectOptions>>&&);
+    static ExceptionOr<Ref<KeyframeEffect>> create(JSC::JSGlobalObject&, Document&, Element*, JSC::Strong<JSC::JSObject>&&, Variant<double, KeyframeEffectOptions>&&);
     static Ref<KeyframeEffect> create(Ref<KeyframeEffect>&&);
     static Ref<KeyframeEffect> create(const Element&, const std::optional<Style::PseudoElementIdentifier>&);
 
@@ -110,16 +110,16 @@ public:
         ~ParsedKeyframe();
     };
 
-    const Vector<ParsedKeyframe>& parsedKeyframes() const { return m_parsedKeyframes; }
+    const Vector<ParsedKeyframe>& parsedKeyframes() const LIFETIME_BOUND { return m_parsedKeyframes; }
 
     Element* target() const { return m_target.get(); }
     void setTarget(RefPtr<Element>&&);
 
-    bool targetsPseudoElement() const;
+    bool NODELETE targetsPseudoElement() const;
     const String pseudoElement() const;
     ExceptionOr<void> setPseudoElement(const String&);
 
-    const std::optional<const Styleable> targetStyleable() const;
+    const std::optional<const Styleable> NODELETE targetStyleable() const;
 
     Vector<ComputedKeyframe> getKeyframes();
     ExceptionOr<void> setBindingsKeyframes(JSC::JSGlobalObject&, Document&, JSC::Strong<JSC::JSObject>&&);
@@ -132,15 +132,15 @@ public:
     CompositeOperation bindingsComposite() const;
     void setBindingsComposite(CompositeOperation);
 
-    void getAnimatedStyle(std::unique_ptr<RenderStyle>& animatedStyle);
-    OptionSet<AnimationImpact> apply(RenderStyle& targetStyle, const Style::ResolutionContext&, EndpointInclusiveActiveInterval = EndpointInclusiveActiveInterval::No);
+    void getAnimatedStyle(std::unique_ptr<Style::ComputedStyle>& animatedStyle);
+    OptionSet<AnimationImpact> apply(Style::ComputedStyle& targetStyle, const Style::ResolutionContext&, EndpointInclusiveActiveInterval = EndpointInclusiveActiveInterval::No);
     void invalidate();
 
     void animationBecameReady();
     void animationRelevancyDidChange();
     void transformRelatedPropertyDidChange();
     enum class RecomputationReason : uint8_t { LogicalPropertyChange, Other };
-    std::optional<RecomputationReason> recomputeKeyframesIfNecessary(const RenderStyle* previousUnanimatedStyle, const RenderStyle& unanimatedStyle, const Style::ResolutionContext&);
+    std::optional<RecomputationReason> recomputeKeyframesIfNecessary(const Style::ComputedStyle* previousUnanimatedStyle, const Style::ComputedStyle& unanimatedStyle, const Style::ResolutionContext&);
     void recomputeKeyframesAtNextOpportunity();
     void applyPendingAcceleratedActions();
     void applyPendingAcceleratedActionsOrUpdateTimingProperties();
@@ -149,21 +149,19 @@ public:
 
     Document* document() const final;
     RenderElement* renderer() const final;
-    const RenderStyle& currentStyle() const final;
+    const Style::ComputedStyle& currentStyle() const LIFETIME_BOUND final;
     bool triggersStackingContext() const { return m_triggersStackingContext; }
     bool isRunningAccelerated() const;
-
-    // FIXME: These ignore the fact that some timing functions can prevent acceleration.
-    bool isAboutToRunAccelerated() const { return m_acceleratedPropertiesState != AcceleratedProperties::None && m_lastRecordedAcceleratedAction != AcceleratedAction::Stop; }
+    bool isAboutToRunAccelerated() const;
 
     std::optional<unsigned> transformFunctionListPrefix() const override;
 
-    void computeStyleOriginatedAnimationBlendingKeyframes(const RenderStyle* oldStyle, const RenderStyle& newStyle, const Style::ResolutionContext&);
-    const BlendingKeyframes& blendingKeyframes() const { return m_blendingKeyframes; }
-    const HashSet<AnimatableCSSProperty>& animatedProperties();
+    void computeStyleOriginatedAnimationBlendingKeyframes(const Style::ComputedStyle* oldStyle, const Style::ComputedStyle& newStyle, const Style::ResolutionContext&);
+    const BlendingKeyframes& blendingKeyframes() const LIFETIME_BOUND { return m_blendingKeyframes; }
+    const HashSet<AnimatableCSSProperty>& animatedProperties() LIFETIME_BOUND;
     bool animatesProperty(const AnimatableCSSProperty&) const;
-    const HashSet<AnimatableCSSProperty>& acceleratedProperties() const { return m_acceleratedProperties; }
-    const HashSet<AnimatableCSSProperty>& acceleratedPropertiesWithImplicitKeyframe() const { return m_acceleratedPropertiesWithImplicitKeyframe; }
+    const HashSet<AnimatableCSSProperty>& acceleratedProperties() const LIFETIME_BOUND { return m_acceleratedProperties; }
+    const HashSet<AnimatableCSSProperty>& acceleratedPropertiesWithImplicitKeyframe() const LIFETIME_BOUND { return m_acceleratedPropertiesWithImplicitKeyframe; }
 
     bool animatesMotionPath() const;
     bool computeExtentOfTransformAnimation(LayoutRect&) const;
@@ -174,11 +172,12 @@ public:
     bool isRunningAcceleratedAnimationForProperty(CSSPropertyID) const;
     bool isRunningAcceleratedTransformRelatedAnimation() const;
 
-    bool requiresPseudoElement() const;
+    bool NODELETE requiresPseudoElement() const;
 
     void customPropertyRegistrationDidChange(const AtomString&);
 
     bool canBeAccelerated() const;
+    bool isCompletelyAccelerated() const { return m_acceleratedPropertiesState == AcceleratedProperties::All; }
     bool accelerationWasPrevented() const { return m_runningAccelerated == RunningAccelerated::Prevented; }
     bool preventsAcceleration() const;
     void effectStackNoLongerPreventsAcceleration();
@@ -187,7 +186,7 @@ public:
     void wasAddedToEffectStack();
     void wasRemovedFromEffectStack();
 
-    void lastStyleChangeEventStyleDidChange(const RenderStyle* previousStyle, const RenderStyle* currentStyle);
+    void lastStyleChangeEventStyleDidChange(const Style::ComputedStyle* previousStyle, const Style::ComputedStyle* currentStyle);
     void acceleratedPropertiesOverriddenByCascadeDidChange();
 
     static String CSSPropertyIDToIDLAttributeName(CSSPropertyID);
@@ -227,9 +226,8 @@ private:
     void didChangeTargetStyleable(const std::optional<const Styleable>&);
     ExceptionOr<void> processKeyframes(JSC::JSGlobalObject&, Document&, JSC::Strong<JSC::JSObject>&&);
     void addPendingAcceleratedAction(AcceleratedAction);
-    bool isCompletelyAccelerated() const { return m_acceleratedPropertiesState == AcceleratedProperties::All; }
     void updateAcceleratedActions();
-    void setAnimatedPropertiesInStyle(RenderStyle&, const ComputedEffectTiming&) const;
+    void setAnimatedPropertiesInStyle(Style::ComputedStyle&, const ComputedEffectTiming&) const;
     const TimingFunction* timingFunctionForKeyframeAtIndex(size_t) const;
     const TimingFunction* timingFunctionForBlendingKeyframe(const BlendingKeyframe&) const;
     Ref<const GraphicsLayerAnimation> backingAnimationForCompositedRenderer();
@@ -237,9 +235,9 @@ private:
     void computeStackingContextImpact();
     void computeSomeKeyframesUseStepsOrLinearTimingFunctionWithPoints();
     void clearBlendingKeyframes();
-    void updateBlendingKeyframes(RenderStyle& elementStyle, const Style::ResolutionContext&);
-    void computeCSSAnimationBlendingKeyframes(const RenderStyle& unanimatedStyle, const Style::ResolutionContext&);
-    void computeCSSTransitionBlendingKeyframes(const RenderStyle& oldStyle, const RenderStyle& newStyle);
+    void updateBlendingKeyframes(Style::ComputedStyle& elementStyle, const Style::ResolutionContext&);
+    void computeCSSAnimationBlendingKeyframes(const Style::ComputedStyle& unanimatedStyle, const Style::ResolutionContext&);
+    void computeCSSTransitionBlendingKeyframes(const Style::ComputedStyle& oldStyle, const Style::ComputedStyle& newStyle);
     void computeAcceleratedPropertiesState();
     void setBlendingKeyframes(BlendingKeyframes&&);
     void checkForMatchingTransformFunctionLists();
@@ -248,8 +246,13 @@ private:
     void computeHasAcceleratedPropertyOverriddenByCascadeProperty();
     void computeHasReferenceFilter();
     void computeHasSizeDependentTransform();
+    void computeAnimationIsAcceleratedAndAffectsAnchorGeometry();
     void analyzeAcceleratedProperties();
     void updateIsAssociatedWithProgressBasedTimeline();
+    bool isRunningAccountingForSuspension() const;
+
+    enum AccountForTimelineAccelerationAbility : bool { No, Yes };
+    bool canBeAccelerated(AccountForTimelineAccelerationAbility) const;
 
     void abilityToBeAcceleratedDidChange();
     void updateAcceleratedAnimationIfNecessary();
@@ -284,7 +287,7 @@ private:
     bool ticksContinuouslyWhileActive() const final;
     std::optional<double> progressUntilNextStep(double) const final;
     bool preventsAnimationReadiness() const final;
-    void animationProgressBasedTimelineSourceDidChangeMetrics(const Style::SingleAnimationRange&) final;
+    void animationProgressBasedTimelineSourceDidChangeMetrics(const ResolvableTimelineRange&) final;
 
     RefPtr<const ScrollTimeline> activeScrollTimeline() const;
     void updateComputedKeyframeOffsetsIfNeeded();
@@ -292,7 +295,7 @@ private:
     // KeyframeInterpolation
     CompositeOperation compositeOperation() const final { return m_compositeOperation; }
     IterationCompositeOperation iterationCompositeOperation() const final { return m_iterationCompositeOperation; }
-    const KeyframeInterpolation::Keyframe& keyframeAtIndex(size_t) const final;
+    const KeyframeInterpolation::Keyframe& keyframeAtIndex(size_t) const LIFETIME_BOUND final;
     size_t numberOfKeyframes() const final { return m_blendingKeyframes.size(); }
     const TimingFunction* timingFunctionForKeyframe(const KeyframeInterpolation::Keyframe&) const final;
     bool isPropertyAdditiveOrCumulative(KeyframeInterpolation::Property) const final;
@@ -312,6 +315,8 @@ private:
     WeakPtr<AcceleratedEffect> m_acceleratedRepresentation;
 #endif
 
+    size_t m_transformFunctionListsMatchPrefix { 0 };
+
     AcceleratedAction m_lastRecordedAcceleratedAction { AcceleratedAction::Stop };
     WebAnimationType m_animationType { WebAnimationType::WebAnimation };
     IterationCompositeOperation m_iterationCompositeOperation { IterationCompositeOperation::Replace };
@@ -319,19 +324,23 @@ private:
     AcceleratedProperties m_acceleratedPropertiesState { AcceleratedProperties::None };
     AnimationEffectPhase m_phaseAtLastApplication { AnimationEffectPhase::Idle };
     RunningAccelerated m_runningAccelerated { RunningAccelerated::NotStarted };
-    bool m_needsForcedLayout { false };
-    bool m_triggersStackingContext { false };
-    size_t m_transformFunctionListsMatchPrefix { 0 };
-    bool m_inTargetEffectStack { false };
-    bool m_someKeyframesUseLinearTimingFunctionWithPoints { false };
-    bool m_someKeyframesUseStepsTimingFunction { false };
-    bool m_hasImplicitKeyframeForAcceleratedProperty { false };
-    bool m_hasKeyframeComposingAcceleratedProperty { false };
-    bool m_hasAcceleratedPropertyOverriddenByCascadeProperty { false };
-    bool m_hasReferenceFilter { false };
-    bool m_animatesSizeAndSizeDependentTransform { false };
-    bool m_isAssociatedWithProgressBasedTimeline { false };
-    bool m_needsComputedKeyframeOffsetsUpdate { false };
+    bool m_needsForcedLayout : 1 { false };
+    bool m_triggersStackingContext : 1 { false };
+    bool m_inTargetEffectStack : 1 { false };
+    bool m_someKeyframesUseLinearTimingFunctionWithPoints : 1 { false };
+    bool m_someKeyframesUseStepsTimingFunction : 1 { false };
+    bool m_hasImplicitKeyframeForAcceleratedProperty : 1 { false };
+    bool m_hasKeyframeComposingAcceleratedProperty : 1 { false };
+    bool m_hasAcceleratedPropertyOverriddenByCascadeProperty : 1 { false };
+    bool m_hasReferenceFilter : 1 { false };
+    bool m_animatesSizeAndSizeDependentTransform : 1 { false };
+    bool m_isAssociatedWithProgressBasedTimeline : 1 { false };
+    bool m_needsComputedKeyframeOffsetsUpdate : 1 { false };
+
+    // True when this animation is accelerated and may affect the geometry of anchors,
+    // for anchor positioning purpose. An example is animating scale/rotation/translate
+    // of an anchor or its layout containers.
+    bool m_animationIsAcceleratedAndAffectsAnchorGeometry : 1 { false };
 };
 
 } // namespace WebCore

@@ -26,9 +26,6 @@
 #pragma once
 
 #include <WebCore/WebCoreLogDefinitions.h>
-#include <wtf/Assertions.h>
-#include <wtf/Forward.h>
-#include <wtf/StdLibExtras.h>
 
 #define COMMA() ,
 #define OPTIONAL_ARGS(...) __VA_OPT__(COMMA() SAFE_PRINTF_TYPE(__VA_ARGS__))
@@ -83,6 +80,7 @@ namespace WebCore {
     M(ApplePay) \
     M(Archives) \
     M(BackForwardCache) \
+    M(Bindings) \
     M(Calc) \
     M(ClipRects) \
     M(Compositing) \
@@ -96,6 +94,7 @@ namespace WebCore {
     M(DisplayLink) \
     M(DisplayLists) \
     M(DragAndDrop) \
+    M(DOMAPI) \
     M(DOMTimers) \
     M(Editing) \
     M(EME) \
@@ -109,6 +108,7 @@ namespace WebCore {
     M(Frames) \
     M(FTP) \
     M(Fullscreen) \
+    M(GLContext) \
     M(Gamepad) \
     M(GraphicsBuffer) \
     M(HDR) \
@@ -198,6 +198,7 @@ namespace WebCore {
     M(WebRTCStats) \
     M(Worker) \
     M(XR) \
+    M(Vulkan) \
     M(WheelEventTestMonitor) \
 
 #undef DECLARE_LOG_CHANNEL

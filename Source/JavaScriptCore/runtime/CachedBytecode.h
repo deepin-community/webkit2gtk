@@ -27,7 +27,6 @@
 
 #include <JavaScriptCore/CacheUpdate.h>
 #include <JavaScriptCore/LeafExecutable.h>
-#include <JavaScriptCore/ParserModes.h>
 #include <wtf/MallocSpan.h>
 #include <wtf/Noncopyable.h>
 #include <wtf/RefCounted.h>
@@ -56,7 +55,7 @@ public:
         return adoptRef(*new CachedBytecode(CachePayload::makeMallocPayload(WTF::move(data)), WTF::move(leafExecutables)));
     }
 
-    LeafExecutableMap& leafExecutables() { return m_leafExecutables; }
+    LeafExecutableMap& leafExecutables() LIFETIME_BOUND { return m_leafExecutables; }
 
     JS_EXPORT_PRIVATE void addGlobalUpdate(Ref<CachedBytecode>);
     JS_EXPORT_PRIVATE void addFunctionUpdate(const UnlinkedFunctionExecutable*, CodeSpecializationKind, Ref<CachedBytecode>);

@@ -62,7 +62,7 @@ SPDX-License-Identifier: BSD, LGPL-2.1
         <h3><a href="index.html">WebKit</a></h3>
         <p>API Version: 6.0</p>
         
-        <p>Library Version: 2.52.5</p>
+        <p>Library Version: 2.54.0</p>
         
       </div>
       
@@ -138,25 +138,17 @@ SPDX-License-Identifier: BSD, LGPL-2.1
         <p>Returns the current active <span class="caps">URI</span> of <code>resource</code>.</p>
 <p>The active <span class="caps">URI</span> might change during
 a load&nbsp;operation:</p>
-<p><orderedlist>
-<listitem><para>
-  When the resource load starts, the active <span class="caps">URI</span> is the requested <span class="caps">URI</span>
-</para></listitem>
-<listitem><para>
-  When the initial request is sent to the server, <code>WebKitWebResource::sent-request</code>
-  signal is emitted without a redirected response, the active <span class="caps">URI</span> is the <span class="caps">URI</span> of
-  the request sent to the server.
-</para></listitem>
-<listitem><para>
-  In case of a server redirection, <code>WebKitWebResource::sent-request</code> signal
-  is emitted again with a redirected response, the active <span class="caps">URI</span> is the <span class="caps">URI</span> the request
-  was redirected to.
-</para></listitem>
-<listitem><para>
-  When the response is received from the server, the active <span class="caps">URI</span> is the final
-  one and it will not change again.
-</para></listitem>
-</orderedlist></p>
+<ol>
+<li>When the resource load starts, the active <span class="caps">URI</span> is the requested <span class="caps">URI</span></li>
+<li>When the initial request is sent to the server, <code>WebKitWebResource::sent-request</code>
+   signal is emitted without a redirected response, the active <span class="caps">URI</span> is the <span class="caps">URI</span> of
+   the request sent to the&nbsp;server.</li>
+<li>In case of a server redirection, <code>WebKitWebResource::sent-request</code> signal
+   is emitted again with a redirected response, the active <span class="caps">URI</span> is the <span class="caps">URI</span> the request
+   was redirected&nbsp;to.</li>
+<li>When the response is received from the server, the active <span class="caps">URI</span> is the final
+   one and it will not change&nbsp;again.</li>
+</ol>
 <p>You can monitor the active <span class="caps">URI</span> by connecting to the notify::uri
 signal of <code>resource</code>.</p>
       </div>

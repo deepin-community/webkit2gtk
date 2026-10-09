@@ -23,6 +23,7 @@
 #include "CSSPropertyNames.h"
 #include "Document.h"
 #include "FontCascade.h"
+#include "FontCascadeFonts.h"
 #include "GraphicsContext.h"
 #include "HitTestResult.h"
 #include "InlineBoxPainter.h"
@@ -34,11 +35,11 @@
 #include "RenderInline.h"
 #include "RenderLayer.h"
 #include "RenderObjectInlines.h"
-#include "RenderStyle+GettersInlines.h"
 #include "RenderTableCell.h"
 #include "RenderTheme.h"
 #include "RenderView.h"
 #include "Settings.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include "Text.h"
 #include "TextBoxPainter.h"
 #include <math.h>
@@ -74,7 +75,7 @@ void LegacyInlineFlowBox::setHasBadChildList()
 
 #endif
 
-static void setHasTextDescendantsOnAncestors(LegacyInlineFlowBox* box)
+static void NODELETE setHasTextDescendantsOnAncestors(LegacyInlineFlowBox* box)
 {
     while (box && !box->hasTextDescendants()) {
         box->setHasTextDescendants();
@@ -109,17 +110,16 @@ void LegacyInlineFlowBox::addToLine(LegacyInlineBox* child)
             setHasTextDescendantsOnAncestors(this);
     }
 
-    const RenderStyle& childStyle = child->lineStyle();
+    CheckedRef childStyle = child->lineStyle();
     if (child->isInlineTextBox()) {
-        const RenderStyle* childStyle = &child->lineStyle();
         bool hasMarkers = false;
         if (auto* textBox = dynamicDowncast<LegacyInlineTextBox>(*child))
             hasMarkers = textBox->hasMarkers();
-        if (childStyle->usedLetterSpacing() < 0 || childStyle->hasTextShadow() || !childStyle->textEmphasisStyle().isNone() || childStyle->hasPositiveStrokeWidth() || hasMarkers || !childStyle->textUnderlineOffset().isAuto() || !childStyle->textDecorationThickness().isAuto() || !childStyle->textUnderlinePosition().isAuto())
+        if (childStyle->usedLetterSpacing() < 0 || !childStyle->textShadow().isNone() || !childStyle->textEmphasisStyle().isNone() || childStyle->hasPositiveStrokeWidth() || hasMarkers || !childStyle->textUnderlineOffset().isAuto() || !childStyle->textDecorationThickness().isAuto() || !childStyle->textUnderlinePosition().isAuto())
             child->clearKnownToHaveNoOverflow();
     } else if (child->boxModelObject()->hasSelfPaintingLayer())
         child->clearKnownToHaveNoOverflow();
-    else if (childStyle.hasOutlineInVisualOverflow())
+    else if (childStyle->hasOutlineInVisualOverflow())
         child->clearKnownToHaveNoOverflow();
 
     if (lineStyle().hasOutlineInVisualOverflow())
@@ -211,7 +211,7 @@ inline void LegacyInlineFlowBox::addTextBoxVisualOverflow(LegacyInlineTextBox& t
     auto leftGlyphEdge = glyphOverflow ? glyphOverflow->left : 0_lu;
     auto rightGlyphEdge = glyphOverflow ? glyphOverflow->right : 0_lu;
 
-    auto viewportSize = textBox.renderer().frame().view() ? textBox.renderer().frame().view()->size() : IntSize();
+    auto viewportSize = textBox.renderer().frame().view() ? protect(textBox.renderer().frame())->view()->size() : IntSize();
     LayoutUnit strokeOverflow(std::ceil(lineStyle.usedStrokeWidth(viewportSize) / 2.0f));
     auto topGlyphOverflow = -strokeOverflow - topGlyphEdge;
     auto bottomGlyphOverflow = strokeOverflow + bottomGlyphEdge;

@@ -62,7 +62,7 @@ SPDX-License-Identifier: BSD, LGPL-2.1
         <h3><a href="index.html">WebKit</a></h3>
         <p>API Version: 6.0</p>
         
-        <p>Library Version: 2.52.5</p>
+        <p>Library Version: 2.54.0</p>
         
       </div>
       
@@ -135,7 +135,7 @@ SPDX-License-Identifier: BSD, LGPL-2.1
         Description
         <a class="anchor" href="#description"></a>
         
-        <a class="srclink" title="go to source location" href="https://github.com/WebKit/WebKit/tree/main/Source/WebKit/UIProcess/API/gtk/WebKitPrintOperation.cpp#L813">[src]</a>
+        <a class="srclink" title="go to source location" href="https://github.com/WebKit/WebKit/tree/main/Source/WebKit/UIProcess/API/gtk/WebKitPrintOperation.cpp#L807">[src]</a>
         
       </h4>
 
@@ -148,8 +148,8 @@ is returned. If the user clicks on the print button, <code>WEBKIT_PRINT_OPERATIO
 is returned and the print operation starts. In this case, the <code>WebKitPrintOperation::finished</code>
 signal is emitted when the operation finishes. If an error occurs while printing, the signal
 <code>WebKitPrintOperation::failed</code> is emitted before <code>WebKitPrintOperation::finished</code>.
-If the print dialog is not cancelled current print settings and page setup of <code>print_operation</code>
-are updated with options selected by the user when Print button is pressed in print dialog.
+If the print dialog is not cancelled, the current print settings and page setup of <code>print_operation</code>
+are updated with the options selected by the user when the Print button is pressed in the print dialog.
 You can get the updated print settings and page setup by calling
 <code>webkit_print_operation_get_print_settings()</code> and <code>webkit_print_operation_get_page_setup()</code>
 after this&nbsp;method.</p>

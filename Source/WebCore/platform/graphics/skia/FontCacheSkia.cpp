@@ -27,6 +27,7 @@
 #include "FontCache.h"
 
 #include "Font.h"
+#include "FontCustomPlatformData.h"
 #include "FontDescription.h"
 #include "StyleFontSizeFunctions.h"
 #include <wtf/Assertions.h>
@@ -117,7 +118,7 @@ static std::pair<bool, bool> computeSynthesisProperties(const SkTypeface& typefa
 
     bool allowsSyntheticBold = fontDescription.hasAutoFontSynthesisWeight() && !synthesisOptions.contains(FontLookupOptions::DisallowBoldSynthesis);
     bool syntheticBold = allowsSyntheticBold && isFontWeightBold(fontDescription.weight()) && !typeface.isBold();
-    bool allowsSyntheticOblique = fontDescription.hasAutoFontSynthesisStyle() && !synthesisOptions.contains(FontLookupOptions::DisallowObliqueSynthesis);
+    bool allowsSyntheticOblique = fontDescription.allowsItalicOrObliqueFontSynthesisStyle() && !synthesisOptions.contains(FontLookupOptions::DisallowObliqueSynthesis);
     bool syntheticOblique = allowsSyntheticOblique && isItalic(fontDescription.fontStyleSlope()) && !typeface.isItalic();
     return { syntheticBold, syntheticOblique };
 }
@@ -204,8 +205,24 @@ Vector<FontSelectionCapabilities> FontCache::getFontSelectionCapabilitiesInFamil
     return { };
 }
 
+#if PLATFORM(GTK) || (PLATFORM(WPE) && ENABLE(WPE_PLATFORM))
+static bool isSystemUIFamilyFont(const String& family)
+{
+    return family == "-webkit-system-font"_s
+        || family == "-webkit-system-ui"_s
+        || family == "system-font"_s
+        || family == "system-ui"_s
+        || family == "ui-sans-serif"_s;
+}
+#endif
+
 static String getFamilyNameStringFromFamily(const String& family)
 {
+#if PLATFORM(GTK) || (PLATFORM(WPE) && ENABLE(WPE_PLATFORM))
+    if (isSystemUIFamilyFont(family))
+        return SystemSettings::singleton().defaultSystemFont();
+#endif
+
     // If we're creating a fallback font (e.g. "-webkit-monospace"), convert the name into
     // the fallback name (like "monospace") that fontconfig understands.
     if (family.length() && !family.startsWith("-webkit-"_s))
@@ -223,11 +240,6 @@ static String getFamilyNameStringFromFamily(const String& family)
         return "fantasy"_s;
     if (family == *familyNamesData->at(FamilyNamesIndex::MathFamily))
         return "math"_s;
-
-#if PLATFORM(GTK) || (PLATFORM(WPE) && ENABLE(WPE_PLATFORM))
-    if (family == *familyNamesData->at(FamilyNamesIndex::SystemUiFamily) || family == "-webkit-system-font"_s)
-        return SystemSettings::singleton().defaultSystemFont();
-#endif
 
     return emptyString();
 }
@@ -390,8 +402,16 @@ Vector<hb_feature_t> FontCache::computeFeatures(const FontDescription& fontDescr
     return features;
 }
 
+static bool isUnsupportedFamilyFont(const AtomString& family)
+{
+    return family == "-apple-system"
+        || family == "-apple-system-font";
+}
+
 std::unique_ptr<FontPlatformData> FontCache::createFontPlatformData(const FontDescription& fontDescription, const AtomString& family, const FontCreationContext& fontCreationContext, OptionSet<FontLookupOptions> options)
 {
+    if (isUnsupportedFamilyFont(family))
+        return nullptr;
     auto familyName = getFamilyNameStringFromFamily(family);
     auto skFontStyle = skiaFontStyle(fontDescription);
     auto typeface = fontManager().matchFamilyStyle(familyName.utf8().data(), skFontStyle);
@@ -412,6 +432,16 @@ std::unique_ptr<FontPlatformData> FontCache::createFontPlatformData(const FontDe
 ASCIILiteral FontCache::platformAlternateFamilyName(const String&)
 {
     return { };
+}
+
+void FontCache::platformReleaseNoncriticalMemory()
+{
+    for (auto& entry : m_fontCascadeCache.m_entries.values()) {
+        entry->fonts->forEachRealizedFont([](const Font& font) {
+            if (const auto* customPlatformData = font.platformData().customPlatformData())
+                customPlatformData->clearVariationTypefacesCache();
+        });
+    }
 }
 
 void FontCache::platformInvalidate()

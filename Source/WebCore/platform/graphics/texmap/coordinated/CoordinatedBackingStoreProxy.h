@@ -31,6 +31,7 @@
 #include <wtf/ThreadSafeRefCounted.h>
 
 namespace WebCore {
+class CoordinatedAnimatedBackingStoreClient;
 class CoordinatedPlatformLayer;
 class CoordinatedTileBuffer;
 class Damage;
@@ -40,11 +41,14 @@ class CoordinatedBackingStoreProxy final : public ThreadSafeRefCounted<Coordinat
     WTF_MAKE_TZONE_ALLOCATED(CoordinatedBackingStoreProxy);
 public:
     static Ref<CoordinatedBackingStoreProxy> create();
-    ~CoordinatedBackingStoreProxy() = default;
+    ~CoordinatedBackingStoreProxy();
 
     static constexpr int s_defaultCPUTileSize = 256;
 
-    const IntRect& coverRect() const { return m_coverRect; }
+    void setAffectedByTransformAnimation(bool);
+    CoordinatedAnimatedBackingStoreClient* animatedBackingStoreClient() const { return m_animatedBackingStoreClient.get(); }
+
+    void invalidate();
 
     class Update {
         WTF_MAKE_NONCOPYABLE(Update);
@@ -61,12 +65,14 @@ public:
             Ref<CoordinatedTileBuffer> buffer;
         };
 
-        const Vector<uint32_t>& tilesToCreate() const { return m_tilesToCreate; }
-        const Vector<TileUpdate>& tilesToUpdate() const { return m_tilesToUpdate; }
-        const Vector<uint32_t>& tilesToRemove() const { return m_tilesToRemove; }
+        const Vector<uint32_t>& tilesToCreate() const LIFETIME_BOUND { return m_tilesToCreate; }
+        const Vector<TileUpdate>& tilesToUpdate() const LIFETIME_BOUND { return m_tilesToUpdate; }
+        const Vector<uint32_t>& tilesToRemove() const LIFETIME_BOUND { return m_tilesToRemove; }
 
         void appendUpdate(Vector<uint32_t>&&, Vector<TileUpdate>&&, Vector<uint32_t>&&);
         void waitUntilPaintingComplete();
+
+        bool isEmpty() const { return m_tilesToCreate.isEmpty() && m_tilesToUpdate.isEmpty() && m_tilesToRemove.isEmpty(); }
 
     private:
         Vector<uint32_t> m_tilesToCreate;
@@ -79,7 +85,7 @@ public:
         TilesPending = 1 << 1,
         TilesChanged = 1 << 2
     };
-    OptionSet<UpdateResult> updateIfNeeded(const IntRect& unscaledVisibleRect, const IntRect& unscaledContentsRect, float contentsScale, bool shouldCreateAndDestroyTiles, const Vector<IntRect, 1>&, Damage&, CoordinatedPlatformLayer&);
+    OptionSet<UpdateResult> updateIfNeeded(const IntRect& unscaledVisibleRect, const FloatSize& unscaledSize, const FloatRect& unscaledViewportRect, float contentsScale, bool contentsOpaque, bool shouldCreateAndDestroyTiles, const Vector<IntRect, 1>&, Damage&, CoordinatedPlatformLayer&);
     Update takePendingUpdate();
 
     void waitUntilPaintingComplete();
@@ -87,9 +93,8 @@ public:
 private:
     struct Tile {
         Tile() = default;
-        Tile(uint32_t id, const IntPoint& position, IntRect&& tileRect)
+        Tile(uint32_t id, IntRect&& tileRect)
             : id(id)
-            , position(position)
             , rect(WTF::move(tileRect))
             , dirtyRect(rect)
         {
@@ -123,7 +128,6 @@ private:
         }
 
         uint32_t id { 0 };
-        IntPoint position;
         IntRect rect;
         IntRect dirtyRect;
     };
@@ -151,6 +155,7 @@ private:
     IntRect m_coverRect;
     IntRect m_keepRect;
     HashMap<IntPoint, Tile> m_tiles;
+    RefPtr<CoordinatedAnimatedBackingStoreClient> m_animatedBackingStoreClient;
     struct {
         Lock lock;
         Update pending WTF_GUARDED_BY_LOCK(lock);

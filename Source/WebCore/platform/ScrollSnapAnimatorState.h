@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,10 +28,12 @@
 #include <WebCore/FloatPoint.h>
 #include <WebCore/FloatSize.h>
 #include <WebCore/LayoutPoint.h>
+#include <WebCore/LayoutSize.h>
 #include <WebCore/PlatformWheelEvent.h>
 #include <WebCore/ScrollAnimationMomentum.h>
 #include <WebCore/ScrollSnapOffsetsInfo.h>
 #include <WebCore/ScrollTypes.h>
+#include <wtf/HashSet.h>
 #include <wtf/MonotonicTime.h>
 #include <wtf/TZoneMalloc.h>
 
@@ -65,7 +67,7 @@ public:
         return axis == ScrollEventAxis::Horizontal ? m_snapOffsetsInfo.horizontalSnapOffsets : m_snapOffsetsInfo.verticalSnapOffsets;
     }
 
-    const LayoutScrollSnapOffsetsInfo& snapOffsetInfo() const { return m_snapOffsetsInfo; }
+    const LayoutScrollSnapOffsetsInfo& snapOffsetInfo() const LIFETIME_BOUND { return m_snapOffsetsInfo; }
     void setSnapOffsetInfo(const LayoutScrollSnapOffsetsInfo& newInfo) { m_snapOffsetsInfo = newInfo; }
 
     ScrollSnapState currentState() const { return m_currentState; }
@@ -78,7 +80,7 @@ public:
     void setActiveSnapIndexForAxis(ScrollEventAxis, std::optional<unsigned>);
 
     std::optional<unsigned> closestSnapPointForOffset(ScrollEventAxis, ScrollOffset, const ScrollExtents&, float pageScale) const;
-    float adjustedScrollDestination(ScrollEventAxis, FloatPoint destinationOffset, float velocity, std::optional<float> originalOffset, const ScrollExtents&, float pageScale) const;
+    float adjustedScrollDestination(ScrollEventAxis, FloatPoint destinationOffset, float velocity, std::optional<float> originalOffset, const ScrollExtents&, float pageScale, ScrollSnapPointSelectionMethod = ScrollSnapPointSelectionMethod::Closest) const;
 
     // returns true if an active snap index changed.
     bool resnapAfterLayout(ScrollOffset, const ScrollExtents&, float pageScale);
@@ -103,6 +105,23 @@ private:
     Vector<SnapOffset<LayoutUnit>> currentlySnappedOffsetsForAxis(ScrollEventAxis) const;
     HashSet<NodeIdentifier> currentlySnappedBoxes(const Vector<SnapOffset<LayoutUnit>>& horizontalOffsets, const Vector<SnapOffset<LayoutUnit>>& verticalOffsets) const;
 
+    // This axis's snap target among the boxes aligned at the active offset, per
+    // https://drafts.csswg.org/css-scroll-snap/#multiple-aligned-snap-areas (focused, targeted,
+    // innermost, area aligned in both axes, then first in tree order).
+    std::optional<NodeIdentifier> selectSnapTargetForAxis(ScrollEventAxis) const;
+
+    // The snap areas aligned at this axis's active offset with enclosing ancestors removed, in tree
+    // order — the per-axis candidate list after the spec's ancestor-removal step.
+    Vector<size_t, 1> innermostAlignedAreaIndicesForAxis(ScrollEventAxis) const;
+
+    // This axis's focused/targeted snapped box, skipping any whose area is off-screen in a
+    // non-snapping cross axis.
+    std::optional<NodeIdentifier> focusedOrTargetedBox(ScrollEventAxis, const HashSet<NodeIdentifier>& snappedBoxes) const;
+
+    // Whether the snap area is within the snapport in the (non-snapping) cross axis at the last known
+    // scroll position; true (no filtering) when the cross axis snaps or no viewport is known yet.
+    bool isSnapAreaVisibleInCrossAxis(size_t areaIndex, ScrollEventAxis) const;
+
     bool setNearestScrollSnapIndexForAxisAndOffsetInternal(ScrollEventAxis, ScrollOffset, const ScrollExtents&, float pageScale);
     void updateCurrentlySnappedBoxes();
 
@@ -123,6 +142,13 @@ private:
     std::optional<unsigned> m_activeSnapIndexX;
     std::optional<unsigned> m_activeSnapIndexY;
     HashSet<NodeIdentifier> m_currentlySnappedBoxes;
+    Markable<NodeIdentifier> m_currentSnapTargetForHorizontalAxis;
+    Markable<NodeIdentifier> m_currentSnapTargetForVerticalAxis;
+
+    // Scroll offset and viewport size from the last snap/re-snap, for cross-axis
+    // visibility checks.
+    LayoutPoint m_lastLayoutScrollOffset;
+    LayoutSize m_lastViewportSize;
 };
 
 WTF::TextStream& operator<<(WTF::TextStream&, const ScrollSnapAnimatorState&);

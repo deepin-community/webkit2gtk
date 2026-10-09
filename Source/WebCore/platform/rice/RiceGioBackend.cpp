@@ -73,11 +73,13 @@ static gboolean agentSourcePrepare(GSource* base, gint* timeout)
             result = TRUE;
             break;
         case RICE_AGENT_POLL_ALLOCATE_SOCKET:
-            GST_FIXME("allocate socket is not handled");
+            GST_TRACE_OBJECT(iceAgent.get(), "Allocating new socket");
+            webkitGstWebRTCIceAgentAllocateSocketForStream(iceAgent.get(), ret.allocate_socket);
             result = TRUE;
             break;
         case RICE_AGENT_POLL_REMOVE_SOCKET:
-            GST_FIXME("remove socket is not handled");
+            GST_TRACE_OBJECT(iceAgent.get(), "Removing socket");
+            webkitGstWebRTCIceAgentRemoveSocketForStream(iceAgent.get(), ret.remove_socket);
             result = TRUE;
             break;
         case RICE_AGENT_POLL_WAIT_UNTIL_NANOS: {
@@ -162,7 +164,7 @@ GRefPtr<GSource> agentSourceNew(GThreadSafeWeakPtr<WebKitGstIceAgent>&& agent)
         GST_DEBUG_CATEGORY_INIT(GST_CAT_DEFAULT, "webkitwebrtcricegio", 0, "webkitwebrtcricegio");
     });
 
-    auto source = adoptGRef(g_source_new(&agentEventSourceFuncs, sizeof(AgentSource)));
+    GRefPtr source = adoptGRef(g_source_new(&agentEventSourceFuncs, sizeof(AgentSource)));
     g_source_set_priority(source.get(), RunLoopSourcePriority::AsyncIONetwork);
     g_source_set_name(source.get(), "[WebKit] ICE Agent loop");
 

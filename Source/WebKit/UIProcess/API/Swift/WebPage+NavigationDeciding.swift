@@ -21,9 +21,9 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
 // THE POSSIBILITY OF SUCH DAMAGE.
 
-#if ENABLE_SWIFTUI && compiler(>=6.0)
+#if ENABLE_SWIFTUI
 
-import Foundation
+public import Foundation
 
 // MARK: Supporting types
 
@@ -33,7 +33,7 @@ extension WebPage {
     /// A `NavigationAction` value is intended to be used to make policy decisions about whether to
     /// allow navigation within a web page via a `NavigationDeciding`.
     @MainActor
-    @available(iOS 26.0, macOS 26.0, visionOS 26.0, *)
+    @available(anyAppleOSAndDownlevels 26.0, *)
     @available(watchOS, unavailable)
     @available(tvOS, unavailable)
     public struct NavigationAction {
@@ -78,7 +78,7 @@ extension WebPage {
     /// A `NavigationResponse` value is intended to be used to make policy decisions about whether to
     /// allow navigation within a web page via a `NavigationDeciding`.
     @MainActor
-    @available(iOS 26.0, macOS 26.0, visionOS 26.0, *)
+    @available(anyAppleOSAndDownlevels 26.0, *)
     @available(watchOS, unavailable)
     @available(tvOS, unavailable)
     public struct NavigationResponse {
@@ -107,7 +107,7 @@ extension WebPage {
     /// Allows providing custom behavior to handle navigation changes and to coordinate these changes for the web page's main page.
     ///
     /// For example, you might use these methods to restrict navigation from specific links within your content.
-    @available(iOS 26.0, macOS 26.0, visionOS 26.0, *)
+    @available(anyAppleOSAndDownlevels 26.0, *)
     @available(watchOS, unavailable)
     @available(tvOS, unavailable)
     public protocol NavigationDeciding {
@@ -140,12 +140,24 @@ extension WebPage {
         mutating func decideAuthenticationChallengeDisposition(
             for challenge: URLAuthenticationChallenge
         ) async -> (URLSession.AuthChallengeDisposition, URLCredential?)
+
+        /// Allow the application to process form autofill information before a form submission actually takes place.
+        ///
+        /// This is an informative callback only. The form values cannot be changed, nor can the navigation be changed
+        /// to not submit a form.
+        ///
+        /// The form submission will not actually proceed until after this callback asynchronously resolves.
+        ///
+        /// - Parameter formInfo: The form values that will be submitted for this navigation
+        @available(anyAppleOSAndDownlevels 27.0, *)
+        @MainActor
+        mutating func willSubmit(formInfo: WebPage.FormInfo) async
     }
 }
 
 // MARK: Default implementation
 
-@available(iOS 26.0, macOS 26.0, visionOS 26.0, *)
+@available(anyAppleOSAndDownlevels 26.0, *)
 @available(watchOS, unavailable)
 @available(tvOS, unavailable)
 extension WebPage.NavigationDeciding {
@@ -170,6 +182,12 @@ extension WebPage.NavigationDeciding {
         for challenge: URLAuthenticationChallenge
     ) async -> (URLSession.AuthChallengeDisposition, URLCredential?) {
         (.performDefaultHandling, nil)
+    }
+
+    /// By default, this method does nothing.
+    @available(anyAppleOSAndDownlevels 27.0, *)
+    @MainActor
+    public func willSubmit(formInfo: WebPage.FormInfo) async {
     }
 }
 

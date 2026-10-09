@@ -26,6 +26,7 @@
 #pragma once
 
 #include <span>
+#include <wtf/EnumSet.h>
 #include <wtf/Forward.h>
 #include <wtf/InlineWeakPtr.h>
 #include <wtf/Markable.h>
@@ -383,6 +384,20 @@ TextStream& operator<<(TextStream& ts, const OptionSet<Option>& options)
     return ts << ']';
 }
 
+template<typename Option>
+TextStream& operator<<(TextStream& ts, const EnumSet<Option>& options)
+{
+    ts << '[';
+    bool needComma = false;
+    for (auto option : options) {
+        if (needComma)
+            ts << ", "_s;
+        needComma = true;
+        ts << option;
+    }
+    return ts << ']';
+}
+
 template<typename T, typename U>
 TextStream& operator<<(TextStream& ts, const std::pair<T, U>& pair)
 {
@@ -390,6 +405,7 @@ TextStream& operator<<(TextStream& ts, const std::pair<T, U>& pair)
 }
 
 WTF_EXPORT_PRIVATE TextStream& operator<<(TextStream&, Seconds);
+WTF_EXPORT_PRIVATE TextStream& operator<<(TextStream&, ReducedResolutionSeconds);
 WTF_EXPORT_PRIVATE TextStream& operator<<(TextStream&, const MediaTime&);
 WTF_EXPORT_PRIVATE TextStream& operator<<(TextStream&, const ObjectIdentifierGenericBase<uint64_t>&);
 WTF_EXPORT_PRIVATE TextStream& operator<<(TextStream&, const ObjectIdentifierGenericBase<UUID>&);

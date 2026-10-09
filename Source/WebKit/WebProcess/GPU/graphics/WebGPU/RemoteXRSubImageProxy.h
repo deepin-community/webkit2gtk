@@ -56,7 +56,6 @@ public:
 
     RemoteGPUProxy& parent() { return m_parent; }
     RemoteGPUProxy& root() { return m_parent; }
-    Ref<RemoteGPUProxy> protectedRoot() { return m_parent; }
 
 private:
     friend class DowncastConvertToBackingContext;
@@ -78,12 +77,12 @@ private:
     template<typename T>
     [[nodiscard]] IPC::Error send(T&& message)
     {
-        return root().protectedStreamClientConnection()->send(WTF::move(message), backing());
+        return protect(root().streamClientConnection())->send(WTF::move(message), backing());
     }
     template<typename T>
     [[nodiscard]] IPC::Connection::SendSyncResult<T> sendSync(T&& message)
     {
-        return root().protectedStreamClientConnection()->sendSync(WTF::move(message), backing());
+        return protect(root().streamClientConnection())->sendSync(WTF::move(message), backing());
     }
 
     WebGPUIdentifier m_backing;

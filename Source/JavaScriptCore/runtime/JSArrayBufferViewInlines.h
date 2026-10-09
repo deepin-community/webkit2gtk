@@ -31,89 +31,13 @@ WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 #include <JavaScriptCore/ArrayBufferView.h>
 #include <JavaScriptCore/JSArrayBufferView.h>
+#include <JavaScriptCore/JSArrayBufferViewInlinesLight.h>
 #include <JavaScriptCore/JSDataView.h>
 #include <JavaScriptCore/TypedArrayType.h>
 
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 namespace JSC {
-
-inline bool JSArrayBufferView::isShared()
-{
-    switch (m_mode) {
-    case WastefulTypedArray:
-    case ResizableNonSharedWastefulTypedArray:
-    case ResizableNonSharedAutoLengthWastefulTypedArray:
-    case GrowableSharedWastefulTypedArray:
-    case GrowableSharedAutoLengthWastefulTypedArray:
-        return existingBufferInButterfly()->isShared();
-    case DataViewMode:
-    case ResizableNonSharedDataViewMode:
-    case ResizableNonSharedAutoLengthDataViewMode:
-    case GrowableSharedDataViewMode:
-    case GrowableSharedAutoLengthDataViewMode:
-        return jsCast<JSDataView*>(this)->possiblySharedBuffer()->isShared();
-    default:
-        return false;
-    }
-}
-
-template<JSArrayBufferView::Requester requester>
-inline ArrayBuffer* JSArrayBufferView::possiblySharedBufferImpl()
-{
-    if (requester == ConcurrentThread)
-        ASSERT(m_mode != FastTypedArray && m_mode != OversizeTypedArray);
-
-    switch (m_mode) {
-    case WastefulTypedArray:
-    case ResizableNonSharedWastefulTypedArray:
-    case ResizableNonSharedAutoLengthWastefulTypedArray:
-    case GrowableSharedWastefulTypedArray:
-    case GrowableSharedAutoLengthWastefulTypedArray:
-        return existingBufferInButterfly();
-    case DataViewMode:
-    case ResizableNonSharedDataViewMode:
-    case ResizableNonSharedAutoLengthDataViewMode:
-    case GrowableSharedDataViewMode:
-    case GrowableSharedAutoLengthDataViewMode:
-        return jsCast<JSDataView*>(this)->possiblySharedBuffer();
-    case FastTypedArray:
-    case OversizeTypedArray:
-        return slowDownAndWasteMemory();
-    }
-    ASSERT_NOT_REACHED();
-    return nullptr;
-}
-
-inline ArrayBuffer* JSArrayBufferView::possiblySharedBuffer()
-{
-    return possiblySharedBufferImpl<Mutator>();
-}
-
-inline RefPtr<ArrayBufferView> JSArrayBufferView::unsharedImpl()
-{
-    RefPtr<ArrayBufferView> result = possiblySharedImpl();
-    RELEASE_ASSERT(!result || !result->isShared());
-    return result;
-}
-
-inline RefPtr<ArrayBufferView> JSArrayBufferView::toWrapped(VM&, JSValue value)
-{
-    if (JSArrayBufferView* view = jsDynamicCast<JSArrayBufferView*>(value)) {
-        if (!view->isShared() && !view->isResizableOrGrowableShared())
-            return view->unsharedImpl();
-    }
-    return nullptr;
-}
-
-inline RefPtr<ArrayBufferView> JSArrayBufferView::toWrappedAllowShared(VM&, JSValue value)
-{
-    if (JSArrayBufferView* view = jsDynamicCast<JSArrayBufferView*>(value)) {
-        if (!view->isResizableOrGrowableShared())
-            return view->possiblySharedImpl();
-    }
-    return nullptr;
-}
 
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
@@ -235,7 +159,7 @@ inline JSArrayBufferView* validateTypedArray(JSGlobalObject* globalObject, JSVal
         return nullptr;
     }
 
-    RELEASE_AND_RETURN(scope, validateTypedArray(globalObject, jsCast<JSArrayBufferView*>(typedArrayCell)));
+    RELEASE_AND_RETURN(scope, validateTypedArray(globalObject, uncheckedDowncast<JSArrayBufferView>(typedArrayCell)));
 }
 
 } // namespace JSC

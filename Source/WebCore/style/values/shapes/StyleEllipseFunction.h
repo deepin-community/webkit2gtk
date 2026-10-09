@@ -30,11 +30,14 @@
 #include <WebCore/StylePrimitiveNumericTypes.h>
 
 namespace WebCore {
+
+struct AcceleratedEffectEllipseFunction;
+
 namespace Style {
 
 struct Ellipse {
     using Extent = CSS::Ellipse::Extent;
-    using Length = Style::LengthPercentage<CSS::Nonnegative>;
+    using Length = Style::LengthPercentage<CSS::NonnegativeUnzoomed>;
     using RadialSize = Variant<Length, Extent>;
 
     SpaceSeparatedPair<RadialSize> radii;
@@ -54,16 +57,24 @@ template<size_t I> const auto& get(const Ellipse& value)
 
 DEFINE_TYPE_MAPPING(CSS::Ellipse, Ellipse)
 
-FloatPoint resolvePosition(const Ellipse& value, FloatSize boxSize);
-FloatSize resolveRadii(const Ellipse&, FloatSize boxSize, FloatPoint center);
-WebCore::Path pathForCenterCoordinate(const Ellipse&, const FloatRect&, FloatPoint);
+FloatPoint resolvePosition(const Ellipse& value, FloatSize boxSize, ZoomFactor);
+FloatSize resolveRadii(const Ellipse&, FloatSize boxSize, FloatPoint center, ZoomFactor);
+WebCore::Path pathForCenterCoordinate(const Ellipse&, const FloatRect&, FloatPoint, ZoomFactor);
 
-template<> struct PathComputation<Ellipse> { WebCore::Path operator()(const Ellipse&, const FloatRect&); };
+template<> struct PathComputation<Ellipse> { WebCore::Path operator()(const Ellipse&, const FloatRect&, ZoomFactor); };
 
 template<> struct Blending<Ellipse> {
     auto canBlend(const Ellipse&, const Ellipse&) -> bool;
     auto blend(const Ellipse&, const Ellipse&, const BlendingContext&) -> Ellipse;
 };
+
+// MARK: - Evaluation
+
+#if ENABLE(THREADED_ANIMATIONS)
+
+template<> struct Evaluation<EllipseFunction, AcceleratedEffectEllipseFunction> { AcceleratedEffectEllipseFunction operator()(const EllipseFunction&, const FloatSize&, ZoomFactor); };
+
+#endif
 
 } // namespace Style
 } // namespace WebCore

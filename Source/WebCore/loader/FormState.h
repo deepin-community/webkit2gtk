@@ -53,7 +53,7 @@ public:
     void deref() const final { RefCounted::deref(); }
 
     HTMLFormElement& form() const { return m_form; }
-    const StringPairVector& textFieldValues() const { return m_textFieldValues; }
+    const StringPairVector& textFieldValues() const LIFETIME_BOUND { return m_textFieldValues; }
     Document& sourceDocument() const { return m_sourceDocument; }
 
     FormSubmissionTrigger formSubmissionTrigger() const { return m_formSubmissionTrigger; }
@@ -61,7 +61,7 @@ public:
 
 private:
     FormState(HTMLFormElement&, StringPairVector&& textFieldValues, Document&, FormSubmissionTrigger, HTMLFormControlElement* submitter);
-    void willDetachPage() override;
+    void NODELETE willDetachPage() override;
 
     const Ref<HTMLFormElement> m_form;
     StringPairVector m_textFieldValues;

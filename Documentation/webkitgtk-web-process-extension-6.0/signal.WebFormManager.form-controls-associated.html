@@ -62,7 +62,7 @@ SPDX-License-Identifier: BSD, LGPL-2.1
         <h3><a href="index.html">WebKitWebProcessExtension</a></h3>
         <p>API Version: 6.0</p>
         
-        <p>Library Version: 2.52.5</p>
+        <p>Library Version: 2.54.0</p>
         
       </div>
       
@@ -127,12 +127,12 @@ SPDX-License-Identifier: BSD, LGPL-2.1
         Description
         <a href="#description" class="anchor"></a>
         
-        <a class="srclink" title="go to source location" href="https://github.com/WebKit/WebKit/tree/main/Source/WebKit/WebProcess/InjectedBundle/API/glib/WebKitWebFormManager.cpp#L61">[src]</a>
+        <a class="srclink" title="go to source location" href="https://github.com/WebKit/WebKit/tree/main/Source/WebKit/WebProcess/InjectedBundle/API/glib/WebKitWebFormManager.cpp#L63">[src]</a>
         
       </h4>
 
       <div class="docblock">
-        <p>Emitted after form elements (or form associated elements) are associated to <code>frame</code>.
+        <p>Emitted after form elements (or form associated elements) are associated with <code>frame</code>.
 This is useful to implement form auto filling for web pages where form fields are added
 dynamically. This signal might be emitted multiple times for the same&nbsp;frame.</p>
 <p>Note that this signal could be also emitted when form controls are moved between forms. In
@@ -190,7 +190,7 @@ keep them alive after the signal handler&nbsp;returns.</p>
           <dd class="arg-description">
             <p><em>Type:</em>&nbsp;An array of&nbsp;<code>JSCValue*</code></p>
             <p>A <code>GPtrArray</code> of
-    <code>JSCValue</code> with the list of forms in the&nbsp;page.</p>
+    <code>JSCValue</code> with the list of form controls associated with <code>frame</code>.</p>
             <table>
             
             

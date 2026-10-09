@@ -54,7 +54,7 @@ SWScriptStorage::SWScriptStorage(const String& directory)
 
 String SWScriptStorage::sha2Hash(const String& input) const
 {
-    auto crypto = PAL::CryptoDigest::create(PAL::CryptoDigest::Algorithm::SHA_256);
+    auto crypto = PAL::Crypto::CryptoDigest::create(PAL::Crypto::CryptoDigest::Algorithm::SHA_256);
     crypto->addBytes(m_salt);
     auto inputUTF8 = input.utf8();
     crypto->addBytes(byteCast<uint8_t>(inputUTF8.span()));
@@ -91,7 +91,7 @@ ScriptBuffer SWScriptStorage::store(const ServiceWorkerRegistrationKey& registra
     size_t size = script.size();
 
     auto iterateOverBufferAndWriteData = [&](NOESCAPE const Function<bool(std::span<const uint8_t>)>& writeData) {
-        script.protectedBuffer()->forEachSegment([&](std::span<const uint8_t> span) {
+        protect(script.buffer())->forEachSegment([&](std::span<const uint8_t> span) {
             writeData(span);
         });
     };

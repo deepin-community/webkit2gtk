@@ -71,7 +71,7 @@ protected:
     void incrementReadItemCount() { ++m_readItemCount; }
     uint64_t lengthOfItemBeingRead() const { return m_itemLengthList[m_readItemCount]; }
     WEBCORE_EXPORT void clearAsyncStream();
-    WEBCORE_EXPORT BlobData* blobData() const;
+    WEBCORE_EXPORT BlobData* NODELETE blobData() const;
     FileStream* syncStream() const;
     AsyncFileStream* asyncStream() const;
     WEBCORE_EXPORT void resizeBuffer(size_t);
@@ -79,11 +79,11 @@ protected:
 
 private:
     void getSizeForNext();
-    std::optional<Error> seek();
-    std::optional<Error> adjustAndValidateRangeBounds();
+    std::optional<Error> NODELETE seek();
+    std::optional<Error> NODELETE adjustAndValidateRangeBounds();
     bool consumeData(std::span<const uint8_t>);
-    bool readDataAsync(const BlobDataItem&);
-    void readFileAsync(const BlobDataItem&);
+    bool readDataAsync(const BlobDataItem&, DataSegment&);
+    void readFileAsync(const BlobDataItem&, BlobDataFileReference&);
     void dispatchDidReceiveResponse();
     void doStart();
     void didRead(int); // -1 in case of error.

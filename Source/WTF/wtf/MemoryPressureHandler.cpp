@@ -29,7 +29,6 @@
 #include <algorithm>
 #include <atomic>
 #include <functional>
-#include <ranges>
 #include <wtf/Logging.h>
 #include <wtf/MathExtras.h>
 #include <wtf/MemoryFootprint.h>
@@ -68,7 +67,7 @@ static MemoryPressureHandler* memoryPressureHandlerIfExists()
 }
 
 MemoryPressureHandler::MemoryPressureHandler()
-#if OS(LINUX) || OS(FREEBSD) || OS(HAIKU) || OS(QNX)
+#if (OS(LINUX) || OS(FREEBSD) || OS(HAIKU) || OS(QNX)) && !OS(ANDROID)
     : m_holdOffTimer(RunLoop::mainSingleton(), "MemoryPressureHandler::HoldOffTimer"_s, this, &MemoryPressureHandler::holdOffTimerFired)
 #elif OS(WINDOWS)
     : m_windowsMeasurementTimer(RunLoop::mainSingleton(), "MemoryPressureHandler::WindowsMeasurementTimer"_s, this, &MemoryPressureHandler::windowsMeasurementTimerFired)
@@ -339,6 +338,12 @@ void MemoryPressureHandler::didExceedProcessMemoryLimit(ProcessMemoryLimit limit
         m_didExceedProcessMemoryLimitCallback(limit);
 }
 
+MemoryPressureHandler::ReliefLogger::~ReliefLogger()
+{
+    if (loggingEnabled())
+        logMemoryUsageChange();
+}
+
 void MemoryPressureHandler::ReliefLogger::logMemoryUsageChange()
 {
 #if !RELEASE_LOG_DISABLED
@@ -384,4 +389,4 @@ MemoryPressureHandlerConfiguration::MemoryPressureHandlerConfiguration(uint64_t 
 {
 }
 
-} // namespace WebCore
+} // namespace WTF

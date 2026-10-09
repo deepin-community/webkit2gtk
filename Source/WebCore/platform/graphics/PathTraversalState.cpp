@@ -29,7 +29,7 @@ namespace WebCore {
 
 static const float kPathSegmentLengthTolerance = 0.00001f;
 
-static inline float distanceLine(const FloatPoint& start, const FloatPoint& end)
+static inline float NODELETE distanceLine(const FloatPoint& start, const FloatPoint& end)
 {
     return std::hypot(end.x() - start.x(), end.y() - start.y());
 }
@@ -43,14 +43,14 @@ struct QuadraticBezier {
     {
     }
 
-    friend bool operator==(const QuadraticBezier&, const QuadraticBezier&) = default;
+    friend bool NODELETE operator==(const QuadraticBezier&, const QuadraticBezier&) = default;
     
-    float approximateDistance() const
+    float NODELETE approximateDistance() const
     {
         return distanceLine(start, control) + distanceLine(control, end);
     }
     
-    bool split(QuadraticBezier& left, QuadraticBezier& right) const
+    bool NODELETE split(QuadraticBezier& left, QuadraticBezier& right) const
     {
         left.control = midPoint(start, control);
         right.control = midPoint(control, end);
@@ -80,14 +80,14 @@ struct CubicBezier {
     {
     }
 
-    friend bool operator==(const CubicBezier&, const CubicBezier&) = default;
+    friend bool NODELETE operator==(const CubicBezier&, const CubicBezier&) = default;
 
-    float approximateDistance() const
+    float NODELETE approximateDistance() const
     {
         return distanceLine(start, control1) + distanceLine(control1, control2) + distanceLine(control2, end);
     }
         
-    bool split(CubicBezier& left, CubicBezier& right) const
+    bool NODELETE split(CubicBezier& left, CubicBezier& right) const
     {    
         FloatPoint startToControl1 = midPoint(control1, control2);
         

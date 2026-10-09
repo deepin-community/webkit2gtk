@@ -27,11 +27,9 @@ enum class WebKit::AllowsCellularAccess : bool;
     Markable<WTF::UUID> dataStoreIdentifier;
     String boundInterfaceIdentifier;
     WebKit::AllowsCellularAccess allowsCellularAccess;
-#if PLATFORM(COCOA) || USE(SOUP)
-    String sourceApplicationBundleIdentifier;
-#endif
 #if PLATFORM(COCOA)
     RetainPtr<CFDictionaryRef> proxyConfiguration;
+    String sourceApplicationBundleIdentifier;
     String sourceApplicationSecondaryIdentifier;
     bool shouldLogCookieInformation;
     URL httpProxy;
@@ -102,6 +100,11 @@ enum class WebKit::AllowsCellularAccess : bool;
     bool serviceWorkerProcessTerminationDelayEnabled;
     bool inspectionForServiceWorkersAllowed;
     bool storageSiteValidationEnabled;
+    WebKit::TimeBasedEvictionMode timeBasedEvictionMode;
+    Seconds timeBasedEvictionThreshold;
+    std::optional<Seconds> lastModificationTimeUpdateIntervalOverride;
+    std::optional<Seconds> timeBasedEvictionIntervalOverride;
+    Vector<WebCore::SecurityOriginData> mockPushSubscriptionOriginsForTesting;
 #if ENABLE(DECLARATIVE_WEB_PUSH)
     bool isDeclarativeWebPushEnabled;
 #endif

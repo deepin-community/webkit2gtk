@@ -1485,6 +1485,8 @@ libwebkit2gtk-4.1.so.0 libwebkit2gtk-4.1-0 #MINVER#
  webkit_favicon_database_get_favicon@Base 2.5.3
  webkit_favicon_database_get_favicon_finish@Base 2.5.3
  webkit_favicon_database_get_favicon_uri@Base 2.5.3
+#(gtk4-only)webkit_favicon_database_get_page_icons@Base 2.53.1
+#(gtk4-only)webkit_favicon_database_get_page_icons_finish@Base 2.53.1
  webkit_favicon_database_get_type@Base 2.5.3
  webkit_feature_get_category@Base 2.41.4
  webkit_feature_get_default_value@Base 2.41.4
@@ -1493,6 +1495,7 @@ libwebkit2gtk-4.1.so.0 libwebkit2gtk-4.1-0 #MINVER#
  webkit_feature_get_name@Base 2.41.4
  webkit_feature_get_status@Base 2.41.4
  webkit_feature_get_type@Base 2.41.4
+ webkit_feature_list_find@Base 2.53.1
  webkit_feature_list_get@Base 2.41.4
  webkit_feature_list_get_length@Base 2.41.4
  webkit_feature_list_get_type@Base 2.41.4
@@ -1571,6 +1574,11 @@ libwebkit2gtk-4.1.so.0 libwebkit2gtk-4.1-0 #MINVER#
 #(gtk4-only)webkit_image_get_stride@Base 2.51.2
 #(gtk4-only)webkit_image_get_type@Base 2.51.2
 #(gtk4-only)webkit_image_get_width@Base 2.51.2
+#(gtk4-only)webkit_image_list_get@Base 2.53.1
+#(gtk4-only)webkit_image_list_get_length@Base 2.53.1
+#(gtk4-only)webkit_image_list_get_type@Base 2.53.1
+#(gtk4-only)webkit_image_list_ref@Base 2.53.1
+#(gtk4-only)webkit_image_list_unref@Base 2.53.1
  webkit_input_hints_get_type@Base 2.27.4
  webkit_input_method_context_filter_key_event@Base 2.27.4
  webkit_input_method_context_get_input_hints@Base 2.27.4
@@ -1823,7 +1831,7 @@ libwebkit2gtk-4.1.so.0 libwebkit2gtk-4.1-0 #MINVER#
  webkit_settings_get_enable_caret_browsing@Base 2.5.3
  webkit_settings_get_enable_developer_extras@Base 2.5.3
  webkit_settings_get_enable_dns_prefetching@Base 2.5.3
- webkit_settings_get_enable_encrypted_media@Base 2.19.3-2~
+ webkit_settings_get_enable_encrypted_media@Base 2.19.3
  (gtk3-only)webkit_settings_get_enable_frame_flattening@Base 2.5.3
  webkit_settings_get_enable_fullscreen@Base 2.5.3
  webkit_settings_get_enable_html5_database@Base 2.5.3
@@ -1892,7 +1900,7 @@ libwebkit2gtk-4.1.so.0 libwebkit2gtk-4.1-0 #MINVER#
  webkit_settings_set_enable_caret_browsing@Base 2.5.3
  webkit_settings_set_enable_developer_extras@Base 2.5.3
  webkit_settings_set_enable_dns_prefetching@Base 2.5.3
- webkit_settings_set_enable_encrypted_media@Base 2.19.3-2~
+ webkit_settings_set_enable_encrypted_media@Base 2.19.3
  (gtk3-only)webkit_settings_set_enable_frame_flattening@Base 2.5.3
  webkit_settings_set_enable_fullscreen@Base 2.5.3
  webkit_settings_set_enable_html5_database@Base 2.5.3
@@ -2224,9 +2232,11 @@ libwebkit2gtk-4.1.so.0 libwebkit2gtk-4.1-0 #MINVER#
  webkit_web_view_get_is_muted@Base 2.29.2
  webkit_web_view_get_is_web_process_responsive@Base 2.33.1
  (gtk3-only)webkit_web_view_get_javascript_global_context@Base 2.5.3
+ webkit_web_view_get_magnification@Base 2.53.90
  webkit_web_view_get_main_resource@Base 2.5.3
  webkit_web_view_get_microphone_capture_state@Base 2.33.3
 #(gtk4-only)webkit_web_view_get_network_session@Base 2.39.7
+#(gtk4-only)webkit_web_view_get_page_icons@Base 2.53.1
  webkit_web_view_get_page_id@Base 2.5.3
  webkit_web_view_get_session_state@Base 2.12.0
  webkit_web_view_get_settings@Base 2.5.3
@@ -2293,6 +2303,7 @@ libwebkit2gtk-4.1.so.0 libwebkit2gtk-4.1-0 #MINVER#
  webkit_web_view_set_editable@Base 2.8.1
  webkit_web_view_set_input_method_context@Base 2.27.4
  webkit_web_view_set_is_muted@Base 2.29.2
+ webkit_web_view_set_magnification@Base 2.53.90
  webkit_web_view_set_microphone_capture_state@Base 2.33.3
  webkit_web_view_set_settings@Base 2.5.3
  webkit_web_view_set_zoom_level@Base 2.5.3
@@ -2315,7 +2326,9 @@ libwebkit2gtk-4.1.so.0 libwebkit2gtk-4.1-0 #MINVER#
  (gtk3-only)webkit_website_data_manager_get_cookie_manager@Base 2.15.90
  (gtk3-only)webkit_website_data_manager_get_disk_cache_directory@Base 2.10.0
  (gtk3-only)webkit_website_data_manager_get_dom_cache_directory@Base 2.29.2
+ (gtk3-only)webkit_website_data_manager_get_favicon_database@Base 2.53.1
 #(gtk4-only)webkit_website_data_manager_get_favicon_database@Base 2.39.7
+ (gtk3-only)webkit_website_data_manager_get_favicons_enabled@Base 2.53.1
 #(gtk4-only)webkit_website_data_manager_get_favicons_enabled@Base 2.39.7
  (gtk3-only)webkit_website_data_manager_get_hsts_cache_directory@Base 2.25.92
  (gtk3-only)webkit_website_data_manager_get_indexeddb_directory@Base 2.10.0
@@ -2335,6 +2348,7 @@ libwebkit2gtk-4.1.so.0 libwebkit2gtk-4.1-0 #MINVER#
  (gtk3-only)webkit_website_data_manager_new_ephemeral@Base 2.15.4
  webkit_website_data_manager_remove@Base 2.15.4
  webkit_website_data_manager_remove_finish@Base 2.15.4
+ (gtk3-only)webkit_website_data_manager_set_favicons_enabled@Base 2.53.1
 #(gtk4-only)webkit_website_data_manager_set_favicons_enabled@Base 2.39.7
  (gtk3-only)webkit_website_data_manager_set_itp_enabled@Base 2.29.2
  (gtk3-only)webkit_website_data_manager_set_memory_pressure_settings@Base 2.33.3
@@ -2345,6 +2359,7 @@ libwebkit2gtk-4.1.so.0 libwebkit2gtk-4.1-0 #MINVER#
  webkit_website_data_types_get_type@Base 2.15.4
  webkit_website_data_unref@Base 2.15.4
  webkit_website_policies_get_autoplay_policy@Base 2.29.2
+ webkit_website_policies_get_custom_user_agent@Base 2.53.90
  webkit_website_policies_get_type@Base 2.29.2
  webkit_website_policies_new@Base 2.29.2
  webkit_website_policies_new_with_policies@Base 2.29.2

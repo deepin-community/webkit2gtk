@@ -256,6 +256,9 @@ static double parseHTMLFloatingPointNumberValueInternal(std::span<const Characte
     size_t parsedLength;
     double number = parseDouble(position.first(length - leadingSpacesLength), parsedLength);
 
+    if (!parsedLength)
+        return fallbackValue;
+
     // The following expression converts -0 to +0.
     return number ? number : 0;
 }
@@ -270,18 +273,18 @@ double parseHTMLFloatingPointNumberValue(StringView input, double fallbackValue)
 }
 
 template<typename CharacterType>
-static inline bool isHTMLSpaceOrDelimiter(CharacterType character)
+static inline bool NODELETE isHTMLSpaceOrDelimiter(CharacterType character)
 {
     return isASCIIWhitespace(character) || character == ',' || character == ';';
 }
 
-static inline bool isNumberStart(char16_t character)
+static inline bool NODELETE isNumberStart(char16_t character)
 {
     return isASCIIDigit(character) || character == '.' || character == '-';
 }
 
 template<typename CharacterType>
-static inline bool isHTMLSpaceOrDelimiterOrNumberStart(CharacterType character)
+static inline bool NODELETE isHTMLSpaceOrDelimiterOrNumberStart(CharacterType character)
 {
     return isHTMLSpaceOrDelimiter(character) || isNumberStart(character);
 }
@@ -344,13 +347,13 @@ String parseCORSSettingsAttribute(const AtomString& value)
 }
 
 template<typename CharacterType>
-static bool isASCIIDigitOrPeriod(CharacterType character)
+static bool NODELETE isASCIIDigitOrPeriod(CharacterType character)
 {
     return isASCIIDigit(character) || character == '.';
 }
 
 template<typename CharacterType>
-static bool isSemicolonOrComma(CharacterType character)
+static bool NODELETE isSemicolonOrComma(CharacterType character)
 {
     return character == ';' || character == ',';
 }
@@ -454,7 +457,10 @@ AtomString parseHTMLHashNameReference(StringView usemap)
     size_t numberSignIndex = usemap.find('#');
     if (numberSignIndex == notFound)
         return nullAtom();
-    return usemap.substring(numberSignIndex + 1).toAtomString();
+    auto result = usemap.substring(numberSignIndex + 1);
+    if (result.isEmpty())
+        return nullAtom();
+    return result.toAtomString();
 }
 
 struct HTMLDimensionParsingResult {
@@ -526,7 +532,7 @@ std::optional<HTMLDimension> parseHTMLMultiLength(StringView multiLengthString)
 }
 
 template<typename CharacterType>
-static unsigned countCommas(StringParsingBuffer<CharacterType> rawInput)
+static unsigned NODELETE countCommas(StringParsingBuffer<CharacterType> rawInput)
 {
     unsigned count = 0;
     while (rawInput.hasCharactersRemaining())

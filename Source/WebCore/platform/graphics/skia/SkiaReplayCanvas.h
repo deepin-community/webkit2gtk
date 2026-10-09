@@ -28,12 +28,13 @@
 #if USE(SKIA)
 #include "IntSize.h"
 #include "SkiaRecordingResult.h"
-#include <wtf/Assertions.h>
-#include <wtf/Function.h>
-
+#include "SkiaReplayAtlas.h"
 WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
+#include <skia/gpu/ganesh/GrContextThreadSafeProxy.h>
 #include <skia/utils/SkNWayCanvas.h>
 WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
+#include <wtf/Assertions.h>
+#include <wtf/Function.h>
 
 class SkImage;
 
@@ -42,12 +43,12 @@ namespace WebCore {
 class SkiaReplayCanvas final : public SkNWayCanvas, public RefCounted<SkiaReplayCanvas> {
 public:
     ~SkiaReplayCanvas() override;
-    static Ref<SkiaReplayCanvas> create(const IntSize&, const RefPtr<SkiaRecordingResult>&);
+    static Ref<SkiaReplayCanvas> create(const IntSize&, const Ref<SkiaRecordingResult>&, const sk_sp<GrContextThreadSafeProxy>& = nullptr);
 
     const sk_sp<SkPicture>& picture() const { return m_recording->picture(); }
 
 private:
-    SkiaReplayCanvas(const IntSize&, const RefPtr<SkiaRecordingResult>&);
+    SkiaReplayCanvas(const IntSize&, const Ref<SkiaRecordingResult>&, const sk_sp<GrContextThreadSafeProxy>&);
 
     sk_sp<SkImage> waitForRenderingCompletionAndRewrapImageIfNeeded(const SkImage*);
 
@@ -78,7 +79,9 @@ private:
     void onDrawTextBlob(const SkTextBlob*, SkScalar x, SkScalar y, const SkPaint&) override;
     void onDrawVerticesObject(const SkVertices*, SkBlendMode, const SkPaint&) override;
 
-    RefPtr<SkiaRecordingResult> m_recording;
+    Ref<SkiaRecordingResult> m_recording;
+    sk_sp<GrContextThreadSafeProxy> m_threadSafeGrContext;
+    Vector<std::unique_ptr<SkiaReplayAtlas>> m_atlases;
 };
 
 } // namespace WebCore

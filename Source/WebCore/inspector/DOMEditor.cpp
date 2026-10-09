@@ -37,7 +37,6 @@
 #include "Element.h"
 #include "InspectorHistory.h"
 #include "NodeDocument.h"
-#include "NodeInlines.h"
 #include "Text.h"
 #include "markup.h"
 #include <wtf/RefPtr.h>
@@ -208,7 +207,7 @@ public:
     {
     }
 
-    Node* newNode() const
+    Node* NODELETE newNode() const
     {
         return m_newNode.get();
     }

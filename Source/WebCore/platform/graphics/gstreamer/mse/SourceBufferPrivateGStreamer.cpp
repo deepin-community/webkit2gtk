@@ -82,6 +82,8 @@ SourceBufferPrivateGStreamer::SourceBufferPrivateGStreamer(MediaSourcePrivateGSt
     std::call_once(debugRegisteredFlag, [] {
         GST_DEBUG_CATEGORY_INIT(webkit_mse_sourcebuffer_debug, "webkitmsesourcebuffer", 0, "WebKit MSE SourceBuffer");
     });
+
+    GST_DEBUG_OBJECT(m_appendPipeline ? m_appendPipeline->pipeline() : nullptr, "SourceBufferPrivate created");
 }
 
 SourceBufferPrivateGStreamer::~SourceBufferPrivateGStreamer()
@@ -142,6 +144,29 @@ void SourceBufferPrivateGStreamer::removedFromMediaSource()
     m_appendPipeline = nullptr;
 
     SourceBufferPrivate::removedFromMediaSource();
+}
+
+bool SourceBufferPrivateGStreamer::canSwitchToType(const ContentType& type)
+{
+    RefPtr player = this->player();
+
+    if (isContentTypeSupported(type)) {
+        if (player)
+            GST_INFO_OBJECT(player->pipeline(), "type change %s -> %s", m_type.raw().utf8().data(), type.raw().utf8().data());
+        m_type = type;
+
+        return true;
+    }
+
+    return false;
+}
+
+void SourceBufferPrivateGStreamer::startChangingType()
+{
+    ASSERT(isMainThread());
+
+    m_appendPipeline->startChangingType();
+    m_pendingInitializationSegmentForChangeType = true;
 }
 
 void SourceBufferPrivateGStreamer::flush(TrackID trackId)
@@ -219,7 +244,7 @@ bool SourceBufferPrivateGStreamer::isReadyForMoreSamples(TrackID trackId)
     auto track = m_tracks[trackId];
     bool ret = track->isReadyForMoreSamples();
     if (RefPtr player = this->player())
-        GST_TRACE_OBJECT(player->pipeline(), "track %" PRIu64 "isReadyForMoreSamples: %s", trackId, boolForPrinting(ret));
+        GST_TRACE_OBJECT(player->pipeline(), "track %" PRIu64 " isReadyForMoreSamples: %s", trackId, boolForPrinting(ret));
     return ret;
 }
 
@@ -277,8 +302,10 @@ bool SourceBufferPrivateGStreamer::precheckInitializationSegment(const Initializ
 
 void SourceBufferPrivateGStreamer::processInitializationSegment(std::optional<InitializationSegment>&& segment)
 {
-    if (RefPtr mediaSource = m_mediaSource.get(); mediaSource && segment)
+    if (RefPtr mediaSource = m_mediaSource.get(); mediaSource && segment) {
         downcast<MediaSourcePrivateGStreamer>(mediaSource)->startPlaybackIfHasAllTracks();
+        m_pendingInitializationSegmentForChangeType = false;
+    }
 }
 
 void SourceBufferPrivateGStreamer::didReceiveAllPendingSamples()
@@ -451,24 +478,6 @@ void SourceBufferPrivateGStreamer::detach()
 
     if (RefPtr mediaSource = m_mediaSource.get())
         downcast<MediaSourcePrivateGStreamer>(mediaSource)->detach();
-}
-
-void SourceBufferPrivateGStreamer::willSeek()
-{
-    ALWAYS_LOG(LOGIDENTIFIER);
-    m_seeking = true;
-}
-
-bool SourceBufferPrivateGStreamer::isSeeking() const
-{
-    return m_seeking;
-}
-
-void SourceBufferPrivateGStreamer::seekToTime(const MediaTime& time)
-{
-    m_seeking = false;
-    // WebKit now has the samples to complete the seek and is about to enqueue them.
-    SourceBufferPrivate::seekToTime(time);
 }
 
 #undef GST_CAT_DEFAULT

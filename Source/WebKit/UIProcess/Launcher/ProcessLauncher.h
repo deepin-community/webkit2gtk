@@ -29,6 +29,7 @@
 #include <WebCore/ProcessIdentifier.h>
 #include <wtf/AbstractCanMakeCheckedPtr.h>
 #include <wtf/CheckedPtr.h>
+#include <wtf/Function.h>
 #include <wtf/HashMap.h>
 #include <wtf/ProcessID.h>
 #include <wtf/RefPtr.h>
@@ -154,7 +155,7 @@ public:
     void invalidate();
 
 #if USE(EXTENSIONKIT)
-    const std::optional<ExtensionProcess>& extensionProcess() const { return m_process; }
+    const std::optional<ExtensionProcess>& extensionProcess() const LIFETIME_BOUND { return m_process; }
     void setIsRetryingLaunch() { m_isRetryingLaunch = true; }
     bool isRetryingLaunch() const { return m_isRetryingLaunch; }
     LaunchGrant* launchGrant() const { return m_launchGrant.get(); }
@@ -166,7 +167,8 @@ private:
     ProcessLauncher(Client*, LaunchOptions&&);
 
     void launchProcess();
-    void finishLaunchingProcess(ASCIILiteral name);
+    void finishLaunchingProcess(ASCIILiteral name, int retriesRemaining = 2);
+    void tryFinishLaunchingProcess(ASCIILiteral name, Function<void()>&& onFailure);
     void didFinishLaunchingProcess(ProcessID, IPC::Connection::Identifier&&);
 
     void platformInvalidate();
@@ -179,7 +181,7 @@ private:
     CheckedPtr<Client> m_client;
 
 #if PLATFORM(COCOA)
-    XPCObjectPtr<xpc_connection_t> m_xpcConnection;
+    OSObjectPtr<xpc_connection_t> m_xpcConnection;
 #endif
 
 #if USE(EXTENSIONKIT)

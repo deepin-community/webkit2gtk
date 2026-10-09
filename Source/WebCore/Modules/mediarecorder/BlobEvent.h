@@ -36,7 +36,7 @@ class BlobEvent final : public Event {
     WTF_MAKE_TZONE_ALLOCATED(BlobEvent);
 public:
     struct Init : EventInit {
-        RefPtr<Blob> data;
+        Ref<Blob> data;
         std::optional<double> timecode;
     };
     

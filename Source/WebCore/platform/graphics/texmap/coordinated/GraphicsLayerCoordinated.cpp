@@ -38,7 +38,7 @@
 #include "CoordinatedPlatformLayerBufferProxy.h"
 #include "FloatQuad.h"
 #include "GraphicsLayerAsyncContentsDisplayDelegateCoordinated.h"
-#include "GraphicsLayerContentsDisplayDelegate.h"
+#include "GraphicsLayerContentsDisplayDelegateCoordinated.h"
 #include "GraphicsLayerFactory.h"
 #include "GraphicsLayerFilterAnimationValue.h"
 #include "GraphicsLayerKeyframeValueList.h"
@@ -49,6 +49,22 @@
 namespace WebCore {
 
 static constexpr uint32_t s_maxDamageRectanglesForHighResolutionDamage = 32;
+
+bool GraphicsLayer::supportsLayerType(Type type)
+{
+    switch (type) {
+    case Type::Normal:
+    case Type::Structural:
+    case Type::PageTiledBacking:
+    case Type::ScrollContainer:
+    case Type::ScrolledContents:
+    case Type::TiledBacking:
+        return true;
+    case Type::Shape:
+        return true;
+    }
+    RELEASE_ASSERT_NOT_REACHED();
+}
 
 Ref<GraphicsLayer> GraphicsLayer::create(GraphicsLayerFactory* factory, GraphicsLayerClient& client, Type layerType)
 {
@@ -63,7 +79,7 @@ GraphicsLayerCoordinated::GraphicsLayerCoordinated(Type layerType, GraphicsLayer
     , m_platformLayer(WTF::move(platformLayer))
 {
     m_platformLayer->setOwner(this);
-    noteLayerPropertyChanged({ Change::ContentsScale, Change::ContentsVisible }, ScheduleFlush::Yes);
+    noteLayerPropertyChanged({ Change::ContentsScale, Change::ContentsVisible, Change::Preserves3D }, ScheduleFlush::Yes);
 }
 
 GraphicsLayerCoordinated::~GraphicsLayerCoordinated()
@@ -266,6 +282,15 @@ void GraphicsLayerCoordinated::setOpacity(float opacity)
     noteLayerPropertyChanged(Change::Opacity, ScheduleFlush::Yes);
 }
 
+void GraphicsLayerCoordinated::setBlendMode(BlendMode blendMode)
+{
+    if (m_blendMode == blendMode)
+        return;
+
+    GraphicsLayer::setBlendMode(blendMode);
+    noteLayerPropertyChanged(Change::BlendMode, ScheduleFlush::Yes);
+}
+
 void GraphicsLayerCoordinated::setContentsVisible(bool contentsVisible)
 {
     if (m_contentsVisible == contentsVisible)
@@ -365,7 +390,7 @@ void GraphicsLayerCoordinated::setContentsToPlatformLayer(PlatformLayer* content
 
     m_contentsBufferProxy = contentsLayer;
 
-    OptionSet<Change> change = { Change::ContentsBuffer };
+    EnumSet<Change> change = { Change::ContentsBuffer };
     if (m_contentsBufferProxy) {
         m_contentsBufferProxy->setTargetLayer(m_platformLayer.ptr());
         m_contentsDisplayDelegate = nullptr;
@@ -381,8 +406,11 @@ void GraphicsLayerCoordinated::setContentsDisplayDelegate(RefPtr<GraphicsLayerCo
 
     m_contentsDisplayDelegate = WTF::move(delegate);
 
-    OptionSet<Change> change = { Change::ContentsBuffer };
+    EnumSet<Change> change = { Change::ContentsBuffer };
     if (m_contentsDisplayDelegate) {
+#if USE(SKIA)
+        m_contentsDisplayDelegate->setThreadSafeGrContext(m_platformLayer->threadSafeGrContext());
+#endif
         if (m_contentsBufferProxy) {
             m_contentsBufferProxy->setTargetLayer(nullptr);
             m_contentsBufferProxy = nullptr;
@@ -398,7 +426,11 @@ RefPtr<GraphicsLayerAsyncContentsDisplayDelegate> GraphicsLayerCoordinated::crea
         static_cast<GraphicsLayerAsyncContentsDisplayDelegateCoordinated*>(existing)->updateGraphicsLayer(*this);
         return existing;
     }
-    return GraphicsLayerAsyncContentsDisplayDelegateCoordinated::create(*this);
+    auto delegate = GraphicsLayerAsyncContentsDisplayDelegateCoordinated::create(*this);
+#if USE(SKIA)
+    delegate->setThreadSafeGrContext(m_platformLayer->threadSafeGrContext());
+#endif
+    return delegate;
 }
 
 void GraphicsLayerCoordinated::setContentsToImage(Image* image)
@@ -489,6 +521,22 @@ void GraphicsLayerCoordinated::setEventRegion(EventRegion&& eventRegion)
 
     GraphicsLayer::setEventRegion(WTF::move(eventRegion));
     noteLayerPropertyChanged(Change::EventRegion, ScheduleFlush::Yes);
+}
+
+void GraphicsLayerCoordinated::setShapeLayerPath(const Path& path)
+{
+    // FIXME: need to check for path equality. No bool Path::operator==(const Path&)!.
+    GraphicsLayer::setShapeLayerPath(path);
+    noteLayerPropertyChanged(Change::Shape, ScheduleFlush::Yes);
+}
+
+void GraphicsLayerCoordinated::setShapeLayerWindRule(WindRule windRule)
+{
+    if (m_shapeLayerWindRule == windRule)
+        return;
+
+    GraphicsLayer::setShapeLayerWindRule(windRule);
+    noteLayerPropertyChanged(Change::Shape, ScheduleFlush::Yes);
 }
 
 void GraphicsLayerCoordinated::deviceOrPageScaleFactorChanged()
@@ -589,6 +637,15 @@ void GraphicsLayerCoordinated::setBackdropFiltersRect(const FloatRoundedRect& ba
     noteLayerPropertyChanged(Change::BackdropRect, ScheduleFlush::Yes);
 }
 
+void GraphicsLayerCoordinated::setIsBackdropRoot(bool isBackdropRoot)
+{
+    if (m_isBackdropRoot == isBackdropRoot)
+        return;
+
+    GraphicsLayer::setIsBackdropRoot(isBackdropRoot);
+    noteLayerPropertyChanged(Change::BackdropRoot, ScheduleFlush::Yes);
+}
+
 bool GraphicsLayerCoordinated::addAnimation(const GraphicsLayerKeyframeValueList& valueList, const GraphicsLayerAnimation* animation, const String& animationName, double timeOffset)
 {
     ASSERT(!animationName.isEmpty());
@@ -608,10 +665,6 @@ bool GraphicsLayerCoordinated::addAnimation(const GraphicsLayerKeyframeValueList
             return false;
 
         const auto& filters = static_cast<const GraphicsLayerFilterAnimationValue&>(valueList.at(listIndex)).value();
-        // The animation of drop-shadow filter with currentColor isn't supported yet.
-        // GraphicsLayerCA doesn't accept animations with drap-shadow. Do it here.
-        if (filters.hasFilterOfType<FilterOperation::Type::DropShadowWithStyleColor>())
-            return false;
         if (!filtersCanBeComposited(filters))
             return false;
         break;
@@ -670,7 +723,7 @@ Vector<GraphicsLayer::AcceleratedAnimationForTesting> GraphicsLayerCoordinated::
 {
     Vector<GraphicsLayer::AcceleratedAnimationForTesting> animations;
     for (auto& animation : m_animations.animations())
-        animations.append({ animatedPropertyIDAsString(animation.keyframes().property()), animation.state() == TextureMapperAnimation::State::Playing ? 1.0 : 0.0, false });
+        animations.append({ animatedPropertyIDAsString(animation.keyframes().property()), animation.state() == TextureMapperAnimation::State::Playing ? 1.0 : 0.0, false, false });
     return animations;
 }
 
@@ -715,10 +768,10 @@ void GraphicsLayerCoordinated::dumpAdditionalProperties(TextStream& textStream, 
 
 bool GraphicsLayerCoordinated::filtersCanBeComposited(const FilterOperations& filters) const
 {
-    return filters.size() && !filters.hasReferenceFilter();
+    return !filters.isEmpty();
 }
 
-void GraphicsLayerCoordinated::noteLayerPropertyChanged(OptionSet<Change> change, ScheduleFlush scheduleFlush)
+void GraphicsLayerCoordinated::noteLayerPropertyChanged(EnumSet<Change> change, ScheduleFlush scheduleFlush)
 {
     if (beingDestroyed())
         return;
@@ -829,6 +882,7 @@ void GraphicsLayerCoordinated::computePixelAlignmentIfNeeded(float pageScaleFact
 
 void GraphicsLayerCoordinated::updateGeometry(float pageScaleFactor, const FloatPoint& positionRelativeToBase)
 {
+    assertIsHeld(m_platformLayer->lock());
     FloatPoint adjustedPosition;
     FloatPoint adjustedBoundsOrigin;
     FloatPoint3D adjustedAnchorPoint;
@@ -867,17 +921,16 @@ void GraphicsLayerCoordinated::computeLayerTransformIfNeeded(bool affectedByTran
     m_layerTransform.current.setChildrenTransform(childrenTransform());
     m_layerTransform.current.combineTransforms(parent() ? downcast<GraphicsLayerCoordinated>(*parent()).m_layerTransform.current.combinedForChildren() : TransformationMatrix());
 
-    m_layerTransform.cachedCombined = m_layerTransform.current.combined();
-    m_layerTransform.cachedInverse = m_layerTransform.cachedCombined.inverse().value_or(TransformationMatrix());
-
     m_layerTransform.future = m_layerTransform.current;
+
+    m_layerTransform.cachedInverse = m_layerTransform.current.combined().inverse();
     m_layerTransform.cachedFutureInverse = m_layerTransform.cachedInverse;
 
     auto* parentLayer = downcast<GraphicsLayerCoordinated>(parent());
     if (currentTransform != futureTransform || (parentLayer && parentLayer->m_layerTransform.current.combinedForChildren() != parentLayer->m_layerTransform.future.combinedForChildren())) {
         m_layerTransform.future.setLocalTransform(futureTransform);
         m_layerTransform.future.combineTransforms(parentLayer ? parentLayer->m_layerTransform.future.combinedForChildren() : TransformationMatrix());
-        m_layerTransform.cachedFutureInverse = m_layerTransform.future.combined().inverse().value_or(TransformationMatrix());
+        m_layerTransform.cachedFutureInverse = m_layerTransform.future.combined().inverse();
     }
 
     m_platformLayer->didUpdateLayerTransform();
@@ -898,34 +951,33 @@ void GraphicsLayerCoordinated::clampToSizeIfRectIsInfinite(FloatRect& rect, cons
 
 void GraphicsLayerCoordinated::updateVisibleRect(const FloatRect& rect)
 {
+    assertIsHeld(m_platformLayer->lock());
     m_platformLayer->setVisibleRect(rect);
 
-    IntRect visibleRect;
-    IntRect visibleRectFuture;
     // Non-invertible layers are not visible.
-    if (!m_layerTransform.current.combined().isInvertible()) {
-        m_platformLayer->setTransformedVisibleRect(WTF::move(visibleRect), WTF::move(visibleRect));
+    if (!m_layerTransform.cachedInverse) {
+        m_platformLayer->setTransformedVisibleRect({ });
         return;
     }
 
     // Return a projection of the rect (surface coordinates) onto the layer's plane (layer coordinates).
     // The resulting quad might be squewed and the result is the bounding box of this quad,
     // so it might spread further than the real visible area (and then even more amplified by the cover rect multiplier).
-    ASSERT(m_layerTransform.cachedInverse == m_layerTransform.current.combined().inverse().value_or(TransformationMatrix()));
+    ASSERT(m_layerTransform.cachedInverse == m_layerTransform.current.combined().inverse());
     auto transformedRect = [&](const TransformationMatrix& matrix) -> IntRect {
         FloatRect result = matrix.clampedBoundsOfProjectedQuad(FloatQuad(rect));
         clampToSizeIfRectIsInfinite(result, m_size);
         return enclosingIntRect(result);
     };
-    visibleRect = transformedRect(m_layerTransform.cachedInverse);
-    visibleRectFuture = visibleRect;
-    if (m_layerTransform.cachedInverse != m_layerTransform.cachedFutureInverse)
-        visibleRectFuture.unite(transformedRect(m_layerTransform.cachedFutureInverse));
-    m_platformLayer->setTransformedVisibleRect(WTF::move(visibleRect), WTF::move(visibleRectFuture));
+    auto visibleRect = transformedRect(*m_layerTransform.cachedInverse);
+    if (m_layerTransform.cachedFutureInverse && m_layerTransform.cachedInverse != m_layerTransform.cachedFutureInverse)
+        visibleRect.unite(transformedRect(*m_layerTransform.cachedFutureInverse));
+    m_platformLayer->setTransformedVisibleRect(WTF::move(visibleRect));
 }
 
 void GraphicsLayerCoordinated::updateBackdropFilters()
 {
+    assertIsHeld(m_platformLayer->lock());
     bool canHaveBackdropFilters = needsBackdrop();
     if (!canHaveBackdropFilters) {
         m_platformLayer->setBackdrop(nullptr);
@@ -956,14 +1008,16 @@ void GraphicsLayerCoordinated::updateBackdropFilters()
         m_backdropLayer->setFilters(m_backdropFilters);
     }
 
-    if (isNewLayer)
+    if (isNewLayer) {
         updateBackdropFiltersRect();
-
-    m_platformLayer->setBackdrop(m_backdropLayer.get());
+        m_platformLayer->setBackdrop(m_backdropLayer.get());
+    } else
+        m_platformLayer->notifyBackdropFiltersChanged();
 }
 
 void GraphicsLayerCoordinated::updateBackdropFiltersRect()
 {
+    assertIsHeld(m_platformLayer->lock());
     if (!m_backdropLayer)
         return;
 
@@ -978,6 +1032,8 @@ void GraphicsLayerCoordinated::updateBackdropFiltersRect()
 
 void GraphicsLayerCoordinated::updateAnimations()
 {
+    assertIsHeld(m_platformLayer->lock());
+
     m_animations.setTranslate(client().transformMatrixForProperty(AnimatedProperty::Translate));
     m_animations.setRotate(client().transformMatrixForProperty(AnimatedProperty::Rotate));
     m_animations.setScale(client().transformMatrixForProperty(AnimatedProperty::Scale));
@@ -988,6 +1044,8 @@ void GraphicsLayerCoordinated::updateAnimations()
 
 void GraphicsLayerCoordinated::updateIndicators()
 {
+    assertIsHeld(m_platformLayer->lock());
+
     Color borderColor;
     float borderWidth = 0;
     if (m_showDebugBorder)
@@ -1047,6 +1105,9 @@ void GraphicsLayerCoordinated::commitLayerChanges(CommitState& commitState, floa
     if (m_pendingChanges.contains(Change::Opacity))
         m_platformLayer->setOpacity(m_opacity);
 
+    if (m_pendingChanges.contains(Change::BlendMode))
+        m_platformLayer->setBlendMode(m_blendMode);
+
     if (m_pendingChanges.contains(Change::ContentsVisible)) {
         m_platformLayer->setContentsVisible(m_contentsVisible);
         if (m_backdropLayer) {
@@ -1103,11 +1164,17 @@ void GraphicsLayerCoordinated::commitLayerChanges(CommitState& commitState, floa
     if (m_pendingChanges.contains(Change::BackdropRect))
         updateBackdropFiltersRect();
 
+    if (m_pendingChanges.contains(Change::BackdropRoot))
+        m_platformLayer->setIsBackdropRoot(m_isBackdropRoot);
+
     if (m_pendingChanges.contains(Change::Animations))
         updateAnimations();
 
     if (m_pendingChanges.contains(Change::EventRegion))
         m_platformLayer->setEventRegion(m_eventRegion);
+
+    if (m_pendingChanges.contains(Change::Shape))
+        m_platformLayer->setClipPath(m_shapeLayerPath, m_shapeLayerWindRule);
 
     if (m_pendingChanges.contains(Change::DebugIndicators))
         updateIndicators();

@@ -11,11 +11,11 @@
 #include "include/core/SkMatrix.h"
 #include "include/core/SkShader.h"
 #include "include/core/SkTileMode.h"
-#include "include/effects/SkGradientShader.h"
-#include "include/private/base/SkAssert.h"
-#include "include/private/base/SkFloatingPoint.h"
-#include "include/private/base/SkTArray.h"
-#include "src/base/SkArenaAlloc.h"
+#include "include/effects/SkGradient.h"
+#include "include/private/SkAssert.h"
+#include "include/private/SkFloatingPoint.h"
+#include "include/private/SkTArray.h"
+#include "src/core/SkArenaAlloc.h"
 #include "src/core/SkRasterPipeline.h"
 #include "src/core/SkRasterPipelineOpContexts.h"
 #include "src/core/SkRasterPipelineOpList.h"
@@ -313,46 +313,3 @@ void SkRegisterConicalGradientShaderFlattenable() {
     // Previous name
     SkFlattenable::Register("SkTwoPointConicalGradient", SkConicalGradient::CreateProc);
 }
-
-#ifdef SK_SUPPORT_LEGACY_UNSPANNED_GRADIENTS
-sk_sp<SkShader> SkGradientShader::MakeTwoPointConical(const SkPoint& start,
-                                                      SkScalar startRadius,
-                                                      const SkPoint& end,
-                                                      SkScalar endRadius,
-                                                      const SkColor4f colorPtr[],
-                                                      sk_sp<SkColorSpace> colorSpace,
-                                                      const SkScalar posPtr[],
-                                                      int colorsCount,
-                                                      SkTileMode mode,
-                                                      const Interpolation& interp,
-                                                      const SkMatrix* lm) {
-    MAKE_COLORS_POS_SPANS(colorPtr, posPtr, colorsCount);
-
-    return SkShaders::TwoPointConicalGradient(start, startRadius, end, endRadius,
-                               {{colors, pos, mode, std::move(colorSpace)}, interp}, lm);
-}
-
-sk_sp<SkShader> SkGradientShader::MakeTwoPointConical(const SkPoint& start,
-                                                      SkScalar startRadius,
-                                                      const SkPoint& end,
-                                                      SkScalar endRadius,
-                                                      const SkColor colors[],
-                                                      const SkScalar pos[],
-                                                      int colorCount,
-                                                      SkTileMode mode,
-                                                      uint32_t flags,
-                                                      const SkMatrix* localMatrix) {
-    SkColorConverter converter({colors, SkToSizeT(colorCount)});
-    return MakeTwoPointConical(start,
-                               startRadius,
-                               end,
-                               endRadius,
-                               converter.colors4f().data(),
-                               nullptr,
-                               pos,
-                               colorCount,
-                               mode,
-                               flags,
-                               localMatrix);
-}
-#endif

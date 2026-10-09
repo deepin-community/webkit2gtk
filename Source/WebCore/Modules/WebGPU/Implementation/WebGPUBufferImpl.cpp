@@ -77,18 +77,12 @@ void BufferImpl::getMappedRange(Size64 offset, std::optional<Size64> size, NOESC
 {
     auto usedSize = getMappedSize(m_backing.get(), size, offset);
 
-    auto pointer = wgpuBufferGetMappedRange(m_backing.get(), static_cast<size_t>(offset), static_cast<size_t>(usedSize)).data();
-    auto bufferSize = wgpuBufferGetInitialSize(m_backing.get());
-    size_t actualSize = pointer ? static_cast<size_t>(bufferSize) : 0;
-    size_t actualOffset = pointer ? static_cast<size_t>(offset) : 0;
-WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
-    callback(unsafeMakeSpan(static_cast<uint8_t*>(pointer) - actualOffset, actualSize));
-WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
+    callback(wgpuBufferGetMappedRange(m_backing.get(), static_cast<size_t>(offset), static_cast<size_t>(usedSize)));
 }
 
 std::span<uint8_t> BufferImpl::getBufferContents()
 {
-    if (!m_backing.get())
+    if (!m_backing)
         return { };
 
     return wgpuBufferGetBufferContents(m_backing.get());
@@ -115,6 +109,11 @@ void BufferImpl::unmap()
 void BufferImpl::destroy()
 {
     wgpuBufferDestroy(m_backing.get());
+}
+
+void BufferImpl::generateAValidationError()
+{
+    wgpuBufferGenerateAValidationError(m_backing.get());
 }
 
 void BufferImpl::setLabelInternal(const String& label)

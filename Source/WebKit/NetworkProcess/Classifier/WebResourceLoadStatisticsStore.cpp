@@ -307,7 +307,7 @@ void WebResourceLoadStatisticsStore::statisticsDatabaseHasAllTables(CompletionHa
             return;
         }
         auto missingTables = statisticsStore->checkForMissingTablesInSchema();
-        postTaskReply([hasAllTables = missingTables ? false : true, completionHandler = WTF::move(completionHandler)] () mutable {
+        postTaskReply([hasAllTables = !missingTables, completionHandler = WTF::move(completionHandler)] () mutable {
             completionHandler(hasAllTables);
         });
     });
@@ -460,7 +460,7 @@ void WebResourceLoadStatisticsStore::requestStorageAccess(RegistrableDomain&& su
                     completionHandler({ StorageAccessWasGranted::No, StorageAccessPromptWasShown::Yes, scope, topFrameDomain, subFrameDomain });
             };
 
-            networkSession->networkProcess().protectedParentProcessConnection()->sendWithAsyncReply(Messages::NetworkProcessProxy::RequestStorageAccessConfirm(webPageProxyID, frameID, subFrameDomain, topFrameDomain, storageAccessQuirk), WTF::move(requestConfirmationCompletionHandler));
+            protect(networkSession->networkProcess().parentProcessConnection())->sendWithAsyncReply(Messages::NetworkProcessProxy::RequestStorageAccessConfirm(webPageProxyID, frameID, subFrameDomain, topFrameDomain, storageAccessQuirk), WTF::move(requestConfirmationCompletionHandler));
             return;
         }
         case StorageAccessStatus::HasAccess:
@@ -573,7 +573,7 @@ void WebResourceLoadStatisticsStore::requestStorageAccessEphemeral(const Registr
             completionHandler({ StorageAccessWasGranted::No, StorageAccessPromptWasShown::Yes, scope, topFrameDomain, subFrameDomain });
     };
 
-    networkSession->networkProcess().protectedParentProcessConnection()->sendWithAsyncReply(Messages::NetworkProcessProxy::RequestStorageAccessConfirm(webPageProxyID, frameID, subFrameDomain, topFrameDomain, WTF::move(storageAccessPromptQuirk)), WTF::move(requestConfirmationCompletionHandler));
+    protect(networkSession->networkProcess().parentProcessConnection())->sendWithAsyncReply(Messages::NetworkProcessProxy::RequestStorageAccessConfirm(webPageProxyID, frameID, subFrameDomain, topFrameDomain, WTF::move(storageAccessPromptQuirk)), WTF::move(requestConfirmationCompletionHandler));
 }
 
 void WebResourceLoadStatisticsStore::requestStorageAccessUnderOpener(RegistrableDomain&& domainInNeedOfStorageAccess, PageIdentifier openerPageID, RegistrableDomain&& openerDomain)
@@ -1426,7 +1426,7 @@ void WebResourceLoadStatisticsStore::callUpdatePrevalentDomainsToBlockCookiesFor
 
         if (m_domainsWithUserInteractionQuirk != domainsWithUserInteractionQuirk) {
             m_domainsWithUserInteractionQuirk = domainsWithUserInteractionQuirk;
-            networkSession->networkProcess().protectedParentProcessConnection()->send(Messages::NetworkProcessProxy::SetDomainsWithUserInteraction(domainsWithUserInteractionQuirk), 0);
+            protect(networkSession->networkProcess().parentProcessConnection())->send(Messages::NetworkProcessProxy::SetDomainsWithUserInteraction(domainsWithUserInteractionQuirk), 0);
         }
 
         HashMap<TopFrameDomain, Vector<SubResourceDomain>> domainsWithStorageAccessQuirk;
@@ -1440,7 +1440,7 @@ void WebResourceLoadStatisticsStore::callUpdatePrevalentDomainsToBlockCookiesFor
         if (m_domainsWithCrossPageStorageAccessQuirk != domainsWithStorageAccessQuirk) {
             if (CheckedPtr storageSession = networkSession->networkStorageSession())
                 storageSession->setDomainsWithCrossPageStorageAccess(domainsWithStorageAccessQuirk);
-            networkSession->networkProcess().protectedParentProcessConnection()->sendWithAsyncReply(Messages::NetworkProcessProxy::SetDomainsWithCrossPageStorageAccess(domainsWithStorageAccessQuirk), [this, protectedThis = Ref { *this }, domainsWithStorageAccessQuirk] () mutable {
+            protect(networkSession->networkProcess().parentProcessConnection())->sendWithAsyncReply(Messages::NetworkProcessProxy::SetDomainsWithCrossPageStorageAccess(domainsWithStorageAccessQuirk), [this, protectedThis = Ref { *this }, domainsWithStorageAccessQuirk] () mutable {
                 m_domainsWithCrossPageStorageAccessQuirk = domainsWithStorageAccessQuirk;
             });
         }
@@ -1509,7 +1509,7 @@ void WebResourceLoadStatisticsStore::logTestingEvent(const String& event)
 
     CheckedPtr networkSession = m_networkSession.get();
     if (networkSession && networkSession->enableResourceLoadStatisticsLogTestingEvent())
-        networkSession->networkProcess().protectedParentProcessConnection()->send(Messages::NetworkProcessProxy::LogTestingEvent(m_networkSession->sessionID(), event), 0);
+        protect(networkSession->networkProcess().parentProcessConnection())->send(Messages::NetworkProcessProxy::LogTestingEvent(m_networkSession->sessionID(), event), 0);
 }
 
 NetworkSession* WebResourceLoadStatisticsStore::networkSession()

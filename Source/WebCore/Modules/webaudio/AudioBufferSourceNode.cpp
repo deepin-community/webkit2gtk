@@ -52,7 +52,7 @@ constexpr double DefaultGrainDuration = 0.020; // 20ms
 // to minimize linear interpolation aliasing.
 const double MaxRate = 1024;
 
-static float computeSampleUsingLinearInterpolation(std::span<const float> source, unsigned readIndex, unsigned readIndex2, float interpolationFactor)
+static float NODELETE computeSampleUsingLinearInterpolation(std::span<const float> source, unsigned readIndex, unsigned readIndex2, float interpolationFactor)
 {
     if (readIndex == readIndex2 && readIndex >= 1) {
         // We're at the end of the buffer, so just linearly extrapolate from the last two samples.
@@ -466,7 +466,7 @@ ExceptionOr<void> AudioBufferSourceNode::setBufferForBindings(RefPtr<AudioBuffer
         unsigned numberOfChannels = buffer->numberOfChannels();
         ASSERT(numberOfChannels <= AudioContext::maxNumberOfChannels);
 
-        checkedOutput(0)->setNumberOfChannels(numberOfChannels);
+        protect(output(0))->setNumberOfChannels(numberOfChannels);
 
         m_sourceChannels = FixedVector<std::span<const float>>(numberOfChannels);
         m_destinationChannels = FixedVector<std::span<float>>(numberOfChannels);
@@ -607,7 +607,7 @@ double AudioBufferSourceNode::totalPitchRate()
 
     totalRate = std::clamp(totalRate, -MaxRate, MaxRate);
     
-    bool isTotalRateValid = !std::isnan(totalRate) && !std::isinf(totalRate);
+    bool isTotalRateValid = std::isfinite(totalRate);
     ASSERT(isTotalRateValid);
     if (!isTotalRateValid)
         totalRate = 1.0;

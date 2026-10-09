@@ -499,6 +499,7 @@ void GL_APIENTRY GL_FramebufferParameteri(GLenum target, GLenum pname, GLint par
 
     if (ANGLE_LIKELY(context != nullptr))
     {
+        FramebufferParameter pnamePacked = PackParam<FramebufferParameter>(pname);
         SCOPED_SHARE_CONTEXT_LOCK(context);
         if (context->getState().getPixelLocalStorageActivePlanes() != 0)
         {
@@ -513,7 +514,8 @@ void GL_APIENTRY GL_FramebufferParameteri(GLenum target, GLenum pname, GLint par
                 const uint32_t errorCount = context->getPushedErrorCount();
 #endif
                 isCallValid = ValidateFramebufferParameteri(
-                    context, angle::EntryPoint::GLFramebufferParameteri, target, pname, param);
+                    context, angle::EntryPoint::GLFramebufferParameteri, target, pnamePacked,
+                    param);
 #if defined(ANGLE_ENABLE_ASSERTS)
                 ASSERT(context->getPushedErrorCount() - errorCount == (isCallValid ? 0 : 1));
 #endif
@@ -525,9 +527,9 @@ void GL_APIENTRY GL_FramebufferParameteri(GLenum target, GLenum pname, GLint par
         }
         if (ANGLE_LIKELY(isCallValid))
         {
-            context->framebufferParameteri(target, pname, param);
+            context->framebufferParameteri(target, pnamePacked, param);
         }
-        ANGLE_CAPTURE_GL(FramebufferParameteri, isCallValid, context, target, pname, param);
+        ANGLE_CAPTURE_GL(FramebufferParameteri, isCallValid, context, target, pnamePacked, param);
     }
     else
     {
@@ -633,6 +635,7 @@ void GL_APIENTRY GL_GetFramebufferParameteriv(GLenum target, GLenum pname, GLint
 
     if (ANGLE_LIKELY(context != nullptr))
     {
+        FramebufferParameter pnamePacked = PackParam<FramebufferParameter>(pname);
         SCOPED_SHARE_CONTEXT_LOCK(context);
         bool isCallValid = context->skipValidation();
         if (!isCallValid)
@@ -643,7 +646,8 @@ void GL_APIENTRY GL_GetFramebufferParameteriv(GLenum target, GLenum pname, GLint
                 const uint32_t errorCount = context->getPushedErrorCount();
 #endif
                 isCallValid = ValidateGetFramebufferParameteriv(
-                    context, angle::EntryPoint::GLGetFramebufferParameteriv, target, pname, params);
+                    context, angle::EntryPoint::GLGetFramebufferParameteriv, target, pnamePacked,
+                    params);
 #if defined(ANGLE_ENABLE_ASSERTS)
                 ASSERT(context->getPushedErrorCount() - errorCount == (isCallValid ? 0 : 1));
 #endif
@@ -655,9 +659,10 @@ void GL_APIENTRY GL_GetFramebufferParameteriv(GLenum target, GLenum pname, GLint
         }
         if (ANGLE_LIKELY(isCallValid))
         {
-            context->getFramebufferParameteriv(target, pname, params);
+            context->getFramebufferParameteriv(target, pnamePacked, params);
         }
-        ANGLE_CAPTURE_GL(GetFramebufferParameteriv, isCallValid, context, target, pname, params);
+        ANGLE_CAPTURE_GL(GetFramebufferParameteriv, isCallValid, context, target, pnamePacked,
+                         params);
     }
     else
     {
@@ -1099,7 +1104,8 @@ void GL_APIENTRY GL_GetTexLevelParameterfv(GLenum target,
 
     if (ANGLE_LIKELY(context != nullptr))
     {
-        TextureTarget targetPacked = PackParam<TextureTarget>(target);
+        TextureTarget targetPacked        = PackParam<TextureTarget>(target);
+        TextureImageParameter pnamePacked = PackParam<TextureImageParameter>(pname);
         SCOPED_SHARE_CONTEXT_LOCK(context);
         bool isCallValid = context->skipValidation();
         if (!isCallValid)
@@ -1111,7 +1117,7 @@ void GL_APIENTRY GL_GetTexLevelParameterfv(GLenum target,
 #endif
                 isCallValid = ValidateGetTexLevelParameterfv(
                     context, angle::EntryPoint::GLGetTexLevelParameterfv, targetPacked, level,
-                    pname, params);
+                    pnamePacked, params);
 #if defined(ANGLE_ENABLE_ASSERTS)
                 ASSERT(context->getPushedErrorCount() - errorCount == (isCallValid ? 0 : 1));
 #endif
@@ -1123,10 +1129,10 @@ void GL_APIENTRY GL_GetTexLevelParameterfv(GLenum target,
         }
         if (ANGLE_LIKELY(isCallValid))
         {
-            context->getTexLevelParameterfv(targetPacked, level, pname, params);
+            context->getTexLevelParameterfv(targetPacked, level, pnamePacked, params);
         }
-        ANGLE_CAPTURE_GL(GetTexLevelParameterfv, isCallValid, context, targetPacked, level, pname,
-                         params);
+        ANGLE_CAPTURE_GL(GetTexLevelParameterfv, isCallValid, context, targetPacked, level,
+                         pnamePacked, params);
     }
     else
     {
@@ -1146,7 +1152,8 @@ void GL_APIENTRY GL_GetTexLevelParameteriv(GLenum target, GLint level, GLenum pn
 
     if (ANGLE_LIKELY(context != nullptr))
     {
-        TextureTarget targetPacked = PackParam<TextureTarget>(target);
+        TextureTarget targetPacked        = PackParam<TextureTarget>(target);
+        TextureImageParameter pnamePacked = PackParam<TextureImageParameter>(pname);
         SCOPED_SHARE_CONTEXT_LOCK(context);
         bool isCallValid = context->skipValidation();
         if (!isCallValid)
@@ -1158,7 +1165,7 @@ void GL_APIENTRY GL_GetTexLevelParameteriv(GLenum target, GLint level, GLenum pn
 #endif
                 isCallValid = ValidateGetTexLevelParameteriv(
                     context, angle::EntryPoint::GLGetTexLevelParameteriv, targetPacked, level,
-                    pname, params);
+                    pnamePacked, params);
 #if defined(ANGLE_ENABLE_ASSERTS)
                 ASSERT(context->getPushedErrorCount() - errorCount == (isCallValid ? 0 : 1));
 #endif
@@ -1170,10 +1177,10 @@ void GL_APIENTRY GL_GetTexLevelParameteriv(GLenum target, GLint level, GLenum pn
         }
         if (ANGLE_LIKELY(isCallValid))
         {
-            context->getTexLevelParameteriv(targetPacked, level, pname, params);
+            context->getTexLevelParameteriv(targetPacked, level, pnamePacked, params);
         }
-        ANGLE_CAPTURE_GL(GetTexLevelParameteriv, isCallValid, context, targetPacked, level, pname,
-                         params);
+        ANGLE_CAPTURE_GL(GetTexLevelParameteriv, isCallValid, context, targetPacked, level,
+                         pnamePacked, params);
     }
     else
     {
@@ -1201,8 +1208,7 @@ GLboolean GL_APIENTRY GL_IsProgramPipeline(GLuint pipeline)
 #if defined(ANGLE_ENABLE_ASSERTS)
                 const uint32_t errorCount = context->getPushedErrorCount();
 #endif
-                isCallValid = ValidateIsProgramPipeline(
-                    context, angle::EntryPoint::GLIsProgramPipeline, pipelinePacked);
+                isCallValid = true;
 #if defined(ANGLE_ENABLE_ASSERTS)
                 ASSERT(context->getPushedErrorCount() - errorCount == (isCallValid ? 0 : 1));
 #endif
@@ -3217,7 +3223,7 @@ void GL_APIENTRY GL_VertexAttribFormat(GLuint attribindex,
     if (ANGLE_LIKELY(context != nullptr))
     {
         VertexAttribType typePacked = PackParam<VertexAttribType>(type);
-        bool isCallValid = context->skipValidation();
+        bool isCallValid            = context->skipValidation();
         if (!isCallValid)
         {
             if (ANGLE_LIKELY(context->getClientVersion() >= ES_3_1))
@@ -3269,7 +3275,7 @@ void GL_APIENTRY GL_VertexAttribIFormat(GLuint attribindex,
     if (ANGLE_LIKELY(context != nullptr))
     {
         VertexAttribType typePacked = PackParam<VertexAttribType>(type);
-        bool isCallValid = context->skipValidation();
+        bool isCallValid            = context->skipValidation();
         if (!isCallValid)
         {
             if (ANGLE_LIKELY(context->getClientVersion() >= ES_3_1))

@@ -136,10 +136,10 @@ public:
         m_pathByteStream.clear();
     }
 
-    const SVGPathByteStream& existingPathByteStream() const { return m_pathByteStream; }
+    const SVGPathByteStream& existingPathByteStream() const LIFETIME_BOUND { return m_pathByteStream; }
 
-    const SVGPathByteStream& pathByteStream() const { return const_cast<SVGPathSegList*>(this)->pathByteStream(); }
-    SVGPathByteStream& pathByteStream()
+    const SVGPathByteStream& pathByteStream() const LIFETIME_BOUND { return const_cast<SVGPathSegList*>(this)->pathByteStream(); }
+    SVGPathByteStream& pathByteStream() LIFETIME_BOUND
     {
         ensurePathByteStream();
         return m_pathByteStream;
@@ -153,8 +153,10 @@ public:
 
     Path path() const
     {
-        if (!m_path)
+        if (!m_path) {
             m_path = buildPathFromByteStream(pathByteStream());
+            m_path->setNotTransient();
+        }
         return *m_path;
     }
 

@@ -62,7 +62,7 @@ SPDX-License-Identifier: BSD, LGPL-2.1
         <h3><a href="index.html">WebKit</a></h3>
         <p>API Version: 6.0</p>
         
-        <p>Library Version: 2.52.5</p>
+        <p>Library Version: 2.54.0</p>
         
       </div>
       
@@ -174,7 +174,7 @@ SPDX-License-Identifier: BSD, LGPL-2.1
         Description
         <a href="#description" class="anchor"></a>
         
-        <a class="srclink" title="go to source location" href="https://github.com/WebKit/WebKit/tree/main/Source/WebKit/UIProcess/API/glib/WebKitWebView.cpp#L2591">[src]</a>
+        <a class="srclink" title="go to source location" href="https://github.com/WebKit/WebKit/tree/main/Source/WebKit/UIProcess/API/glib/WebKitWebView.cpp#L2658">[src]</a>
         
       </h4>
 
@@ -184,7 +184,7 @@ specified by the <a href="https://w3c.github.io/permissions/">Permissions <span 
 You can reply to the query using&nbsp;webkit_permission_state_query_finish().</p>
 <p>You can handle the query asynchronously by calling <code>webkit_permission_state_query_ref()</code> on
 <code>query</code> and returning <code>TRUE</code>. If the last reference of <code>query</code> is removed and the query has not
-been handled, the query result will be set to <code>WEBKIT_QUERY_PERMISSION_PROMPT</code>.</p>
+been handled, the query result will be set to <code>WEBKIT_PERMISSION_STATE_PROMPT</code>.</p>
       </div>
 
       <div class="docblock">

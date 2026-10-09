@@ -36,9 +36,10 @@
 #include "DFGFrozenValue.h"
 #include "DFGNode.h"
 #include "DFGPlan.h"
-#include "DFGPropertyTypeKey.h"
 #include "FullBytecodeLiveness.h"
+#include "FunctionAllowlist.h"
 #include "JITScannable.h"
+#include "JumpTable.h"
 #include "MethodOfGettingAValueProfile.h"
 #include <wtf/BitVector.h>
 #include <wtf/GenericHashKey.h>
@@ -56,6 +57,7 @@ namespace JSC {
 
 class CodeBlock;
 class CallFrame;
+class IRDumpDebugInfo;
 
 namespace DFG {
 
@@ -183,7 +185,7 @@ private:
 //
 // The order may be significant for nodes with side-effects (property accesses, value conversions).
 // Nodes that are 'dead' remain in the vector with refCount 0.
-class Graph final : public virtual Scannable {
+class Graph final : public Scannable {
 public:
     Graph(VM&, Plan&);
     ~Graph() final;
@@ -268,7 +270,7 @@ public:
     void packNodeIndices();
     void clearAbstractValues();
 
-    void dethread();
+    void NODELETE dethread();
     
     FrozenValue* freeze(JSValue); // We use weak freezing by default.
     FrozenValue* freezeStrong(JSValue); // Shorthand for freeze(value)->strengthenTo(StrongValue).
@@ -288,13 +290,11 @@ public:
     // https://bugs.webkit.org/show_bug.cgi?id=210627
     FrozenValue* bottomValueMatchingSpeculation(SpeculatedType);
     
-    RegisteredStructure registerStructure(Structure* structure)
-    {
-        StructureRegistrationResult ignored;
-        return registerStructure(structure, ignored);
-    }
-    RegisteredStructure registerStructure(Structure*, StructureRegistrationResult&);
-    void registerAndWatchStructureTransition(Structure*);
+    RegisteredStructure registerStructure(Structure*);
+    bool tryWatch(Structure*);
+    void watch(Structure*);
+    bool isWatched(Structure*);
+
     void assertIsRegistered(Structure* structure);
     
     // CodeBlock is optional, but may allow additional information to be dumped (e.g. Identifier names).
@@ -310,7 +310,7 @@ public:
 
     void dump(PrintStream&, DumpContext*);
 
-    bool terminalsAreValid();
+    bool NODELETE terminalsAreValid();
     
     enum PhiNodeDumpMode { DumpLivePhisOnly, DumpAllPhis };
     void dumpBlockHeader(PrintStream&, const char* prefix, BasicBlock*, PhiNodeDumpMode, DumpContext*);
@@ -417,7 +417,37 @@ public:
 
         return shouldSpeculateInt52ForAdd(left) && shouldSpeculateInt52ForAdd(right);
     }
-    
+
+    bool modShouldSpeculateInt52(Node* node)
+    {
+        // This is much more relaxed compared to addShouldSpeculateInt52.
+        // The reason is double mod is so costly, so it is worth trying with much more aggressively compared to addShouldSpeculateInt52.
+        if (!enableInt52())
+            return false;
+
+        Node* left = node->child1().node();
+        Node* right = node->child2().node();
+
+        if (hasExitSite(node, Int52Overflow))
+            return false;
+
+        if (hasExitSite(node, NegativeZero))
+            return false;
+
+        if (Node::shouldSpeculateInt52(left, right))
+            return true;
+
+        auto shouldSpeculateInt52ForMod = [](Node* node) {
+            // When DoubleConstant node appears, it means that users explicitly write a constant in their code with double form instead of integer form (1.0 instead of 1).
+            // In that case, we should honor this decision: using it as integer is not appropriate.
+            if (node->op() == DoubleConstant)
+                return false;
+            return isIntAnyFormat(node->prediction());
+        };
+
+        return shouldSpeculateInt52ForMod(left) && shouldSpeculateInt52ForMod(right);
+    }
+
     bool binaryArithShouldSpeculateInt32(Node* node, PredictionPass pass)
     {
         Node* left = node->child1().node();
@@ -475,6 +505,35 @@ public:
     }
 #endif
 
+    bool binaryArithShouldSpeculateHeapBigInt(Node* node)
+    {
+        if (Node::shouldSpeculateHeapBigInt(node->child1().node(), node->child2().node()))
+            return true;
+
+        if (hasExitSite(node, BadType))
+            return false;
+
+        auto isHeapBigIntOrOther = [](Node* n) {
+            SpeculatedType prediction = n->prediction();
+            return prediction && !(prediction & ~(SpecHeapBigInt | SpecOther));
+        };
+
+        return (node->child1()->shouldSpeculateHeapBigInt() && isHeapBigIntOrOther(node->child2().node()))
+            || (node->child2()->shouldSpeculateHeapBigInt() && isHeapBigIntOrOther(node->child1().node()));
+    }
+
+    bool unaryArithShouldSpeculateHeapBigInt(Node* node)
+    {
+        if (node->child1()->shouldSpeculateHeapBigInt())
+            return true;
+
+        if (hasExitSite(node, BadType))
+            return false;
+
+        SpeculatedType prediction = node->child1()->prediction();
+        return prediction && !(prediction & ~(SpecHeapBigInt | SpecOther));
+    }
+
     bool variadicArithShouldSpeculateInt32(Node* node, PredictionPass pass)
     {
         bool result = true;
@@ -502,7 +561,7 @@ public:
         return arithRound->canSpeculateInt32(pass) && !hasExitSite(arithRound->origin.semantic, Overflow) && !hasExitSite(arithRound->origin.semantic, NegativeZero);
     }
     
-    static ASCIILiteral opName(NodeType);
+    static ASCIILiteral NODELETE opName(NodeType);
     
     RegisteredStructureSet* addStructureSet(const StructureSet& structureSet)
     {
@@ -570,7 +629,7 @@ public:
 
     void appendBlock(std::unique_ptr<BasicBlock>&& basicBlock)
     {
-        basicBlock->index = m_blocks.size();
+        basicBlock->setIndex(m_blocks.size());
         m_blocks.append(WTF::move(basicBlock));
     }
     
@@ -581,7 +640,7 @@ public:
     
     void killBlock(BasicBlock* basicBlock)
     {
-        killBlock(basicBlock->index);
+        killBlock(basicBlock->index());
     }
     
     void killBlockAndItsContents(BasicBlock*);
@@ -707,16 +766,16 @@ public:
     // any GetLocals in the basic block.
     // FIXME: it may be appropriate, in the future, to generalize this to handle GetLocals
     // introduced anywhere in the basic block.
-    void substituteGetLocal(BasicBlock& block, unsigned startIndexInBlock, VariableAccessData* variableAccessData, Node* newGetLocal);
+    void NODELETE substituteGetLocal(BasicBlock& block, unsigned startIndexInBlock, VariableAccessData* variableAccessData, Node* newGetLocal);
     
     void invalidateCFG();
     void invalidateNodeLiveness();
     
-    void clearFlagsOnAllNodes(NodeFlags);
+    void NODELETE clearFlagsOnAllNodes(NodeFlags);
     
-    void clearReplacements();
-    void clearEpochs();
-    void initializeNodeOwners();
+    void NODELETE clearReplacements();
+    void NODELETE clearEpochs();
+    void NODELETE initializeNodeOwners();
     
     BlockList blocksInPreOrder();
     BlockList blocksInPostOrder(bool isSafeToValidate = true);
@@ -937,11 +996,32 @@ public:
         return isWatchingGlobalObjectWatchpoint(globalObject, set, LinkerIR::Type::StringValueOfWatchpointSet);
     }
 
+    bool isWatchingStringSymbolMatchWatchpoint(const CodeOrigin& semanticOrigin)
+    {
+        JSGlobalObject* globalObject = globalObjectFor(semanticOrigin);
+        InlineWatchpointSet& set = globalObject->stringSymbolMatchWatchpointSet();
+        return isWatchingGlobalObjectWatchpoint(globalObject, set, LinkerIR::Type::StringSymbolMatchWatchpointSet);
+    }
+
+    bool isWatchingStringSymbolSearchWatchpoint(const CodeOrigin& semanticOrigin)
+    {
+        JSGlobalObject* globalObject = globalObjectFor(semanticOrigin);
+        InlineWatchpointSet& set = globalObject->stringSymbolSearchWatchpointSet();
+        return isWatchingGlobalObjectWatchpoint(globalObject, set, LinkerIR::Type::StringSymbolSearchWatchpointSet);
+    }
+
     bool isWatchingStringSymbolReplaceWatchpoint(const CodeOrigin& semanticOrigin)
     {
         JSGlobalObject* globalObject = globalObjectFor(semanticOrigin);
         InlineWatchpointSet& set = globalObject->stringSymbolReplaceWatchpointSet();
         return isWatchingGlobalObjectWatchpoint(globalObject, set, LinkerIR::Type::StringSymbolReplaceWatchpointSet);
+    }
+
+    bool isWatchingStringSymbolSplitWatchpoint(const CodeOrigin& semanticOrigin)
+    {
+        JSGlobalObject* globalObject = globalObjectFor(semanticOrigin);
+        InlineWatchpointSet& set = globalObject->stringSymbolSplitWatchpointSet();
+        return isWatchingGlobalObjectWatchpoint(globalObject, set, LinkerIR::Type::StringSymbolSplitWatchpointSet);
     }
 
     bool isWatchingStringSymbolToPrimitiveWatchpoint(const CodeOrigin& semanticOrigin)
@@ -958,9 +1038,16 @@ public:
         return isWatchingGlobalObjectWatchpoint(globalObject, set, LinkerIR::Type::RegExpPrimordialPropertiesWatchpointSet);
     }
 
-    bool isWatchingPromiseThenWatchpoint(Node* node)
+    bool isWatchingRegExpSpeciesWatchpoint(Node* node)
     {
         JSGlobalObject* globalObject = globalObjectFor(node->origin.semantic);
+        InlineWatchpointSet& set = globalObject->regExpSpeciesWatchpointSet();
+        return isWatchingGlobalObjectWatchpoint(globalObject, set, LinkerIR::Type::RegExpSpeciesWatchpointSet);
+    }
+
+    bool isWatchingPromiseThenWatchpoint(const CodeOrigin& semanticOrigin)
+    {
+        JSGlobalObject* globalObject = globalObjectFor(semanticOrigin);
         InlineWatchpointSet& set = globalObject->promiseThenWatchpointSet();
         return isWatchingGlobalObjectWatchpoint(globalObject, set, LinkerIR::Type::PromiseThenWatchpointSet);
     }
@@ -1002,8 +1089,8 @@ public:
 
     Profiler::Compilation* compilation() { return m_plan.compilation(); }
 
-    DesiredIdentifiers& identifiers() { return m_plan.identifiers(); }
-    DesiredWatchpoints& watchpoints() { return m_plan.watchpoints(); }
+    DesiredIdentifiers& identifiers() LIFETIME_BOUND { return m_plan.identifiers(); }
+    DesiredWatchpoints& watchpoints() LIFETIME_BOUND { return m_plan.watchpoints(); }
 
     // Returns false if the key is already invalid or unwatchable. If this is a Presence condition,
     // this also makes it cheap to query if the condition holds. Also makes sure that the GC knows
@@ -1149,7 +1236,7 @@ public:
             functor(virtualRegisterForArgumentIncludingThis(argument));
     }
 
-    static unsigned parameterSlotsForArgCount(unsigned);
+    static unsigned NODELETE parameterSlotsForArgCount(unsigned);
     
     unsigned frameRegisterCount();
     unsigned stackPointerOffset();
@@ -1174,6 +1261,12 @@ public:
     ObjectPropertyConditionSet tryEnsureAbsence(JSGlobalObject*, const StructureSet&, CacheableIdentifier);
 
     bool canDoFastSpread(Node*, const AbstractValue&);
+    bool canDoFastSpreadWithStructureCheck(Node*);
+    static constexpr IndexingType originalArrayShapesForSpread[] = {
+        CopyOnWriteArrayWithContiguous, ArrayWithContiguous,
+        ArrayWithInt32, CopyOnWriteArrayWithInt32,
+        ArrayWithDouble, CopyOnWriteArrayWithDouble,
+    };
     
     void registerFrozenValues();
 
@@ -1236,7 +1329,7 @@ public:
         return result;
     }
 
-    Prefix& prefix() { return m_prefix; }
+    Prefix& prefix() LIFETIME_BOUND { return m_prefix; }
     void nextPhase() { m_prefix.phaseNumber++; }
 
     const UnlinkedSimpleJumpTable& unlinkedSwitchJumpTable(unsigned index) const { return *m_unlinkedSwitchJumpTables[index]; }
@@ -1260,6 +1353,8 @@ public:
     bool afterFixup() { return m_planStage >= PlanStage::AfterFixup; }
 
     RefPtr<JSON::Array> ionGraphPasses() const { return m_ionGraphPasses; }
+
+    UncheckedKeyHashMap<Node*, uint32_t> collectIRDumpDebugInfo(IRDumpDebugInfo&);
 
     StackCheck m_stackChecker;
     VM& m_vm;
@@ -1460,6 +1555,26 @@ private:
     RefPtr<JSON::Object> m_ionGraphFunction;
     RefPtr<JSON::Array> m_ionGraphPasses;
 };
+
+inline FunctionAllowlist& ensureGlobalDumpAllowlist()
+{
+    static LazyNeverDestroyed<FunctionAllowlist> dumpGraphAllowlist;
+    static std::once_flag initializeAllowlistFlag;
+    std::call_once(initializeAllowlistFlag, [] {
+        const char* allowlistFile = Options::dumpGraphAllowlist();
+        dumpGraphAllowlist.construct(allowlistFile);
+    });
+    return dumpGraphAllowlist;
+}
+
+inline bool shouldDumpGraphAtEachPhase(Graph& graph)
+{
+    JITCompilationMode mode = graph.m_plan.mode();
+    if (!(isFTL(mode) ? (Options::dumpGraphAtEachPhase() || Options::dumpDFGFTLGraphAtEachPhase()) : (Options::dumpGraphAtEachPhase() || Options::dumpDFGGraphAtEachPhase())))
+        return false;
+
+    return ensureGlobalDumpAllowlist().contains(graph.m_codeBlock);
+}
 
 } } // namespace JSC::DFG
 

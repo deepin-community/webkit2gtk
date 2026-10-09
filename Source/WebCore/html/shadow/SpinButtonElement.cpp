@@ -37,7 +37,6 @@
 #include "LocalFrame.h"
 #include "MouseEvent.h"
 #include "NodeDocument.h"
-#include "NodeInlines.h"
 #include "Page.h"
 #include "RenderBox.h"
 #include "RenderTheme.h"
@@ -54,7 +53,7 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(SpinButtonElement);
 using namespace HTMLNames;
 
 inline SpinButtonElement::SpinButtonElement(Document& document, SpinButtonOwner& spinButtonOwner)
-    : HTMLDivElement(divTag, document, TypeFlag::HasCustomStyleResolveCallbacks)
+    : HTMLDivElement(document, TypeFlag::HasCustomStyleResolveCallbacks)
     , m_spinButtonOwner(spinButtonOwner)
     , m_capturing(false)
     , m_upDownState(Indeterminate)
@@ -104,7 +103,7 @@ void SpinButtonElement::defaultEventHandler(Event& event)
         return;
     }
 
-    IntPoint local = roundedIntPoint(box->absoluteToLocal(mouseEvent->absoluteLocation(), UseTransforms));
+    IntPoint local = roundedIntPoint(box->absoluteToLocal(mouseEvent->absoluteLocation(), MapCoordinatesMode::UseTransforms));
     if (mouseEvent->type() == eventNames().mousedownEvent && mouseEvent->button() == MouseButton::Left) {
         if (box->borderBoxRect().contains(local)) {
             // The following functions of HTMLInputElement may run JavaScript
@@ -142,13 +141,13 @@ void SpinButtonElement::defaultEventHandler(Event& event)
             CheckedRef renderer = *this->renderer();
             switch (renderer->theme().innerSpinButtonLayout(renderer.get())) {
             case RenderTheme::InnerSpinButtonLayout::Vertical:
-                m_upDownState = local.y() < box->height() / 2 ? Up : Down;
+                m_upDownState = local.y() < box->borderBoxHeight() / 2 ? Up : Down;
                 break;
             case RenderTheme::InnerSpinButtonLayout::HorizontalUpLeft:
-                m_upDownState = local.x() < box->width() / 2 ? Up : Down;
+                m_upDownState = local.x() < box->borderBoxWidth() / 2 ? Up : Down;
                 break;
             case RenderTheme::InnerSpinButtonLayout::HorizontalUpRight:
-                m_upDownState = local.x() > box->width() / 2 ? Up : Down;
+                m_upDownState = local.x() > box->borderBoxWidth() / 2 ? Up : Down;
                 break;
             }
             if (m_upDownState != oldUpDownState)
@@ -211,7 +210,7 @@ void SpinButtonElement::releaseCapture()
 
 bool SpinButtonElement::matchesReadWritePseudoClass() const
 {
-    return protectedShadowHost()->matchesReadWritePseudoClass();
+    return protect(shadowHost())->matchesReadWritePseudoClass();
 }
 
 void SpinButtonElement::startRepeatingTimer()

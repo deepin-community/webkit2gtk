@@ -105,6 +105,7 @@ public:
 
     // Can be called from main thread or context's audio thread.  It must be called while the context's graph lock is held.
     void decrementConnectionCountWithLock();
+    void derefWithLock() const;
 
     // The AudioNodeInput(s) (if any) will already have their input data available when process() is called.
     // Subclasses will take this input data and put the results in the AudioBus(s) of its AudioNodeOutput(s) (if any).
@@ -126,10 +127,8 @@ public:
     unsigned numberOfInputs() const { return m_inputs.size(); }
     unsigned numberOfOutputs() const { return m_outputs.size(); }
 
-    AudioNodeInput* input(unsigned);
-    CheckedPtr<AudioNodeInput> checkedInput(unsigned);
-    AudioNodeOutput* output(unsigned);
-    CheckedPtr<AudioNodeOutput> checkedOutput(unsigned);
+    AudioNodeInput* NODELETE input(unsigned);
+    AudioNodeOutput* NODELETE output(unsigned);
 
     // Called from main thread by corresponding JavaScript methods.
     ExceptionOr<void> connect(AudioNode&, unsigned outputIndex, unsigned inputIndex);
@@ -161,6 +160,8 @@ public:
 #endif
 
     bool isMarkedForDeletion() const { return m_isMarkedForDeletion; }
+    void clearIsMarkedForDeletion() { m_isMarkedForDeletion = false; }
+    bool hasReferences() const { return m_normalRefCount || m_connectionRefCount; }
 
     // tailTime() is the length of time (not counting latency time) where non-zero output may occur after continuous silent input.
     virtual double tailTime() const = 0;
@@ -181,7 +182,7 @@ public:
     // propagatesSilence() should return true if the node will generate silent output when given silent input. By default, AudioNode
     // will take tailTime() and latencyTime() into account when determining whether the node will propagate silence.
     virtual bool propagatesSilence() const;
-    bool inputsAreSilent();
+    bool NODELETE inputsAreSilent();
     void silenceOutputs();
 
     void enableOutputsIfNecessary();
@@ -215,7 +216,6 @@ protected:
 
     void markNodeForDeletionIfNecessary();
     void unmarkNodeForDeletionIfNecessary();
-    void derefWithLock() const;
 
     struct DefaultAudioNodeOptions {
         unsigned channelCount;
@@ -237,10 +237,10 @@ protected:
     const Logger& logger() const final { return m_logger.get(); }
     uint64_t logIdentifier() const final { return m_logIdentifier; }
     ASCIILiteral logClassName() const final { return "AudioNode"_s; }
-    WTFLogChannel& logChannel() const final;
+    WTFLogChannel& NODELETE logChannel() const final;
 #endif
 
-    void initializeDefaultNodeOptions(unsigned count, ChannelCountMode, ChannelInterpretation);
+    void NODELETE initializeDefaultNodeOptions(unsigned count, ChannelCountMode, ChannelInterpretation);
 
     virtual void updatePullStatus() { }
 

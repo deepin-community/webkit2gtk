@@ -30,7 +30,7 @@
 
 #include "config.h"
 
-#include "Test.h"
+#include "Helpers/Test.h"
 
 namespace TestWebKitAPI {
 
@@ -93,19 +93,6 @@ static const char* serialize(WTF::Unicode::CheckedUTF8 result)
     }
     if (isAllASCII != result.isAllASCII)
         stream << ", bad ASCII flag";
-
-    static std::string singleGlobalResult;
-    singleGlobalResult = stream.str();
-    return singleGlobalResult.c_str();
-}
-
-static const char* serialize(WTF::Unicode::UTF16LengthWithHash result)
-{
-    if (!result.lengthUTF16 && !result.hash)
-        return "source invalid";
-
-    std::ostringstream stream;
-    stream << result.lengthUTF16 << " UTF-16, " << std::hex << std::uppercase << std::setfill('0') << std::setw(6) << result.hash;
 
     static std::string singleGlobalResult;
     singleGlobalResult = stream.str();
@@ -577,40 +564,6 @@ TEST(WTF_UTF8Conversion, CheckUTF8)
 
     EXPECT_STREQ("1 UTF-8, 1 UTF-16", serialize(checkUTF8(char8Array(0x00, 0x80))));
     EXPECT_STREQ("2 UTF-8, 1 UTF-16", serialize(checkUTF8(char8Array(0xC2, 0x80, 0x80))));
-}
-
-TEST(WTF_UTF8Conversion, ComputeUTF16LengthWithHash)
-{
-    using namespace WTF::Unicode;
-
-    EXPECT_STREQ("0 UTF-16, EC889E", serialize(computeUTF16LengthWithHash(char8Array())));
-    EXPECT_STREQ("1 UTF-16, 3ABF44", serialize(computeUTF16LengthWithHash(char8Array(0))));
-    EXPECT_STREQ("1 UTF-16, 95343B", serialize(computeUTF16LengthWithHash(char8Array('a'))));
-
-    EXPECT_STREQ("1 UTF-16, C9438B", serialize(computeUTF16LengthWithHash(char8Array(0xED, 0x9F, 0xBF))));
-    EXPECT_STREQ("1 UTF-16, 5AA931", serialize(computeUTF16LengthWithHash(char8Array(0xEE, 0x80, 0x80))));
-    EXPECT_STREQ("1 UTF-16, 4AB82F", serialize(computeUTF16LengthWithHash(char8Array(0xEF, 0xBF, 0xBD))));
-    EXPECT_STREQ("1 UTF-16, A9541A", serialize(computeUTF16LengthWithHash(char8Array(0xEF, 0xBF, 0xBE))));
-    EXPECT_STREQ("1 UTF-16, 39215E", serialize(computeUTF16LengthWithHash(char8Array(0xEF, 0xBF, 0xBF))));
-    EXPECT_STREQ("2 UTF-16, 2F4E65", serialize(computeUTF16LengthWithHash(char8Array(0xF0, 0x90, 0x80, 0x80))));
-    EXPECT_STREQ("2 UTF-16, F121B5", serialize(computeUTF16LengthWithHash(char8Array(0xF4, 0x8F, 0xBF, 0xBF))));
-
-    EXPECT_STREQ("2 UTF-16, 6F6D50", serialize(computeUTF16LengthWithHash(char8Array(0, 0))));
-    EXPECT_STREQ("2 UTF-16, 36A996", serialize(computeUTF16LengthWithHash(char8Array('a', 0))));
-    EXPECT_STREQ("2 UTF-16, 2E15E1", serialize(computeUTF16LengthWithHash(char8Array(0xED, 0x9F, 0xBF, 0))));
-
-    EXPECT_STREQ("source invalid", serialize(computeUTF16LengthWithHash(char8Array(0x80))));
-    EXPECT_STREQ("source invalid", serialize(computeUTF16LengthWithHash(char8Array(0xED, 0xA0, 0x80))));
-    EXPECT_STREQ("source invalid", serialize(computeUTF16LengthWithHash(char8Array(0xED, 0xAF, 0xBF))));
-    EXPECT_STREQ("source invalid", serialize(computeUTF16LengthWithHash(char8Array(0xED, 0xB0, 0x80))));
-    EXPECT_STREQ("source invalid", serialize(computeUTF16LengthWithHash(char8Array(0xED, 0xBF, 0xBF))));
-    EXPECT_STREQ("source invalid", serialize(computeUTF16LengthWithHash(char8Array(0x80, 0))));
-    EXPECT_STREQ("source invalid", serialize(computeUTF16LengthWithHash(char8Array(0xED, 0xA0, 0x80, 0))));
-    EXPECT_STREQ("source invalid", serialize(computeUTF16LengthWithHash(char8Array(0xF4, 0x90, 0x80, 0x80))));
-    EXPECT_STREQ("source invalid", serialize(computeUTF16LengthWithHash(char8Array(0xED, 0xA0, 0x80, 0xED, 0xBF, 0xBF))));
-
-    EXPECT_STREQ("source invalid", serialize(computeUTF16LengthWithHash(char8Array(0x00, 0x80))));
-    EXPECT_STREQ("source invalid", serialize(computeUTF16LengthWithHash(char8Array(0xC2, 0x80, 0x80))));
 }
 
 } // namespace

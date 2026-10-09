@@ -36,6 +36,7 @@
 #include "FrameDestructionObserverInlines.h"
 #include "FrameLoader.h"
 #include "HistoryController.h"
+#include "HistoryItem.h"
 #include "JSDOMGlobalObject.h"
 #include "LocalDOMWindow.h"
 #include "Navigation.h"
@@ -48,11 +49,10 @@ namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(NavigationHistoryEntry);
 
-NavigationHistoryEntry::NavigationHistoryEntry(Navigation& navigation, const DocumentState& originalDocumentState, Ref<HistoryItem>&& historyItem, String urlString, WTF::UUID key, RefPtr<SerializedScriptValue>&& state, WTF::UUID id)
-    : ActiveDOMObject(navigation.protectedScriptExecutionContext().get())
+NavigationHistoryEntry::NavigationHistoryEntry(Navigation& navigation, const DocumentState& originalDocumentState, Ref<HistoryItem>&& historyItem, String urlString, RefPtr<SerializedScriptValue>&& state, WTF::UUID id)
+    : ActiveDOMObject(protect(navigation.scriptExecutionContext()).get())
     , m_navigation(navigation)
     , m_urlString(urlString)
-    , m_key(key)
     , m_id(id)
     , m_state(state)
     , m_associatedHistoryItem(WTF::move(historyItem))
@@ -62,7 +62,7 @@ NavigationHistoryEntry::NavigationHistoryEntry(Navigation& navigation, const Doc
 
 Ref<NavigationHistoryEntry> NavigationHistoryEntry::create(Navigation& navigation, Ref<HistoryItem>&& historyItem)
 {
-    Ref entry = adoptRef(*new NavigationHistoryEntry(navigation, DocumentState::fromContext(navigation.protectedScriptExecutionContext().get()), WTF::move(historyItem), historyItem->urlString(), historyItem->uuidIdentifier()));
+    Ref entry = adoptRef(*new NavigationHistoryEntry(navigation, DocumentState::fromContext(protect(navigation.scriptExecutionContext()).get()), WTF::move(historyItem), historyItem->urlString()));
     entry->suspendIfNeeded();
     return entry;
 }
@@ -73,7 +73,7 @@ Ref<NavigationHistoryEntry> NavigationHistoryEntry::create(Navigation& navigatio
     RefPtr state = historyItem->navigationAPIStateObject();
     if (!state)
         state = other.m_state;
-    Ref entry = adoptRef(*new NavigationHistoryEntry(navigation, DocumentState::fromContext(other.protectedScriptExecutionContext().get()), WTF::move(historyItem), other.m_urlString, other.m_key, WTF::move(state), other.m_id));
+    Ref entry = adoptRef(*new NavigationHistoryEntry(navigation, DocumentState::fromContext(protect(other.scriptExecutionContext()).get()), WTF::move(historyItem), other.m_urlString, WTF::move(state), other.m_id));
     entry->suspendIfNeeded();
     return entry;
 }
@@ -111,7 +111,7 @@ String NavigationHistoryEntry::key() const
     RefPtr document = dynamicDowncast<Document>(scriptExecutionContext());
     if (!document || !document->isFullyActive())
         return nullString();
-    return m_key.toString();
+    return m_associatedHistoryItem->navigationAPIKey().toString();
 }
 
 String NavigationHistoryEntry::id() const
@@ -127,7 +127,7 @@ uint64_t NavigationHistoryEntry::index() const
     RefPtr document = dynamicDowncast<Document>(scriptExecutionContext());
     if (!document || !document->isFullyActive())
         return -1;
-    return document->protectedWindow()->protectedNavigation()->entries().findIf([this] (auto& entry) {
+    return protect(protect(document->window())->navigation())->entries().findIf([this] (auto& entry) {
         return entry.ptr() == this;
     });
 }

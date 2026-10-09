@@ -34,7 +34,6 @@
 #include <WebCore/ImagePaintingOptions.h>
 #include <WebCore/ImageTypes.h>
 #include <wtf/RefCountedAndCanMakeWeakPtr.h>
-#include <wtf/RefPtr.h>
 #include <wtf/RetainPtr.h>
 #include <wtf/TypeCasts.h>
 #include <wtf/text/WTFString.h>
@@ -71,15 +70,15 @@ public:
     virtual bool isCrossfadeGeneratedImage() const { return false; }
     virtual bool isNamedImageGeneratedImage() const { return false; }
     virtual bool isGradientImage() const { return false; }
-    virtual bool isSVGImage() const { return false; }
-    virtual bool isSVGImageForContainer() const { return false; }
+    virtual bool NODELETE isSVGImage() const { return false; }
+    virtual bool NODELETE isSVGImageForContainer() const { return false; }
     virtual bool isSVGResourceImage() const { return false; }
     virtual bool isPDFDocumentImage() const { return false; }
     virtual bool isCustomPaintImage() const { return false; }
 
     virtual void subresourcesAreFinished(Document*, CompletionHandler<void()>&&);
 
-    bool drawsSVGImage() const { return isSVGImage() || isSVGImageForContainer(); }
+    bool NODELETE drawsSVGImage() const { return isSVGImage() || isSVGImageForContainer(); }
 
     virtual unsigned frameCount() const { return 1; }
 
@@ -97,9 +96,13 @@ public:
 
     virtual void setContainerSize(const FloatSize&) { }
     virtual bool usesContainerSize() const { return false; }
+    virtual bool hasIntrinsicWidth() const { return true; }
+    virtual bool hasIntrinsicHeight() const { return true; }
+    // FIXME: hasRelativeWidth/Height should be deduplicated with hasIntrinsicWidth/Height.
     virtual bool hasRelativeWidth() const { return false; }
     virtual bool hasRelativeHeight() const { return false; }
     virtual void computeIntrinsicDimensions(float& intrinsicWidth, float& intrinsicHeight, FloatSize& intrinsicRatio);
+    virtual bool hasNaturalAspectRatio() const { return true; }
 
     virtual FloatSize size(ImageOrientation = ImageOrientation::Orientation::FromImage) const = 0;
     virtual FloatSize sourceSize(ImageOrientation = ImageOrientation::Orientation::FromImage) const;
@@ -111,7 +114,11 @@ public:
     virtual ImageOrientation orientation() const { return ImageOrientation::Orientation::FromImage; }
 
     WEBCORE_EXPORT EncodedDataStatus setData(RefPtr<FragmentedSharedBuffer>&& data, bool allDataReceived);
-    virtual EncodedDataStatus dataChanged(bool /*allDataReceived*/) { return EncodedDataStatus::Unknown; }
+    virtual EncodedDataStatus dataChanged(bool /* allDataReceived */) { return EncodedDataStatus::Unknown; }
+
+    // Can be called after final setData() to replace encoded data with an identical copy of the
+    // data (e.g. to replace a dirty copy of the data with a clean copy of the data).
+    bool tryReplaceData(Ref<FragmentedSharedBuffer>&& data);
 
     virtual String uti() const { return String(); } // null string if unknown
     virtual String filenameExtension() const { return String(); } // null string if unknown
@@ -121,7 +128,6 @@ public:
 
     FragmentedSharedBuffer* data() { return m_encodedImageData.get(); }
     const FragmentedSharedBuffer* data() const { return m_encodedImageData.get(); }
-    WEBCORE_EXPORT RefPtr<FragmentedSharedBuffer> protectedData() const;
 
     virtual DestinationColorSpace colorSpace();
     virtual bool hasHDRContent() const { return false; }
@@ -133,15 +139,15 @@ public:
     virtual void stopAnimation() {}
     virtual void resetAnimation() {}
     virtual bool isAnimating() const { return false; }
-    WEBCORE_EXPORT bool animationPending() const;
+    WEBCORE_EXPORT bool NODELETE animationPending() const;
     std::optional<bool> allowsAnimation() const { return m_allowsAnimation; }
     void setAllowsAnimation(std::optional<bool> allowsAnimation) { m_allowsAnimation = allowsAnimation; }
     static bool systemAllowsAnimationControls() { return gSystemAllowsAnimationControls; }
-    WEBCORE_EXPORT static void setSystemAllowsAnimationControls(bool allowsControls);
+    WEBCORE_EXPORT static void NODELETE setSystemAllowsAnimationControls(bool allowsControls);
 
     // Typically the CachedImage that owns us.
-    RefPtr<ImageObserver> imageObserver() const;
-    void setImageObserver(RefPtr<ImageObserver>&&);
+    RefPtr<ImageObserver> NODELETE imageObserver() const;
+    void NODELETE setImageObserver(RefPtr<ImageObserver>&&);
 
     WEBCORE_EXPORT ImageAdapter& adapter();
     void invalidateAdapter();
@@ -163,7 +169,7 @@ public:
     virtual bool hasSolidColor() { return false; }
 #endif
 #if ENABLE(QUICKLOOK_FULLSCREEN)
-    virtual bool shouldUseQuickLookForFullscreen() const { return false; }
+    virtual bool isPanorama() const { return false; }
 #endif
 
 #if ENABLE(SPATIAL_IMAGE_DETECTION)
@@ -192,6 +198,9 @@ protected:
     // Supporting tiled drawing
     virtual std::optional<Color> singlePixelSolidColor() const;
 
+    virtual bool canReplaceData() const { return false; }
+    virtual void dataReplaced() { }
+
 private:
     RefPtr<FragmentedSharedBuffer> m_encodedImageData;
     WeakPtr<ImageObserver> m_imageObserver;
@@ -200,7 +209,7 @@ private:
     // A value of true or false will override the default Page::imageAnimationEnabled state.
     std::optional<bool> m_allowsAnimation { std::nullopt };
     std::unique_ptr<Timer> m_animationStartTimer;
-    static bool gSystemAllowsAnimationControls;
+    WEBCORE_EXPORT static bool gSystemAllowsAnimationControls;
 };
 
 WEBCORE_EXPORT WTF::TextStream& operator<<(WTF::TextStream&, const Image&);

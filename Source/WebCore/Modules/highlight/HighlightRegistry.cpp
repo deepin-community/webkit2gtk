@@ -44,6 +44,7 @@ void HighlightRegistry::setFromMapLike(AtomString&& key, Ref<Highlight>&& value)
     if (addResult.isNewEntry) {
         ASSERT(!m_highlightNames.contains(key));
         m_highlightNames.append(WTF::move(key));
+        protect(addResult.iterator->value)->repaint();
     }
 }
 
@@ -57,8 +58,13 @@ void HighlightRegistry::clear()
 
 bool HighlightRegistry::remove(const AtomString& key)
 {
+    auto highlight = m_map.take(key);
+    if (!highlight)
+        return false;
+
     m_highlightNames.removeFirst(key);
-    return m_map.remove(key);
+    highlight->repaint();
+    return true;
 }
 
 #if ENABLE(APP_HIGHLIGHTS)
@@ -70,7 +76,7 @@ void HighlightRegistry::setHighlightVisibility(HighlightVisibility highlightVisi
     m_highlightVisibility = highlightVisibility;
     
     for (auto& highlight : m_map)
-        Ref { highlight.value }->repaint();
+        protect(highlight.value)->repaint();
 }
 #endif
 
@@ -82,7 +88,7 @@ static ASCIILiteral annotationHighlightKey()
 void HighlightRegistry::addAnnotationHighlightWithRange(Ref<StaticRange>&& value)
 {
     if (m_map.contains(annotationHighlightKey()))
-        Ref { *m_map.get(annotationHighlightKey()) }->addToSetLike(value);
+        protect(*m_map.get(annotationHighlightKey()))->addToSetLike(value);
     else
         setFromMapLike(annotationHighlightKey(), Highlight::create({ std::ref<AbstractRange>(value.get()) }));
 }

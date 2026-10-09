@@ -46,7 +46,7 @@ namespace WebKit {
 
 using namespace WebCore;
 
-static bool categoryCanMixWithOthers(AudioSession::CategoryType category)
+static bool NODELETE categoryCanMixWithOthers(AudioSession::CategoryType category)
 {
     return category == AudioSession::CategoryType::AmbientSound;
 }
@@ -128,9 +128,9 @@ void RemoteAudioSessionProxyManager::updateCategory()
 void RemoteAudioSessionProxyManager::updatePreferredBufferSizeForProcess()
 {
     size_t preferredBufferSize = std::numeric_limits<size_t>::max();
-    for (Ref proxy : m_proxies) {
-        if (proxy->preferredBufferSize() && proxy->preferredBufferSize() < preferredBufferSize)
-            preferredBufferSize = proxy->preferredBufferSize();
+    for (auto& proxy : m_proxies) {
+        if (proxy.preferredBufferSize() && proxy.preferredBufferSize() < preferredBufferSize)
+            preferredBufferSize = proxy.preferredBufferSize();
     }
 
     if (preferredBufferSize != std::numeric_limits<size_t>::max())
@@ -157,8 +157,8 @@ void RemoteAudioSessionProxyManager::updateSpatialExperience()
 
 bool RemoteAudioSessionProxyManager::hasOtherActiveProxyThan(RemoteAudioSessionProxy& proxyToExclude)
 {
-    for (Ref proxy : m_proxies) {
-        if (proxy->isActive() && proxy.ptr() != &proxyToExclude)
+    for (auto& proxy : m_proxies) {
+        if (proxy.isActive() && &proxy != &proxyToExclude)
             return true;
     }
     return false;
@@ -166,8 +166,8 @@ bool RemoteAudioSessionProxyManager::hasOtherActiveProxyThan(RemoteAudioSessionP
 
 bool RemoteAudioSessionProxyManager::hasActiveNotInterruptedProxy()
 {
-    for (Ref proxy : m_proxies) {
-        if (proxy->isActive() && !proxy->isInterrupted())
+    for (auto& proxy : m_proxies) {
+        if (proxy.isActive() && !proxy.isInterrupted())
             return true;
     }
     return false;
@@ -185,7 +185,7 @@ static void providePresentingApplicationPID(RemoteAudioSessionProxy& proxy)
         return;
 #endif
 
-    ProcessID pid = GPUProcess::singleton().parentProcessConnection()->remoteProcessID();
+    ProcessID pid = protect(GPUProcess::singleton().parentProcessConnection())->remoteProcessID();
 
 #if !PLATFORM(APPLETV)
     // Presenting application audit tokens are per-page, but AudioSessions are per-web-process,
@@ -201,7 +201,7 @@ static void providePresentingApplicationPID(RemoteAudioSessionProxy& proxy)
 #endif
 #endif
 
-    MediaSessionHelper::sharedHelper().providePresentingApplicationPID(pid);
+    protect(MediaSessionHelper::sharedHelper())->providePresentingApplicationPID(pid);
 }
 #endif
 
@@ -242,17 +242,17 @@ bool RemoteAudioSessionProxyManager::tryToSetActiveForProcess(RemoteAudioSession
     // Otherwise, this proxy wants to become active, but there are other
     // proxies who are already active. Walk over the proxies, and interrupt
     // those proxies whose categories indicate they cannot mix with others.
-    for (auto& otherProxy : m_proxies) {
-        if (otherProxy.processIdentifier() == proxy.processIdentifier())
+    for (Ref otherProxy : m_proxies) {
+        if (otherProxy->processIdentifier() == proxy.processIdentifier())
             continue;
 
-        if (!otherProxy.isActive())
+        if (!otherProxy->isActive())
             continue;
 
-        if (categoryCanMixWithOthers(otherProxy.category()))
+        if (categoryCanMixWithOthers(otherProxy->category()))
             continue;
 
-        otherProxy.beginInterruption();
+        otherProxy->beginInterruption();
     }
 #endif
     return true;
@@ -281,7 +281,7 @@ void RemoteAudioSessionProxyManager::updatePresentingProcesses()
             presentingProcesses.append(token.auditToken());
     });
 
-    if (auto token = m_gpuProcess->protectedParentProcessConnection()->getAuditToken(); token && shouldAppendParentProcess)
+    if (auto token = protect(m_gpuProcess->parentProcessConnection())->getAuditToken(); token && shouldAppendParentProcess)
         presentingProcesses.append(*token);
 
     if (!presentingProcesses.isEmpty())

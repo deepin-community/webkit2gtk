@@ -1,16 +1,13 @@
-webkit2gtk (2.52.5-1~deb13u1deepin2) unstable; urgency=medium
+webkit2gtk (2.54.0-1~deb13u2) trixie-security; urgency=medium
 
-  * Rebuild with LTO enabled (dpkg vendor feature optimize/lto).
+  * debian/patches/fix-eclipse-crash.patch:
+    - Fix crash when starting the Eclipse IDE (Closes: #1149700).
+  * debian/patches/fix-web-process-abort.patch:
+    - Fix crash when starting the web process (Closes: #1149690).
 
- -- tunaichao <tunaichao@uniontech.com>  Mon, 14 Sep 2026 09:12:35 +0800
+ -- Alberto Garcia <berto@igalia.com>  Fri, 02 Oct 2026 22:02:10 +0200
 
-webkit2gtk (2.52.5-1~deb13u1deepin1) unstable; urgency=medium
-
-  * feat: add sw64 support.
-
- -- lichenggang <lichenggang@uniontech.com>  Mon, 27 Jul 2026 13:30:22 +0800
-
-webkit2gtk (2.52.5-1~deb13u1) trixie-security; urgency=medium
+webkit2gtk (2.54.0-1~deb13u1) trixie-security; urgency=medium
 
   * Rebuild for trixie-security.
   * Re-enable libmanette in i386.
@@ -19,7 +16,42 @@ webkit2gtk (2.52.5-1~deb13u1) trixie-security; urgency=medium
     affected by WebKit bug #290167.
   * Add the 'Priority: optional' field.
 
- -- Alberto Garcia <berto@igalia.com>  Thu, 23 Jul 2026 11:05:08 +0200
+ -- Alberto Garcia <berto@igalia.com>  Thu, 01 Oct 2026 11:36:22 +0200
+
+webkit2gtk (2.54.0-1~exp1) experimental; urgency=medium
+
+  * New upstream release.
+  * Bring all changes from the 2.53 (experimental) branch.
+  * debian/gbp.conf:
+    - Update upstream branch name.
+  * debian/control.in:
+    - Build depend on architecture-is-little-endian. Due to Skia,
+      WebKitGTK does not build on big-endian machines.
+    - Remove build dependency on libwoff-dev. Freetype has built-in WOFF2
+      support since 2.10.2 so a separate library is no longer needed.
+    - Add build dependency on libgstreamer-plugins-bad1.0-dev. Otherwise
+      CMake will fail due to the missing mpegts component (see upstream
+      commit https://commits.webkit.org/315375@main).
+    - Make systemd and gudev linux-any instead of !hurd-any (change
+      suggested by John Scott).
+  * Refresh all patches.
+  * debian/not-installed:
+    - Ignore mimalloc files that are installed by default in some
+      architectures (e.g. armhf) even though we don't need them.
+  * debian/source/lintian-overrides:
+    - Update source-is-missing overrides.
+  * debian/libwebkit2gtk-4.1-0.symbols:
+    - Update symbols.
+  * debian/copyright:
+    - Update copyright information of all files.
+
+ -- Alberto Garcia <berto@igalia.com>  Wed, 16 Sep 2026 11:25:06 +0200
+
+webkit2gtk (2.52.6-1) unstable; urgency=high
+
+  * New upstream release.
+
+ -- Alberto Garcia <berto@igalia.com>  Wed, 19 Aug 2026 18:17:45 +0200
 
 webkit2gtk (2.52.5-1) unstable; urgency=high
 

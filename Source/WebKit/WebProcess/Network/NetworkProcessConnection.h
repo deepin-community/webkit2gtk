@@ -29,6 +29,7 @@
 #include <JavaScriptCore/ConsoleTypes.h>
 #include <WebCore/FrameIdentifier.h>
 #include <WebCore/MessagePortChannelProvider.h>
+#include <WebCore/NonSerializedDataIdentifier.h>
 #include <WebCore/PageIdentifier.h>
 #include <WebCore/RTCDataChannelIdentifier.h>
 #include <WebCore/ResourceLoaderIdentifier.h>
@@ -80,9 +81,7 @@ public:
     WebIDBConnectionToServer& idbConnectionToServer();
 
     WebSWClientConnection& serviceWorkerConnection();
-    Ref<WebSWClientConnection> protectedServiceWorkerConnection();
     WebSharedWorkerObjectConnection& sharedWorkerConnection();
-    Ref<WebSharedWorkerObjectConnection> protectedSharedWorkerConnection();
 
 #if HAVE(AUDIT_TOKEN)
     void setNetworkProcessAuditToken(std::optional<audit_token_t> auditToken) { m_networkProcessAuditToken = auditToken; }
@@ -90,7 +89,7 @@ public:
 #endif
 
     WebCore::HTTPCookieAcceptPolicy cookieAcceptPolicy() const { return m_cookieAcceptPolicy; }
-    bool cookiesEnabled() const;
+    bool NODELETE cookiesEnabled() const;
 
 #if HAVE(COOKIE_CHANGE_LISTENER_API)
     void cookiesAdded(const String& host, Vector<WebCore::Cookie>&&);
@@ -116,6 +115,7 @@ private:
     void cookieAcceptPolicyChanged(WebCore::HTTPCookieAcceptPolicy);
 
     void messagesAvailableForPort(const WebCore::MessagePortIdentifier&);
+    void dropNonSerializableInProcessCache(WebCore::NonSerializedDataIdentifier);
 
 #if ENABLE(SHAREABLE_RESOURCE)
     // Message handlers.

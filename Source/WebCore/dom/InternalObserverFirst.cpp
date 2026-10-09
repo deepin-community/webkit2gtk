@@ -30,7 +30,9 @@
 #include "Exception.h"
 #include "ExceptionCode.h"
 #include "InternalObserver.h"
+#include "JSDOMConvertAny.h"
 #include "JSDOMPromiseDeferred.h"
+#include "JSValueInWrappedObjectInlines.h"
 #include "Observable.h"
 #include "ScriptExecutionContext.h"
 #include "SubscribeOptions.h"
@@ -52,26 +54,24 @@ public:
 private:
     void next(JSC::JSValue value) final
     {
-        protectedPromise()->resolve<IDLAny>(value);
+        protect(m_promise)->resolve<IDLAny>(value);
         Ref { m_signal }->signalAbort(JSC::jsUndefined());
     }
 
     void error(JSC::JSValue value) final
     {
-        protectedPromise()->reject<IDLAny>(value);
+        protect(m_promise)->reject<IDLAny>(value);
     }
 
     void complete() final
     {
         InternalObserver::complete();
-        protectedPromise()->reject(Exception { ExceptionCode::RangeError, "No values in Observable"_s });
+        protect(m_promise)->reject(Exception { ExceptionCode::RangeError, "No values in Observable"_s });
     }
 
-    void visitAdditionalChildren(JSC::AbstractSlotVisitor&) const final
+    void visitAdditionalChildrenInGCThread(JSC::AbstractSlotVisitor&) const final
     {
     }
-
-    Ref<DeferredPromise> protectedPromise() const { return m_promise; }
 
     InternalObserverFirst(ScriptExecutionContext& context, Ref<AbortSignal>&& signal, Ref<DeferredPromise>&& promise)
         : InternalObserver(context)
@@ -84,13 +84,13 @@ private:
     const Ref<DeferredPromise> m_promise;
 };
 
-void createInternalObserverOperatorFirst(ScriptExecutionContext& context, Observable& observable, const SubscribeOptions& options, Ref<DeferredPromise>&& promise)
+void createInternalObserverOperatorFirst(ScriptExecutionContext& context, Observable& observable, SubscribeOptions&& options, Ref<DeferredPromise>&& promise)
 {
     Ref signal = AbortSignal::create(&context);
 
     Vector<Ref<AbortSignal>> dependentSignals = { signal };
     if (options.signal)
-        dependentSignals.append(Ref { *options.signal });
+        dependentSignals.append(options.signal.releaseNonNull());
     Ref dependentSignal = AbortSignal::any(context, dependentSignals);
 
     if (dependentSignal->aborted())

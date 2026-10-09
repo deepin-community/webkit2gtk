@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include <WebCore/ColorTypes.h>
 #include <WebCore/FloatRect.h>
 #include <WebCore/FloatRoundedRect.h>
 #include <WebCore/PathElement.h>
@@ -44,15 +45,15 @@ struct PathMoveTo {
 
     bool operator==(const PathMoveTo&) const = default;
 
-    FloatPoint calculateEndPoint(const FloatPoint& currentPoint, FloatPoint& lastMoveToPoint) const;
-    std::optional<FloatPoint> tryGetEndPointWithoutContext() const;
+    FloatPoint NODELETE calculateEndPoint(const FloatPoint& currentPoint, FloatPoint& lastMoveToPoint) const;
+    std::optional<FloatPoint> NODELETE tryGetEndPointWithoutContext() const;
 
-    void extendFastBoundingRect(const FloatPoint& currentPoint, const FloatPoint& lastMoveToPoint, FloatRect& boundingRect) const;
-    void extendBoundingRect(const FloatPoint& currentPoint, const FloatPoint& lastMoveToPoint, FloatRect& boundingRect) const;
+    void NODELETE extendFastBoundingRect(const FloatPoint& currentPoint, const FloatPoint& lastMoveToPoint, FloatRect& boundingRect) const;
+    void NODELETE extendBoundingRect(const FloatPoint& currentPoint, const FloatPoint& lastMoveToPoint, FloatRect& boundingRect) const;
 
     void applyElements(const PathElementApplier&) const;
 
-    void transform(const AffineTransform&);
+    void NODELETE transform(const AffineTransform&);
 };
 
 WEBCORE_EXPORT WTF::TextStream& operator<<(WTF::TextStream&, const PathMoveTo&);
@@ -322,6 +323,16 @@ private:
 
 WEBCORE_EXPORT WTF::TextStream& operator<<(WTF::TextStream&, const PathDataLine&);
 
+struct PathDataLineColorThickness {
+    PathDataLine line;
+    PackedColor::RGBA color;
+    float thickness;
+
+    bool operator==(const PathDataLineColorThickness&) const = default;
+};
+
+WEBCORE_EXPORT WTF::TextStream& operator<<(WTF::TextStream&, const PathDataLineColorThickness&);
+
 struct PathDataQuadCurve {
     FloatPoint start;
     FloatPoint controlPoint;
@@ -404,7 +415,7 @@ struct PathCloseSubpath {
 
     void applyElements(const PathElementApplier&) const;
 
-    void transform(const AffineTransform&);
+    void NODELETE transform(const AffineTransform&);
 };
 
 WEBCORE_EXPORT WTF::TextStream& operator<<(WTF::TextStream&, const PathCloseSubpath&);

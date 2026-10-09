@@ -49,7 +49,7 @@ public:
 private:
     explicit AutoFillButtonElement(Document&, AutoFillButtonOwner&);
 
-    void defaultEventHandler(Event&) override;
+    void defaultEventHandler(Event&) final;
 
     WeakPtr<AutoFillButtonOwner> m_owner;
 };

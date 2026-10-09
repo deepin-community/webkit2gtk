@@ -62,7 +62,7 @@ SPDX-License-Identifier: BSD, LGPL-2.1
         <h3><a href="index.html">WebKit</a></h3>
         <p>API Version: 6.0</p>
         
-        <p>Library Version: 2.52.5</p>
+        <p>Library Version: 2.54.0</p>
         
       </div>
       
@@ -182,33 +182,25 @@ SPDX-License-Identifier: BSD, LGPL-2.1
       <div class="docblock">
         <p>Emitted when a context menu is about to be displayed to give the application
 a chance to customize the proposed menu, prevent the menu from being displayed,
-or build its own context menu.
-<itemizedlist>
-<listitem><para>
- To customize the proposed menu you can use webkit_context_menu_prepend(),
+or build its own context&nbsp;menu.</p>
+<ul>
+<li>To customize the proposed menu you can use webkit_context_menu_prepend(),
  <code>webkit_context_menu_append()</code> or <code>webkit_context_menu_insert()</code> to add new
- <code>WebKitContextMenuItem</code><!-- -->s to <code>context_menu</code>, <code>webkit_context_menu_move_item()</code>
+ <code>WebKitContextMenuItem</code> objects to <code>context_menu</code>, <code>webkit_context_menu_move_item()</code>
  to reorder existing items, or <code>webkit_context_menu_remove()</code> to remove an
  existing item. The signal handler should return <code>FALSE</code>, and the menu represented
- by <code>context_menu</code> will be shown.
-</para></listitem>
-<listitem><para>
- To prevent the menu from being displayed you can just connect to this signal
- and return <code>TRUE</code> so that the proposed menu will not be shown.
-</para></listitem>
-<listitem><para>
- To build your own menu, you can remove all items from the proposed menu with
+ by <code>context_menu</code> will be&nbsp;shown.</li>
+<li>To prevent the menu from being displayed you can just connect to this signal
+ and return <code>TRUE</code> so that the proposed menu will not be&nbsp;shown.</li>
+<li>To build your own menu, you can remove all items from the proposed menu with
  webkit_context_menu_remove_all(), add your own items and return <code>FALSE</code> so
  that the menu will be shown. You can also ignore the proposed <code>WebKitContextMenu</code>,
- build your own <code>GtkMenu</code> and return <code>TRUE</code> to prevent the proposed menu from being shown.
-</para></listitem>
-<listitem><para>
- If you just want the default menu to be shown always, simply don&#8217;t connect to this
- signal because showing the proposed context menu is the default behaviour.
-</para></listitem>
-</itemizedlist></p>
+ build your own <code>GtkPopoverMenu</code> and return <code>TRUE</code> to prevent the proposed menu from being&nbsp;shown.</li>
+<li>If you just want the default menu to be shown always, simply don&#8217;t connect to this
+ signal because showing the proposed context menu is the default&nbsp;behavior.</li>
+</ul>
 <p>If the signal handler returns <code>FALSE</code> the context menu represented by <code>context_menu</code>
-will be shown, if it return <code>TRUE</code> the context menu will not be&nbsp;shown.</p>
+will be shown, if it returns <code>TRUE</code> the context menu will not be&nbsp;shown.</p>
 <p>The proposed <code>WebKitContextMenu</code> passed in <code>context_menu</code> argument is only valid
 during the signal&nbsp;emission.</p>
       </div>

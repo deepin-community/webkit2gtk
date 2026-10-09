@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2009 Dirk Schulze <krit@webkit.org>
- * Copyright (C) 2018-2022 Apple Inc. All rights reserved.
+ * Copyright (C) 2018-2026 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -70,16 +70,23 @@ void SVGFEConvolveMatrixElement::attributeChanged(const QualifiedName& name, con
         Ref { m_in1 }->setBaseValInternal(newValue);
         break;
     case AttributeNames::orderAttr: {
+        if (newValue.isEmpty()) {
+            // A removed or absent order attribute is valid; the spec default is 3x3.
+            m_orderX->setBaseValInternal(initialOrderValue);
+            m_orderY->setBaseValInternal(initialOrderValue);
+            m_hasInvalidOrderAttribute = false;
+            break;
+        }
         auto result = parseNumberOptionalNumber(newValue);
-        if (!result) {
-            Ref { m_orderX }->setBaseValInternal(initialOrderValue);
-            Ref { m_orderY }->setBaseValInternal(initialOrderValue);
+        if (!result || result->first < 1 || result->second < 1) {
+            m_orderX->setBaseValInternal(initialOrderValue);
+            m_orderY->setBaseValInternal(initialOrderValue);
+            m_hasInvalidOrderAttribute = true;
+            protect(protect(document())->svgExtensions())->reportWarning(makeString("feConvolveMatrix: problem parsing order=\""_s, newValue, "\". Filtered element will not be displayed."_s));
         } else {
-            Ref { m_orderX }->setBaseValInternal(result->first);
-            Ref { m_orderY }->setBaseValInternal(result->second);
-
-            if (result->first < 1 || result->second < 1)
-                protectedDocument()->checkedSVGExtensions()->reportWarning(makeString("feConvolveMatrix: problem parsing order=\""_s, newValue, "\". Filtered element will not be displayed."_s));
+            m_orderX->setBaseValInternal(result->first);
+            m_orderY->setBaseValInternal(result->second);
+            m_hasInvalidOrderAttribute = false;
         }
         break;
     }
@@ -88,54 +95,54 @@ void SVGFEConvolveMatrixElement::attributeChanged(const QualifiedName& name, con
         if (propertyValue != EdgeModeType::Unknown)
             Ref { m_edgeMode }->setBaseValInternal<EdgeModeType>(propertyValue);
         else
-            protectedDocument()->checkedSVGExtensions()->reportWarning(makeString("feConvolveMatrix: problem parsing edgeMode=\""_s, newValue, "\". Filtered element will not be displayed."_s));
+            protect(protect(document())->svgExtensions())->reportWarning(makeString("feConvolveMatrix: problem parsing edgeMode=\""_s, newValue, "\". Filtered element will not be displayed."_s));
         break;
     }
     case AttributeNames::kernelMatrixAttr:
-        Ref { m_kernelMatrix }->baseVal()->parse(newValue);
+        protect(m_kernelMatrix)->baseVal()->parse(newValue);
         break;
     case AttributeNames::divisorAttr: {
         auto result = parseNumber(newValue);
         if (!result)
-            Ref { m_divisor }->setBaseValInternal(initialDivisorValue);
+            m_divisor->setBaseValInternal(initialDivisorValue);
         else {
-            Ref { m_divisor }->setBaseValInternal(*result);
+            m_divisor->setBaseValInternal(*result);
 
             if (*result <= 0)
-                protectedDocument()->checkedSVGExtensions()->reportWarning(makeString("feConvolveMatrix: problem parsing divisor=\""_s, newValue, "\". Filtered element will not be displayed."_s));
+                protect(protect(document())->svgExtensions())->reportWarning(makeString("feConvolveMatrix: problem parsing divisor=\""_s, newValue, "\". Filtered element will not be displayed."_s));
         }
         break;
     }
     case AttributeNames::biasAttr:
-        Ref { m_bias }->setBaseValInternal(newValue.toFloat());
+        m_bias->setBaseValInternal(newValue.toFloat());
         break;
     case AttributeNames::targetXAttr:
-        Ref { m_targetX }->setBaseValInternal(parseInteger<unsigned>(newValue).value_or(0));
+        m_targetX->setBaseValInternal(parseInteger<unsigned>(newValue).value_or(0));
         break;
     case AttributeNames::targetYAttr:
-        Ref { m_targetY }->setBaseValInternal(parseInteger<unsigned>(newValue).value_or(0));
+        m_targetY->setBaseValInternal(parseInteger<unsigned>(newValue).value_or(0));
         break;
     case AttributeNames::kernelUnitLengthAttr: {
         auto result = parseNumberOptionalNumber(newValue);
         if (!result) {
-            Ref { m_kernelUnitLengthX }->setBaseValInternal(initialKernelUnitLengthValue);
-            Ref { m_kernelUnitLengthY }->setBaseValInternal(initialKernelUnitLengthValue);
+            m_kernelUnitLengthX->setBaseValInternal(initialKernelUnitLengthValue);
+            m_kernelUnitLengthY->setBaseValInternal(initialKernelUnitLengthValue);
         } else {
-            Ref { m_kernelUnitLengthX }->setBaseValInternal(result->first);
-            Ref { m_kernelUnitLengthY }->setBaseValInternal(result->second);
+            m_kernelUnitLengthX->setBaseValInternal(result->first);
+            m_kernelUnitLengthY->setBaseValInternal(result->second);
 
             if (result->first < 0 || result->second < 0)
-                protectedDocument()->checkedSVGExtensions()->reportWarning(makeString("feConvolveMatrix: problem parsing kernelUnitLength=\""_s, newValue, "\". Filtered element will not be displayed."_s));
+                protect(protect(document())->svgExtensions())->reportWarning(makeString("feConvolveMatrix: problem parsing kernelUnitLength=\""_s, newValue, "\". Filtered element will not be displayed."_s));
         }
         break;
     }
     case AttributeNames::preserveAlphaAttr:
         if (newValue == trueAtom())
-            Ref { m_preserveAlpha }->setBaseValInternal(true);
+            m_preserveAlpha->setBaseValInternal(true);
         else if (newValue == falseAtom())
-            Ref { m_preserveAlpha }->setBaseValInternal(false);
+            m_preserveAlpha->setBaseValInternal(false);
         else
-            protectedDocument()->checkedSVGExtensions()->reportWarning(makeString("feConvolveMatrix: problem parsing preserveAlphaAttr=\""_s, newValue, "\". Filtered element will not be displayed."_s));
+            protect(protect(document())->svgExtensions())->reportWarning(makeString("feConvolveMatrix: problem parsing preserveAlphaAttr=\""_s, newValue, "\". Filtered element will not be displayed."_s));
         break;
     default:
         break;
@@ -170,15 +177,15 @@ bool SVGFEConvolveMatrixElement::setFilterEffectAttribute(FilterEffect& filterEf
 
 void SVGFEConvolveMatrixElement::setOrder(float x, float y)
 {
-    Ref { m_orderX }->setBaseValInternal(x);
-    Ref { m_orderY }->setBaseValInternal(y);
+    m_orderX->setBaseValInternal(x);
+    m_orderY->setBaseValInternal(y);
     updateSVGRendererForElementChange();
 }
 
 void SVGFEConvolveMatrixElement::setKernelUnitLength(float x, float y)
 {
-    Ref { m_kernelUnitLengthX }->setBaseValInternal(x);
-    Ref { m_kernelUnitLengthY }->setBaseValInternal(y);
+    m_kernelUnitLengthX->setBaseValInternal(x);
+    m_kernelUnitLengthY->setBaseValInternal(y);
     updateSVGRendererForElementChange();
 }
 
@@ -238,6 +245,8 @@ void SVGFEConvolveMatrixElement::svgAttributeChanged(const QualifiedName& attrNa
 RefPtr<FilterEffect> SVGFEConvolveMatrixElement::createFilterEffect(const FilterEffectVector&, const GraphicsContext&) const
 {
     auto filterOrder = [&] () {
+        if (m_hasInvalidOrderAttribute)
+            return IntSize();
         return IntSize(orderX(), orderY());
     };
 
@@ -248,8 +257,8 @@ RefPtr<FilterEffect> SVGFEConvolveMatrixElement::createFilterEffect(const Filter
         float filterDivisor = 0;
 
         // The spec says the default value is the sum of all values in kernelMatrix.
-        for (unsigned i = 0; i < kernelMatrix.length(); ++i)
-            filterDivisor += kernelMatrix.items()[i]->value();
+        for (auto& item : kernelMatrix.items())
+            filterDivisor += item->value();
 
         // The spec says if the sum is zero, then the divisor is set to the initial value.
         return filterDivisor ? filterDivisor : initialDivisorValue;

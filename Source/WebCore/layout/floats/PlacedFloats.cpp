@@ -29,7 +29,7 @@
 #include "LayoutContainingBlockChainIterator.h"
 #include "LayoutInitialContainingBlock.h"
 #include "LayoutShape.h"
-#include "RenderStyle+GettersInlines.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
@@ -115,8 +115,8 @@ bool PlacedFloats::Item::isInFormattingContextOf(const ElementBox& formattingCon
 {
     ASSERT(formattingContextRoot.establishesFormattingContext());
     ASSERT(!is<InitialContainingBlock>(m_layoutBox));
-    for (auto& containingBlock : containingBlockChain(*m_layoutBox)) {
-        if (&containingBlock == &formattingContextRoot)
+    for (CheckedRef containingBlock : containingBlockChain(*m_layoutBox)) {
+        if (containingBlock.ptr() == &formattingContextRoot)
             return true;
     }
     ASSERT_NOT_REACHED();

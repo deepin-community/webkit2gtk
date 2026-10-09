@@ -27,7 +27,7 @@
 
 #include <wtf/Platform.h>
 
-#if ENABLE(WEBASSEMBLY)
+#if ENABLE(WEBASSEMBLY_DEBUGGER)
 
 #include <JavaScriptCore/JSExportMacros.h>
 #include <cstdint>
@@ -99,7 +99,8 @@ public:
     static constexpr uint64_t MEMORY_END = 0x3FFFFFFFFFFFFFFFULL;
     static constexpr uint64_t MODULE_BASE = 0x4000000000000000ULL;
     static constexpr uint64_t MODULE_END = 0x7FFFFFFFFFFFFFFFULL;
-    static constexpr uint64_t INVALID_BASE = 0x8000000000000000ULL;
+    static constexpr uint64_t INVALID_BASE = 0x8000000000000000ULL; // System call: interrupted mid-native, position unknown
+    static constexpr uint64_t JS_FRAME_BASE = 0xC000000000000000ULL; // JS frame boundary in the WASM call stack (Invalid2 type)
     static constexpr uint64_t INVALID_END = 0xFFFFFFFFFFFFFFFFULL;
 
     VirtualAddress()
@@ -174,4 +175,4 @@ template<> struct HashTraits<JSC::Wasm::VirtualAddress> : GenericHashTraits<JSC:
 
 } // namespace WTF
 
-#endif // ENABLE(WEBASSEMBLY)
+#endif // ENABLE(WEBASSEMBLY_DEBUGGER)

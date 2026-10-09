@@ -115,7 +115,7 @@ public:
         return value >= -255 && value <= 255;
     }
 
-    Vector<LinkRecord, 0, UnsafeVectorOverflow>& jumpsToLink() { return m_assembler.jumpsToLink(); }
+    Vector<LinkRecord, 0, UnsafeVectorOverflow>& jumpsToLink() LIFETIME_BOUND { return m_assembler.jumpsToLink(); }
     static bool canCompact(JumpType jumpType) { return ARMv7Assembler::canCompact(jumpType); }
     static JumpLinkType computeJumpType(LinkRecord& record, const uint8_t* from, const uint8_t* to) { return ARMv7Assembler::computeJumpType(record, from, to); }
     static int jumpSizeDelta(JumpType jumpType, JumpLinkType jumpLinkType) { return ARMv7Assembler::jumpSizeDelta(jumpType, jumpLinkType); }
@@ -644,6 +644,14 @@ public:
     {
         m_assembler.umull(destLo, destHi, left, right);
     }
+
+#if HAVE(ARM_IDIV_INSTRUCTIONS)
+    // FIXME: Add more of div flavors.
+    void div32(RegisterID left, RegisterID right, RegisterID dest)
+    {
+        m_assembler.sdiv(dest, left, right);
+    }
+#endif
 
     void neg32(RegisterID srcDest)
     {
@@ -1684,6 +1692,16 @@ public:
 
     // Warning: not atomic.
     void transfer64(Address src, Address dest)
+    {
+        if (src == dest)
+            return;
+        load32(src, dataTempRegister);
+        store32(dataTempRegister, dest);
+        load32(src.withOffset(sizeof(int)), dataTempRegister);
+        store32(dataTempRegister, dest.withOffset(sizeof(int)));
+    }
+
+    void transfer64(BaseIndex src, BaseIndex dest)
     {
         if (src == dest)
             return;

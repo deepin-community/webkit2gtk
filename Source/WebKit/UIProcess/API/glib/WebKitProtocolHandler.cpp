@@ -55,10 +55,6 @@
 #include <sys/utsname.h>
 #endif
 
-#if USE(CAIRO)
-#include <cairo.h>
-#endif
-
 #if PLATFORM(GTK)
 #include "AcceleratedBackingStore.h"
 #include "Display.h"
@@ -106,7 +102,7 @@ void WebKitProtocolHandler::handleRequest(WebKitURISchemeRequest* request)
     URL requestURL = URL(String::fromLatin1(webkit_uri_scheme_request_get_uri(request)));
     if (requestURL.host() == "gpu"_s) {
         auto& page = webkitURISchemeRequestGetWebPage(request);
-        page.protectedLegacyMainFrameProcess()->sendWithAsyncReply(Messages::WebPage::GetRenderProcessInfo(), [this, request = GRefPtr<WebKitURISchemeRequest>(request)](RenderProcessInfo&& info) {
+        protect(page.legacyMainFrameProcess())->sendWithAsyncReply(Messages::WebPage::GetRenderProcessInfo(), [this, request = GRefPtr<WebKitURISchemeRequest>(request)](RenderProcessInfo&& info) {
             handleGPU(request.get(), WTF::move(info));
         }, page.webPageIDInMainFrameProcess());
         return;
@@ -141,7 +137,7 @@ static ASCIILiteral hardwareAccelerationPolicy(WebKitURISchemeRequest* request)
         return "always"_s;
 #if !USE(GTK4)
     case WEBKIT_HARDWARE_ACCELERATION_POLICY_ON_DEMAND:
-        return "on demand"_s;
+        break;
 #endif
     }
 #endif
@@ -157,14 +153,12 @@ static bool webGLEnabled(WebKitURISchemeRequest* request)
 }
 #endif
 
-#if USE(SKIA)
 static bool canvasAccelerationEnabled(WebKitURISchemeRequest* request)
 {
     auto* webView = webkit_uri_scheme_request_get_web_view(request);
     ASSERT(webView);
     return webkit_settings_get_enable_2d_canvas_acceleration(webkit_web_view_get_settings(webView));
 }
-#endif
 
 static bool uiProcessContextIsEGL()
 {
@@ -221,18 +215,18 @@ static String webkitDrmGetFormatName(uint32_t format)
     if (!format)
         return "INVALID"_s;
 
-    std::span<char> buffer;
-    CString code = CString::newUninitialized(4, buffer);
+    std::array<char, 4> buffer;
     buffer[0] = static_cast<char>((format >> 0) & 0xFF);
     buffer[1] = static_cast<char>((format >> 8) & 0xFF);
     buffer[2] = static_cast<char>((format >> 16) & 0xFF);
     buffer[3] = static_cast<char>((format >> 24) & 0xFF);
 
     // Trim spaces at the end.
-    for (size_t i = 3; i > 0 && buffer[i] == ' '; --i)
-        buffer[i] = '\0';
+    size_t bufferSize = buffer.size();
+    while (bufferSize > 1 && buffer[bufferSize - 1] == ' ')
+        bufferSize--;
 
-    return makeString(code, isBigEndian ? "_BE"_s : ""_s);
+    return makeString(unsafeMakeSpan(buffer.data(), bufferSize), isBigEndian ? "_BE"_s : ""_s);
 }
 
 static String webkitDrmGetModifierName(uint64_t modifier)
@@ -313,23 +307,24 @@ static String preferredBufferFormats(WebKitURISchemeRequest* request, JSON::Arra
     StringBuilder builder;
     builder.append("<ul>"_s);
     for (const auto& tranche : formats) {
+        const auto& drmDevice = !tranche.drmDevice.isNull() ? tranche.drmDevice : drmMainDevice();
         auto jsonObject = JSON::Object::create();
         builder.append("<li>Formats for "_s);
         switch (tranche.usage) {
         case RendererBufferFormat::Usage::Rendering:
-            builder.append("<b>rendering</b> using device <i>"_s, !tranche.drmDevice.renderNode.isNull() ? tranche.drmDevice.renderNode : tranche.drmDevice.primaryNode, "</i>"_s);
+            builder.append("<b>rendering</b> using device <i>"_s, !drmDevice.renderNode.isNull() ? drmDevice.renderNode : drmDevice.primaryNode, "</i>"_s);
             jsonObject->setString("Usage"_s, "Rendering"_s);
-            jsonObject->setString("Device"_s, String::fromUTF8(!tranche.drmDevice.renderNode.isNull() ? tranche.drmDevice.renderNode.span() : tranche.drmDevice.primaryNode.span()));
+            jsonObject->setString("Device"_s, String::fromUTF8(!drmDevice.renderNode.isNull() ? drmDevice.renderNode.span() : drmDevice.primaryNode.span()));
             break;
         case RendererBufferFormat::Usage::Scanout:
-            builder.append("<b>scanout</b> using device <i>"_s, tranche.drmDevice.primaryNode, "</i>"_s);
+            builder.append("<b>scanout</b> using device <i>"_s, drmDevice.primaryNode, "</i>"_s);
             jsonObject->setString("Usage"_s, "Scanout"_s);
-            jsonObject->setString("Device"_s, String::fromUTF8(tranche.drmDevice.primaryNode.span()));
+            jsonObject->setString("Device"_s, String::fromUTF8(drmDevice.primaryNode.span()));
             break;
         case RendererBufferFormat::Usage::Mapping:
-            builder.append("<b>mapping</b> using device <i>"_s, tranche.drmDevice.primaryNode, "</i>"_s);
+            builder.append("<b>mapping</b> using device <i>"_s, drmDevice.primaryNode, "</i>"_s);
             jsonObject->setString("Usage"_s, "Mapping"_s);
-            jsonObject->setString("Device"_s, String::fromUTF8(tranche.drmDevice.primaryNode.span()));
+            jsonObject->setString("Device"_s, String::fromUTF8(drmDevice.primaryNode.span()));
             break;
         }
         builder.append("<br>"_s);
@@ -372,7 +367,6 @@ static String vblankMonitorType(const DisplayVBlankMonitor& monitor)
     return monitor.type() == DisplayVBlankMonitor::Type::Timer ? "Timer"_s : "DRM"_s;
 }
 
-#if USE(SKIA)
 static String threadedRenderingInfo(const RenderProcessInfo& info)
 {
     if (!info.cpuPaintingThreadsCount && !info.gpuPaintingThreadsCount)
@@ -384,7 +378,6 @@ static String threadedRenderingInfo(const RenderProcessInfo& info)
     ASSERT(info.gpuPaintingThreadsCount);
     return makeString("GPU ("_s, info.gpuPaintingThreadsCount, " threads)"_s);
 }
-#endif
 
 #if USE(LIBDRM)
 static String supportedBufferFormats(const RenderProcessInfo& info, JSON::Array& jsonArray)
@@ -558,9 +551,15 @@ void WebKitProtocolHandler::handleGPU(WebKitURISchemeRequest* request, RenderPro
         "  h1 { color: #babdb6; text-shadow: 0 1px 0 white; margin-bottom: 0; }"
         "  html { font-family: -webkit-system-font; font-size: 11pt; color: #2e3436; padding: 20px 20px 0 20px; background-color: #f6f6f4; "
         "         background-image: -webkit-gradient(linear, left top, left bottom, color-stop(0, #eeeeec), color-stop(1, #f6f6f4));"
-        "         background-size: 100% 5em; background-repeat: no-repeat; }"
+        "         background-size: 100% 5em; background-repeat: no-repeat; "
+        "         color-scheme: light dark; }"
         "  table { width: 100%; border-collapse: collapse; }"
         "  table, td { border: 1px solid #d3d7cf; border-left: none; border-right: none; }"
+        "  @media (prefers-color-scheme: dark) {"
+        "      h1 { color: #babdb6; text-shadow: 0 1px 0 black; }"
+        "      html { color: #ffffff; background-color: #000000; background-image: -webkit-gradient(linear, left top, left bottom, color-stop(0, #1e2224), color-stop(1, #000000)); }"
+        "      table, td { border-color: #555753; }"
+        "  }"
         "  p { margin-bottom: 30px; }"
         "  table tr > td:first-child { width: 25% }"
         "  td { padding: 15px; }"
@@ -631,10 +630,6 @@ void WebKitProtocolHandler::handleGPU(WebKitURISchemeRequest* request, RenderPro
     const char* desktopName = g_getenv("XDG_CURRENT_DESKTOP");
     addTableRow(versionObject, "Desktop"_s, (desktopName && *desktopName) ? String::fromUTF8(desktopName) : "Unknown"_s);
 
-#if USE(CAIRO)
-    addTableRow(versionObject, "Cairo version"_s, makeString(unsafeSpan(CAIRO_VERSION_STRING), " (build) "_s, unsafeSpan(cairo_version_string()), " (runtime)"_s));
-#endif
-
 #if USE(GSTREAMER)
     GUniquePtr<char> gstVersion(gst_version_string());
     addTableRow(versionObject, "GStreamer version"_s, makeString(GST_VERSION_MAJOR, '.', GST_VERSION_MINOR, '.', GST_VERSION_MICRO, " (build) "_s, unsafeSpan(gstVersion.get()), " (runtime)"_s));
@@ -642,8 +637,6 @@ void WebKitProtocolHandler::handleGPU(WebKitURISchemeRequest* request, RenderPro
 
 #if PLATFORM(GTK)
     addTableRow(versionObject, "GTK version"_s, makeString(GTK_MAJOR_VERSION, '.', GTK_MINOR_VERSION, '.', GTK_MICRO_VERSION, " (build) "_s, gtk_get_major_version(), '.', gtk_get_minor_version(), '.', gtk_get_micro_version(), " (runtime)"_s));
-
-    bool usingDMABufRenderer = AcceleratedBackingStore::checkRequirements();
 #endif
 
 #if PLATFORM(WPE)
@@ -732,16 +725,14 @@ void WebKitProtocolHandler::handleGPU(WebKitURISchemeRequest* request, RenderPro
     addTableRow(hardwareAccelerationObject, "WebGL enabled"_s, webGLEnabled(request) ? "Yes"_s : "No"_s);
 #endif
 
-#if USE(SKIA)
     addTableRow(hardwareAccelerationObject, "2D canvas"_s, canvasAccelerationEnabled(request) ? "Accelerated"_s : "Unaccelerated"_s);
-#endif
 
     if (policy != "never"_s) {
         bool hasEGLContext = uiProcessContextIsEGL() && eglGetCurrentContext() != EGL_NO_CONTEXT;
 
         addTableRow(hardwareAccelerationObject, "API"_s, hasEGLContext ? String::fromUTF8(openGLAPI()) : "Not available"_s);
 #if PLATFORM(GTK)
-        bool showBuffersInfo = usingDMABufRenderer;
+        bool showBuffersInfo = true;
 #elif PLATFORM(WPE) && ENABLE(WPE_PLATFORM)
         bool showBuffersInfo = usingWPEPlatformAPI;
 #else
@@ -765,6 +756,10 @@ void WebKitProtocolHandler::handleGPU(WebKitURISchemeRequest* request, RenderPro
 
         if (hasEGLContext)
             addEGLInfo(hardwareAccelerationObject);
+    } else {
+#if PLATFORM(GTK)
+        addTableRow(hardwareAccelerationObject, "Buffer format"_s, renderBufferDescription(request));
+#endif
     }
 
     stopTable();
@@ -779,10 +774,14 @@ void WebKitProtocolHandler::handleGPU(WebKitURISchemeRequest* request, RenderPro
         if (!info.drmVersion.isEmpty())
             addTableRow(hardwareAccelerationObject, "DRM version"_s, info.drmVersion);
 
-#if USE(SKIA)
+#if USE(GBM)
+        if (!info.dmabufExportStrategy.isEmpty())
+            addTableRow(hardwareAccelerationObject, "DMA-BUF export strategy"_s, info.dmabufExportStrategy);
+        addTableRow(hardwareAccelerationObject, "DMA-BUF memory-mapped GPU buffers"_s, info.memoryMappedGPUBufferSupported ? "Yes"_s : "No"_s);
+#endif
+
         addTableRow(hardwareAccelerationObject, "Threaded rendering"_s, threadedRenderingInfo(info));
         addTableRow(hardwareAccelerationObject, "MSAA"_s, info.msaaSampleCount ? makeString(info.msaaSampleCount, " samples"_s) : String("Disabled"_s));
-#endif
 
 #if USE(LIBDRM)
         if (!info.supportedBufferFormats.isEmpty()) {

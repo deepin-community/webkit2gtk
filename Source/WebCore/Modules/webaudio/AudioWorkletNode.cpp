@@ -49,6 +49,7 @@
 #include "ErrorEvent.h"
 #include "EventNames.h"
 #include "JSAudioWorkletNodeOptions.h"
+#include "JSDOMGlobalObject.h"
 #include "MessageChannel.h"
 #include "MessagePort.h"
 #include "SerializedScriptValue.h"
@@ -90,15 +91,15 @@ ExceptionOr<Ref<AudioWorkletNode>> AudioWorkletNode::create(JSC::JSGlobalObject&
     if (!context.scriptExecutionContext())
         return Exception { ExceptionCode::InvalidStateError, "Audio context's frame is detached"_s };
 
-    auto messageChannel = MessageChannel::create(*context.protectedScriptExecutionContext());
+    auto messageChannel = MessageChannel::create(*protect(context.scriptExecutionContext()));
     auto& nodeMessagePort = messageChannel->port1();
     auto& processorMessagePort = messageChannel->port2();
 
     RefPtr<SerializedScriptValue> serializedOptions;
     {
         auto lock = JSC::JSLockHolder { &globalObject };
-        auto* jsOptions = convertDictionaryToJS(globalObject, *JSC::jsCast<JSDOMGlobalObject*>(&globalObject), options);
-        serializedOptions = SerializedScriptValue::create(globalObject, jsOptions, SerializationForStorage::No, SerializationErrorMode::NonThrowing, SerializationContext::WorkerPostMessage);
+        auto* jsOptions = convertDictionaryToJS(globalObject, downcast<JSDOMGlobalObject>(globalObject), options);
+        serializedOptions = SerializedScriptValue::create(globalObject, jsOptions, SerializationForStorage::No, SerializationErrorMode::NonThrowing);
         if (!serializedOptions)
             serializedOptions = SerializedScriptValue::nullValue();
     }
@@ -118,7 +119,7 @@ ExceptionOr<Ref<AudioWorkletNode>> AudioWorkletNode::create(JSC::JSGlobalObject&
     if (node->numberOfOutputs() > 0)
         context.sourceNodeWillBeginPlayback(node);
 
-    context.audioWorklet().createProcessor(name, processorMessagePort.disentangle(), serializedOptions.releaseNonNull(), node);
+    context.audioWorklet().createProcessor(name, processorMessagePort.lenientDisentangle(), serializedOptions.releaseNonNull(), node);
 
     {
         // The node should be manually added to the automatic pull node list, even without a connect() call.
@@ -204,7 +205,7 @@ void AudioWorkletNode::process(size_t framesToProcess)
 
     auto zeroOutput = [&] {
         for (unsigned i = 0; i < numberOfOutputs(); ++i)
-            checkedOutput(i)->bus().zero();
+            output(i)->bus().zero();
     };
 
     if (!m_processLock.tryLock()) {
@@ -224,7 +225,7 @@ void AudioWorkletNode::process(size_t framesToProcess)
         m_inputs[i] = currentInput->isConnected() ? &currentInput->bus() : nullptr;
     }
     for (unsigned i = 0; i < numberOfOutputs(); ++i)
-        m_outputs[i] = checkedOutput(i)->bus();
+        m_outputs[i] = output(i)->bus();
 
     if (noiseInjectionPolicies().contains(NoiseInjectionPolicy::Minimal)) {
         for (unsigned inputIndex = 0; inputIndex < numberOfInputs(); ++inputIndex) {
@@ -270,7 +271,7 @@ void AudioWorkletNode::updatePullStatus()
 
     bool hasConnectedOutput = false;
     for (unsigned i = 0; i < numberOfOutputs(); ++i) {
-        if (checkedOutput(i)->isConnected()) {
+        if (output(i)->isConnected()) {
             hasConnectedOutput = true;
             break;
         }
@@ -295,7 +296,7 @@ void AudioWorkletNode::checkNumberOfChannelsForInput(AudioNodeInput* input)
         unsigned numberOfInputChannels = input->numberOfChannels();
         if (numberOfInputChannels != output(0)->numberOfChannels()) {
             // This will propagate the channel count to any nodes connected further downstream in the graph.
-            checkedOutput(0)->setNumberOfChannels(numberOfInputChannels);
+            protect(output(0))->setNumberOfChannels(numberOfInputChannels);
         }
     }
 
@@ -321,7 +322,7 @@ void AudioWorkletNode::fireProcessorErrorOnMainThread(ProcessorError error)
             errorMessage = "An error was thrown from AudioWorkletProcessor::process() method"_s;
             break;
         }
-        queueTaskToDispatchEvent(*this, TaskSource::MediaElement, ErrorEvent::create(eventNames().processorerrorEvent, errorMessage, { }, 0, 0, { }));
+        queueTaskToDispatchEvent(*this, TaskSource::MediaElement, ErrorEvent::create(eventNames().processorerrorEvent, errorMessage, { }, 0, 0));
     });
 }
 

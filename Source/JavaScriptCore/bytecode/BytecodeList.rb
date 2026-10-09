@@ -1,4 +1,4 @@
-# Copyright (C) 2018-2023 Apple Inc. All rights reserved.
+# Copyright (C) 2018-2026 Apple Inc. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -20,6 +20,8 @@
 # OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+# This file us consumed by generator/main.rb in order to generate Bytecodes.h/BytecodeStructs.h
 
 types [
     :VirtualRegister,
@@ -224,6 +226,29 @@ op :iterator_open,
         getNext: nil,
     }
 
+# iterator = symbolIterator.@call(iterable); next = iterator.next. Mirrors op_iterator_open; the fast
+# path skips the call for a genuine async generator, leaving the driver sentinel in next.
+op :async_iterator_open,
+    args: {
+        iterator: VirtualRegister,
+        next: VirtualRegister,
+        symbolIterator: VirtualRegister,
+        iterable: VirtualRegister,
+        stackOffset: unsigned,
+        iterableValueProfile: unsigned,
+        iteratorValueProfile: unsigned,
+        nextValueProfile: unsigned,
+    },
+    metadata: {
+        callLinkInfo: DataOnlyCallLinkInfo,
+        modeMetadata: GetByIdModeMetadata,
+        iterationMetadata: IterationModeMetadata,
+    },
+    checkpoints: {
+        symbolCall: nil,
+        getNext: nil,
+    }
+
 # Semantically, this is dst = value instanceof constructor.
 op :instanceof,
     args: {
@@ -332,19 +357,6 @@ op :call_direct_eval,
         callLinkInfo: DataOnlyCallLinkInfo,
     }
 
-op :tail_call_forward_arguments,
-    args: {
-        dst: VirtualRegister,
-        callee: VirtualRegister,
-        thisValue?: VirtualRegister,
-        arguments?: VirtualRegister,
-        firstFree: VirtualRegister,
-        firstVarArg: int,
-    },
-    metadata: {
-        callLinkInfo: DataOnlyCallLinkInfo,
-    }
-
 op_group :CreateInternalFieldObjectOp,
     [
         :create_generator,
@@ -362,7 +374,6 @@ op :create_promise,
     args: {
         dst: VirtualRegister,
         callee: VirtualRegister,
-        isInternalPromise: bool,
     },
     metadata: {
         cachedCallee: WriteBarrier[JSCell]
@@ -474,6 +485,25 @@ op :call_ignore_result,
         callLinkInfo: DataOnlyCallLinkInfo,
         arrayProfile: ArrayProfile,
     }
+
+# dst = next.call(iterator), or -- if next is the fast async generator driver sentinel -- enqueue
+# onto the producer instead (dst unused; the result is awaited via a separate op_yield). Unlike
+# op_iterator_next there are no getDone/getValue checkpoints: the intervening await makes .done/.value
+# separate get_by_id bytecodes after suspension.
+op :async_iterator_next,
+    args: {
+        dst: VirtualRegister,
+        next: VirtualRegister,
+        iterator: VirtualRegister,
+        driver: VirtualRegister,
+        stackOffset: unsigned,
+        valueProfile: unsigned,
+    },
+    metadata: {
+        callLinkInfo: DataOnlyCallLinkInfo,
+        iterationMetadata: IterationModeMetadata,
+    }
+
 
 op :resolve_scope,
     args: {
@@ -752,18 +782,6 @@ op :get_by_id_direct,
         base: VirtualRegister,
         property: unsigned,
         valueProfile: unsigned, # not used in llint
-    },
-    metadata: {
-        structureID: StructureID,
-        offset: unsigned,
-    }
-
-op :try_get_by_id,
-    args: {
-        dst: VirtualRegister,
-        base: VirtualRegister,
-        property: unsigned,
-        valueProfile: unsigned,
     },
     metadata: {
         structureID: StructureID,
@@ -1132,11 +1150,6 @@ op :debug,
         data: VirtualRegister,
     }
 
-op :end,
-    args: {
-        value: VirtualRegister,
-    }
-
 op :get_property_enumerator,
     args: {
         dst: VirtualRegister,
@@ -1146,13 +1159,6 @@ op :get_property_enumerator,
 op :unreachable
 
 op :create_rest,
-    args: {
-        dst: VirtualRegister,
-        arraySize: VirtualRegister,
-        numParametersToSkip: unsigned,
-    }
-
-op :get_rest_length,
     args: {
         dst: VirtualRegister,
         numParametersToSkip: unsigned,
@@ -1227,10 +1233,14 @@ op :create_cloned_arguments,
 op :new_promise,
     args: {
         dst: VirtualRegister,
-        isInternalPromise: bool,
     }
 
 op :new_generator,
+    args: {
+        dst: VirtualRegister,
+    }
+
+op :new_async_function_generator,
     args: {
         dst: VirtualRegister,
     }
@@ -1328,7 +1338,6 @@ op_group :UnaryOp,
         :eq_null,
         :neq_null,
         :to_string,
-        :unsigned,
         :is_empty,
         :typeof_is_undefined,
         :typeof_is_object,
@@ -1378,13 +1387,6 @@ op :identity_with_profile,
         bottomProfile: unsigned,
     }
 
-op :overrides_has_instance,
-    args: {
-        dst: VirtualRegister,
-        constructor: VirtualRegister,
-        hasInstanceValue: VirtualRegister,
-    }
-
 op :typeof,
     args: {
         dst: VirtualRegister,
@@ -1410,12 +1412,15 @@ op_group :ProfiledUnaryOp,
         :to_number,
         :to_numeric,
         :bitnot,
+        :unsigned,
     ],
     args: {
         dst: VirtualRegister,
         operand: VirtualRegister,
         profileIndex: unsigned,
     }
+
+# If you add any bytecodes after bitnot make sure to update isOpcode
 
 end_section :Bytecode
 
@@ -1457,6 +1462,7 @@ op :llint_polymorphic_closure_call_trampoline
 op :checkpoint_osr_exit_from_inlined_call_trampoline
 op :checkpoint_osr_exit_trampoline
 op :normal_osr_exit_trampoline
+op :array_sort_comparator_return_trampoline
 op :fuzzer_return_early_from_loop_hint
 op :loop_osr_entry_gate
 op :llint_get_host_call_return_value
@@ -1469,6 +1475,7 @@ op :op_call_varargs_return_location
 op :op_construct_varargs_return_location
 op :op_super_construct_varargs_return_location
 op :op_get_by_id_return_location
+op :op_async_iterator_open_return_location
 op :op_get_by_id_direct_return_location
 op :op_get_length_return_location
 op :op_get_by_val_return_location
@@ -1483,6 +1490,7 @@ op :op_enumerator_put_by_val_return_location
 op :op_enumerator_in_by_val_return_location
 op :op_iterator_open_return_location
 op :op_iterator_next_return_location
+op :op_async_iterator_next_return_location
 op :op_call_direct_eval_slow_return_location
 op :js_to_wasm_wrapper_entry
 op :wasm_to_wasm_ipint_wrapper_entry
@@ -1505,6 +1513,8 @@ op :js_trampoline_op_construct_varargs
 op :js_trampoline_op_super_construct_varargs
 op :js_trampoline_op_iterator_next
 op :js_trampoline_op_iterator_open
+op :js_trampoline_op_async_iterator_open
+op :js_trampoline_op_async_iterator_next
 op :js_trampoline_op_call_direct_eval_slow
 op :js_trampoline_llint_function_for_call_arity_check_untag
 op :js_trampoline_llint_function_for_call_arity_check_tag
@@ -1554,5 +1564,11 @@ op :llint_cloop_did_return_from_js_28
 op :llint_cloop_did_return_from_js_29
 op :llint_cloop_did_return_from_js_30
 op :llint_cloop_did_return_from_js_31
+op :llint_cloop_did_return_from_js_32
+op :llint_cloop_did_return_from_js_33
+op :llint_cloop_did_return_from_js_34
+op :llint_cloop_did_return_from_js_35
+op :llint_cloop_did_return_from_js_36
+op :llint_cloop_did_return_from_js_37
 
 end_section :CLoopReturnHelpers

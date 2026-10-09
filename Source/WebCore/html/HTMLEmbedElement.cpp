@@ -33,7 +33,6 @@
 #include "HTMLObjectElement.h"
 #include "LocalFrame.h"
 #include "LocalFrameView.h"
-#include "NodeInlines.h"
 #include "NodeName.h"
 #include "PluginDocument.h"
 #include "RenderEmbeddedObject.h"
@@ -65,6 +64,16 @@ Ref<HTMLEmbedElement> HTMLEmbedElement::create(Document& document)
     return create(embedTag, document);
 }
 
+// https://html.spec.whatwg.org/multipage/dom.html#exposed
+bool HTMLEmbedElement::isExposed() const
+{
+    for (Ref ancestor : ancestorsOfType<HTMLObjectElement>(*this)) {
+        if (ancestor->isExposed())
+            return false;
+    }
+    return true;
+}
+
 static inline RenderWidget* findWidgetRenderer(const Node* node)
 {
     if (!node->renderer())
@@ -90,7 +99,7 @@ void HTMLEmbedElement::collectPresentationalHintsForAttribute(const QualifiedNam
         HTMLPlugInElement::collectPresentationalHintsForAttribute(name, value, style);
 }
 
-static bool hasTypeOrSrc(const HTMLEmbedElement& embed)
+static bool NODELETE hasTypeOrSrc(const HTMLEmbedElement& embed)
 {
     return embed.hasAttributeWithoutSynchronization(typeAttr) || embed.hasAttributeWithoutSynchronization(srcAttr);
 }
@@ -183,7 +192,7 @@ void HTMLEmbedElement::updateWidget(CreatePlugins createPlugins)
     requestObject(m_url, m_serviceType, paramNames, paramValues);
 }
 
-bool HTMLEmbedElement::rendererIsNeeded(const RenderStyle& style)
+bool HTMLEmbedElement::rendererIsNeeded(const Style::ComputedStyle& style)
 {
     if (!hasTypeOrSrc(*this))
         return false;
@@ -210,16 +219,16 @@ bool HTMLEmbedElement::isURLAttribute(const Attribute& attribute) const
     return attribute.name() == srcAttr || HTMLPlugInElement::isURLAttribute(attribute);
 }
 
-const AtomString& HTMLEmbedElement::imageSourceURL() const
+String HTMLEmbedElement::imageSourceURL() const
 {
     return attributeWithoutSynchronization(srcAttr);
 }
 
-void HTMLEmbedElement::addSubresourceAttributeURLs(ListHashSet<URL>& urls) const
+void HTMLEmbedElement::addSubresourceAttributeURLs(OrderedHashSet<URL>& urls) const
 {
     HTMLPlugInElement::addSubresourceAttributeURLs(urls);
 
-    addSubresourceURL(urls, protectedDocument()->completeURL(attributeWithoutSynchronization(srcAttr)));
+    addSubresourceURL(urls, protect(document())->encodingParseURL(attributeWithoutSynchronization(srcAttr)));
 }
 
 }

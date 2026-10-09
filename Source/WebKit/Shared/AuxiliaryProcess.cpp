@@ -83,7 +83,9 @@ void AuxiliaryProcess::didClose(IPC::Connection&)
 
 void AuxiliaryProcess::initialize(AuxiliaryProcessInitializationParameters&& parameters)
 {
-    WTF::RefCountDebugger::enableThreadingChecksGlobally();
+    TraceScope traceScope(ProcessInitializeStart, ProcessInitializeEnd);
+
+    WTF::RefCountDebuggerBase::enableThreadingChecksGlobally();
 
 #if PLATFORM(COCOA)
     // On Cocoa platforms, setAuxiliaryProcessType() is called in XPCServiceInitializer().
@@ -115,7 +117,7 @@ void AuxiliaryProcess::initialize(AuxiliaryProcessInitializationParameters&& par
     WebPageProxyIdentifier::enableGenerationProtection();
 
     Ref connection = IPC::Connection::createClientConnection(WTF::move(parameters.connectionIdentifier));
-    m_connection = connection.ptr();
+    lazyInitialize(m_connection, connection.copyRef());
     initializeConnection(connection.ptr());
     connection->open(*this);
 }
@@ -237,7 +239,7 @@ void AuxiliaryProcess::platformStopRunLoop()
 
 void AuxiliaryProcess::terminate()
 {
-    protectedParentProcessConnection()->invalidate();
+    protect(parentProcessConnection())->invalidate();
 
     stopRunLoop();
 }
@@ -294,7 +296,7 @@ void AuxiliaryProcess::didReceiveInvalidMessage(IPC::Connection&, IPC::MessageNa
     CRASH();
 }
 
-#if OS(LINUX)
+#if OS(LINUX) && !OS(ANDROID)
 void AuxiliaryProcess::didReceiveMemoryPressureEvent(bool isCritical)
 {
     MemoryPressureHandler::singleton().triggerMemoryPressureEvent(isCritical);

@@ -67,7 +67,7 @@ public:
     }
 
     ~RemoteImageBufferProxy();
-    bool isValid() const;
+    bool NODELETE isValid() const;
 
     void disconnect();
 
@@ -82,11 +82,18 @@ public:
     void didCreateBackend(std::optional<ImageBufferBackendHandle>);
 
     RemoteGraphicsContextIdentifier contextIdentifier() const { return m_context.identifier(); }
+
+    // Sends single-line strokes that have been buffered on the proxy's graphics
+    // context into the IPC stream. Call before any cross-buffer read of this
+    // image buffer (drawImageBuffer source, clipToImageBuffer source, etc.) so
+    // the GPU process sees the up-to-date contents.
+    void sendPendingDrawsIfNecessary() const { m_context.sendPendingDrawsIfNecessary(); }
 private:
     RemoteImageBufferProxy(Parameters, const WebCore::ImageBufferBackend::Info&, RemoteRenderingBackendProxy&);
 
     RefPtr<WebCore::NativeImage> copyNativeImage() const final;
     RefPtr<WebCore::NativeImage> createNativeImageReference() const final;
+    bool isRemoteImageBufferProxy() const final { return true; }
     RefPtr<WebCore::NativeImage> sinkIntoNativeImage() final;
 
     RefPtr<ImageBuffer> sinkIntoBufferForDifferentThread() final;
@@ -107,7 +114,7 @@ private:
 
     void prepareForBackingStoreChange();
 
-    void assertDispatcherIsCurrent() const;
+    void NODELETE assertDispatcherIsCurrent() const;
     template<typename T> void send(T&& message) const;
     template<typename T> auto sendSync(T&& message) const;
     RefPtr<IPC::StreamClientConnection> connection() const;
@@ -133,8 +140,8 @@ public:
         return m_info.memoryCost;
     }
 
-    const WebCore::ImageBuffer::Parameters& parameters() const { return m_parameters; }
-    const WebCore::ImageBufferBackend::Info& info() const { return m_info; }
+    const WebCore::ImageBuffer::Parameters& parameters() const LIFETIME_BOUND { return m_parameters; }
+    const WebCore::ImageBufferBackend::Info& info() const LIFETIME_BOUND { return m_info; }
 
     std::unique_ptr<WebCore::SerializedImageBuffer> clone() const final
     {

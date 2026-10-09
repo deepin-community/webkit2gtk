@@ -36,6 +36,8 @@
 #include "HTTPParsers.h"
 #include "HTTPStatusCodes.h"
 #include "JSBlob.h"
+#include "JSDOMConvertInterface.h"
+#include "JSDOMConvertStrings.h"
 #include "JSDOMFormData.h"
 #include "JSDOMPromise.h"
 #include "JSDOMPromiseDeferred.h"
@@ -214,7 +216,7 @@ void FetchBodyOwner::formData(Ref<DeferredPromise>&& promise)
     if (isBodyNullOrOpaque()) {
         if (isBodyNull()) {
             // If the content-type is 'application/x-www-form-urlencoded', a body is not required and we should package an empty byte sequence as per the specification.
-            if (auto formData = FetchBodyConsumer::packageFormData(promise->protectedScriptExecutionContext().get(), contentType(), { })) {
+            if (auto formData = FetchBodyConsumer::packageFormData(protect(promise->scriptExecutionContext()).get(), contentType(), { })) {
                 promise->resolve<IDLInterface<DOMFormData>>(*formData);
                 return;
             }
@@ -282,7 +284,7 @@ void FetchBodyOwner::loadBlob(const Blob& blob, FetchBodyConsumer* consumer)
     Ref loader = FetchLoader::create(blobLoader.get(), consumer);
     blobLoader->loader = loader.copyRef();
 
-    loader->start(*protectedScriptExecutionContext(), blob);
+    loader->start(*protect(scriptExecutionContext()), blob);
     if (!loader->isStarted()) {
         m_body->loadingFailed(Exception { ExceptionCode::TypeError, "Blob loading failed"_s });
         m_blobLoader = nullptr;
@@ -386,13 +388,13 @@ ExceptionOr<void> FetchBodyOwner::createReadableStream(JSC::JSGlobalObject& stat
 {
     ASSERT(!m_readableStreamSource);
 
-    auto& globalObject = *JSC::jsCast<JSDOMGlobalObject*>(&state);
+    auto& globalObject = downcast<JSDOMGlobalObject>(state);
     if (isDisturbed()) {
         auto streamOrException = ReadableStream::create(globalObject, { }, { });
         if (streamOrException.hasException()) [[unlikely]]
             return streamOrException.releaseException();
         m_body->setReadableStream(streamOrException.releaseReturnValue());
-        m_body->protectedReadableStream()->lock();
+        protect(m_body->readableStream())->lock();
         return { };
     }
 
@@ -419,7 +421,7 @@ ExceptionOr<void> FetchBodyOwner::createReadableStream(JSC::JSGlobalObject& stat
     auto [fetchBodySource, readableStreamSource] = FetchBodySource::createNonByteSource(*this);
     m_readableStreamSource = WTF::move(fetchBodySource);
 
-    auto streamOrException = ReadableStream::create(*JSC::jsCast<JSDOMGlobalObject*>(&state), readableStreamSource);
+    auto streamOrException = ReadableStream::create(downcast<JSDOMGlobalObject>(state), readableStreamSource);
     if (streamOrException.hasException()) [[unlikely]] {
         m_readableStreamSource = nullptr;
         return streamOrException.releaseException();

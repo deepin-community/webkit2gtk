@@ -62,7 +62,7 @@ SPDX-License-Identifier: BSD, LGPL-2.1
         <h3><a href="index.html">WebKit</a></h3>
         <p>API Version: 6.0</p>
         
-        <p>Library Version: 2.52.5</p>
+        <p>Library Version: 2.54.0</p>
         
       </div>
       
@@ -84,6 +84,8 @@ SPDX-License-Identifier: BSD, LGPL-2.1
 <div class="section">
   <h5>Instance methods</h5>
   <div class="links">
+  
+    <a class="method" href="method.FeatureList.find.html">find</a>
   
     <a class="method" href="method.FeatureList.get.html">get</a>
   
@@ -123,7 +125,7 @@ SPDX-License-Identifier: BSD, LGPL-2.1
           Description
           <a href="#description" class="anchor"></a>
           
-          <a class="srclink" title="go to source location" href="https://github.com/WebKit/WebKit/tree/main/Source/WebKit/UIProcess/API/glib/WebKitFeature.cpp#L312">[src]</a>
+          <a class="srclink" title="go to source location" href="https://github.com/WebKit/WebKit/tree/main/Source/WebKit/UIProcess/API/glib/WebKitFeature.cpp#L313">[src]</a>
           
         </h4>
 
@@ -138,7 +140,7 @@ SPDX-License-Identifier: BSD, LGPL-2.1
 <p>The list supports passing around a set of <a href="struct.Feature.html"><code>WebKitFeature</code></a> objects and
 iterating over&nbsp;them:</p>
 <div class="codehilite"><pre><span></span><code><span class="n">g_autoptr</span><span class="p">(</span><span class="n">WebKitFeatureList</span><span class="p">)</span><span class="w"> </span><span class="n">list</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">webkit_settings_get_experimental_features</span><span class="p">();</span>
-<span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">gsize</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">webkit_feature_list_get_length</span><span class="p">(</span><span class="n">list</span><span class="p">)</span><span class="o">:</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">gsize</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">webkit_feature_list_get_length</span><span class="p">(</span><span class="n">list</span><span class="p">);</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="n">WebKitFeature</span><span class="w"> </span><span class="o">*</span><span class="n">feature</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">webkit_feature_list_get</span><span class="p">(</span><span class="n">list</span><span class="p">,</span><span class="w"> </span><span class="n">i</span><span class="p">);</span>
 <span class="w">    </span><span class="c1">// Do something with &quot;feature&quot;.</span>
 <span class="p">}</span>
@@ -178,6 +180,16 @@ iterating over&nbsp;them:</p>
       <div class="docblock">
       
         <div class="">
+          <h6><a href="method.FeatureList.find.html">webkit_feature_list_find</a></h6>
+          <div class="docblock">
+            <p>Finds a feature given its&nbsp;identifier.</p>
+          </div>
+          <div class="docblock">
+            <p><span class="emblem available">since: 2.54</span></p>
+          </div>
+        </div>
+      
+        <div class="">
           <h6><a href="method.FeatureList.get.html">webkit_feature_list_get</a></h6>
           <div class="docblock">
             <p>Gets a feature given its&nbsp;index.</p>
@@ -193,7 +205,7 @@ iterating over&nbsp;them:</p>
             <p>Gets the number of elements in the feature&nbsp;list.</p>
           </div>
           <div class="docblock">
-            <p></p>
+            <p><span class="emblem available">since: 2.42</span></p>
           </div>
         </div>
       

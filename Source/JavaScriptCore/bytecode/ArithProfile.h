@@ -144,7 +144,7 @@ public:
         m_bits |= ObservedResults::NonNumeric;
     }
 
-    const void* addressOfBits() const { return &m_bits; }
+    const void* addressOfBits() const LIFETIME_BOUND { return &m_bits; }
 
 #if ENABLE(JIT)
     // Sets (Int32Overflow | Int52Overflow | NonNegZeroDouble | NegZeroDouble) if it sees a
@@ -152,16 +152,16 @@ public:
     void emitObserveResult(CCallHelpers&, JSValueRegs, GPRReg tempGPR, TagRegistersMode = HaveTagRegisters);
 
     // Sets (Int32Overflow | Int52Overflow | NonNegZeroDouble | NegZeroDouble).
-    bool shouldEmitSetDouble() const;
+    bool NODELETE shouldEmitSetDouble() const;
     void emitSetDouble(CCallHelpers&, GPRReg scratchGPR) const;
 
     void emitSetNonNumeric(CCallHelpers&) const;
-    bool shouldEmitSetNonNumeric() const;
+    bool NODELETE shouldEmitSetNonNumeric() const;
 
-    bool shouldEmitSetHeapBigInt() const;
+    bool NODELETE shouldEmitSetHeapBigInt() const;
     void emitSetHeapBigInt(CCallHelpers&) const;
 
-    bool shouldEmitSetBigInt32() const;
+    bool NODELETE shouldEmitSetBigInt32() const;
 #if USE(BIGINT32)
     void emitSetBigInt32(CCallHelpers&) const;
 #endif
@@ -259,7 +259,7 @@ public:
         return argObservedType().isEmpty();
     }
 
-    friend class JSC::LLIntOffsetsExtractor;
+    friend class LLIntOffsetsExtractor;
 };
 
 /* This class stores the following components in 16 bits:
@@ -384,7 +384,7 @@ public:
         return lhsObservedType().isEmpty() && rhsObservedType().isEmpty();
     }
 
-    friend class JSC::LLIntOffsetsExtractor;
+    friend class LLIntOffsetsExtractor;
 };
 
 } // namespace JSC

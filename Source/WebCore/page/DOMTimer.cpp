@@ -37,6 +37,7 @@
 #include "ScheduledAction.h"
 #include "ScriptExecutionContextInlines.h"
 #include "Settings.h"
+#include "UserGestureIndicator.h"
 #include <wtf/CryptographicallyRandomNumber.h>
 #include <wtf/HashMap.h>
 #include <wtf/MathExtras.h>
@@ -81,13 +82,13 @@ public:
         m_context->setTimerNestingLevel(0);
     }
 
-    const Document* contextDocument() const { return m_contextIsDocument ? downcast<Document>(m_context.ptr()) : nullptr; }
+    const Document* NODELETE contextDocument() const { return m_contextIsDocument ? downcast<Document>(m_context.ptr()) : nullptr; }
 
-    void setScriptMadeUserObservableChanges() { m_scriptMadeUserObservableChanges = true; }
-    void setScriptMadeNonUserObservableChanges() { m_scriptMadeNonUserObservableChanges = true; }
+    void NODELETE setScriptMadeUserObservableChanges() { m_scriptMadeUserObservableChanges = true; }
+    void NODELETE setScriptMadeNonUserObservableChanges() { m_scriptMadeNonUserObservableChanges = true; }
 
-    bool scriptMadeNonUserObservableChanges() const { return m_scriptMadeNonUserObservableChanges; }
-    bool scriptMadeUserObservableChanges() const
+    bool NODELETE scriptMadeNonUserObservableChanges() const { return m_scriptMadeNonUserObservableChanges; }
+    bool NODELETE scriptMadeUserObservableChanges() const
     {
         if (m_scriptMadeUserObservableChanges)
             return true;
@@ -113,7 +114,7 @@ DOMTimerFireState* DOMTimerFireState::current = nullptr;
 struct NestedTimersMap {
     typedef HashMap<int, Ref<DOMTimer>>::const_iterator const_iterator;
 
-    static NestedTimersMap* instanceForContext(ScriptExecutionContext& context)
+    static NestedTimersMap* NODELETE instanceForContext(ScriptExecutionContext& context)
     {
         // For worker threads, we don't use NestedTimersMap as doing so would not
         // be thread safe.
@@ -150,10 +151,10 @@ struct NestedTimersMap {
     }
 
     const_iterator begin() const LIFETIME_BOUND { return nestedTimers.begin(); }
-    const_iterator end() const LIFETIME_BOUND { return nestedTimers.end(); }
+    const_iterator NODELETE end() const LIFETIME_BOUND { return nestedTimers.end(); }
 
 private:
-    static NestedTimersMap& instance()
+    static NestedTimersMap& NODELETE instance()
     {
         static NeverDestroyed<NestedTimersMap> map;
         return map;
@@ -311,10 +312,10 @@ void DOMTimer::fired()
     ASSERT(scriptExecutionContext());
     Ref context = *scriptExecutionContext();
 
-#if PLATFORM(IOS_FAMILY)
+#if ENABLE(CONTENT_CHANGE_OBSERVER)
     if (RefPtr document = dynamicDowncast<Document>(context); document && m_oneShot) {
         if (auto* holdingTank = document->domTimerHoldingTankIfExists(); holdingTank && holdingTank->contains(*this)) {
-            m_timer = document->checkedEventLoop()->scheduleTask(0_s, TaskSource::Timer, [weakThis = WeakPtr { *this }] {
+            m_timer = protect(document->eventLoop())->scheduleTask(0_s, TaskSource::Timer, [weakThis = WeakPtr { *this }] {
                 if (RefPtr protectedThis = weakThis.get())
                     protectedThis->fired();
             });
@@ -340,7 +341,7 @@ void DOMTimer::fired()
         if (m_nestingLevel < maxTimerNestingLevel) {
             m_nestingLevel++;
             m_hasReachedMaxNestingLevel = m_nestingLevel >= maxTimerNestingLevelForRepeatingTimers;
-            context->checkedEventLoop()->setTimerHasReachedMaxNestingLevel(m_timer, m_hasReachedMaxNestingLevel);
+            protect(context->eventLoop())->setTimerHasReachedMaxNestingLevel(m_timer, m_hasReachedMaxNestingLevel);
             updateTimerIntervalIfNecessary();
         }
 
@@ -407,10 +408,10 @@ void DOMTimer::updateTimerIntervalIfNecessary()
     Ref context = *scriptExecutionContext();
     if (m_oneShot) {
         LOG(DOMTimers, "%p - Updating DOMTimer's fire interval from %.2f ms to %.2f ms due to throttling.", this, previousInterval.milliseconds(), m_currentTimerInterval.milliseconds());
-        context->checkedEventLoop()->adjustTimerNextFireTime(m_timer, m_currentTimerInterval - previousInterval);
+        protect(context->eventLoop())->adjustTimerNextFireTime(m_timer, m_currentTimerInterval - previousInterval);
     } else {
         LOG(DOMTimers, "%p - Updating DOMTimer's repeat interval from %.2f ms to %.2f ms due to throttling.", this, previousInterval.milliseconds(), m_currentTimerInterval.milliseconds());
-        context->checkedEventLoop()->adjustTimerRepeatInterval(m_timer, m_currentTimerInterval - previousInterval);
+        protect(context->eventLoop())->adjustTimerRepeatInterval(m_timer, m_currentTimerInterval - previousInterval);
     }
 }
 
@@ -426,7 +427,7 @@ Seconds DOMTimer::intervalClampedToMinimum() const
         return interval;
 
     // Apply two throttles - the global (per Page) minimum, and also a per-timer throttle.
-    interval = std::max(interval, protectedScriptExecutionContext()->minimumDOMTimerInterval());
+    interval = std::max(interval, protect(scriptExecutionContext())->minimumDOMTimerInterval());
     if (m_throttleState == ShouldThrottle)
         interval = std::max(interval, minIntervalForNonUserObservableChangeTimers);
     return interval;

@@ -31,18 +31,26 @@
 #include "JSDOMPromiseDeferred.h"
 #include "JSWritableStream.h"
 #include "JSWritableStreamSink.h"
+#include "MessageChannel.h"
+#include "MessagePort.h"
+#include "ReadableStream.h"
+#include "Settings.h"
+#include "StreamPipeOptions.h"
+#include "StreamPipeToUtilities.h"
+#include "StreamTransferUtilities.h"
+#include <JavaScriptCore/CallFrameInlines.h>
 
 namespace WebCore {
 
-ExceptionOr<Ref<WritableStream>> WritableStream::create(JSC::JSGlobalObject& globalObject, std::optional<JSC::Strong<JSC::JSObject>>&& underlyingSink, std::optional<JSC::Strong<JSC::JSObject>>&& strategy)
+ExceptionOr<Ref<WritableStream>> WritableStream::create(JSC::JSGlobalObject& globalObject, JSC::Strong<JSC::JSObject>&& underlyingSink, JSC::Strong<JSC::JSObject>&& strategy)
 {
     JSC::JSValue underlyingSinkValue = JSC::jsUndefined();
     if (underlyingSink)
-        underlyingSinkValue = underlyingSink->get();
+        underlyingSinkValue = underlyingSink.get();
 
     JSC::JSValue strategyValue = JSC::jsUndefined();
     if (strategy)
-        strategyValue = strategy->get();
+        strategyValue = strategy.get();
 
     return create(globalObject, underlyingSinkValue, strategyValue);
 }
@@ -71,7 +79,7 @@ ExceptionOr<Ref<InternalWritableStream>> WritableStream::createInternalWritableS
 
 ExceptionOr<Ref<WritableStream>> WritableStream::create(JSC::JSGlobalObject& globalObject, JSC::JSValue underlyingSink, JSC::JSValue strategy)
 {
-    auto result = InternalWritableStream::createFromUnderlyingSink(*JSC::jsCast<JSDOMGlobalObject*>(&globalObject), underlyingSink, strategy);
+    auto result = InternalWritableStream::createFromUnderlyingSink(downcast<JSDOMGlobalObject>(globalObject), underlyingSink, strategy);
     if (result.hasException())
         return result.releaseException();
 
@@ -120,6 +128,43 @@ WritableStream::State WritableStream::state() const
     if (state == "closed"_s)
         return State::Closed;
     return State::Errored;
+}
+
+// https://streams.spec.whatwg.org/#ws-transfer
+bool WritableStream::canTransfer() const
+{
+    auto* globalObject = m_internalWritableStream->globalObject();
+    RefPtr context = globalObject ? globalObject->scriptExecutionContext() : nullptr;
+    return context && context->settingsValues().readableStreamTransferEnabled && !locked();
+}
+
+ExceptionOr<DetachedWritableStream> WritableStream::runTransferSteps(JSDOMGlobalObject& globalObject)
+{
+    ASSERT(canTransfer());
+
+    RefPtr context = globalObject.scriptExecutionContext();
+    Ref channel = MessageChannel::create(*context);
+    Ref port1 = channel->port1();
+    Ref port2 = channel->port2();
+
+    auto result = setupCrossRealmTransformReadable(globalObject, port1.get());
+    if (result.hasException()) {
+        port2->close();
+        return result.releaseException();
+    }
+    Ref readable = result.releaseReturnValue();
+
+    if (auto exception = readableStreamPipeTo(globalObject, readable, *this, { }, nullptr)) {
+        port2->close();
+        return WTF::move(*exception);
+    }
+
+    return DetachedWritableStream { WTF::move(port2) };
+}
+
+ExceptionOr<Ref<WritableStream>> WritableStream::runTransferReceivingSteps(JSDOMGlobalObject& globalObject, DetachedWritableStream&& detachedWritableStream)
+{
+    return setupCrossRealmTransformWritable(globalObject, detachedWritableStream.writableStreamPort.get());
 }
 
 JSC::JSValue JSWritableStream::abort(JSC::JSGlobalObject& globalObject, JSC::CallFrame& callFrame)

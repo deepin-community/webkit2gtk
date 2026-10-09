@@ -39,12 +39,15 @@
 #include "LayoutInitialContainingBlock.h"
 #include "LayoutTreeBuilder.h"
 #include "LegacyInlineTextBox.h"
+#include "LegacyRootInlineBox.h"
+#include "RenderBlockFlowInlines.h"
 #include "RenderBoxInlines.h"
 #include "RenderInline.h"
 #include "RenderLineBreak.h"
 #include "RenderTableCell.h"
 #include "RenderTableSection.h"
 #include "RenderView.h"
+#include "StylePrimitiveNumericTypes+Evaluation.h"
 #include <wtf/text/TextStream.h>
 
 namespace WebCore {
@@ -216,7 +219,7 @@ static bool outputMismatchingBlockBoxInformationIfNeeded(TextStream& stream, con
     };
 
     // rendering does not offset for relative positioned boxes.
-    auto frameRect = renderer.frameRect();
+    auto frameRect = renderer.borderBoxRectInContainer();
     if (renderer.isInFlowPositioned())
         frameRect.move(renderer.offsetForInFlowPosition());
 
@@ -238,11 +241,11 @@ static bool outputMismatchingBlockBoxInformationIfNeeded(TextStream& stream, con
         if (renderTableRow && renderTableRow->table()->collapseBorders())
             return false;
         // Section borders are either collapsed or ignored. However they may produce negative padding boxes.
-        if (renderTableSection && (renderTableSection->table()->collapseBorders() || renderer.style().hasBorder()))
+        if (renderTableSection && (renderTableSection->table()->collapseBorders() || renderer.style().border().hasBorder()))
             return false;
     }
     if (!areEssentiallyEqual(frameRect, BoxGeometry::borderBoxRect(boxGeometry))) {
-        outputRect("frameBox"_s, renderer.frameRect(), BoxGeometry::borderBoxRect(boxGeometry));
+        outputRect("frameBox"_s, renderer.borderBoxRectInContainer(), BoxGeometry::borderBoxRect(boxGeometry));
         return true;
     }
 
@@ -262,7 +265,7 @@ static bool outputMismatchingBlockBoxInformationIfNeeded(TextStream& stream, con
         if (!shouldCheckPaddingAndContentBox)
             return false;
         // FIXME: Figure out why trunk/rendering comes back with odd values for <tbody> and <td> content box.
-        if (is<RenderTableCell>(renderer) || is<RenderTableSection>(renderer))
+        if (isAnyOf<RenderTableCell, RenderTableSection>(renderer))
             return false;
         // Tables have 0 content box size for some reason when border collapsing is on.
         auto* renderTable = dynamicDowncast<RenderTable>(renderer);

@@ -40,18 +40,6 @@ enum class BleedAvoidance : uint8_t {
     BackgroundOverBorder
 };
 
-enum class ContentChangeType : uint8_t {
-    Image,
-    HDRImage,
-    MaskImage,
-    BackgroundImage,
-    Canvas,
-    CanvasPixels,
-    Video,
-    FullScreen,
-    Model
-};
-
 class BorderEdge;
 class BorderShape;
 class GraphicsContext;
@@ -59,12 +47,15 @@ class Image;
 class ImageBuffer;
 class RenderTextFragment;
 class StickyPositionViewportConstraints;
-class StyleImage;
 class TransformationMatrix;
 
 namespace InlineIterator {
 class InlineBoxIterator;
 };
+
+namespace Style {
+class Image;
+}
 
 enum class BoxSide : uint8_t;
 enum class DecodingMode : uint8_t;
@@ -75,7 +66,6 @@ using BorderEdges = RectEdges<BorderEdge>;
 
 // This class is the base for all objects that adhere to the CSS box model as described
 // at http://www.w3.org/TR/CSS21/box.html
-
 class RenderBoxModelObject : public RenderLayerModelObject {
     WTF_MAKE_TZONE_ALLOCATED(RenderBoxModelObject);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderBoxModelObject);
@@ -85,13 +75,13 @@ public:
     LayoutSize relativePositionOffset() const;
 
     FloatRect constrainingRectForStickyPosition() const;
-    std::pair<const RenderBox&, const RenderLayer*> enclosingClippingBoxForStickyPosition() const;
+    std::pair<const RenderBox&, const RenderLayer*> NODELETE enclosingClippingBoxForStickyPosition() const;
     void computeStickyPositionConstraints(StickyPositionViewportConstraints&, const FloatRect& constrainingRect) const;
     LayoutSize stickyPositionOffset() const;
 
     LayoutSize offsetForInFlowPosition() const;
 
-    // IE extensions. Used to calculate offsetWidth/Height.  Overridden by inlines (RenderFlow)
+    // IE extensions. Used to calculate offsetWidth/Height. Overridden by inlines (RenderFlow)
     // to return the remaining width on a given line (and the height of a single line).
     virtual LayoutUnit offsetLeft() const;
     virtual LayoutUnit offsetTop() const;
@@ -196,30 +186,38 @@ public:
 
     void setSelectionState(HighlightState) override;
 
-    bool canHaveBoxInfoInFragment() const { return !isFloating() && !isBlockLevelReplacedOrAtomicInline() && !isInline() && !isRenderTableCell() && isRenderBlock() && !isRenderSVGBlock(); }
-
-    void contentChanged(ContentChangeType, const std::optional<FloatRect>& = std::nullopt);
-    bool hasAcceleratedCompositing() const;
-
-    RenderBoxModelObject* continuation() const;
-    WEBCORE_EXPORT RenderInline* inlineContinuation() const;
-
-    static void forRendererAndContinuations(RenderBoxModelObject&, const std::function<void(RenderBoxModelObject&)>&);
-
-    void insertIntoContinuationChainAfter(RenderBoxModelObject&);
-    void removeFromContinuationChain();
-
     bool hasRunningAcceleratedAnimations() const;
 
-    void applyTransform(TransformationMatrix&, const RenderStyle&, const FloatRect& boundingBox, OptionSet<Style::TransformResolverOption>) const override;
+    void applyTransform(TransformationMatrix&, const Style::ComputedStyle&, const FloatRect& boundingBox, OptionSet<Style::TransformResolverOption>) const override;
+
+    bool NODELETE fixedBackgroundPaintsInLocalCoordinates() const;
+    InterpolationQuality chooseInterpolationQuality(GraphicsContext&, Image&, const void*, const LayoutSize&) const;
+    DecodingMode decodingModeForImageDraw(const Image&, const PaintInfo&) const;
+
+    void paintMaskForTextFillBox(GraphicsContext&, const FloatRect&, const InlineIterator::InlineBoxIterator&, const LayoutRect&);
+
+    // For RenderBlocks and RenderInlines with m_style->pseudoElementType() == PseudoElementType::FirstLetter, this tracks their remaining text fragments
+    RenderTextFragment* NODELETE firstLetterRemainingText() const;
+    void setFirstLetterRemainingText(RenderTextFragment&);
+    void clearFirstLetterRemainingText();
+
+    enum class ScaleByUsedZoom : bool { No, Yes };
+    LayoutSize calculateImageIntrinsicDimensions(Style::Image*, const LayoutSize& scaledPositioningAreaSize, ScaleByUsedZoom) const;
+
+    RenderBlock* containingBlockForAutoHeightDetection(const Style::PreferredSize& logicalHeight) const;
+    RenderBlock* containingBlockForAutoHeightDetection(const Style::MinimumSize& logicalHeight) const;
+    RenderBlock* containingBlockForAutoHeightDetection(const Style::MaximumSize& logicalHeight) const;
+
+    void removeOutOfFlowBoxesIfNeededOnStyleChange(RenderBlock& delegateBlock, const Style::ComputedStyle& oldStyle, const Style::ComputedStyle& newStyle);
+
 
 protected:
-    RenderBoxModelObject(Type, Element&, RenderStyle&&, OptionSet<TypeFlag>, TypeSpecificFlags);
-    RenderBoxModelObject(Type, Document&, RenderStyle&&, OptionSet<TypeFlag>, TypeSpecificFlags);
+    RenderBoxModelObject(Type, Element&, Style::ComputedStyle&&, OptionSet<TypeFlag>, TypeSpecificFlags);
+    RenderBoxModelObject(Type, Document&, Style::ComputedStyle&&, OptionSet<TypeFlag>, TypeSpecificFlags);
 
     void willBeDestroyed() override;
 
-    void styleWillChange(Style::Difference, const RenderStyle& newStyle) override;
+    void styleWillChange(Style::Difference, const Style::ComputedStyle& newStyle) override;
 
     LayoutPoint adjustedPositionRelativeToOffsetParent(const LayoutPoint&) const;
 
@@ -227,56 +225,19 @@ protected:
     bool borderObscuresBackgroundEdge(const FloatSize& contextScale) const;
     bool borderObscuresBackground() const;
 
-public:
-    bool fixedBackgroundPaintsInLocalCoordinates() const;
-    InterpolationQuality chooseInterpolationQuality(GraphicsContext&, Image&, const void*, const LayoutSize&) const;
-    DecodingMode decodingModeForImageDraw(const Image&, const PaintInfo&) const;
-
-    void paintMaskForTextFillBox(GraphicsContext&, const FloatRect&, const InlineIterator::InlineBoxIterator&, const LayoutRect&);
-
-    // For RenderBlocks and RenderInlines with m_style->pseudoElementType() == PseudoElementType::FirstLetter, this tracks their remaining text fragments
-    RenderTextFragment* firstLetterRemainingText() const;
-    void setFirstLetterRemainingText(RenderTextFragment&);
-    void clearFirstLetterRemainingText();
-
-    enum class ScaleByUsedZoom : bool { No, Yes };
-    LayoutSize calculateImageIntrinsicDimensions(StyleImage*, const LayoutSize& scaledPositioningAreaSize, ScaleByUsedZoom) const;
-
-    RenderBlock* containingBlockForAutoHeightDetection(const Style::PreferredSize& logicalHeight) const;
-    RenderBlock* containingBlockForAutoHeightDetection(const Style::MinimumSize& logicalHeight) const;
-    RenderBlock* containingBlockForAutoHeightDetection(const Style::MaximumSize& logicalHeight) const;
-
-    void removeOutOfFlowBoxesIfNeededOnStyleChange(RenderBlock& delegateBlock, const RenderStyle& oldStyle, const RenderStyle& newStyle);
-
-    struct ContinuationChainNode {
-        WTF_DEPRECATED_MAKE_STRUCT_FAST_ALLOCATED(ContinuationChainNode);
-
-        SingleThreadWeakPtr<RenderBoxModelObject> renderer;
-        ContinuationChainNode* previous { nullptr };
-        ContinuationChainNode* next { nullptr };
-
-        ContinuationChainNode(RenderBoxModelObject&);
-        ~ContinuationChainNode();
-
-        void insertAfter(ContinuationChainNode&);
-    };
-
-    ContinuationChainNode* continuationChainNode() const;
-
-protected:
     LayoutUnit resolveLengthPercentageUsingContainerLogicalWidth(const auto&) const;
     LayoutUnit resolveLengthPercentageUsingContainerLogicalWidth(const auto&, const Style::ZoomFactor&) const;
 
-    virtual void absoluteQuadsIgnoringContinuation(const FloatRect&, Vector<FloatQuad>&, bool* /*wasFixed*/) const { ASSERT_NOT_REACHED(); }
-    void collectAbsoluteQuadsForContinuation(Vector<FloatQuad>& quads, bool* wasFixed) const;
-
 private:
-    ContinuationChainNode& ensureContinuationChainNode();
-
     virtual LayoutRect frameRectForStickyPositioning() const = 0;
 
     RenderBlock* containingBlockForAutoHeightDetectionGeneric(const auto& logicalHeight) const;
 };
+
+WEBCORE_EXPORT LayoutUnit borderLeft(const RenderBoxModelObject&);
+WEBCORE_EXPORT LayoutUnit borderTop(const RenderBoxModelObject&);
+WEBCORE_EXPORT LayoutUnit paddingLeft(const RenderBoxModelObject&);
+WEBCORE_EXPORT LayoutUnit paddingTop(const RenderBoxModelObject&);
 
 } // namespace WebCore
 

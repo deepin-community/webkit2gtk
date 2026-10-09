@@ -33,6 +33,7 @@
 #include "DOMJITHelpers.h"
 #include "JSDOMWrapper.h"
 #include "Node.h"
+#include <JavaScriptCore/DOMJITCallDOMGetterSnippet.h>
 #include <JavaScriptCore/FrameTracers.h>
 #include <JavaScriptCore/Snippet.h>
 #include <JavaScriptCore/SnippetParams.h>
@@ -85,14 +86,16 @@ static Ref<JSC::DOMJIT::CallDOMGetterSnippet> createCallDOMGetterForOffsetAccess
 
 Ref<JSC::DOMJIT::CallDOMGetterSnippet> compileNodeFirstChildAttribute()
 {
-    auto snippet = createCallDOMGetterForOffsetAccess<Node>(CAST_OFFSET(Node*, ContainerNode*) + ContainerNode::firstChildMemoryOffset(), DOMJIT::operationToJSNode, IsContainerGuardRequirement::Required);
+    SUPPRESS_MEMORY_UNSAFE_CAST auto containerNodeOffset = CAST_OFFSET(Node*, ContainerNode*);
+    auto snippet = createCallDOMGetterForOffsetAccess<Node>(containerNodeOffset + ContainerNode::firstChildMemoryOffset(), DOMJIT::operationToJSNode, IsContainerGuardRequirement::Required);
     snippet->effect = JSC::DOMJIT::Effect::forDef(DOMJIT::AbstractHeapRepository::Node_firstChild);
     return snippet;
 }
 
 Ref<JSC::DOMJIT::CallDOMGetterSnippet> compileNodeLastChildAttribute()
 {
-    auto snippet = createCallDOMGetterForOffsetAccess<Node>(CAST_OFFSET(Node*, ContainerNode*) + ContainerNode::lastChildMemoryOffset(), DOMJIT::operationToJSNode, IsContainerGuardRequirement::Required);
+    SUPPRESS_MEMORY_UNSAFE_CAST auto containerNodeOffset = CAST_OFFSET(Node*, ContainerNode*);
+    auto snippet = createCallDOMGetterForOffsetAccess<Node>(containerNodeOffset + ContainerNode::lastChildMemoryOffset(), DOMJIT::operationToJSNode, IsContainerGuardRequirement::Required);
     snippet->effect = JSC::DOMJIT::Effect::forDef(DOMJIT::AbstractHeapRepository::Node_lastChild);
     return snippet;
 }
@@ -150,8 +153,8 @@ Ref<JSC::DOMJIT::CallDOMGetterSnippet> compileNodeOwnerDocumentAttribute()
         static_assert(!JSNode::hasCustomPtrTraits(), "Optimized JSNode wrapper access should not be using RawPtrTraits");
         
         DOMJIT::loadDocument(jit, wrapped, document);
-        RELEASE_ASSERT(!CAST_OFFSET(EventTarget*, Node*));
-        RELEASE_ASSERT(!CAST_OFFSET(Node*, Document*));
+        RELEASE_ASSERT_NOT_CAST_OFFSET(EventTarget*, Node*);
+        RELEASE_ASSERT_NOT_CAST_OFFSET(Node*, Document*);
 
         CCallHelpers::JumpList nullCases;
         // If the |this| is the document itself, ownerDocument will return null.

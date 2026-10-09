@@ -41,15 +41,20 @@ public:
 
     void notifyDecodingResult(RefPtr<WebCore::VideoFrame>&&, int64_t timestamp);
 
-    void close() { m_isClosed = true; }
-    void addDuration(int64_t timestamp, uint64_t duration) { m_timestampToDuration.insert_or_assign(timestamp, duration); }
+    void NODELETE close() { m_isClosed = true; }
+    void addDuration(int64_t timestamp, uint64_t duration)
+    {
+        Locker locker { m_timestampToDurationLock };
+        m_timestampToDuration.insert_or_assign(timestamp, duration);
+    }
 
 private:
     explicit RemoteVideoDecoderCallbacks(WebCore::VideoDecoder::OutputCallback&&);
 
     WebCore::VideoDecoder::OutputCallback m_outputCallback;
-    bool m_isClosed { false };
-    StdUnorderedMap<int64_t, uint64_t> m_timestampToDuration;
+    std::atomic<bool> m_isClosed { false };
+    Lock m_timestampToDurationLock;
+    StdUnorderedMap<int64_t, uint64_t> m_timestampToDuration WTF_GUARDED_BY_LOCK(m_timestampToDurationLock);
 };
 
 class RemoteVideoDecoder : public WebCore::VideoDecoder {
@@ -77,14 +82,14 @@ public:
     void notifyEncodedChunk(Vector<uint8_t>&&, bool isKeyFrame, int64_t timestamp, std::optional<uint64_t> duration, std::optional<unsigned> temporalIndex);
     void notifyEncoderDescription(WebCore::VideoEncoderActiveConfiguration&&);
 
-    void close() { m_isClosed = true; }
+    void NODELETE close() { m_isClosed = true; }
 
 private:
     RemoteVideoEncoderCallbacks(WebCore::VideoEncoder::DescriptionCallback&&, WebCore::VideoEncoder::OutputCallback&&);
 
     WebCore::VideoEncoder::DescriptionCallback m_descriptionCallback;
     WebCore::VideoEncoder::OutputCallback m_outputCallback;
-    bool m_isClosed { false };
+    std::atomic<bool> m_isClosed { false };
 };
 
 class RemoteVideoEncoder : public WebCore::VideoEncoder {
@@ -119,7 +124,7 @@ RemoteVideoCodecFactory::RemoteVideoCodecFactory(WebProcess& process)
 
 RemoteVideoCodecFactory::~RemoteVideoCodecFactory() = default;
 
-static bool shouldUseLocalDecoder(std::optional<WebCore::VideoCodecType> type, const WebCore::VideoDecoder::Config& config)
+static bool NODELETE shouldUseLocalDecoder(std::optional<WebCore::VideoCodecType> type, const WebCore::VideoDecoder::Config& config)
 {
     if (!type)
         return true;
@@ -142,13 +147,14 @@ void RemoteVideoCodecFactory::createDecoder(const String& codec, const WebCore::
         WebCore::VideoDecoder::createLocalDecoder(codec, config, WTF::move(createCallback), WTF::move(outputCallback));
         return;
     }
-    libWebRTCCodecs->createDecoderAndWaitUntilReady(*type, codec, [width = config.width, height = config.height, description = Vector<uint8_t> { config.description }, createCallback = WTF::move(createCallback), outputCallback = WTF::move(outputCallback)](auto* internalDecoder) mutable {
+    auto colorSpace = config.colorSpace;
+    libWebRTCCodecs->createDecoderAndWaitUntilReady(*type, codec, WTF::move(colorSpace), [width = config.width, height = config.height, description = Vector<uint8_t> { config.description }, createCallback = WTF::move(createCallback), outputCallback = WTF::move(outputCallback)](auto* internalDecoder) mutable {
         if (!internalDecoder) {
             createCallback(makeUnexpected("Decoder creation failed"_s));
             return;
         }
         if (description.size())
-            WebProcess::singleton().protectedLibWebRTCCodecs()->setDecoderFormatDescription(*internalDecoder, description.span(), width, height);
+            protect(WebProcess::singleton().libWebRTCCodecs())->setDecoderFormatDescription(*internalDecoder, description.span(), width, height);
 
         auto callbacks = RemoteVideoDecoderCallbacks::create(WTF::move(outputCallback));
         createCallback(RemoteVideoDecoder::create(*internalDecoder, callbacks.copyRef()));
@@ -159,7 +165,7 @@ void RemoteVideoCodecFactory::createEncoder(const String& codec, const WebCore::
 {
     LibWebRTCCodecs::initializeIfNeeded();
 
-    auto type = WebProcess::singleton().protectedLibWebRTCCodecs()->videoEncoderTypeFromWebCodec(codec);
+    auto type = protect(WebProcess::singleton().libWebRTCCodecs())->videoEncoderTypeFromWebCodec(codec);
     if (!type) {
         WebCore::VideoEncoder::createLocalEncoder(codec, config, WTF::move(createCallback), WTF::move(descriptionCallback), WTF::move(outputCallback));
         return;
@@ -173,7 +179,7 @@ void RemoteVideoCodecFactory::createEncoder(const String& codec, const WebCore::
         }
     }
 
-    WebProcess::singleton().protectedLibWebRTCCodecs()->createEncoderAndWaitUntilInitialized(*type, codec, parameters, config, [createCallback = WTF::move(createCallback), descriptionCallback = WTF::move(descriptionCallback), outputCallback = WTF::move(outputCallback)](auto* internalEncoder) mutable {
+    protect(WebProcess::singleton().libWebRTCCodecs())->createEncoderAndWaitUntilInitialized(*type, codec, parameters, config, [createCallback = WTF::move(createCallback), descriptionCallback = WTF::move(descriptionCallback), outputCallback = WTF::move(outputCallback)](auto* internalEncoder) mutable {
         if (!internalEncoder) {
             createCallback(makeUnexpected("Encoder creation failed"_s));
             return;
@@ -189,14 +195,14 @@ RemoteVideoDecoder::RemoteVideoDecoder(LibWebRTCCodecs::Decoder& decoder, Ref<Re
     : m_internalDecoder(decoder)
     , m_callbacks(WTF::move(callbacks))
 {
-    WebProcess::singleton().protectedLibWebRTCCodecs()->registerDecodedVideoFrameCallback(m_internalDecoder, [callbacks = m_callbacks](RefPtr<WebCore::VideoFrame>&& videoFrame, auto timestamp) {
+    protect(WebProcess::singleton().libWebRTCCodecs())->registerDecodedVideoFrameCallback(m_internalDecoder, [callbacks = m_callbacks](RefPtr<WebCore::VideoFrame>&& videoFrame, auto timestamp) {
         callbacks->notifyDecodingResult(WTF::move(videoFrame), timestamp);
     });
 }
 
 RemoteVideoDecoder::~RemoteVideoDecoder()
 {
-    WebProcess::singleton().protectedLibWebRTCCodecs()->releaseDecoder(m_internalDecoder);
+    protect(WebProcess::singleton().libWebRTCCodecs())->releaseDecoder(m_internalDecoder);
 }
 
 Ref<RemoteVideoDecoder::DecodePromise> RemoteVideoDecoder::decode(EncodedFrame&& frame)
@@ -210,7 +216,7 @@ Ref<RemoteVideoDecoder::DecodePromise> RemoteVideoDecoder::decode(EncodedFrame&&
 
 Ref<GenericPromise> RemoteVideoDecoder::flush()
 {
-    return WebProcess::singleton().protectedLibWebRTCCodecs()->flushDecoder(m_internalDecoder);
+    return protect(WebProcess::singleton().libWebRTCCodecs())->flushDecoder(m_internalDecoder);
 }
 
 void RemoteVideoDecoder::reset()
@@ -238,10 +244,13 @@ void RemoteVideoDecoderCallbacks::notifyDecodingResult(RefPtr<WebCore::VideoFram
         return;
     }
     uint64_t duration = 0;
-    auto iterator = m_timestampToDuration.find(timestamp);
-    if (iterator != m_timestampToDuration.end()) {
-        duration = iterator->second;
-        m_timestampToDuration.erase(iterator);
+    {
+        Locker locker { m_timestampToDurationLock };
+        auto iterator = m_timestampToDuration.find(timestamp);
+        if (iterator != m_timestampToDuration.end()) {
+            duration = iterator->second;
+            m_timestampToDuration.erase(iterator);
+        }
     }
     m_outputCallback(WebCore::VideoDecoder::DecodedFrame { frame.releaseNonNull(), static_cast<int64_t>(timestamp), duration });
 }
@@ -263,7 +272,7 @@ RemoteVideoEncoder::RemoteVideoEncoder(LibWebRTCCodecs::Encoder& encoder, Ref<Re
 
 RemoteVideoEncoder::~RemoteVideoEncoder()
 {
-    WebProcess::singleton().protectedLibWebRTCCodecs()->releaseEncoder(m_internalEncoder);
+    protect(WebProcess::singleton().libWebRTCCodecs())->releaseEncoder(m_internalEncoder);
 }
 
 Ref<RemoteVideoEncoder::EncodePromise> RemoteVideoEncoder::encode(RawFrame&& rawFrame, bool shouldGenerateKeyFrame)
@@ -275,12 +284,14 @@ Ref<RemoteVideoEncoder::EncodePromise> RemoteVideoEncoder::encode(RawFrame&& raw
 Ref<GenericPromise> RemoteVideoEncoder::setRates(uint64_t bitRate, double frameRate)
 {
     auto bitRateInKbps = bitRate / 1000;
-    return WebProcess::singleton().protectedLibWebRTCCodecs()->setEncodeRates(m_internalEncoder, bitRateInKbps, frameRate);
+    RefPtr promise = protect(WebProcess::singleton().libWebRTCCodecs())->setEncodeRates(m_internalEncoder, bitRateInKbps, frameRate);
+    ASSERT(promise);
+    return promise ? promise.releaseNonNull() : GenericPromise::createAndResolve();
 }
 
 Ref<GenericPromise> RemoteVideoEncoder::flush()
 {
-    return WebProcess::singleton().protectedLibWebRTCCodecs()->flushEncoder(m_internalEncoder);
+    return protect(WebProcess::singleton().libWebRTCCodecs())->flushEncoder(m_internalEncoder);
 }
 
 void RemoteVideoEncoder::reset()

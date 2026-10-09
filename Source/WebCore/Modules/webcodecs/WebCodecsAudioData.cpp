@@ -73,32 +73,32 @@ WebCodecsAudioData::~WebCodecsAudioData() = default;
 
 std::optional<AudioSampleFormat> WebCodecsAudioData::format() const
 {
-    return m_data.audioData ? std::make_optional(m_data.audioData->format()) : std::nullopt;
+    return m_data.audioData ? std::make_optional(protect(m_data.audioData)->format()) : std::nullopt;
 }
 
 float WebCodecsAudioData::sampleRate() const
 {
-    return m_data.audioData ? m_data.audioData->sampleRate() : 0;
+    return m_data.audioData ? protect(m_data.audioData)->sampleRate() : 0;
 }
 
 size_t WebCodecsAudioData::numberOfFrames() const
 {
-    return m_data.audioData ? m_data.audioData->numberOfFrames() : 0;
+    return m_data.audioData ? protect(m_data.audioData)->numberOfFrames() : 0;
 }
 
 size_t WebCodecsAudioData::numberOfChannels() const
 {
-    return m_data.audioData ? m_data.audioData->numberOfChannels() : 0;
+    return m_data.audioData ? protect(m_data.audioData)->numberOfChannels() : 0;
 }
 
 std::optional<uint64_t> WebCodecsAudioData::duration()
 {
-    return m_data.audioData ? m_data.audioData->duration() : std::nullopt;
+    return m_data.audioData ? protect(m_data.audioData)->duration() : std::nullopt;
 }
 
 int64_t WebCodecsAudioData::timestamp() const
 {
-    return m_data.audioData ? m_data.audioData->timestamp() : 0;
+    return m_data.audioData ? protect(m_data.audioData)->timestamp() : 0;
 }
 
 // https://www.w3.org/TR/webcodecs/#dom-audiodata-allocationsize
@@ -133,10 +133,10 @@ ExceptionOr<void> WebCodecsAudioData::copyTo(BufferSource&& source, CopyToOption
     if (!WTF::safeMultiply(maxCopyElementCount, bytesPerSample, allocationSize))
         return Exception { ExceptionCode::RangeError, "Calculated destination buffer size overflows"_s };
 
-    if (allocationSize > source.length())
+    if (allocationSize > source.byteLength())
         return Exception { ExceptionCode::RangeError, "Buffer is too small"_s };
 
-    m_data.audioData->copyTo(source.mutableSpan(), destFormat, options.planeIndex, options.frameOffset, options.frameCount, maxCopyElementCount);
+    protect(m_data.audioData)->copyTo(source.mutableSpan(), destFormat, options.planeIndex, options.frameOffset, options.frameCount, maxCopyElementCount);
     return { };
 }
 

@@ -328,7 +328,7 @@ void testLoadZeroExtendIndexAddress()
 
         auto code = compileProc(proc);
         if (isARM64()) {
-            std::string regex(amount == 2 ? ".*ldr.*uxtw#2.*" : ".*ldr.*[.*,.*].*");
+            std::string regex(amount == 2 ? ".*ldr.*uxtw #0x2.*" : ".*ldr.*[.*,.*].*");
             checkUsesInstruction(*code, regex.c_str(), true);
         }
         intptr_t addr = std::bit_cast<intptr_t>(&num);
@@ -361,7 +361,7 @@ void testLoadZeroExtendIndexAddress()
 
         auto code = compileProc(proc);
         if (isARM64()) {
-            std::string regex(amount == 3 ? ".*ldr.*uxtw#3.*" : ".*ldr.*[.*,.*].*");
+            std::string regex(amount == 3 ? ".*ldr.*uxtw #0x3.*" : ".*ldr.*[.*,.*].*");
             checkUsesInstruction(*code, regex.c_str(), true);
         }
         intptr_t addr = std::bit_cast<intptr_t>(&num);
@@ -401,7 +401,7 @@ void testLoadSignExtendIndexAddress()
 
         auto code = compileProc(proc);
         if (isARM64()) {
-            std::string regex(amount == 2 ? ".*ldr.*sxtw#2.*" : ".*ldr.*[.*,.*].*");
+            std::string regex(amount == 2 ? ".*ldr.*sxtw #0x2.*" : ".*ldr.*[.*,.*].*");
             checkUsesInstruction(*code, regex.c_str(), true);
         }
         intptr_t addr = std::bit_cast<intptr_t>(&num);
@@ -435,7 +435,7 @@ void testLoadSignExtendIndexAddress()
 
         auto code = compileProc(proc);
         if (isARM64()) {
-            std::string regex(amount == 3 ? ".*ldr.*sxtw#3.*" : ".*ldr.*[.*,.*].*");
+            std::string regex(amount == 3 ? ".*ldr.*sxtw #0x3.*" : ".*ldr.*[.*,.*].*");
             checkUsesInstruction(*code, regex.c_str(), true);
         }
         intptr_t addr = std::bit_cast<intptr_t>(&num);
@@ -476,7 +476,7 @@ void testStoreZeroExtendIndexAddress()
 
         auto code = compileProc(proc);
         if (isARM64()) {
-            std::string regex(amount == 2 ? ".*str.*uxtw#2.*" : ".*str.*[.*,.*].*");
+            std::string regex(amount == 2 ? ".*str.*uxtw #0x2.*" : ".*str.*[.*,.*].*");
             checkUsesInstruction(*code, regex.c_str(), true);
         }
         int32_t slot = 12341234;
@@ -511,7 +511,7 @@ void testStoreZeroExtendIndexAddress()
 
         auto code = compileProc(proc);
         if (isARM64() && amount == 3) {
-            std::string regex(amount == 3 ? ".*str.*uxtw#3.*" : ".*str.*[.*,.*].*");
+            std::string regex(amount == 3 ? ".*str.*uxtw #0x3.*" : ".*str.*[.*,.*].*");
             checkUsesInstruction(*code, regex.c_str(), true);
         }
         int64_t slot = 12341234;
@@ -554,7 +554,7 @@ void testStoreSignExtendIndexAddress()
 
         auto code = compileProc(proc);
         if (isARM64()) {
-            std::string regex(amount == 2 ? ".*str.*sxtw#2.*" : ".*str.*[.*,.*].*");
+            std::string regex(amount == 2 ? ".*str.*sxtw #0x2.*" : ".*str.*[.*,.*].*");
             checkUsesInstruction(*code, regex.c_str(), true);
         }
         int32_t slot = 12341234;
@@ -589,7 +589,7 @@ void testStoreSignExtendIndexAddress()
 
         auto code = compileProc(proc);
         if (isARM64()) {
-            std::string regex(amount == 3 ? ".*str.*sxtw#3.*" : ".*str.*[.*,.*].*");
+            std::string regex(amount == 3 ? ".*str.*sxtw #0x3.*" : ".*str.*[.*,.*].*");
             checkUsesInstruction(*code, regex.c_str(), true);
         }
         int64_t slot = 12341234;
@@ -2134,6 +2134,207 @@ void testMulNegArgsFloat()
     }
 }
 
+void testMulDoubleByTwo(double a)
+{
+    Procedure proc;
+    BasicBlock* root = proc.addBlock();
+    auto arguments = cCallArgumentValues<double>(proc, root);
+
+    Value* value = arguments[0];
+    Value* two = root->appendNew<ConstDoubleValue>(proc, Origin(), 2.0);
+    root->appendNewControlValue(
+        proc, Return, Origin(),
+        root->appendNew<Value>(proc, Mul, Origin(), value, two));
+
+    CHECK(isIdentical(compileAndRun<double>(proc, a), a * 2.0));
+}
+
+void testMulFloatByTwo(float a)
+{
+    Procedure proc;
+    BasicBlock* root = proc.addBlock();
+    auto arguments = cCallArgumentValues<int32_t>(proc, root);
+
+    Value* argument32 = arguments[0];
+    Value* floatValue = root->appendNew<Value>(proc, BitwiseCast, Origin(), argument32);
+    Value* two = root->appendNew<ConstFloatValue>(proc, Origin(), 2.0f);
+    Value* result = root->appendNew<Value>(proc, Mul, Origin(), floatValue, two);
+    Value* result32 = root->appendNew<Value>(proc, BitwiseCast, Origin(), result);
+    root->appendNewControlValue(proc, Return, Origin(), result32);
+
+    CHECK(isIdentical(compileAndRun<int32_t>(proc, std::bit_cast<int32_t>(a)), std::bit_cast<int32_t>(a * 2.0f)));
+}
+
+void testMulDoubleByNegOne(double a)
+{
+    Procedure proc;
+    BasicBlock* root = proc.addBlock();
+    auto arguments = cCallArgumentValues<double>(proc, root);
+
+    Value* value = arguments[0];
+    Value* negOne = root->appendNew<ConstDoubleValue>(proc, Origin(), -1.0);
+    root->appendNewControlValue(
+        proc, Return, Origin(),
+        root->appendNew<Value>(proc, Mul, Origin(), value, negOne));
+
+    double expected = a * -1.0;
+    double actual = compileAndRun<double>(proc, a);
+    if (std::isnan(expected))
+        CHECK(std::isnan(actual));
+    else
+        CHECK(isIdentical(actual, expected));
+}
+
+void testMulFloatByNegOne(float a)
+{
+    Procedure proc;
+    BasicBlock* root = proc.addBlock();
+    auto arguments = cCallArgumentValues<int32_t>(proc, root);
+
+    Value* argument32 = arguments[0];
+    Value* floatValue = root->appendNew<Value>(proc, BitwiseCast, Origin(), argument32);
+    Value* negOne = root->appendNew<ConstFloatValue>(proc, Origin(), -1.0f);
+    Value* result = root->appendNew<Value>(proc, Mul, Origin(), floatValue, negOne);
+    Value* result32 = root->appendNew<Value>(proc, BitwiseCast, Origin(), result);
+    root->appendNewControlValue(proc, Return, Origin(), result32);
+
+    float expected = a * -1.0f;
+    float actual = std::bit_cast<float>(compileAndRun<int32_t>(proc, std::bit_cast<int32_t>(a)));
+    if (std::isnan(expected))
+        CHECK(std::isnan(actual));
+    else
+        CHECK(isIdentical(actual, expected));
+}
+
+void testMulDoubleByNegTwo(double a)
+{
+    Procedure proc;
+    BasicBlock* root = proc.addBlock();
+    auto arguments = cCallArgumentValues<double>(proc, root);
+
+    Value* value = arguments[0];
+    Value* negTwo = root->appendNew<ConstDoubleValue>(proc, Origin(), -2.0);
+    root->appendNewControlValue(
+        proc, Return, Origin(),
+        root->appendNew<Value>(proc, Mul, Origin(), value, negTwo));
+
+    double expected = a * -2.0;
+    double actual = compileAndRun<double>(proc, a);
+    if (std::isnan(expected))
+        CHECK(std::isnan(actual));
+    else
+        CHECK(isIdentical(actual, expected));
+}
+
+void testMulFloatByNegTwo(float a)
+{
+    Procedure proc;
+    BasicBlock* root = proc.addBlock();
+    auto arguments = cCallArgumentValues<int32_t>(proc, root);
+
+    Value* argument32 = arguments[0];
+    Value* floatValue = root->appendNew<Value>(proc, BitwiseCast, Origin(), argument32);
+    Value* negTwo = root->appendNew<ConstFloatValue>(proc, Origin(), -2.0f);
+    Value* result = root->appendNew<Value>(proc, Mul, Origin(), floatValue, negTwo);
+    Value* result32 = root->appendNew<Value>(proc, BitwiseCast, Origin(), result);
+    root->appendNewControlValue(proc, Return, Origin(), result32);
+
+    float expected = a * -2.0f;
+    float actual = std::bit_cast<float>(compileAndRun<int32_t>(proc, std::bit_cast<int32_t>(a)));
+    if (std::isnan(expected))
+        CHECK(std::isnan(actual));
+    else
+        CHECK(isIdentical(actual, expected));
+}
+
+void testDivDoubleByNegOne(double a)
+{
+    Procedure proc;
+    BasicBlock* root = proc.addBlock();
+    auto arguments = cCallArgumentValues<double>(proc, root);
+
+    Value* value = arguments[0];
+    Value* negOne = root->appendNew<ConstDoubleValue>(proc, Origin(), -1.0);
+    root->appendNewControlValue(
+        proc, Return, Origin(),
+        root->appendNew<Value>(proc, Div, Origin(), value, negOne));
+
+    double expected = a / -1.0;
+    double actual = compileAndRun<double>(proc, a);
+    if (std::isnan(expected))
+        CHECK(std::isnan(actual));
+    else
+        CHECK(isIdentical(actual, expected));
+}
+
+void testDivFloatByNegOne(float a)
+{
+    Procedure proc;
+    BasicBlock* root = proc.addBlock();
+    auto arguments = cCallArgumentValues<int32_t>(proc, root);
+
+    Value* argument32 = arguments[0];
+    Value* floatValue = root->appendNew<Value>(proc, BitwiseCast, Origin(), argument32);
+    Value* negOne = root->appendNew<ConstFloatValue>(proc, Origin(), -1.0f);
+    Value* result = root->appendNew<Value>(proc, Div, Origin(), floatValue, negOne);
+    Value* result32 = root->appendNew<Value>(proc, BitwiseCast, Origin(), result);
+    root->appendNewControlValue(proc, Return, Origin(), result32);
+
+    float expected = a / -1.0f;
+    float actual = std::bit_cast<float>(compileAndRun<int32_t>(proc, std::bit_cast<int32_t>(a)));
+    if (std::isnan(expected))
+        CHECK(std::isnan(actual));
+    else
+        CHECK(isIdentical(actual, expected));
+}
+
+void testDivDoubleByPowerOfTwo(double a)
+{
+    double divisors[] = { 2.0, 4.0, 0.5, -2.0, -4.0 };
+    for (double divisor : divisors) {
+        Procedure proc;
+        BasicBlock* root = proc.addBlock();
+        auto arguments = cCallArgumentValues<double>(proc, root);
+
+        Value* value = arguments[0];
+        Value* divisorValue = root->appendNew<ConstDoubleValue>(proc, Origin(), divisor);
+        root->appendNewControlValue(
+            proc, Return, Origin(),
+            root->appendNew<Value>(proc, Div, Origin(), value, divisorValue));
+
+        double expected = a / divisor;
+        double actual = compileAndRun<double>(proc, a);
+        if (std::isnan(expected))
+            CHECK(std::isnan(actual));
+        else
+            CHECK(isIdentical(actual, expected));
+    }
+}
+
+void testDivFloatByPowerOfTwo(float a)
+{
+    float divisors[] = { 2.0f, 4.0f, 0.5f, -2.0f, -4.0f };
+    for (float divisor : divisors) {
+        Procedure proc;
+        BasicBlock* root = proc.addBlock();
+        auto arguments = cCallArgumentValues<int32_t>(proc, root);
+
+        Value* argument32 = arguments[0];
+        Value* floatValue = root->appendNew<Value>(proc, BitwiseCast, Origin(), argument32);
+        Value* divisorValue = root->appendNew<ConstFloatValue>(proc, Origin(), divisor);
+        Value* result = root->appendNew<Value>(proc, Div, Origin(), floatValue, divisorValue);
+        Value* result32 = root->appendNew<Value>(proc, BitwiseCast, Origin(), result);
+        root->appendNewControlValue(proc, Return, Origin(), result32);
+
+        float expected = a / divisor;
+        float actual = std::bit_cast<float>(compileAndRun<int32_t>(proc, std::bit_cast<int32_t>(a)));
+        if (std::isnan(expected))
+            CHECK(std::isnan(actual));
+        else
+            CHECK(isIdentical(actual, expected));
+    }
+}
+
 void testDivArgDouble(double a)
 {
     Procedure proc;
@@ -2751,6 +2952,53 @@ void testUDivByConstantInt32EdgeCases(uint32_t a)
         testDivisor(0x80000000U); // Should return 1
         testDivisor(0x7FFFFFFFU); // Should return 2
     }
+}
+
+void testUDivByConstantInt32With33BitMagic(uint32_t a)
+{
+    // Test divisors that trigger the 33-bit magic constant path (magic.add == true).
+    // On 64-bit targets, this exercises the UMulHigh64 optimization from
+    // Mitsunari & Hoshino (2026) where a single umulh/mulq replaces the
+    // 5-operation round-down algorithm.
+    auto testDivisor = [&](uint32_t divisor) {
+        Procedure proc;
+        BasicBlock* root = proc.addBlock();
+        auto arguments = cCallArgumentValues<uint32_t>(proc, root);
+
+        Value* argument1 = arguments[0];
+        Value* result = root->appendNew<Value>(
+            proc, UDiv, Origin(), argument1,
+            root->appendNew<Const32Value>(proc, Origin(), divisor));
+        root->appendNew<Value>(proc, Return, Origin(), result);
+
+        CHECK_EQ(compileAndRun<uint32_t>(proc, a), a / divisor);
+    };
+
+    // Odd divisors known to trigger magic.add == true (33-bit magic constant)
+    testDivisor(7);
+    testDivisor(19);
+    testDivisor(23);
+    testDivisor(37);
+    testDivisor(41);
+    testDivisor(43);
+    testDivisor(47);
+    testDivisor(53);
+    testDivisor(59);
+    testDivisor(61);
+    testDivisor(67);
+    testDivisor(71);
+    testDivisor(79);
+    testDivisor(83);
+    testDivisor(89);
+    testDivisor(97);
+    testDivisor(107);
+    testDivisor(109);
+    testDivisor(113);
+
+    // Larger odd divisors that trigger the add path
+    testDivisor(1000000007U);
+    testDivisor(0xFFFFFFFBU);
+    testDivisor(0xFFFFFFFDU);
 }
 
 void testSubArg(int64_t a)
@@ -3447,10 +3695,10 @@ void testTernarySubInstructionSelection(B3::Opcode valueModifier, Type valueType
     unsigned numberOfSubInstructions = 0;
     for (auto instruction : *block) {
         if (instruction.kind.opcode == expectedOpcode) {
-            CHECK_EQ(instruction.args.size(), 3ul);
-            CHECK_EQ(instruction.args[0].kind(), Air::Arg::Tmp);
-            CHECK_EQ(instruction.args[1].kind(), Air::Arg::Tmp);
-            CHECK_EQ(instruction.args[2].kind(), Air::Arg::Tmp);
+            CHECK_EQ(instruction.args().size(), 3ul);
+            CHECK_EQ(instruction.args()[0].kind(), Air::Arg::Tmp);
+            CHECK_EQ(instruction.args()[1].kind(), Air::Arg::Tmp);
+            CHECK_EQ(instruction.args()[2].kind(), Air::Arg::Tmp);
             numberOfSubInstructions++;
         }
     }
@@ -3687,6 +3935,94 @@ void testUbfx64AndShift()
         uint64_t mask = generateMask(widths.at(i));
         CHECK_EQ(test(lsb, mask), (mask & (src >> lsb)));
     }
+}
+
+void testUbfx32ArithmeticShiftAnd()
+{
+    // Test Pattern: (src >> lsb) & mask with arithmetic shift.
+    if (JSC::Options::defaultB3OptLevel() < 2)
+        return;
+    Vector<int32_t> srcs = { 0, 1, -1, 0x76543210, static_cast<int32_t>(0xfedcba98) };
+    Vector<uint32_t> lsbs = { 1, 8, 14, 30 };
+    Vector<uint32_t> widths = { 30, 8, 17, 1 };
+
+    auto test = [&] (uint32_t lsb, uint32_t mask, bool expectUbfx) {
+        Procedure proc;
+        BasicBlock* root = proc.addBlock();
+        auto arguments = cCallArgumentValues<int32_t>(proc, root);
+
+        Value* srcValue = arguments[0];
+        Value* lsbValue = root->appendNew<Const32Value>(proc, Origin(), lsb);
+        Value* maskValue = root->appendNew<Const32Value>(proc, Origin(), mask);
+
+        Value* left = root->appendNew<Value>(proc, SShr, Origin(), srcValue, lsbValue);
+        root->appendNewControlValue(
+            proc, Return, Origin(),
+            root->appendNew<Value>(proc, BitAnd, Origin(), left, maskValue));
+
+        auto code = compileProc(proc);
+        if (isARM64()) {
+            if (expectUbfx)
+                checkUsesInstruction(*code, "ubfx");
+            else
+                checkDoesNotUseInstruction(*code, "ubfx");
+        }
+        for (auto src : srcs)
+            CHECK_EQ(invoke<int32_t>(*code, src), ((src >> lsb) & static_cast<int32_t>(mask)));
+    };
+
+    auto generateMask = [&] (uint32_t width) -> uint32_t {
+        return (1U << width) - 1U;
+    };
+
+    for (size_t i = 0; i < lsbs.size(); ++i)
+        test(lsbs.at(i), generateMask(widths.at(i)), true);
+
+    // lsb + width > 32: mask reaches sign bits, must not use ubfx.
+    test(8, generateMask(25), false);
+}
+
+void testUbfx64ArithmeticShiftAnd()
+{
+    if (JSC::Options::defaultB3OptLevel() < 2)
+        return;
+    Vector<int64_t> srcs = { 0, 1, -1, 0x123456789abcdef0LL, static_cast<int64_t>(0xfedcba9876543210ULL) };
+    Vector<uint64_t> lsbs = { 1, 8, 30, 62 };
+    Vector<uint64_t> widths = { 62, 8, 33, 1 };
+
+    auto test = [&] (uint64_t lsb, uint64_t mask, bool expectUbfx) {
+        Procedure proc;
+        BasicBlock* root = proc.addBlock();
+        auto arguments = cCallArgumentValues<int64_t>(proc, root);
+
+        Value* srcValue = arguments[0];
+        Value* lsbValue = root->appendNew<Const32Value>(proc, Origin(), lsb);
+        Value* maskValue = root->appendNew<Const64Value>(proc, Origin(), mask);
+
+        Value* left = root->appendNew<Value>(proc, SShr, Origin(), srcValue, lsbValue);
+        root->appendNewControlValue(
+            proc, Return, Origin(),
+            root->appendNew<Value>(proc, BitAnd, Origin(), left, maskValue));
+
+        auto code = compileProc(proc);
+        if (isARM64()) {
+            if (expectUbfx)
+                checkUsesInstruction(*code, "ubfx");
+            else
+                checkDoesNotUseInstruction(*code, "ubfx");
+        }
+        for (auto src : srcs)
+            CHECK_EQ(invoke<int64_t>(*code, src), ((src >> lsb) & static_cast<int64_t>(mask)));
+    };
+
+    auto generateMask = [&] (uint64_t width) -> uint64_t {
+        return (1ULL << width) - 1ULL;
+    };
+
+    for (size_t i = 0; i < lsbs.size(); ++i)
+        test(lsbs.at(i), generateMask(widths.at(i)), true);
+
+    test(8, generateMask(57), false);
 }
 
 void testUbfiz32AndShiftValueMask()
@@ -4854,8 +5190,8 @@ void testXorNotWithLeftShift32()
 
         auto code = compileProc(proc);
         if (isARM64()) {
-            std::string regex(".*eon.*,.*,.*,.*lsl #");
-            regex += std::to_string(amount) + ".*";
+            std::string regex(".*eon.*,.*,.*,.*lsl #0x");
+            regex += toHex(amount) + ".*";
             checkUsesInstruction(*code, regex.c_str(), true);
         }
         return invoke<int32_t>(*code, n, m);
@@ -4898,8 +5234,8 @@ void testXorNotWithRightShift32()
 
         auto code = compileProc(proc);
         if (isARM64()) {
-            std::string regex(".*eon.*,.*,.*,.*asr #");
-            regex += std::to_string(amount) + ".*";
+            std::string regex(".*eon.*,.*,.*,.*asr #0x");
+            regex += toHex(amount) + ".*";
             checkUsesInstruction(*code, regex.c_str(), true);
         }
         return invoke<int32_t>(*code, n, m);
@@ -4942,8 +5278,8 @@ void testXorNotWithUnsignedRightShift32()
 
         auto code = compileProc(proc);
         if (isARM64()) {
-            std::string regex(".*eon.*,.*,.*,.*lsr #");
-            regex += std::to_string(amount) + ".*";
+            std::string regex(".*eon.*,.*,.*,.*lsr #0x");
+            regex += toHex(amount) + ".*";
             checkUsesInstruction(*code, regex.c_str(), true);
         }
         return invoke<uint32_t>(*code, n, m);
@@ -4986,8 +5322,8 @@ void testXorNotWithLeftShift64()
 
         auto code = compileProc(proc);
         if (isARM64()) {
-            std::string regex(".*eon.*,.*,.*,.*lsl #");
-            regex += std::to_string(amount) + ".*";
+            std::string regex(".*eon.*,.*,.*,.*lsl #0x");
+            regex += toHex(amount) + ".*";
             checkUsesInstruction(*code, regex.c_str(), true);
         }
         return invoke<int64_t>(*code, n, m);
@@ -5030,8 +5366,8 @@ void testXorNotWithRightShift64()
 
         auto code = compileProc(proc);
         if (isARM64()) {
-            std::string regex(".*eon.*,.*,.*,.*asr #");
-            regex += std::to_string(amount) + ".*";
+            std::string regex(".*eon.*,.*,.*,.*asr #0x");
+            regex += toHex(amount) + ".*";
             checkUsesInstruction(*code, regex.c_str(), true);
         }
         return invoke<int64_t>(*code, n, m);
@@ -5074,8 +5410,8 @@ void testXorNotWithUnsignedRightShift64()
 
         auto code = compileProc(proc);
         if (isARM64()) {
-            std::string regex(".*eon.*,.*,.*,.*lsr #");
-            regex += std::to_string(amount) + ".*";
+            std::string regex(".*eon.*,.*,.*,.*lsr #0x");
+            regex += toHex(amount) + ".*";
             checkUsesInstruction(*code, regex.c_str(), true);
         }
         return invoke<uint64_t>(*code, n, m);
@@ -5301,8 +5637,8 @@ void testAddWithLeftShift32()
 
         auto code = compileProc(proc);
         if (isARM64()) {
-            std::string regex(".*add.*,.*,.*,.*lsl #");
-            regex += std::to_string(amount) + ".*";
+            std::string regex(".*add.*,.*,.*,.*lsl #0x");
+            regex += toHex(amount) + ".*";
             checkUsesInstruction(*code, regex.c_str(), true);
         }
         return invoke<int32_t>(*code, n, m);
@@ -5342,8 +5678,8 @@ void testAddWithRightShift32()
 
         auto code = compileProc(proc);
         if (isARM64()) {
-            std::string regex(".*add.*,.*,.*,.*asr #");
-            regex += std::to_string(amount) + ".*";
+            std::string regex(".*add.*,.*,.*,.*asr #0x");
+            regex += toHex(amount) + ".*";
             checkUsesInstruction(*code, regex.c_str(), true);
         }
         return invoke<int32_t>(*code, n, m);
@@ -5383,8 +5719,8 @@ void testAddWithUnsignedRightShift32()
 
         auto code = compileProc(proc);
         if (isARM64()) {
-            std::string regex(".*add.*,.*,.*,.*lsr #");
-            regex += std::to_string(amount) + ".*";
+            std::string regex(".*add.*,.*,.*,.*lsr #0x");
+            regex += toHex(amount) + ".*";
             checkUsesInstruction(*code, regex.c_str(), true);
         }
         return invoke<uint32_t>(*code, n, m);
@@ -5424,8 +5760,8 @@ void testAddWithLeftShift64()
 
         auto code = compileProc(proc);
         if (isARM64()) {
-            std::string regex(".*add.*,.*,.*,.*lsl #");
-            regex += std::to_string(amount) + ".*";
+            std::string regex(".*add.*,.*,.*,.*lsl #0x");
+            regex += toHex(amount) + ".*";
             checkUsesInstruction(*code, regex.c_str(), true);
         }
         return invoke<int64_t>(*code, n, m);
@@ -5465,8 +5801,8 @@ void testAddWithRightShift64()
 
         auto code = compileProc(proc);
         if (isARM64()) {
-            std::string regex(".*add.*,.*,.*,.*asr #");
-            regex += std::to_string(amount) + ".*";
+            std::string regex(".*add.*,.*,.*,.*asr #0x");
+            regex += toHex(amount) + ".*";
             checkUsesInstruction(*code, regex.c_str(), true);
         }
         return invoke<int64_t>(*code, n, m);
@@ -5506,8 +5842,8 @@ void testAddWithUnsignedRightShift64()
 
         auto code = compileProc(proc);
         if (isARM64()) {
-            std::string regex(".*add.*,.*,.*,.*lsr #");
-            regex += std::to_string(amount) + ".*";
+            std::string regex(".*add.*,.*,.*,.*lsr #0x");
+            regex += toHex(amount) + ".*";
             checkUsesInstruction(*code, regex.c_str(), true);
         }
         return invoke<uint64_t>(*code, n, m);
@@ -5587,8 +5923,8 @@ void testSubWithLeftShift32()
 
         auto code = compileProc(proc);
         if (isARM64()) {
-            std::string regex(".*sub.*,.*,.*,.*lsl #");
-            regex += std::to_string(amount) + ".*";
+            std::string regex(".*sub.*,.*,.*,.*lsl #0x");
+            regex += toHex(amount) + ".*";
             checkUsesInstruction(*code, regex.c_str(), true);
         }
         return invoke<int32_t>(*code, n, m);
@@ -5628,8 +5964,8 @@ void testSubWithRightShift32()
 
         auto code = compileProc(proc);
         if (isARM64()) {
-            std::string regex(".*sub.*,.*,.*,.*asr #");
-            regex += std::to_string(amount) + ".*";
+            std::string regex(".*sub.*,.*,.*,.*asr #0x");
+            regex += toHex(amount) + ".*";
             checkUsesInstruction(*code, regex.c_str(), true);
         }
         return invoke<int32_t>(*code, n, m);
@@ -5669,8 +6005,8 @@ void testSubWithUnsignedRightShift32()
 
         auto code = compileProc(proc);
         if (isARM64()) {
-            std::string regex(".*sub.*,.*,.*,.*lsr #");
-            regex += std::to_string(amount) + ".*";
+            std::string regex(".*sub.*,.*,.*,.*lsr #0x");
+            regex += toHex(amount) + ".*";
             checkUsesInstruction(*code, regex.c_str(), true);
         }
         return invoke<uint32_t>(*code, n, m);
@@ -5710,8 +6046,8 @@ void testSubWithLeftShift64()
 
         auto code = compileProc(proc);
         if (isARM64()) {
-            std::string regex(".*sub.*,.*,.*,.*lsl #");
-            regex += std::to_string(amount) + ".*";
+            std::string regex(".*sub.*,.*,.*,.*lsl #0x");
+            regex += toHex(amount) + ".*";
             checkUsesInstruction(*code, regex.c_str(), true);
         }
         return invoke<int64_t>(*code, n, m);
@@ -5751,8 +6087,8 @@ void testSubWithRightShift64()
 
         auto code = compileProc(proc);
         if (isARM64()) {
-            std::string regex(".*sub.*,.*,.*,.*asr #");
-            regex += std::to_string(amount) + ".*";
+            std::string regex(".*sub.*,.*,.*,.*asr #0x");
+            regex += toHex(amount) + ".*";
             checkUsesInstruction(*code, regex.c_str(), true);
         }
         return invoke<int64_t>(*code, n, m);
@@ -5792,8 +6128,8 @@ void testSubWithUnsignedRightShift64()
 
         auto code = compileProc(proc);
         if (isARM64()) {
-            std::string regex(".*sub.*,.*,.*,.*lsr #");
-            regex += std::to_string(amount) + ".*";
+            std::string regex(".*sub.*,.*,.*,.*lsr #0x");
+            regex += toHex(amount) + ".*";
             checkUsesInstruction(*code, regex.c_str(), true);
         }
         return invoke<uint64_t>(*code, n, m);
@@ -5833,8 +6169,8 @@ void testAndLeftShift32()
 
         auto code = compileProc(proc);
         if (isARM64()) {
-            std::string regex(".*and.*,.*,.*,.*lsl #");
-            regex += std::to_string(amount) + ".*";
+            std::string regex(".*and.*,.*,.*,.*lsl #0x");
+            regex += toHex(amount) + ".*";
             checkUsesInstruction(*code, regex.c_str(), true);
         }
         return invoke<int32_t>(*code, n, m);
@@ -5874,8 +6210,8 @@ void testAndRightShift32()
 
         auto code = compileProc(proc);
         if (isARM64()) {
-            std::string regex(".*and.*,.*,.*,.*asr #");
-            regex += std::to_string(amount) + ".*";
+            std::string regex(".*and.*,.*,.*,.*asr #0x");
+            regex += toHex(amount) + ".*";
             checkUsesInstruction(*code, regex.c_str(), true);
         }
         return invoke<int32_t>(*code, n, m);
@@ -5915,8 +6251,8 @@ void testAndUnsignedRightShift32()
 
         auto code = compileProc(proc);
         if (isARM64()) {
-            std::string regex(".*and.*,.*,.*,.*lsr #");
-            regex += std::to_string(amount) + ".*";
+            std::string regex(".*and.*,.*,.*,.*lsr #0x");
+            regex += toHex(amount) + ".*";
             checkUsesInstruction(*code, regex.c_str(), true);
         }
         return invoke<uint32_t>(*code, n, m);
@@ -5956,8 +6292,8 @@ void testAndLeftShift64()
 
         auto code = compileProc(proc);
         if (isARM64()) {
-            std::string regex(".*and.*,.*,.*,.*lsl #");
-            regex += std::to_string(amount) + ".*";
+            std::string regex(".*and.*,.*,.*,.*lsl #0x");
+            regex += toHex(amount) + ".*";
             checkUsesInstruction(*code, regex.c_str(), true);
         }
         return invoke<int64_t>(*code, n, m);
@@ -5997,8 +6333,8 @@ void testAndRightShift64()
 
         auto code = compileProc(proc);
         if (isARM64()) {
-            std::string regex(".*and.*,.*,.*,.*asr #");
-            regex += std::to_string(amount) + ".*";
+            std::string regex(".*and.*,.*,.*,.*asr #0x");
+            regex += toHex(amount) + ".*";
             checkUsesInstruction(*code, regex.c_str(), true);
         }
         return invoke<int64_t>(*code, n, m);
@@ -6038,8 +6374,8 @@ void testAndUnsignedRightShift64()
 
         auto code = compileProc(proc);
         if (isARM64()) {
-            std::string regex(".*and.*,.*,.*,.*lsr #");
-            regex += std::to_string(amount) + ".*";
+            std::string regex(".*and.*,.*,.*,.*lsr #0x");
+            regex += toHex(amount) + ".*";
             checkUsesInstruction(*code, regex.c_str(), true);
         }
         return invoke<uint64_t>(*code, n, m);
@@ -6079,8 +6415,8 @@ void testXorLeftShift32()
 
         auto code = compileProc(proc);
         if (isARM64()) {
-            std::string regex(".*eor.*,.*,.*,.*lsl #");
-            regex += std::to_string(amount) + ".*";
+            std::string regex(".*eor.*,.*,.*,.*lsl #0x");
+            regex += toHex(amount) + ".*";
             checkUsesInstruction(*code, regex.c_str(), true);
         }
         return invoke<int32_t>(*code, n, m);
@@ -6120,8 +6456,8 @@ void testXorRightShift32()
 
         auto code = compileProc(proc);
         if (isARM64()) {
-            std::string regex(".*eor.*,.*,.*,.*asr #");
-            regex += std::to_string(amount) + ".*";
+            std::string regex(".*eor.*,.*,.*,.*asr #0x");
+            regex += toHex(amount) + ".*";
             checkUsesInstruction(*code, regex.c_str(), true);
         }
         return invoke<int32_t>(*code, n, m);
@@ -6161,8 +6497,8 @@ void testXorUnsignedRightShift32()
 
         auto code = compileProc(proc);
         if (isARM64()) {
-            std::string regex(".*eor.*,.*,.*,.*lsr #");
-            regex += std::to_string(amount) + ".*";
+            std::string regex(".*eor.*,.*,.*,.*lsr #0x");
+            regex += toHex(amount) + ".*";
             checkUsesInstruction(*code, regex.c_str(), true);
         }
         return invoke<uint32_t>(*code, n, m);
@@ -6202,8 +6538,8 @@ void testXorLeftShift64()
 
         auto code = compileProc(proc);
         if (isARM64()) {
-            std::string regex(".*eor.*,.*,.*,.*lsl #");
-            regex += std::to_string(amount) + ".*";
+            std::string regex(".*eor.*,.*,.*,.*lsl #0x");
+            regex += toHex(amount) + ".*";
             checkUsesInstruction(*code, regex.c_str(), true);
         }
         return invoke<int64_t>(*code, n, m);
@@ -6243,8 +6579,8 @@ void testXorRightShift64()
 
         auto code = compileProc(proc);
         if (isARM64()) {
-            std::string regex(".*eor.*,.*,.*,.*asr #");
-            regex += std::to_string(amount) + ".*";
+            std::string regex(".*eor.*,.*,.*,.*asr #0x");
+            regex += toHex(amount) + ".*";
             checkUsesInstruction(*code, regex.c_str(), true);
         }
         return invoke<int64_t>(*code, n, m);
@@ -6284,8 +6620,8 @@ void testXorUnsignedRightShift64()
 
         auto code = compileProc(proc);
         if (isARM64()) {
-            std::string regex(".*eor.*,.*,.*,.*lsr #");
-            regex += std::to_string(amount) + ".*";
+            std::string regex(".*eor.*,.*,.*,.*lsr #0x");
+            regex += toHex(amount) + ".*";
             checkUsesInstruction(*code, regex.c_str(), true);
         }
         return invoke<uint64_t>(*code, n, m);
@@ -6325,8 +6661,8 @@ void testOrLeftShift32()
 
         auto code = compileProc(proc);
         if (isARM64()) {
-            std::string regex(".*orr.*,.*,.*,.*lsl #");
-            regex += std::to_string(amount) + ".*";
+            std::string regex(".*orr.*,.*,.*,.*lsl #0x");
+            regex += toHex(amount) + ".*";
             checkUsesInstruction(*code, regex.c_str(), true);
         }
         return invoke<int32_t>(*code, n, m);
@@ -6366,8 +6702,8 @@ void testOrRightShift32()
 
         auto code = compileProc(proc);
         if (isARM64()) {
-            std::string regex(".*orr.*,.*,.*,.*asr #");
-            regex += std::to_string(amount) + ".*";
+            std::string regex(".*orr.*,.*,.*,.*asr #0x");
+            regex += toHex(amount) + ".*";
             checkUsesInstruction(*code, regex.c_str(), true);
         }
         return invoke<int32_t>(*code, n, m);
@@ -6407,8 +6743,8 @@ void testOrUnsignedRightShift32()
 
         auto code = compileProc(proc);
         if (isARM64()) {
-            std::string regex(".*orr.*,.*,.*,.*lsr #");
-            regex += std::to_string(amount) + ".*";
+            std::string regex(".*orr.*,.*,.*,.*lsr #0x");
+            regex += toHex(amount) + ".*";
             checkUsesInstruction(*code, regex.c_str(), true);
         }
         return invoke<uint32_t>(*code, n, m);
@@ -6448,8 +6784,8 @@ void testOrLeftShift64()
 
         auto code = compileProc(proc);
         if (isARM64()) {
-            std::string regex(".*orr.*,.*,.*,.*lsl #");
-            regex += std::to_string(amount) + ".*";
+            std::string regex(".*orr.*,.*,.*,.*lsl #0x");
+            regex += toHex(amount) + ".*";
             checkUsesInstruction(*code, regex.c_str(), true);
         }
         return invoke<int64_t>(*code, n, m);
@@ -6489,8 +6825,8 @@ void testOrRightShift64()
 
         auto code = compileProc(proc);
         if (isARM64()) {
-            std::string regex(".*orr.*,.*,.*,.*asr #");
-            regex += std::to_string(amount) + ".*";
+            std::string regex(".*orr.*,.*,.*,.*asr #0x");
+            regex += toHex(amount) + ".*";
             checkUsesInstruction(*code, regex.c_str(), true);
         }
         return invoke<int64_t>(*code, n, m);
@@ -6530,8 +6866,8 @@ void testOrUnsignedRightShift64()
 
         auto code = compileProc(proc);
         if (isARM64()) {
-            std::string regex(".*orr.*,.*,.*,.*lsr #");
-            regex += std::to_string(amount) + ".*";
+            std::string regex(".*orr.*,.*,.*,.*lsr #0x");
+            regex += toHex(amount) + ".*";
             checkUsesInstruction(*code, regex.c_str(), true);
         }
         return invoke<uint64_t>(*code, n, m);
@@ -6954,7 +7290,7 @@ static void testBitAndWithMaskReturnsBooleans(int64_t a, int64_t b)
     CHECK_EQ(compileAndRun<intptr_t>(proc, a, b), expected);
 }
 
-static double bitAndDouble(double a, double b)
+static double NODELETE bitAndDouble(double a, double b)
 {
     return std::bit_cast<double>(std::bit_cast<uint64_t>(a) & std::bit_cast<uint64_t>(b));
 }
@@ -7012,7 +7348,7 @@ static void testBitAndImmsDouble(double a, double b)
     CHECK(isIdentical(compileAndRun<double>(proc), bitAndDouble(a, b)));
 }
 
-static float bitAndFloat(float a, float b)
+static float NODELETE bitAndFloat(float a, float b)
 {
     return std::bit_cast<float>(std::bit_cast<uint32_t>(a) & std::bit_cast<uint32_t>(b));
 }
@@ -7479,6 +7815,8 @@ void addBitTests(const TestConfig* config, Deque<RefPtr<SharedTask<void()>>>& ta
     RUN(testUbfx32AndShift());
     RUN(testUbfx64ShiftAnd());
     RUN(testUbfx64AndShift());
+    RUN(testUbfx32ArithmeticShiftAnd());
+    RUN(testUbfx64ArithmeticShiftAnd());
     RUN(testUbfiz32AndShiftValueMask());
     RUN(testUbfiz32AndShiftMaskValue());
     RUN(testUbfiz32ShiftAnd());
@@ -7511,6 +7849,8 @@ void addBitTests(const TestConfig* config, Deque<RefPtr<SharedTask<void()>>>& ta
     RUN(testInsertSignedBitfieldInZero64());
     RUN(testExtractSignedBitfield32());
     RUN(testExtractSignedBitfield64());
+    RUN(testExtractSignedBitfieldNonCanonical32());
+    RUN(testExtractSignedBitfieldNonCanonical64());
     RUN(testAddWithLeftShift32());
     RUN(testAddWithRightShift32());
     RUN(testAddWithUnsignedRightShift32());

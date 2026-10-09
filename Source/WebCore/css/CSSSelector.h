@@ -24,9 +24,9 @@
 #include <WebCore/CSSSelectorEnums.h>
 #include <WebCore/QualifiedName.h>
 #include <WebCore/RenderStyleConstants.h>
-#include <wtf/EnumTraits.h>
 #include <wtf/FixedVector.h>
 #include <wtf/TZoneMalloc.h>
+#include <wtf/Variant.h>
 
 namespace WebCore {
 
@@ -69,7 +69,7 @@ public:
 
     unsigned computeSpecificity() const;
     std::array<uint8_t, 3> computeSpecificityTuple() const;
-    unsigned specificityForPage() const;
+    unsigned NODELETE specificityForPage() const;
 
     enum class VisitFunctionalPseudoClasses { No, Yes };
     enum class VisitOnlySubject { No, Yes };
@@ -122,10 +122,10 @@ public:
         Right,
     };
 
-    enum AttributeMatchType { CaseSensitive, CaseInsensitive };
+    enum class AttributeMatchType : uint8_t { Default, CaseInsensitive, CaseSensitive };
 
     // Maps from the selector pseudo-element type to the style type. Only pseudo-elements that are not element-backed have a type in style.
-    static std::optional<PseudoElementType> stylePseudoElementTypeFor(PseudoElement);
+    static std::optional<PseudoElementType> NODELETE stylePseudoElementTypeFor(PseudoElement);
     static bool isPseudoClassEnabled(PseudoClass, const CSSSelectorParserContext&);
     static bool isPseudoElementEnabled(PseudoElement, StringView, const CSSSelectorParserContext&);
     static std::optional<PseudoElement> parsePseudoElementName(StringView, const CSSSelectorParserContext&);
@@ -137,32 +137,34 @@ public:
     static const ASCIILiteral selectorTextForPseudoClass(PseudoClass);
     static const ASCIILiteral nameForUserAgentPartLegacyAlias(StringView);
 
-    // Selectors are kept in an array by CSSSelectorList.
-    // The left component of the selector is the next item in the array.
+    // Selectors are kept in an array by CSSSelectorList. Compounds are stored right-to-left
+    // (subject compound first), but simples within a compound are stored left-to-right.
+    // For example, ".a.b > div#id" is stored as [div, #id, .a, .b].
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
     const CSSSelector* precedingInComplexSelector() const { return m_isFirstInComplexSelector ? nullptr : this + 1; }
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
-    const CSSSelector* firstInCompound() const;
-    const CSSSelector* lastInCompound() const;
-    const CSSSelector* precedingInCompound() const;
+    const CSSSelector* NODELETE leftmostInCompound() const;
+    const CSSSelector* NODELETE rightmostInCompound() const;
+    const CSSSelector* NODELETE followingInCompound() const;
 
-    const QualifiedName& tagQName() const;
-    const AtomString& tagLowercaseLocalName() const;
+    const QualifiedName& tagQName() const LIFETIME_BOUND;
+    const AtomString& tagLowercaseLocalName() const LIFETIME_BOUND;
 
-    const AtomString& value() const;
-    const AtomString& serializingValue() const;
-    const QualifiedName& attribute() const;
-    const AtomString& argument() const { return m_hasRareData ? m_data.rareData->argument : nullAtom(); }
-    bool attributeValueMatchingIsCaseInsensitive() const;
-    const FixedVector<AtomString>* argumentList() const { return m_hasRareData ? &m_data.rareData->argumentList : nullptr; }
-    const FixedVector<PossiblyQuotedIdentifier>* langList() const { return m_hasRareData ? &m_data.rareData->langList : nullptr; }
-    const CSSSelectorList* selectorList() const { return m_hasRareData ? m_data.rareData->selectorList.get() : nullptr; }
-    CSSSelectorList* selectorList() { return m_hasRareData ? m_data.rareData->selectorList.get() : nullptr; }
+    const AtomString& value() const LIFETIME_BOUND;
+    const AtomString& serializingValue() const LIFETIME_BOUND;
+    const QualifiedName& attribute() const LIFETIME_BOUND;
+    const AtomString& argument() const LIFETIME_BOUND { return m_hasRareData ? m_data.rareData->argument : nullAtom(); }
+    AttributeMatchType attributeMatchType() const;
+    const FixedVector<int>* integerList() const LIFETIME_BOUND { return m_hasRareData ? std::get_if<FixedVector<int>>(&m_data.rareData->argumentList) : nullptr; }
+    const FixedVector<AtomString>* stringList() const LIFETIME_BOUND { return m_hasRareData ? std::get_if<FixedVector<AtomString>>(&m_data.rareData->argumentList) : nullptr; }
+    const FixedVector<PossiblyQuotedIdentifier>* langList() const LIFETIME_BOUND { return m_hasRareData ? std::get_if<FixedVector<PossiblyQuotedIdentifier>>(&m_data.rareData->argumentList) : nullptr; }
+    const CSSSelectorList* selectorList() const LIFETIME_BOUND { return m_hasRareData ? m_data.rareData->selectorList.get() : nullptr; }
+    CSSSelectorList* selectorList() LIFETIME_BOUND { return m_hasRareData ? m_data.rareData->selectorList.get() : nullptr; }
 
-    bool matchNth(int count) const;
-    int nthA() const;
-    int nthB() const;
+    bool NODELETE matchNth(int count) const;
+    int NODELETE nthA() const;
+    int NODELETE nthB() const;
 
     bool hasDescendantRelation() const { return relation() == Relation::DescendantSpace; }
     bool hasDescendantOrChildRelation() const { return relation() == Relation::Child || hasDescendantRelation(); }
@@ -174,14 +176,12 @@ WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
     bool matchesPseudoElement() const;
     bool isSiblingSelector() const;
     bool isAttributeSelector() const;
-    bool isHostPseudoClass() const;
-    bool isScopePseudoClass() const;
+    bool NODELETE isHostPseudoClass() const;
+    bool NODELETE isScopePseudoClass() const;
 
     Relation relation() const { return static_cast<Relation>(m_relation); }
     Match match() const { return static_cast<Match>(m_match); }
 
-    bool isFirstInComplexSelector() const { return m_isFirstInComplexSelector; }
-    bool isLastInComplexSelector() const { return m_isLastInComplexSelector; }
     bool isForPage() const { return m_isForPage; }
 
     // Implicit means that this selector is not author/UA written.
@@ -203,7 +203,8 @@ private:
     void setAttribute(const QualifiedName&, AttributeMatchType);
     void setNth(int a, int b);
     void setArgument(const AtomString&);
-    void setArgumentList(FixedVector<AtomString>);
+    void setIntegerList(FixedVector<int>);
+    void setStringList(FixedVector<AtomString>);
     void setLangList(FixedVector<PossiblyQuotedIdentifier>);
     void setSelectorList(std::unique_ptr<CSSSelectorList>);
 
@@ -217,8 +218,8 @@ private:
     void setForPage() { m_isForPage = true; }
     void setImplicit() { m_isImplicit = true; }
 
-    unsigned m_relation : 4 { enumToUnderlyingType(Relation::DescendantSpace) };
-    mutable unsigned m_match : 5 { enumToUnderlyingType(Match::Unknown) };
+    unsigned m_relation : 4 { std::to_underlying(Relation::DescendantSpace) };
+    mutable unsigned m_match : 5 { std::to_underlying(Match::Unknown) };
     mutable unsigned m_pseudoType : 8 { 0 }; // PseudoType.
     // 18 bits
 
@@ -229,9 +230,9 @@ private:
     unsigned m_hasRareData : 1 { false };
     unsigned m_isForPage : 1 { false };
     unsigned m_tagIsForNamespaceRule : 1 { false };
-    unsigned m_caseInsensitiveAttributeValueMatching : 1 { false };
+    unsigned m_attributeMatchType : 2 { std::to_underlying(AttributeMatchType::Default) };
     unsigned m_isImplicit : 1 { false };
-    // 25 bits
+    // 26 bits
 #if !ASSERT_WITH_SECURITY_IMPLICATION_DISABLED
     unsigned m_destructorHasBeenCalled : 1 { false };
 #endif
@@ -245,7 +246,7 @@ private:
 
         bool equals(const RareData&) const;
 
-        bool matchNth(int count);
+        bool NODELETE matchNth(int count);
 
         // For quirks mode, class and id are case-insensitive. In the case where uppercase
         // letters are used in quirks mode, |m_matchingValue| holds the lowercase class/id
@@ -257,8 +258,7 @@ private:
         int b { 0 }; // Used for :nth-*
         QualifiedName attribute; // used for attribute selector
         AtomString argument; // Used for :contains and :nth-*
-        FixedVector<AtomString> argumentList; // Used for :active-view-transition-type, ::highlight, ::view-transition-{group, image-pair, new, old}, ::part arguments.
-        FixedVector<PossiblyQuotedIdentifier> langList; // Used for :lang arguments.
+        Variant<std::monostate, FixedVector<int>, FixedVector<AtomString>, FixedVector<PossiblyQuotedIdentifier>> argumentList; // Used for :heading (int), :active-view-transition-type/::highlight/::view-transition-*/::part (AtomString), :lang (PossiblyQuotedIdentifier)
         std::unique_ptr<CSSSelectorList> selectorList; // Used for :is(), :matches(), and :not().
 
         Ref<RareData> deepCopy() const;
@@ -276,14 +276,14 @@ private:
     } m_data;
 };
 
-bool complexSelectorCanMatchPseudoElement(const CSSSelector&);
+bool NODELETE complexSelectorCanMatchPseudoElement(const CSSSelector&);
 bool complexSelectorMatchesElementBackedPseudoElement(const CSSSelector&);
 
 // In the AllowNonElementBackedPseudoElements mode `.foo::before` and `.foo` compare equal.
 enum class ComplexSelectorsEqualMode : bool { Full, IgnoreNonElementBackedPseudoElements };
 bool complexSelectorsEqual(const CSSSelector&, const CSSSelector&, ComplexSelectorsEqualMode = ComplexSelectorsEqualMode::Full);
 
-void addComplexSelector(Hasher&, const CSSSelector&, ComplexSelectorsEqualMode = ComplexSelectorsEqualMode::Full);
+void NODELETE addComplexSelector(Hasher&, const CSSSelector&, ComplexSelectorsEqualMode = ComplexSelectorsEqualMode::Full);
 
 inline bool operator==(const PossiblyQuotedIdentifier& a, const AtomString& b) { return a.identifier == b; }
 
@@ -333,7 +333,7 @@ inline bool isLogicalCombinationPseudoClass(CSSSelector::PseudoClass pseudoClass
     }
 }
 
-bool isElementBackedPseudoElement(CSSSelector::PseudoElement);
+bool NODELETE isElementBackedPseudoElement(CSSSelector::PseudoElement);
 
 inline bool CSSSelector::isSiblingSelector() const
 {
@@ -382,13 +382,13 @@ inline CSSSelector::CSSSelector(CSSSelector&& other)
     , m_hasRareData(other.m_hasRareData)
     , m_isForPage(other.m_isForPage)
     , m_tagIsForNamespaceRule(other.m_tagIsForNamespaceRule)
-    , m_caseInsensitiveAttributeValueMatching(other.m_caseInsensitiveAttributeValueMatching)
+    , m_attributeMatchType(other.m_attributeMatchType)
     , m_isImplicit(other.m_isImplicit)
     , m_data(WTF::move(other.m_data))
 {
     other.m_data.value = nullptr;
     other.m_hasRareData = false;
-    other.m_match = enumToUnderlyingType(Match::Unknown);
+    other.m_match = std::to_underlying(Match::Unknown);
 }
 
 inline CSSSelector& CSSSelector::operator=(CSSSelector&& other)
@@ -444,9 +444,9 @@ inline const AtomString& CSSSelector::serializingValue() const
     return *reinterpret_cast<const AtomString*>(&m_data.value);
 }
 
-inline bool CSSSelector::attributeValueMatchingIsCaseInsensitive() const
+inline auto CSSSelector::attributeMatchType() const -> AttributeMatchType
 {
-    return m_caseInsensitiveAttributeValueMatching;
+    return static_cast<AttributeMatchType>(m_attributeMatchType);
 }
 
 inline auto CSSSelector::pseudoClass() const -> PseudoClass
@@ -457,7 +457,7 @@ inline auto CSSSelector::pseudoClass() const -> PseudoClass
 
 inline void CSSSelector::setPseudoClass(PseudoClass pseudoClass)
 {
-    m_pseudoType = enumToUnderlyingType(pseudoClass);
+    m_pseudoType = std::to_underlying(pseudoClass);
     ASSERT(static_cast<PseudoClass>(m_pseudoType) == pseudoClass);
 }
 
@@ -469,7 +469,7 @@ inline auto CSSSelector::pseudoElement() const -> PseudoElement
 
 inline void CSSSelector::setPseudoElement(PseudoElement pseudoElement)
 {
-    m_pseudoType = enumToUnderlyingType(pseudoElement);
+    m_pseudoType = std::to_underlying(pseudoElement);
     ASSERT(static_cast<PseudoElement>(m_pseudoType) == pseudoElement);
 }
 
@@ -481,18 +481,18 @@ inline auto CSSSelector::pagePseudoClass() const -> PagePseudoClass
 
 inline void CSSSelector::setPagePseudoClass(PagePseudoClass pagePseudoClass)
 {
-    m_pseudoType = enumToUnderlyingType(pagePseudoClass);
+    m_pseudoType = std::to_underlying(pagePseudoClass);
     ASSERT(static_cast<PagePseudoClass>(m_pseudoType) == pagePseudoClass);
 }
 
 inline void CSSSelector::setRelation(Relation relation)
 {
-    m_relation = enumToUnderlyingType(relation);
+    m_relation = std::to_underlying(relation);
 }
 
 inline void CSSSelector::setMatch(Match match)
 {
-    m_match = enumToUnderlyingType(match);
+    m_match = std::to_underlying(match);
 }
 
 } // namespace WebCore

@@ -52,7 +52,6 @@ InternalSettings::Backup::Backup(Settings& settings)
     : m_minimumDOMTimerInterval(settings.minimumDOMTimerInterval())
     , m_originalTimeWithoutMouseMovementBeforeHidingControls(settings.timeWithoutMouseMovementBeforeHidingControls())
     , m_originalEditingBehavior(settings.editingBehaviorType())
-    , m_storageBlockingPolicy(settings.storageBlockingPolicy())
     , m_userInterfaceDirectionPolicy(settings.userInterfaceDirectionPolicy())
     , m_systemLayoutDirection(settings.systemLayoutDirection())
     , m_forcedColorsAreInvertedAccessibilityValue(settings.forcedColorsAreInvertedAccessibilityValue())
@@ -107,7 +106,6 @@ void InternalSettings::Backup::restoreTo(Settings& settings)
     settings.setMinimumDOMTimerInterval(m_minimumDOMTimerInterval);
     settings.setTimeWithoutMouseMovementBeforeHidingControls(m_originalTimeWithoutMouseMovementBeforeHidingControls);
     settings.setEditingBehaviorType(m_originalEditingBehavior);
-    settings.setStorageBlockingPolicy(m_storageBlockingPolicy);
     settings.setUserInterfaceDirectionPolicy(m_userInterfaceDirectionPolicy);
     settings.setSystemLayoutDirection(m_systemLayoutDirection);
     settings.setForcedColorsAreInvertedAccessibilityValue(m_forcedColorsAreInvertedAccessibilityValue);
@@ -143,7 +141,7 @@ public:
 #if ASSERT_ENABLED
     bool isRefCountedWrapper() const override { return true; }
 #endif
-    InternalSettings* internalSettings() const { return m_internalSettings.get(); }
+    InternalSettings* NODELETE internalSettings() const { return m_internalSettings.get(); }
 
 private:
     bool isInternalSettingsWrapper() const final { return true; }
@@ -308,14 +306,6 @@ ExceptionOr<void> InternalSettings::setEditingBehavior(EditingBehaviorType editi
     return { };
 }
 
-ExceptionOr<void> InternalSettings::setStorageBlockingPolicy(StorageBlockingPolicy policy)
-{
-    if (!m_page)
-        return Exception { ExceptionCode::InvalidAccessError };
-    settings().setStorageBlockingPolicy(policy);
-    return { };
-}
-
 ExceptionOr<void> InternalSettings::setMinimumTimerInterval(double intervalInSeconds)
 {
     if (!m_page)
@@ -447,7 +437,7 @@ ExceptionOr<void> InternalSettings::setShouldDisplayTrackKind(TrackKind kind, bo
     if (!m_page)
         return Exception { ExceptionCode::InvalidAccessError };
 #if ENABLE(VIDEO)
-    Ref captionPreferences = m_page->checkedGroup()->ensureCaptionPreferences();
+    Ref captionPreferences = protect(m_page->group())->ensureCaptionPreferences();
     switch (kind) {
     case TrackKind::Subtitles:
         captionPreferences->setUserPrefersSubtitles(enabled);
@@ -471,7 +461,7 @@ ExceptionOr<bool> InternalSettings::shouldDisplayTrackKind(TrackKind kind)
     if (!m_page)
         return Exception { ExceptionCode::InvalidAccessError };
 #if ENABLE(VIDEO)
-    Ref captionPreferences = m_page->checkedGroup()->ensureCaptionPreferences();
+    Ref captionPreferences = protect(m_page->group())->ensureCaptionPreferences();
     switch (kind) {
     case TrackKind::Subtitles:
         return captionPreferences->userPrefersSubtitles();

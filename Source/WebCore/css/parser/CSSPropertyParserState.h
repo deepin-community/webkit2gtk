@@ -24,10 +24,10 @@
 
 #pragma once
 
-#include <WebCore/CSSProperty.h>
-#include <WebCore/CSSPropertyNames.h>
-#include <WebCore/CSSValuePool.h>
-#include <WebCore/StyleRuleType.h>
+#include "CSSProperty.h"
+#include "CSSPropertyNames.h"
+#include "CSSValuePool.h"
+#include "StyleRuleType.h"
 
 namespace WebCore {
 
@@ -45,6 +45,9 @@ struct PropertyParserState {
 
     // Count of CSS random() functions seen so far for the current property.
     unsigned cssRandomFunctionCount { 0 };
+
+    // Used by non-CSS users of the CSS parsers like `DOMMatrix` to limit <length> and <length-percentage> parsing to only absolute units.
+    bool absoluteLengthUnitsOnly { false };
 };
 
 } // namespace CSS

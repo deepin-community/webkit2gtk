@@ -31,7 +31,6 @@
 #include <WebCore/BasicCredential.h>
 #include <WebCore/DigitalCredentialsProtocols.h>
 #include <WebCore/DigitalCredentialsRequestData.h>
-#include <WebCore/JSDOMPromiseDeferred.h>
 #include <WebCore/JSDOMPromiseDeferredForward.h>
 #include <WebCore/UnvalidatedDigitalCredentialRequest.h>
 #include <wtf/RefPtr.h>
@@ -39,7 +38,7 @@
 namespace WebCore {
 
 class Document;
-enum class IdentityCredentialProtocol : uint8_t;
+enum class DigitalCredentialPresentationProtocol : uint8_t;
 struct CredentialRequestOptions;
 struct DigitalCredentialGetRequest;
 struct DigitalCredentialRequestOptions;
@@ -50,7 +49,7 @@ using CredentialPromise = DOMPromiseDeferred<IDLNullable<IDLInterface<BasicCrede
 
 class DigitalCredential final : public BasicCredential {
 public:
-    static Ref<DigitalCredential> create(JSC::Strong<JSC::JSObject>&&, IdentityCredentialProtocol);
+    static Ref<DigitalCredential> create(JSC::Strong<JSC::JSObject>&&, DigitalCredentialPresentationProtocol);
 
     virtual ~DigitalCredential();
 
@@ -59,20 +58,17 @@ public:
         return m_data;
     };
 
-    IdentityCredentialProtocol protocol() const
+    DigitalCredentialPresentationProtocol protocol() const
     {
         return m_protocol;
     }
 
     static void discoverFromExternalSource(const Document&, CredentialPromise&&, CredentialRequestOptions&&);
 
-    static bool userAgentAllowsProtocol(const String& protocol)
-    {
-        return protocol == "org-iso-mdoc"_s;
-    }
+    static bool userAgentAllowsProtocol(const Document&, const String& protocol);
 
 private:
-    DigitalCredential(JSC::Strong<JSC::JSObject>&&, IdentityCredentialProtocol);
+    DigitalCredential(JSC::Strong<JSC::JSObject>&&, DigitalCredentialPresentationProtocol);
 
     static ExceptionOr<Vector<ValidatedDigitalCredentialRequest>> validateRequests(const Document&, Vector<UnvalidatedDigitalCredentialRequest>&&);
     static ExceptionOr<Vector<UnvalidatedDigitalCredentialRequest>> convertObjectsToDigitalPresentationRequests(const Document&, const Vector<DigitalCredentialGetRequest>&);
@@ -80,7 +76,7 @@ private:
 
     Type credentialType() const final { return Type::DigitalCredential; }
 
-    IdentityCredentialProtocol m_protocol;
+    DigitalCredentialPresentationProtocol m_protocol;
     const JSC::Strong<JSC::JSObject> m_data;
 };
 

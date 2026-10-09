@@ -34,8 +34,9 @@
 #include "WebProcessCreationParameters.h"
 #include "WebProcessExtensionManager.h"
 #include "WebSystemSoundDelegate.h"
+#include <WebCore/PlatformRenderTheme.h>
 #include <WebCore/PlatformScreen.h>
-#include <WebCore/RenderTheme.h>
+#include <WebCore/ProcessCapabilities.h>
 #include <WebCore/ScreenProperties.h>
 #include <WebCore/SystemSoundManager.h>
 
@@ -73,10 +74,6 @@
 #include <WebCore/PlatformDisplayDefault.h>
 #endif
 
-#if PLATFORM(GTK) && !USE(GTK4) && USE(CAIRO)
-#include <WebCore/ScrollbarThemeGtk.h>
-#endif
-
 #if ENABLE(MEDIA_STREAM)
 #include "UserMediaCaptureManager.h"
 #endif
@@ -93,12 +90,9 @@
 #include <WebCore/AccessibilityAtspi.h>
 #endif
 
-#if USE(CAIRO)
-#include <WebCore/CairoUtilities.h>
-#endif
-
-#if USE(SKIA)
-#include <WebCore/ProcessCapabilities.h>
+#if USE(VULKAN)
+#include <WebCore/VulkanUtilities.h>
+#include <wtf/text/CStringView.h>
 #endif
 
 #define RELEASE_LOG_SESSION_ID (m_sessionID ? m_sessionID->toUInt64() : 0)
@@ -191,15 +185,33 @@ void WebProcess::initializePlatformDisplayIfNeeded() const
     CRASH();
 }
 
+void WebProcess::initializeVulkanIfNeeded()
+{
+#if USE(VULKAN)
+    bool useVulkan = false;
+    if (const auto envValue = CStringView::unsafeFromUTF8(getenv("WEBKIT_VULKAN_ENABLED")))
+        useVulkan = (envValue == "1"_s && envValue != "0"_s);
+
+    if (!useVulkan)
+        return;
+
+    Vulkan::initializeIfNeeded();
+#endif
+}
+
 void WebProcess::platformInitializeWebProcess(WebProcessCreationParameters& parameters)
 {
-#if USE(SKIA)
+    if (!parameters.applicationID.isEmpty())
+        WebCore::setApplicationID(parameters.applicationID);
+
+    if (!parameters.applicationName.isEmpty())
+        WebCore::setApplicationName(parameters.applicationName);
+
     const char* enableCPURendering = getenv("WEBKIT_SKIA_ENABLE_CPU_RENDERING");
     IGNORE_CLANG_WARNINGS_BEGIN("unsafe-buffer-usage-in-libc-call")
     if (enableCPURendering && strcmp(enableCPURendering, "0"))
         ProcessCapabilities::setCanUseAcceleratedBuffers(false);
     IGNORE_CLANG_WARNINGS_END
-#endif
 
 #if ENABLE(MEDIA_STREAM)
     addSupplementWithoutRefCountedCheck<UserMediaCaptureManager>();
@@ -224,7 +236,8 @@ void WebProcess::platformInitializeWebProcess(WebProcessCreationParameters& para
 #else
     initializePlatformDisplayIfNeeded();
 #endif
-#endif
+    initializeVulkanIfNeeded();
+#endif // PLATFORM(WPE)
 
     m_availableInputDevices = parameters.availableInputDevices;
 
@@ -232,22 +245,15 @@ void WebProcess::platformInitializeWebProcess(WebProcessCreationParameters& para
     WebCore::setGStreamerOptionsFromUIProcess(WTF::move(parameters.gstreamerOptions));
 #endif
 
-#if PLATFORM(GTK) && !USE(GTK4) && USE(CAIRO)
-    setUseSystemAppearanceForScrollbars(parameters.useSystemAppearanceForScrollbars);
-#endif
-
     if (parameters.memoryPressureHandlerConfiguration)
         MemoryPressureHandler::singleton().setConfiguration(WTF::move(*parameters.memoryPressureHandlerConfiguration));
 
-    if (!parameters.applicationID.isEmpty())
-        WebCore::setApplicationID(parameters.applicationID);
-
-    if (!parameters.applicationName.isEmpty())
-        WebCore::setApplicationName(parameters.applicationName);
-
 #if ENABLE(REMOTE_INSPECTOR)
-    if (!parameters.inspectorServerAddress.isNull())
+    if (!parameters.inspectorServerAddress.isNull()) {
         Inspector::RemoteInspector::setInspectorServerAddress(WTF::move(parameters.inspectorServerAddress));
+        // pre-warm the inspector for the potentially early BiDi-related events like script.realmCreated
+        Inspector::RemoteInspector::singleton();
+    }
 #endif
 
 #if USE(ATSPI)
@@ -282,13 +288,6 @@ void WebProcess::sendMessageToWebProcessExtension(UserMessage&& message)
     if (auto* extension = WebProcessExtensionManager::singleton().extension())
         webkitWebProcessExtensionDidReceiveUserMessage(extension, WTF::move(message));
 }
-
-#if PLATFORM(GTK) && !USE(GTK4) && USE(CAIRO)
-void WebProcess::setUseSystemAppearanceForScrollbars(bool useSystemAppearanceForScrollbars)
-{
-    static_cast<ScrollbarThemeGtk&>(ScrollbarTheme::theme()).setUseSystemAppearance(useSystemAppearanceForScrollbars);
-}
-#endif
 
 void WebProcess::grantAccessToAssetServices(Vector<WebKit::SandboxExtension::Handle>&&)
 {

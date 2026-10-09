@@ -62,7 +62,7 @@ SPDX-License-Identifier: BSD, LGPL-2.1
         <h3><a href="index.html">WebKit</a></h3>
         <p>API Version: 6.0</p>
         
-        <p>Library Version: 2.52.5</p>
+        <p>Library Version: 2.54.0</p>
         
       </div>
       
@@ -175,15 +175,15 @@ SPDX-License-Identifier: BSD, LGPL-2.1
         Description
         <a href="#description" class="anchor"></a>
         
-        <a class="srclink" title="go to source location" href="https://github.com/WebKit/WebKit/tree/main/Source/WebKit/UIProcess/API/glib/WebKitWebView.cpp#L2073">[src]</a>
+        <a class="srclink" title="go to source location" href="https://github.com/WebKit/WebKit/tree/main/Source/WebKit/UIProcess/API/glib/WebKitWebView.cpp#L2140">[src]</a>
         
       </h4>
 
       <div class="docblock">
         <p>This signal is emitted when WebKit is requesting the client to decide a policy
 decision, such as whether to navigate to a page, open a new window or whether or
-not to download a resource. The <code>WebKitNavigationPolicyDecision</code> passed in the
-<code>decision</code> argument is a generic type, but should be casted to a more
+not to download a resource. The <code>WebKitPolicyDecision</code> passed in the
+<code>decision</code> argument is a generic type, but should be cast to a more
 specific type when making the decision. For&nbsp;example:</p>
 <div class="codehilite"><pre><span></span><code><span class="k">static</span><span class="w"> </span><span class="n">gboolean</span>
 <span class="nf">decide_policy_cb</span><span class="w"> </span><span class="p">(</span><span class="n">WebKitWebView</span><span class="w"> </span><span class="o">*</span><span class="n">web_view</span><span class="p">,</span>
@@ -218,7 +218,7 @@ on the <code>decision</code> argument and returning <code>TRUE</code> to block t
 If the last reference is removed on a <code>WebKitPolicyDecision</code> and no decision has been
 made explicitly, <code>webkit_policy_decision_use()</code> will be the default policy decision. The
 default signal handler will simply call webkit_policy_decision_use(). Only the first
-policy decision chosen for a given <code>WebKitPolicyDecision</code> will have any&nbsp;affect.</p>
+policy decision chosen for a given <code>WebKitPolicyDecision</code> will have any&nbsp;effect.</p>
       </div>
 
       <div class="docblock">

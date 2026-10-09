@@ -31,6 +31,7 @@
 #include "CSSRuleList.h"
 #include "CSSStyleProperties.h"
 #include "CookieStore.h"
+#include "Crypto.h"
 #include "CustomElementRegistry.h"
 #include "DocumentSecurityOrigin.h"
 #include "DocumentView.h"
@@ -43,6 +44,7 @@
 #include "LocalDOMWindow.h"
 #include "LocalFrame.h"
 #include "Location.h"
+#include "Logging.h"
 #include "MediaQueryList.h"
 #include "Navigation.h"
 #include "Navigator.h"
@@ -55,6 +57,7 @@
 #include "ScheduledAction.h"
 #include "Screen.h"
 #include "SecurityOrigin.h"
+#include "Site.h"
 #include "StyleMedia.h"
 #include "VisualViewport.h"
 #include "WebCoreOpaqueRoot.h"
@@ -103,17 +106,20 @@ Location& DOMWindow::location()
 
 bool DOMWindow::closed() const
 {
-    RefPtr frame = this->frame();
+    auto* frame = this->frame();
     if (!frame)
         return true;
 
-    RefPtr page = frame->page();
+    auto* page = frame->page();
     return !page || page->isClosing();
 }
 
 void DOMWindow::close(Document& document)
 {
-    if (document.canNavigate(protectedFrame().get()) != CanNavigateState::Able)
+    bool canClose = document.canNavigate(protect(frame()).get()) == CanNavigateState::Able;
+    RELEASE_LOG_DEBUG(DOMAPI, "DOMWindow::close canClose=%d frameID=%" PRIu64, canClose, frame() ? protect(frame())->frameID().toUInt64() : 0);
+
+    if (!canClose)
         return;
     close();
 }
@@ -131,8 +137,8 @@ void DOMWindow::close()
     if (!frame->isMainFrame())
         return;
 
-    if (!(page->openedByDOM() || page->checkedBackForward()->count() <= 1)) {
-        checkedConsole()->addMessage(MessageSource::JS, MessageLevel::Warning, "Can't close the window since it was not opened by JavaScript"_s);
+    if (!(page->openedByDOM() || protect(page->backForward())->count() <= 1)) {
+        protect(console())->addMessage(MessageSource::JS, MessageLevel::Warning, "Can't close the window since it was not opened by JavaScript"_s);
         return;
     }
 
@@ -148,18 +154,8 @@ void DOMWindow::close()
 
 FrameConsoleClient* DOMWindow::console() const
 {
-    RefPtr frame = dynamicDowncast<LocalFrame>(this->frame());
+    auto* frame = dynamicDowncast<LocalFrame>(this->frame());
     return frame ? &frame->console() : nullptr;
-}
-
-CheckedPtr<FrameConsoleClient> DOMWindow::checkedConsole() const
-{
-    return console();
-}
-
-RefPtr<Frame> DOMWindow::protectedFrame() const
-{
-    return frame();
 }
 
 WebCoreOpaqueRoot root(DOMWindow* window)
@@ -170,6 +166,9 @@ WebCoreOpaqueRoot root(DOMWindow* window)
 WindowProxy* DOMWindow::opener() const
 {
     RefPtr frame = this->frame();
+
+    RELEASE_LOG_DEBUG(DOMAPI, "DOMWindow::opener hasOpener=%d frameID=%" PRIu64, frame && frame->opener(), frame ? frame->frameID().toUInt64() : 0);
+
     if (!frame)
         return nullptr;
 
@@ -182,7 +181,7 @@ WindowProxy* DOMWindow::opener() const
 
 WindowProxy* DOMWindow::top() const
 {
-    RefPtr frame = this->frame();
+    auto* frame = this->frame();
     if (!frame)
         return nullptr;
 
@@ -194,11 +193,11 @@ WindowProxy* DOMWindow::top() const
 
 WindowProxy* DOMWindow::parent() const
 {
-    RefPtr frame = this->frame();
+    auto* frame = this->frame();
     if (!frame)
         return nullptr;
 
-    RefPtr parentFrame = frame->tree().parent();
+    auto* parentFrame = frame->tree().parent();
     if (parentFrame)
         return &parentFrame->windowProxy();
 
@@ -256,11 +255,6 @@ Document* DOMWindow::documentIfLocal()
     if (!localThis)
         return nullptr;
     return localThis->document();
-}
-
-RefPtr<Document> DOMWindow::protectedDocumentIfLocal()
-{
-    return documentIfLocal();
 }
 
 ExceptionOr<Document*> DOMWindow::document() const
@@ -527,6 +521,14 @@ ExceptionOr<bool> DOMWindow::crossOriginIsolated() const
     return localThis->crossOriginIsolated();
 }
 
+ExceptionOr<bool> DOMWindow::originAgentCluster() const
+{
+    auto* localThis = dynamicDowncast<LocalDOMWindow>(*this);
+    if (!localThis)
+        return Exception { ExceptionCode::SecurityError };
+    return localThis->originAgentCluster();
+}
+
 void DOMWindow::focus(LocalDOMWindow& incumbentWindow)
 {
     switch (m_type) {
@@ -577,6 +579,7 @@ ExceptionOr<Performance&> DOMWindow::performance() const
 
 ExceptionOr<void> DOMWindow::postMessage(JSC::JSGlobalObject& globalObject, LocalDOMWindow& incumbentWindow, JSC::JSValue message, WindowPostMessageOptions&& options)
 {
+    RELEASE_LOG_DEBUG(DOMAPI, "DOMWindow::postMessage frameID=%" PRIu64, frame() ? frame()->frameID().toUInt64() : 0);
     switch (m_type) {
     case DOMWindowType::Local:
         return downcast<LocalDOMWindow>(*this).postMessage(globalObject, incumbentWindow, message, WTF::move(options));
@@ -588,7 +591,8 @@ ExceptionOr<void> DOMWindow::postMessage(JSC::JSGlobalObject& globalObject, Loca
 
 ExceptionOr<void> DOMWindow::postMessage(JSC::JSGlobalObject& globalObject, LocalDOMWindow& incumbentWindow, JSC::JSValue message, String&& targetOrigin, Vector<JSC::Strong<JSC::JSObject>>&& transfer)
 {
-    return postMessage(globalObject, incumbentWindow, message, WindowPostMessageOptions { WTF::move(targetOrigin), WTF::move(transfer) });
+    RELEASE_LOG_DEBUG(DOMAPI, "DOMWindow::postMessage frameID=%" PRIu64, frame() ? protect(frame())->frameID().toUInt64() : 0);
+    return postMessage(globalObject, incumbentWindow, message, WindowPostMessageOptions { { WTF::move(transfer) }, WTF::move(targetOrigin) });
 }
 
 ExceptionOr<Ref<CSSStyleDeclaration>> DOMWindow::getComputedStyle(Element& element, const String& pseudoElt) const
@@ -958,7 +962,7 @@ void DOMWindow::printErrorMessage(const String& message) const
 
 String DOMWindow::crossDomainAccessErrorMessage(const LocalDOMWindow& activeWindow, IncludeTargetOrigin includeTargetOrigin)
 {
-    const URL& activeWindowURL = activeWindow.document()->url();
+    URL activeWindowURL = protect(activeWindow.document())->url();
     if (activeWindowURL.isNull())
         return String();
 
@@ -967,9 +971,10 @@ String DOMWindow::crossDomainAccessErrorMessage(const LocalDOMWindow& activeWind
     // We can't figure anything out if we are operating on a RemoteDOMWindow and don't have a remote frame
     if (!localDocument && !remoteFrame)
         return String();
-    Ref activeOrigin = activeWindow.protectedDocument()->securityOrigin();
+    Ref activeOrigin = protect(activeWindow.document())->securityOrigin();
     const Ref targetOrigin = localDocument ? localDocument->securityOrigin() : remoteFrame->frameDocumentSecurityOriginOrOpaque();
-    ASSERT(!activeOrigin->isSameOriginDomain(targetOrigin));
+    // A remote frame with an empty site may legitimately appear as same-origin.
+    ASSERT(!activeOrigin->isSameOriginDomain(targetOrigin) || (remoteFrame && Site { activeOrigin->data() }.isEmpty()));
 
     // FIXME: This message, and other console messages, have extra newlines. Should remove them.
     String message;
@@ -979,20 +984,20 @@ String DOMWindow::crossDomainAccessErrorMessage(const LocalDOMWindow& activeWind
         message = makeString("Blocked a frame with origin \""_s, activeOrigin->toString(), "\" from accessing a cross-origin frame. "_s);
 
     // Sandbox errors: Use the origin of the frames' location, rather than their actual origin (since we know that at least one will be "null").
-    URL activeURL = activeWindow.document()->url();
+    URL activeURL = protect(activeWindow.document())->url();
     RefPtr<const SecurityOrigin> remoteFrameSecurityOrigin = (m_type == DOMWindowType::Remote) ? remoteFrame->frameDocumentSecurityOriginOrOpaque() : RefPtr<const SecurityOrigin>();
     URL targetURL = localDocument ? localDocument->url() : remoteFrameSecurityOrigin->toURL();
-    bool localSandboxed = (localDocument && localDocument->isSandboxed(SandboxFlag::Origin));
+    bool targetSandboxed = localDocument ? localDocument->isSandboxed(SandboxFlag::Origin) : (remoteFrame && remoteFrame->frameDocumentIsSandboxedOrigin());
 
-    if (localSandboxed || activeWindow.document()->isSandboxed(SandboxFlag::Origin)) {
+    if (targetSandboxed || activeWindow.document()->isSandboxed(SandboxFlag::Origin)) {
         if (includeTargetOrigin == IncludeTargetOrigin::Yes)
             message = makeString("Blocked a frame at \""_s, SecurityOrigin::create(activeURL).get().toString(), "\" from accessing a frame at \""_s, SecurityOrigin::create(targetURL).get().toString(), "\". "_s);
         else
             message = makeString("Blocked a frame at \""_s, SecurityOrigin::create(activeURL).get().toString(), "\" from accessing a cross-origin frame. "_s);
 
-        if (localSandboxed && activeWindow.document()->isSandboxed(SandboxFlag::Origin))
+        if (targetSandboxed && activeWindow.document()->isSandboxed(SandboxFlag::Origin))
             return makeString("Sandbox access violation: "_s, message, " Both frames are sandboxed and lack the \"allow-same-origin\" flag."_s);
-        if (localSandboxed)
+        if (targetSandboxed)
             return makeString("Sandbox access violation: "_s, message, " The frame being accessed is sandboxed and lacks the \"allow-same-origin\" flag."_s);
         return makeString("Sandbox access violation: "_s, message, " The frame requesting access is sandboxed and lacks the \"allow-same-origin\" flag."_s);
     }
@@ -1015,9 +1020,9 @@ String DOMWindow::crossDomainAccessErrorMessage(const LocalDOMWindow& activeWind
     return makeString(message, "Protocols, domains, and ports must match."_s);
 }
 
-bool DOMWindow::isInsecureScriptAccess(const LocalDOMWindow& activeWindow, const String& urlString)
+bool DOMWindow::isInsecureScriptAccess(const LocalDOMWindow& activeWindow, const URL& url)
 {
-    if (!WTF::protocolIsJavaScript(urlString))
+    if (!url.protocolIsJavaScript())
         return false;
 
     // If this LocalDOMWindow isn't currently active in the Frame, then there's no
@@ -1029,13 +1034,12 @@ bool DOMWindow::isInsecureScriptAccess(const LocalDOMWindow& activeWindow, const
         if (&activeWindow == this)
             return false;
 
-        // FIXME: The name canAccess seems to be a roundabout way to ask "can execute script".
-        // Can we name the SecurityOrigin function better to make this more clear?
-
-        // This check only makes sense with LocalDOMWindows as RemoteDOMWindows necessarily have different origins
-        RefPtr localDocument = documentIfLocal();
-        if (localDocument && activeWindow.protectedDocument()->protectedSecurityOrigin()->isSameOriginDomain(localDocument->protectedSecurityOrigin()))
-            return false;
+        if (RefPtr frame = this->frame()) {
+            if (RefPtr securityOrigin = frame->frameDocumentSecurityOrigin()) {
+                if (protect(protect(activeWindow.document())->securityOrigin())->isSameOriginDomain(*securityOrigin))
+                    return false;
+            }
+        }
     }
 
     activeWindow.printErrorMessage(crossDomainAccessErrorMessage(activeWindow, IncludeTargetOrigin::Yes));
@@ -1058,7 +1062,7 @@ bool DOMWindow::passesSetLocationSecurityChecks(const LocalDOMWindow& activeWind
     if (navigationState == CanNavigateState::Unable)
         return false;
 
-    if (isInsecureScriptAccess(activeWindow, completedURL.string()))
+    if (isInsecureScriptAccess(activeWindow, completedURL))
         return false;
     return true;
 }

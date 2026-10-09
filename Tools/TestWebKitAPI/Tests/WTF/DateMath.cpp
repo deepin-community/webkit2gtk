@@ -25,8 +25,12 @@
 
 #include "config.h"
 
-#include "Test.h"
+#include "Helpers/Test.h"
 #include <wtf/DateMath.h>
+
+#if PLATFORM(WIN)
+#include <windows.h>
+#endif
 
 namespace TestWebKitAPI {
 

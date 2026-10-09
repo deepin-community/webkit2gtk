@@ -79,6 +79,8 @@
 #include <JavaScriptCore/APICast.h>
 #include <JavaScriptCore/JSRetainPtr.h>
 #include <WebCore/CertificateInfo.h>
+#include <WebCore/FloatPoint.h>
+#include <WebCore/FloatSize.h>
 #include <WebCore/JSDOMExceptionHandling.h>
 #include <WebCore/RunJavaScriptParameters.h>
 #include <WebCore/SharedBuffer.h>
@@ -97,16 +99,22 @@
 #include <wtf/text/CStringView.h>
 #include <wtf/text/StringBuilder.h>
 
+#if ENABLE(POINTER_LOCK)
+#include "WebKitPointerLockPermissionRequest.h"
+#endif
+
 #if PLATFORM(GTK)
 #include "GUniquePtrGtk.h"
 #include "GtkUtilities.h"
-#include "WebKitFaviconDatabasePrivate.h"
 #include "WebKitInputMethodContextImplGtk.h"
-#include "WebKitPointerLockPermissionRequest.h"
 #include "WebKitPrintOperationPrivate.h"
 #include "WebKitWebInspectorPrivate.h"
 #include "WebKitWebViewBasePrivate.h"
 #include <WebCore/RefPtrCairo.h>
+#endif
+
+#if PLATFORM(GTK) || ENABLE(2022_GLIB_API)
+#include "WebKitFaviconDatabasePrivate.h"
 #endif
 
 #if PLATFORM(WPE)
@@ -232,6 +240,7 @@ enum {
 
     PROP_URI,
     PROP_ZOOM_LEVEL,
+    PROP_MAGNIFICATION,
     PROP_IS_LOADING,
     PROP_IS_PLAYING_AUDIO,
 #if !ENABLE(2022_GLIB_API)
@@ -254,6 +263,10 @@ enum {
 
     PROP_THEME_COLOR,
     PROP_IS_IMMERSIVE_MODE_ENABLED,
+
+#if ENABLE(2022_GLIB_API)
+    PROP_PAGE_ICONS,
+#endif
 
     N_PROPERTIES,
 };
@@ -424,6 +437,10 @@ struct _WebKitWebViewPrivate {
     unsigned long faviconChangedHandlerID;
 #endif
 
+#if ENABLE(2022_GLIB_API)
+    GRefPtr<WebKitImageList> pageIcons;
+#endif
+
     GRefPtr<WebKitAuthenticationRequest> authenticationRequest;
 
 #if ENABLE(2022_GLIB_API)
@@ -495,7 +512,7 @@ void PageLoadStateObserver::didChangeActiveURL()
 {
     if (m_webView->priv->isActiveURIChangeBlocked)
         return;
-    m_webView->priv->activeURI = getPage(m_webView).pageLoadState().activeURL().utf8();
+    m_webView->priv->activeURI = getPage(m_webView).pageLoadState().activeURL().string().utf8();
     g_object_notify_by_pspec(G_OBJECT(m_webView), sObjProperties[PROP_URI]);
     g_object_thaw_notify(G_OBJECT(m_webView));
 }
@@ -576,6 +593,11 @@ WebKitWebResourceLoadManager* WebKitWebViewClient::webResourceLoadManager()
 void WebKitWebViewClient::themeColorDidChange()
 {
     webkitWebViewEmitThemeColorChanged(m_webView);
+}
+
+void WebKitWebViewClient::pageScaleFactorDidChange(WKWPE::View&)
+{
+    webkitWebViewDidChangePageScale(m_webView);
 }
 
 #if ENABLE(FULLSCREEN_API)
@@ -683,6 +705,17 @@ static gboolean webkitWebViewIsEphemeral(WebKitWebView* webView)
 #endif
 }
 
+#if PLATFORM(GTK) || ENABLE(2022_GLIB_API)
+static WebKitFaviconDatabase* webkitWebViewGetFaviconDatabase(WebKitWebView* webView)
+{
+#if ENABLE(2022_GLIB_API)
+    return webkit_website_data_manager_get_favicon_database(webkitWebViewGetWebsiteDataManager(webView));
+#else
+    return webkit_web_context_get_favicon_database(webView->priv->context.get());
+#endif
+}
+#endif // PLATFORM(GTK) || ENABLE(2021_GLIB_API)
+
 #if PLATFORM(GTK)
 static void enableBackForwardNavigationGesturesChanged(WebKitSettings* settings, GParamSpec*, WebKitWebView* webView)
 {
@@ -729,15 +762,6 @@ static void gotFaviconCallback(GObject* object, GAsyncResult* result, gpointer u
     webView->priv->faviconCancellable = nullptr;
 }
 
-static WebKitFaviconDatabase* webkitWebViewGetFaviconDatabase(WebKitWebView* webView)
-{
-#if ENABLE(2022_GLIB_API)
-    return webkit_website_data_manager_get_favicon_database(webkitWebViewGetWebsiteDataManager(webView));
-#else
-    return webkit_web_context_get_favicon_database(webView->priv->context.get());
-#endif
-}
-
 static void webkitWebViewRequestFavicon(WebKitWebView* webView)
 {
     webkitWebViewCancelFaviconRequest(webView);
@@ -766,6 +790,17 @@ static void faviconChangedCallback(WebKitFaviconDatabase*, const char* pageURI, 
         return;
 
     webkitWebViewUpdateFaviconURI(webView, faviconURI);
+}
+#endif // PLATFORM(GTK)
+
+#if ENABLE(2022_GLIB_API)
+static void webkitWebViewUpdatePageIcons(WebKitWebView* webView, GRefPtr<WebKitImageList>&& pageIcons)
+{
+    if (pageIcons == webView->priv->pageIcons)
+        return;
+
+    webView->priv->pageIcons = pageIcons;
+    g_object_notify_by_pspec(G_OBJECT(webView), sObjProperties[PROP_PAGE_ICONS]);
 }
 #endif
 
@@ -997,9 +1032,11 @@ static void webkitWebViewConstructed(GObject* object)
 #endif // ENABLE(CONTEXT_MENUS)
     attachFormClientToView(webView);
 
-#if PLATFORM(GTK)
+#if PLATFORM(GTK) || ENABLE(2022_GLIB_API)
     attachIconLoadingClientToView(webView);
+#endif
 
+#if PLATFORM(GTK)
     GRefPtr<WebKitInputMethodContext> imContext = adoptGRef(webkitInputMethodContextImplGtkNew());
     webkitInputMethodContextSetWebView(imContext.get(), webView);
     webkitWebViewBaseSetInputMethodContext(WEBKIT_WEB_VIEW_BASE(webView), imContext.get());
@@ -1019,7 +1056,7 @@ static void webkitWebViewConstructed(GObject* object)
     // See https://bugs.webkit.org/show_bug.cgi?id=135412.
     webkitWebViewUpdateSettings(webView);
 
-    priv->backForwardList = adoptGRef(webkitBackForwardListCreate(&getPage(webView).backForwardList()));
+    priv->backForwardList = adoptGRef(webkitBackForwardListCreate(&getPage(webView).backForwardListWrapper()));
     priv->windowProperties = adoptGRef(webkitWindowPropertiesCreate());
     priv->isWebProcessResponsive = true;
 }
@@ -1074,6 +1111,9 @@ static void webkitWebViewSetProperty(GObject* object, guint propId, const GValue
 #endif
     case PROP_ZOOM_LEVEL:
         webkit_web_view_set_zoom_level(webView, g_value_get_double(value));
+        break;
+    case PROP_MAGNIFICATION:
+        webkit_web_view_set_magnification(webView, g_value_get_double(value));
         break;
 #if !ENABLE(2022_GLIB_API)
     case PROP_IS_EPHEMERAL:
@@ -1167,6 +1207,9 @@ static void webkitWebViewGetProperty(GObject* object, guint propId, GValue* valu
     case PROP_ZOOM_LEVEL:
         g_value_set_double(value, webkit_web_view_get_zoom_level(webView));
         break;
+    case PROP_MAGNIFICATION:
+        g_value_set_double(value, webkit_web_view_get_magnification(webView));
+        break;
     case PROP_IS_LOADING:
         g_value_set_boolean(value, webkit_web_view_is_loading(webView));
         break;
@@ -1229,6 +1272,11 @@ static void webkitWebViewGetProperty(GObject* object, guint propId, GValue* valu
     case PROP_IS_IMMERSIVE_MODE_ENABLED:
         g_value_set_boolean(value, webkit_web_view_is_immersive_mode_enabled(webView));
         break;
+#if ENABLE(2022_GLIB_API)
+    case PROP_PAGE_ICONS:
+        g_value_set_boxed(value, webkit_web_view_get_page_icons(webView));
+        break;
+#endif
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID(object, propId, paramSpec);
     }
@@ -1300,7 +1348,7 @@ static void webkit_web_view_class_init(WebKitWebViewClass* webViewClass)
      *
      * The #WebKitWebViewBackend of the view.
      *
-     * since: 2.20
+     * Since: 2.20
      */
     sObjProperties[PROP_BACKEND] =
         g_param_spec_boxed(
@@ -1429,12 +1477,6 @@ static void webkit_web_view_class_init(WebKitWebViewClass* webViewClass)
             WEBKIT_PARAM_READABLE);
 
 #if PLATFORM(GTK)
-    /**
-     * WebKitWebView:favicon:
-     *
-     * The favicon currently associated to the #WebKitWebView.
-     * See webkit_web_view_get_favicon() for more details.
-     */
     sObjProperties[PROP_FAVICON] =
 #if USE(GTK4)
         g_param_spec_object(
@@ -1448,6 +1490,21 @@ static void webkit_web_view_class_init(WebKitWebViewClass* webViewClass)
             nullptr, nullptr,
             WEBKIT_PARAM_READABLE);
 #endif
+#endif // PLATFORM(GTK)
+
+#if ENABLE(2022_GLIB_API)
+    /**
+     * WebKitWebView:page-icons: (attributes org.gtk.Property.get=webkit_web_view_get_page_icons) (getter get_page_icons):
+     *
+     * The page icons (favicons) associated with the currently loaded content, if any.
+     *
+     * Since: 2.54
+     */
+    sObjProperties[PROP_PAGE_ICONS] = g_param_spec_boxed(
+        "page-icons",
+        nullptr, nullptr,
+        WEBKIT_TYPE_IMAGE_LIST,
+        WEBKIT_PARAM_READABLE);
 #endif
 
     /**
@@ -1474,6 +1531,25 @@ static void webkit_web_view_class_init(WebKitWebViewClass* webViewClass)
             "zoom-level",
             nullptr, nullptr,
             0, G_MAXDOUBLE, 1,
+            WEBKIT_PARAM_READWRITE);
+
+    /**
+     * WebKitWebView:magnification:
+     *
+     * The magnification factor of the #WebKitWebView content.
+     *
+     * The magnification factor represents the visual scaling of the page (similar
+     * to pinch-to-zoom). This is independent of the layout zoom level. Setting
+     * the magnification factor scales the rendered page visually without affecting
+     * page layout or text wrapping.
+     *
+     * Since: 2.54
+     */
+    sObjProperties[PROP_MAGNIFICATION] =
+        g_param_spec_double(
+            "magnification",
+            nullptr, nullptr,
+            G_MINDOUBLE, G_MAXDOUBLE, 1,
             WEBKIT_PARAM_READWRITE);
 
     /**
@@ -1520,10 +1596,10 @@ static void webkit_web_view_class_init(WebKitWebViewClass* webViewClass)
      * This is a %G_PARAM_CONSTRUCT_ONLY property, so you have to create an ephemeral
      * #WebKitWebView and it can't be changed. The ephemeral #WebKitWebsiteDataManager
      * created for the #WebKitWebView will inherit the network settings from the
-     * #WebKitWebContext<!-- -->'s #WebKitWebsiteDataManager. To use different settings
+     * #WebKitWebContext's #WebKitWebsiteDataManager. To use different settings
      * you can get the #WebKitWebsiteDataManager with webkit_web_view_get_website_data_manager()
      * and set the new ones.
-     * Note that all #WebKitWebView<!-- -->s created with an ephemeral #WebKitWebContext
+     * Note that all #WebKitWebView objects created with an ephemeral #WebKitWebContext
      * will be ephemeral automatically.
      * See also webkit_web_context_new_ephemeral().
      *
@@ -1639,7 +1715,7 @@ static void webkit_web_view_class_init(WebKitWebViewClass* webViewClass)
     /**
      * WebKitWebView:is-web-process-responsive:
      *
-     * Whether the web process currently associated to the #WebKitWebView is responsive.
+     * Whether the web process currently associated with the #WebKitWebView is responsive.
      *
      * Since: 2.34
      */
@@ -1662,7 +1738,7 @@ static void webkit_web_view_class_init(WebKitWebViewClass* webViewClass)
      * %WEBKIT_MEDIA_CAPTURE_STATE_NONE or %WEBKIT_MEDIA_CAPTURE_STATE_MUTED.
      *
      * If the capture state of the device is set to %WEBKIT_MEDIA_CAPTURE_STATE_NONE the web-page
-     * can still re-request the permission to the user. Permission desision caching is left to the
+     * can still re-request the permission to the user. Permission decision caching is left to the
      * application.
      *
      * Since: 2.34
@@ -1686,7 +1762,7 @@ static void webkit_web_view_class_init(WebKitWebViewClass* webViewClass)
      * %WEBKIT_MEDIA_CAPTURE_STATE_NONE or %WEBKIT_MEDIA_CAPTURE_STATE_MUTED.
      *
      * If the capture state of the device is set to %WEBKIT_MEDIA_CAPTURE_STATE_NONE the web-page
-     * can still re-request the permission to the user. Permission desision caching is left to the
+     * can still re-request the permission to the user. Permission decision caching is left to the
      * application.
      *
      * Since: 2.34
@@ -1702,7 +1778,7 @@ static void webkit_web_view_class_init(WebKitWebViewClass* webViewClass)
      * WebKitWebView:display-capture-state:
      *
      * Capture state of the display device. Whenever the user grants a media-request sent by the web
-     * page, requesting screencasting capabilities (`navigator.mediaDevices.getDisplayMedia() this
+     * page, requesting screencasting capabilities (`navigator.mediaDevices.getDisplayMedia()`) this
      * property will be set to %WEBKIT_MEDIA_CAPTURE_STATE_ACTIVE.
      *
      * The application can monitor this property and provide a visual indicator allowing to
@@ -1710,7 +1786,7 @@ static void webkit_web_view_class_init(WebKitWebViewClass* webViewClass)
      * %WEBKIT_MEDIA_CAPTURE_STATE_NONE or %WEBKIT_MEDIA_CAPTURE_STATE_MUTED.
      *
      * If the capture state of the device is set to %WEBKIT_MEDIA_CAPTURE_STATE_NONE the web-page
-     * can still re-request the permission to the user. Permission desision caching is left to the
+     * can still re-request the permission to the user. Permission decision caching is left to the
      * application.
      *
      * Since: 2.34
@@ -1990,7 +2066,7 @@ static void webkit_web_view_class_init(WebKitWebViewClass* webViewClass)
      *
      * Emitted after #WebKitWebView::ready-to-show on the newly
      * created #WebKitWebView when JavaScript code calls
-     * <function>window.showModalDialog</function>. The purpose of
+     * `window.showModalDialog`. The purpose of
      * this signal is to allow the client application to prepare the
      * new view to behave as modal. Once the signal is emitted a new
      * main loop will be run to block user interaction in the parent
@@ -2010,7 +2086,7 @@ static void webkit_web_view_class_init(WebKitWebViewClass* webViewClass)
      * @web_view: the #WebKitWebView on which the signal is emitted
      *
      * Emitted when closing a #WebKitWebView is requested. This occurs when a
-     * call is made from JavaScript's <function>window.close</function> function or
+     * call is made from JavaScript's `window.close` function or
      * after trying to close the @web_view with webkit_web_view_try_close().
      * It is the owner's responsibility to handle this signal to hide or
      * destroy the #WebKitWebView, if necessary.
@@ -2029,30 +2105,21 @@ static void webkit_web_view_class_init(WebKitWebViewClass* webViewClass)
      * @web_view: the #WebKitWebView on which the signal is emitted
      * @dialog: the #WebKitScriptDialog to show
      *
-     * Emitted when JavaScript code calls <function>window.alert</function>,
-     * <function>window.confirm</function> or <function>window.prompt</function>,
-     * or when <function>onbeforeunload</function> event is fired.
+     * Emitted when JavaScript code calls `window.alert`,
+     * `window.confirm` or `window.prompt`,
+     * or when `onbeforeunload` event is fired.
      * The @dialog parameter should be used to build the dialog.
      * If the signal is not handled a different dialog will be built and shown depending
      * on the dialog type:
-     * <itemizedlist>
-     * <listitem><para>
-     *  %WEBKIT_SCRIPT_DIALOG_ALERT: message dialog with a single Close button.
-     * </para></listitem>
-     * <listitem><para>
-     *  %WEBKIT_SCRIPT_DIALOG_CONFIRM: message dialog with OK and Cancel buttons.
-     * </para></listitem>
-     * <listitem><para>
-     *  %WEBKIT_SCRIPT_DIALOG_PROMPT: message dialog with OK and Cancel buttons and
-     *  a text entry with the default text.
-     * </para></listitem>
-     * <listitem><para>
-     *  %WEBKIT_SCRIPT_DIALOG_BEFORE_UNLOAD_CONFIRM: message dialog with Stay and Leave buttons.
-     * </para></listitem>
-     * </itemizedlist>
+     *
+     * - %WEBKIT_SCRIPT_DIALOG_ALERT: message dialog with a single Close button.
+     * - %WEBKIT_SCRIPT_DIALOG_CONFIRM: message dialog with OK and Cancel buttons.
+     * - %WEBKIT_SCRIPT_DIALOG_PROMPT: message dialog with OK and Cancel buttons and
+     *   a text entry with the default text.
+     * - %WEBKIT_SCRIPT_DIALOG_BEFORE_UNLOAD_CONFIRM: message dialog with Stay and Leave buttons.
      *
      * It is possible to handle the script dialog request asynchronously, by simply
-     * caling webkit_script_dialog_ref() on the @dialog argument and calling
+     * calling webkit_script_dialog_ref() on the @dialog argument and calling
      * webkit_script_dialog_close() when done.
      * If the last reference is removed on a #WebKitScriptDialog and the dialog has not been
      * closed, webkit_script_dialog_close() will be called.
@@ -2078,8 +2145,8 @@ static void webkit_web_view_class_init(WebKitWebViewClass* webViewClass)
      *
      * This signal is emitted when WebKit is requesting the client to decide a policy
      * decision, such as whether to navigate to a page, open a new window or whether or
-     * not to download a resource. The #WebKitNavigationPolicyDecision passed in the
-     * @decision argument is a generic type, but should be casted to a more
+     * not to download a resource. The #WebKitPolicyDecision passed in the
+     * @decision argument is a generic type, but should be cast to a more
      * specific type when making the decision. For example:
      *
      * ```c
@@ -2116,7 +2183,7 @@ static void webkit_web_view_class_init(WebKitWebViewClass* webViewClass)
      * If the last reference is removed on a #WebKitPolicyDecision and no decision has been
      * made explicitly, webkit_policy_decision_use() will be the default policy decision. The
      * default signal handler will simply call webkit_policy_decision_use(). Only the first
-     * policy decision chosen for a given #WebKitPolicyDecision will have any affect.
+     * policy decision chosen for a given #WebKitPolicyDecision will have any effect.
      *
      * Returns: %TRUE to stop other handlers from being invoked for the event.
      *   %FALSE to propagate the event further.
@@ -2144,7 +2211,7 @@ static void webkit_web_view_class_init(WebKitWebViewClass* webViewClass)
      * operations.
      *
      * A possible way to use this signal could be through a dialog
-     * allowing the user decide what to do with the request:
+     * allowing the user to decide what to do with the request:
      *
      * ```c
      * static gboolean permission_request_cb (WebKitWebView *web_view,
@@ -2281,10 +2348,10 @@ static void webkit_web_view_class_init(WebKitWebViewClass* webViewClass)
      * @web_view: the #WebKitWebView on which the signal is emitted.
      *
      * Emitted when JavaScript code calls
-     * <function>element.webkitRequestFullScreen</function>. If the
+     * `element.webkitRequestFullScreen`. If the
      * signal is not handled the #WebKitWebView will proceed to full screen
      * its top level window. This signal can be used by client code to
-     * request permission to the user prior doing the full screen
+     * request permission to the user prior to doing the full screen
      * transition and eventually prepare the top-level window
      * (e.g. hide some widgets that would otherwise be part of the
      * full screen window).
@@ -2444,7 +2511,7 @@ static void webkit_web_view_class_init(WebKitWebViewClass* webViewClass)
     /**
      * WebKitWebView::web-process-terminated:
      * @web_view: the #WebKitWebView
-     * @reason: the a #WebKitWebProcessTerminationReason
+     * @reason: a #WebKitWebProcessTerminationReason
      *
      * This signal is emitted when the web process terminates abnormally due
      * to @reason.
@@ -2599,7 +2666,7 @@ static void webkit_web_view_class_init(WebKitWebViewClass* webViewClass)
      *
      * You can handle the query asynchronously by calling webkit_permission_state_query_ref() on
      * @query and returning %TRUE. If the last reference of @query is removed and the query has not
-     * been handled, the query result will be set to %WEBKIT_QUERY_PERMISSION_PROMPT.
+     * been handled, the query result will be set to %WEBKIT_PERMISSION_STATE_PROMPT.
      *
      * Returns: %TRUE if the message was handled, or %FALSE otherwise.
      *
@@ -2660,7 +2727,7 @@ void webkitWebViewWillStartLoad(WebKitWebView* webView)
 
     GUniquePtr<GError> error(g_error_new_literal(WEBKIT_NETWORK_ERROR, WEBKIT_NETWORK_ERROR_CANCELLED, _("Load request cancelled")));
     webkitWebViewLoadFailed(webView, pageLoadState.isProvisional() ? WEBKIT_LOAD_STARTED : WEBKIT_LOAD_COMMITTED,
-        pageLoadState.isProvisional() ? pageLoadState.provisionalURL().utf8().data() : pageLoadState.url().utf8().data(),
+        pageLoadState.isProvisional() ? pageLoadState.provisionalURL().string().utf8().data() : pageLoadState.url().string().utf8().data(),
         error.get());
 }
 
@@ -2678,7 +2745,7 @@ void webkitWebViewLoadChanged(WebKitWebView* webView, WebKitLoadEvent loadEvent)
         webView->priv->isActiveURIChangeBlocked = false;
         break;
     case WEBKIT_LOAD_COMMITTED: {
-        auto activeURL = getPage(webView).pageLoadState().activeURL().utf8();
+        auto activeURL = getPage(webView).pageLoadState().activeURL().string().utf8();
         // Active URL is trusted now. If it's different to our active URI, due to the
         // update block before WEBKIT_LOAD_STARTED, we update it here to be in sync
         // again with the page load state.
@@ -2733,23 +2800,67 @@ void webkitWebViewLoadFailedWithTLSErrors(WebKitWebView* webView, const char* fa
     g_signal_emit(webView, signals[LOAD_CHANGED], 0, WEBKIT_LOAD_FINISHED);
 }
 
-#if PLATFORM(GTK)
-void webkitWebViewGetLoadDecisionForIcon(WebKitWebView* webView, const LinkIcon& icon, Function<void(bool)>&& completionHandler)
+#if PLATFORM(GTK) || ENABLE(2022_GLIB_API)
+void webkitWebViewGetLoadDecisionForIcons(WebKitWebView* webView, const HashMap<CallbackID, WebCore::LinkIcon>& icons, CompletionHandler<void(HashSet<WebKit::CallbackID>&&)>&& completionHandler)
 {
-    // We only support favicons for now.
-    if (icon.type != LinkIconType::Favicon) {
-        completionHandler(false);
-        return;
-    }
+    struct CallbackAggregator final : public ThreadSafeRefCounted<CallbackAggregator>  {
+        explicit CallbackAggregator(CompletionHandler<void(HashSet<WebKit::CallbackID>&&)>&& completionHandler)
+            : m_completionHandler(WTF::move(completionHandler))
+        {
+        }
+
+        ~CallbackAggregator()
+        {
+            m_completionHandler(WTF::move(loadIdentifiers));
+        }
+
+        CompletionHandler<void(HashSet<WebKit::CallbackID>)> m_completionHandler;
+        HashSet<CallbackID> loadIdentifiers;
+    };
+
+    auto aggregator = adoptRef(new CallbackAggregator(WTF::move(completionHandler)));
 
     auto* database = webkitWebViewGetFaviconDatabase(webView);
-    if (!database) {
-        completionHandler(false);
+    if (!database)
         return;
-    }
 
-    webkitFaviconDatabaseGetLoadDecisionForIcon(database, icon, getPage(webView).pageLoadState().activeURL(), webkitWebViewIsEphemeral(webView), WTF::move(completionHandler));
+    const auto isEphemeral = webkitWebViewIsEphemeral(webView);
+    const auto& activeURL = getPage(webView).pageLoadState().activeURL().string();
+    for (const auto& [identifier, icon] : icons) {
+        // FIXME: Maybe we should consider other icon types as loadable.
+        if (!icon.url.protocolIsInHTTPFamily() || icon.type != LinkIconType::Favicon)
+            continue;
+
+        webkitFaviconDatabaseGetLoadDecisionForIcon(database, icon, activeURL, isEphemeral, [aggregator, identifier](bool loadIcon) {
+            if (loadIcon)
+                aggregator->loadIdentifiers.add(identifier);
+        });
+    }
 }
+
+#if ENABLE(2022_GLIB_API)
+void webkitWebViewUpdatePageIcons(WebKitWebView *webView)
+{
+    auto* database = webkitWebViewGetFaviconDatabase(webView);
+    if (!database)
+        return;
+
+    auto cancellable = adoptGRef(g_cancellable_new());
+    webkit_favicon_database_get_page_icons(database, getPage(webView).pageLoadState().activeURL().string().utf8().data(), cancellable.get(), [](GObject* database, GAsyncResult* result, gpointer userData) {
+        auto webView = adoptGRef(WEBKIT_WEB_VIEW(userData));
+
+        GUniqueOutPtr<GError> error;
+        auto pageIcons = adoptGRef(webkit_favicon_database_get_page_icons_finish(WEBKIT_FAVICON_DATABASE(database), result, &error.outPtr()));
+        if (!pageIcons) {
+            if (!g_error_matches(error.get(), G_IO_ERROR, G_IO_ERROR_CANCELLED))
+                LOG_ERROR("Could not get page icons: %s", error->message);
+            return;
+        }
+
+        webkitWebViewUpdatePageIcons(webView.get(), WTF::move(pageIcons));
+    }, g_object_ref(webView));
+}
+#endif // ENABLE(2022_GLIB_API)
 
 void webkitWebViewSetIcon(WebKitWebView* webView, const LinkIcon& icon, API::Data& iconData)
 {
@@ -2757,9 +2868,9 @@ void webkitWebViewSetIcon(WebKitWebView* webView, const LinkIcon& icon, API::Dat
     if (!database)
         return;
 
-    webkitFaviconDatabaseSetIconForPageURL(database, icon, iconData, getPage(webView).pageLoadState().activeURL(), webkitWebViewIsEphemeral(webView));
+    webkitFaviconDatabaseSetIconForPageURL(database, icon, iconData, getPage(webView).pageLoadState().activeURL().string(), webkitWebViewIsEphemeral(webView));
 }
-#endif
+#endif // PLATFORM(GTK) || ENABLE(2022_GLIB_API)
 
 RefPtr<WebPageProxy> webkitWebViewCreateNewPage(WebKitWebView* webView, Ref<API::PageConfiguration>&& configuration, WebKitNavigationAction* navigationAction)
 {
@@ -3118,6 +3229,11 @@ void webkitWebViewSelectionDidChange(WebKitWebView* webView)
     webkitEditorStateChanged(webView->priv->editorState.get(), getPage(webView).editorState());
 }
 
+void webkitWebViewDidChangePageScale(WebKitWebView* webView)
+{
+    g_object_notify_by_pspec(G_OBJECT(webView), sObjProperties[PROP_MAGNIFICATION]);
+}
+
 WebKitWebsiteDataManager* webkitWebViewGetWebsiteDataManager(WebKitWebView* webView)
 {
 #if ENABLE(2022_GLIB_API)
@@ -3317,7 +3433,7 @@ WebKitWebContext* webkit_web_view_get_context(WebKitWebView *webView)
  * webkit_web_view_get_user_content_manager:
  * @web_view: a #WebKitWebView
  *
- * Gets the user content manager associated to @web_view.
+ * Gets the user content manager associated with @web_view.
  *
  * Returns: (transfer none): the #WebKitUserContentManager associated with the view
  *
@@ -3340,7 +3456,7 @@ WebKitUserContentManager* webkit_web_view_get_user_content_manager(WebKitWebView
  * To create an ephemeral #WebKitWebView you need to
  * use g_object_new() and pass is-ephemeral property with %TRUE value. See
  * #WebKitWebView:is-ephemeral for more details.
- * If @web_view was created with a ephemeral #WebKitWebView:related-view or an
+ * If @web_view was created with an ephemeral #WebKitWebView:related-view or an
  * ephemeral #WebKitWebView:web-context it will also be ephemeral.
  *
  * Returns: %TRUE if @web_view is ephemeral or %FALSE otherwise.
@@ -3362,7 +3478,7 @@ gboolean webkit_web_view_is_ephemeral(WebKitWebView* webView)
  * Get whether a #WebKitWebView was created with #WebKitWebView:is-controlled-by-automation
  * property enabled.
  *
- * Only #WebKitWebView<!-- -->s controlled by automation can be used in an
+ * Only #WebKitWebView objects controlled by automation can be used in an
  * automation session.
  *
  * Returns: %TRUE if @web_view is controlled by automation, or %FALSE otherwise.
@@ -3398,7 +3514,7 @@ WebKitAutomationBrowsingContextPresentation webkit_web_view_get_automation_prese
  * webkit_web_view_get_network_session:
  * @web_view: a #WebKitWebView
  *
- * Get the #WebKitNetworkSession associated to @web_view.
+ * Get the #WebKitNetworkSession associated with @web_view.
  *
  * Returns: (transfer none): a #WebKitNetworkSession
  *
@@ -3415,7 +3531,7 @@ WebKitNetworkSession* webkit_web_view_get_network_session(WebKitWebView* webView
  * webkit_web_view_get_website_data_manager:
  * @web_view: a #WebKitWebView
  *
- * Get the #WebKitWebsiteDataManager associated to @web_view.
+ * Get the #WebKitWebsiteDataManager associated with @web_view.
  *
  * If @web_view is not ephemeral,
  * the returned #WebKitWebsiteDataManager will be the same as the #WebKitWebsiteDataManager
@@ -3459,7 +3575,7 @@ void webkit_web_view_try_close(WebKitWebView *webView)
 /**
  * webkit_web_view_load_uri:
  * @web_view: a #WebKitWebView
- * @uri: an URI string
+ * @uri: a URI string
  *
  * Requests loading of the specified URI string.
  *
@@ -3680,7 +3796,7 @@ void webkit_web_view_stop_loading(WebKitWebView* webView)
  *
  * You can monitor when a #WebKitWebView is loading a page by connecting to
  * notify::is-loading signal of @web_view. This is useful when you are
- * interesting in knowing when the view is loading something but not in the
+ * interested in knowing when the view is loading something but not in the
  * details about the status of the load operation, for example to start a spinner
  * when the view is loading a page and stop it when it finishes.
  *
@@ -3744,7 +3860,7 @@ void webkit_web_view_set_is_muted(WebKitWebView* webView, gboolean muted)
  *
  * Gets the mute state of @web_view.
  *
- * Returns: %TRUE if @web_view audio is muted or %FALSE is audio is not muted.
+ * Returns: %TRUE if @web_view audio is muted or %FALSE if audio is not muted.
  *
  * Since: 2.30
  */
@@ -3783,7 +3899,7 @@ gboolean webkit_web_view_can_go_back(WebKitWebView* webView)
 {
     g_return_val_if_fail(WEBKIT_IS_WEB_VIEW(webView), FALSE);
 
-    return !!getPage(webView).backForwardList().backItem();
+    return !!getPage(webView).backForwardListWrapper().backItem();
 }
 
 /**
@@ -3814,7 +3930,7 @@ gboolean webkit_web_view_can_go_forward(WebKitWebView* webView)
 {
     g_return_val_if_fail(WEBKIT_IS_WEB_VIEW(webView), FALSE);
 
-    return !!getPage(webView).backForwardList().forwardItem();
+    return !!getPage(webView).backForwardListWrapper().forwardItem();
 }
 
 /**
@@ -3826,50 +3942,30 @@ gboolean webkit_web_view_can_go_forward(WebKitWebView* webView)
  * The active URI might change during
  * a load operation:
  *
- * <orderedlist>
- * <listitem><para>
- *   When nothing has been loaded yet on @web_view the active URI is %NULL.
- * </para></listitem>
- * <listitem><para>
- *   When a new load operation starts the active URI is the requested URI:
- *   <itemizedlist>
- *   <listitem><para>
- *     If the load operation was started by webkit_web_view_load_uri(),
- *     the requested URI is the given one.
- *   </para></listitem>
- *   <listitem><para>
- *     If the load operation was started by webkit_web_view_load_html(),
- *     the requested URI is "about:blank".
- *   </para></listitem>
- *   <listitem><para>
- *     If the load operation was started by webkit_web_view_load_alternate_html(),
- *     the requested URI is content URI provided.
- *   </para></listitem>
- *   <listitem><para>
- *     If the load operation was started by webkit_web_view_go_back() or
- *     webkit_web_view_go_forward(), the requested URI is the original URI
- *     of the previous/next item in the #WebKitBackForwardList of @web_view.
- *   </para></listitem>
- *   <listitem><para>
- *     If the load operation was started by
- *     webkit_web_view_go_to_back_forward_list_item(), the requested URI
- *     is the opriginal URI of the given #WebKitBackForwardListItem.
- *   </para></listitem>
- *   </itemizedlist>
- * </para></listitem>
- * <listitem><para>
- *   If there is a server redirection during the load operation,
- *   the active URI is the redirected URI. When the signal
- *   #WebKitWebView::load-changed is emitted with %WEBKIT_LOAD_REDIRECTED
- *   event, the active URI is already updated to the redirected URI.
- * </para></listitem>
- * <listitem><para>
- *   When the signal #WebKitWebView::load-changed is emitted
- *   with %WEBKIT_LOAD_COMMITTED event, the active URI is the final
- *   one and it will not change unless a new load operation is started
- *   or a navigation action within the same page is performed.
- * </para></listitem>
- * </orderedlist>
+ * 1. When nothing has been loaded yet on @web_view the active URI is %NULL.
+ * 2. When a new load operation starts the active URI is the requested URI:
+ *
+ *    - If the load operation was started by webkit_web_view_load_uri(),
+ *      the requested URI is the given one.
+ *    - If the load operation was started by webkit_web_view_load_html(),
+ *      the requested URI is "about:blank".
+ *    - If the load operation was started by webkit_web_view_load_alternate_html(),
+ *      the requested URI is content URI provided.
+ *    - If the load operation was started by webkit_web_view_go_back() or
+ *      webkit_web_view_go_forward(), the requested URI is the original URI
+ *      of the previous/next item in the #WebKitBackForwardList of @web_view.
+ *    - If the load operation was started by
+ *      webkit_web_view_go_to_back_forward_list_item(), the requested URI
+ *      is the original URI of the given #WebKitBackForwardListItem.
+ *
+ * 3. If there is a server redirection during the load operation,
+ *    the active URI is the redirected URI. When the signal
+ *    #WebKitWebView::load-changed is emitted with %WEBKIT_LOAD_REDIRECTED
+ *    event, the active URI is already updated to the redirected URI.
+ * 4. When the signal #WebKitWebView::load-changed is emitted
+ *    with %WEBKIT_LOAD_COMMITTED event, the active URI is the final
+ *    one and it will not change unless a new load operation is started
+ *    or a navigation action within the same page is performed.
  *
  * You can monitor the active URI by connecting to the notify::uri
  * signal of @web_view.
@@ -3885,19 +3981,6 @@ const gchar* webkit_web_view_get_uri(WebKitWebView* webView)
 }
 
 #if PLATFORM(GTK)
-/**
- * webkit_web_view_get_favicon:
- * @web_view: a #WebKitWebView
- *
- * Returns favicon currently associated to @web_view.
- *
- * Returns favicon currently associated to @web_view, if any. You can
- * connect to notify::favicon signal of @web_view to be notified when
- * the favicon is available.
- *
- * Returns: (transfer none): the favicon image or %NULL if there's no
- *    icon associated with @web_view.
- */
 #if USE(GTK4)
 GdkTexture* webkit_web_view_get_favicon(WebKitWebView* webView)
 #else
@@ -3961,7 +4044,7 @@ void webkit_web_view_set_custom_charset(WebKitWebView* webView, const gchar* cha
  * You can monitor the estimated progress of a load operation by
  * connecting to the notify::estimated-load-progress signal of @web_view.
  *
- * Returns: an estimate of the of the percent complete for a document
+ * Returns: an estimate of the percent complete for a document
  *     load as a range from 0.0 to 1.0.
  */
 gdouble webkit_web_view_get_estimated_load_progress(WebKitWebView* webView)
@@ -4016,7 +4099,7 @@ void webkit_web_view_go_to_back_forward_list_item(WebKitWebView* webView, WebKit
  * existing #WebKitSettings of @web_view will be replaced by
  * @settings. New settings are applied immediately on @web_view.
  * The same #WebKitSettings object can be shared
- * by multiple #WebKitWebView<!-- -->s.
+ * by multiple #WebKitWebView objects.
  */
 void webkit_web_view_set_settings(WebKitWebView* webView, WebKitSettings* settings)
 {
@@ -4053,9 +4136,9 @@ void webkit_web_view_set_settings(WebKitWebView* webView, WebKitSettings* settin
  * the desired preferences, and then replace the existing @web_view
  * settings with webkit_web_view_set_settings() or get the existing
  * @web_view settings and update it directly. #WebKitSettings objects
- * can be shared by multiple #WebKitWebView<!-- -->s, so modifying
+ * can be shared by multiple #WebKitWebView objects, so modifying
  * the settings of a #WebKitWebView would affect other
- * #WebKitWebView<!-- -->s using the same #WebKitSettings.
+ * #WebKitWebView objects using the same #WebKitSettings.
  *
  * Returns: (transfer none): the #WebKitSettings attached to @web_view
  */
@@ -4118,7 +4201,7 @@ void webkit_web_view_set_zoom_level(WebKitWebView* webView, gdouble zoomLevel)
  * webkit_web_view_get_zoom_level:
  * @web_view: a #WebKitWebView
  *
- * Set the zoom level of @web_view.
+ * Get the zoom level of @web_view.
  *
  * Get the zoom level of @web_view, i.e. the factor by which the
  * view contents are scaled with respect to their original size.
@@ -4138,6 +4221,57 @@ gdouble webkit_web_view_get_zoom_level(WebKitWebView* webView)
     Ref page = getPage(webView);
     gboolean zoomTextOnly = webkit_settings_get_zoom_text_only(webView->priv->settings.get());
     return zoomTextOnly ? page->textZoomFactor() : page->pageZoomFactor() / pageScale;
+}
+
+/**
+ * webkit_web_view_set_magnification:
+ * @web_view: a #WebKitWebView
+ * @magnification: the magnification factor
+ *
+ * Set the magnification factor of @web_view.
+ *
+ * The magnification factor represents the visual scaling of the page (similar
+ * to pinch-to-zoom). This is independent of the layout zoom level (which is
+ * set with webkit_web_view_set_zoom_level()). Setting the magnification factor
+ * scales the rendered page visually around the center of the view without
+ * affecting page layout or text wrapping.
+ *
+ * Since: 2.54
+ */
+void webkit_web_view_set_magnification(WebKitWebView* webView, gdouble magnification)
+{
+    g_return_if_fail(WEBKIT_IS_WEB_VIEW(webView));
+    g_return_if_fail(magnification > 0);
+
+    Ref page = getPage(webView);
+    if (page->pageScaleFactor() == magnification)
+        return;
+
+    // Dividing by 2 gives the midpoint of the view. This scales the page around
+    // the visual center of the WebKitWebView.
+    WebCore::FloatPoint center(WebCore::FloatSize(page->viewSize()) / 2);
+    page->scalePageInViewCoordinates(magnification, WebCore::roundedIntPoint(center));
+}
+
+/**
+ * webkit_web_view_get_magnification:
+ * @web_view: a #WebKitWebView
+ *
+ * Get the magnification factor of @web_view.
+ *
+ * The magnification factor represents the visual scaling of the page (similar
+ * to pinch-to-zoom). This is independent of the layout zoom level (which is
+ * obtained with webkit_web_view_get_zoom_level()).
+ *
+ * Returns: the current magnification factor of @web_view
+ *
+ * Since: 2.54
+ */
+gdouble webkit_web_view_get_magnification(WebKitWebView* webView)
+{
+    g_return_val_if_fail(WEBKIT_IS_WEB_VIEW(webView), 1.0);
+
+    return getPage(webView).pageScaleFactor();
 }
 
 /**
@@ -4232,7 +4366,7 @@ void webkit_web_view_execute_editing_command_with_argument(WebKitWebView* webVie
  * Gets the #WebKitFindController that will allow the caller to query
  * the #WebKitWebView for the text to look for.
  *
- * Returns: (transfer none): the #WebKitFindController associated to
+ * Returns: (transfer none): the #WebKitFindController associated with
  * this particular #WebKitWebView.
  */
 WebKitFindController* webkit_web_view_get_find_controller(WebKitWebView* webView)
@@ -4532,7 +4666,7 @@ static void webkitWebViewCallAsyncJavascriptFunctionInternal(WebKitWebView* webV
  * Asynchronously call @body with @arguments in the script world with name @world_name of the main frame current context in @web_view.
  * The @arguments values must be one of the following types, or contain only the following GVariant types: number, string and dictionary.
  * The result of the operation can be a Promise that will be properly passed to the callback.
- * If @world_name is %NULL, the default world is used. Any value that is not %NULL is a distin ct world.
+ * If @world_name is %NULL, the default world is used. Any value that is not %NULL is a distinct world.
  * The @source_uri will be shown in exceptions and doesn't affect the behavior of the script.
  * When not provided, the document URL is used.
  *
@@ -4563,13 +4697,12 @@ static void webkitWebViewCallAsyncJavascriptFunctionInternal(WebKitWebView* webV
  *     }
  *
  *     if (jsc_value_is_number (value)) {
- *         gint32        int_value = jsc_value_to_string (value);
+ *         gint32        int_value = jsc_value_to_int32 (value);
  *         JSCException *exception = jsc_context_get_exception (jsc_value_get_context (value));
  *         if (exception)
  *             g_warning ("Error running javascript: %s", jsc_exception_get_message (exception));
  *         else
  *             g_print ("Script result: %d\n", int_value);
- *         g_free (str_value);
  *     } else {
  *         g_warning ("Error running javascript: unexpected return value");
  *     }
@@ -4584,7 +4717,7 @@ static void webkitWebViewCallAsyncJavascriptFunctionInternal(WebKitWebView* webV
  *     g_variant_dict_insert (&dict, "count", "u", 42);
  *     GVariant *args = g_variant_dict_end (&dict);
  *     const gchar *body = "return new Promise((resolve) => { resolve(count); });";
- *     webkit_web_view_call_async_javascript_function (web_view, body, -1, arguments, NULL, NULL, NULL, web_view_javascript_finished, NULL);
+ *     webkit_web_view_call_async_javascript_function (web_view, body, -1, args, NULL, NULL, NULL, web_view_javascript_finished, NULL);
  * }
  * ```
  *
@@ -4751,7 +4884,7 @@ void webkit_web_view_run_async_javascript_function_in_world(WebKitWebView* webVi
  *
  * Since: 2.22
  *
- * Deprecated: 2.40: Use webkit_web_view_call_async_javascript_function_finish() instead.
+ * Deprecated: 2.40: Use webkit_web_view_evaluate_javascript_finish() instead.
  */
 WebKitJavascriptResult* webkit_web_view_run_javascript_in_world_finish(WebKitWebView* webView, GAsyncResult* result, GError** error)
 {
@@ -4839,7 +4972,7 @@ void webkit_web_view_run_javascript_from_gresource(WebKitWebView* webView, const
  *
  * Check webkit_web_view_run_javascript_finish() for a usage example.
  *
- * Returns: (transfer full): a #WebKitJavascriptResult with the result of the last executed statement in @script
+ * Returns: (transfer full): a #WebKitJavascriptResult with the result of the last executed statement in the script
  *    or %NULL in case of error
  *
  * Deprecated: 2.40: Use webkit_web_view_evaluate_javascript_finish() instead.
@@ -4874,7 +5007,7 @@ WebKitWebResource* webkit_web_view_get_main_resource(WebKitWebView* webView)
  * webkit_web_view_get_inspector:
  * @web_view: a #WebKitWebView
  *
- * Get the #WebKitWebInspector associated to @web_view
+ * Get the #WebKitWebInspector associated with @web_view
  *
  * Returns: (transfer none): the #WebKitWebInspector of @web_view
  */
@@ -4960,7 +5093,7 @@ static void getContentsAsMHTMLDataCallback(API::Data* wkData, GTask* taskPtr)
  *
  * Asynchronously save the current web page.
  *
- * Asynchronously save the current web page associated to the
+ * Asynchronously save the current web page associated with the
  * #WebKitWebView into a self-contained format using the mode
  * specified in @save_mode.
  *
@@ -5032,7 +5165,7 @@ GInputStream* webkit_web_view_save_finish(WebKitWebView* webView, GAsyncResult* 
  *
  * Asynchronously save the current web page.
  *
- * Asynchronously save the current web page associated to the
+ * Asynchronously save the current web page associated with the
  * #WebKitWebView into a self-contained format using the mode
  * specified in @save_mode and writing it to @file.
  *
@@ -5231,11 +5364,7 @@ void webkit_web_view_get_snapshot(WebKitWebView* webView, WebKitSnapshotRegion r
 #endif // USE(GTK4)
                 }
 #else
-#if USE(CAIRO)
-                auto surface = bitmap->createCairoSurface();
-#elif USE(SKIA)
                 auto surface = skiaImageToCairoSurface(*bitmap->createPlatformImage(BackingStoreCopy::DontCopyBackingStore));
-#endif
                 if (surface) {
                     g_task_return_pointer(task.get(), surface.leakRef(), reinterpret_cast<GDestroyNotify>(cairo_surface_destroy));
                     return;
@@ -5324,7 +5453,7 @@ gboolean webkit_web_view_is_editable(WebKitWebView* webView)
  * CONTENTEDITABLE attribute has been set on the element or one of its parent
  * elements. By default a #WebKitWebView is not editable.
  *
- * Normally, a HTML document is not editable unless the elements within the
+ * Normally, an HTML document is not editable unless the elements within the
  * document are editable. This function provides a way to make the contents
  * of a #WebKitWebView editable without altering the document or DOM structure.
  *
@@ -5454,7 +5583,7 @@ void webkit_web_view_remove_frame_displayed_callback(WebKitWebView* webView, uns
  * @web_view: a #WebKitWebView
  * @message: a #WebKitUserMessage
  * @cancellable: (nullable): a #GCancellable or %NULL to ignore
- * @callback: (scope async): (nullable): A #GAsyncReadyCallback to call when the request is satisfied or %NULL
+ * @callback: (scope async) (nullable): A #GAsyncReadyCallback to call when the request is satisfied or %NULL
  * @user_data: the data to pass to callback function
  *
  * Send @message to the #WebKitWebPage corresponding to @web_view.
@@ -5501,7 +5630,7 @@ void webkit_web_view_send_message_to_page(WebKitWebView* webView, WebKitUserMess
  * webkit_web_view_send_message_to_page_finish:
  * @web_view: a #WebKitWebView
  * @result: a #GAsyncResult
- * @error: return location for error or %NULL to ignor
+ * @error: return location for error or %NULL to ignore
  *
  * Finish an asynchronous operation started with webkit_web_view_send_message_to_page().
  *
@@ -5630,7 +5759,7 @@ gboolean webkit_web_view_get_is_web_process_responsive(WebKitWebView* webView)
  * webkit_web_view_terminate_web_process:
  * @web_view: a #WebKitWebView
  *
- * Terminates the web process associated to @web_view.
+ * Terminates the web process associated with @web_view.
  *
  * When the web process gets terminated
  * using this method, the #WebKitWebView::web-process-terminated signal is emitted with
@@ -5681,13 +5810,10 @@ void webkit_web_view_set_cors_allowlist(WebKitWebView* webView, const gchar* con
 {
     g_return_if_fail(WEBKIT_IS_WEB_VIEW(webView));
 
-    Vector<String> allowListVector;
-    if (allowList) {
-        const auto allowListSpan = span(allowList);
-        allowListVector.reserveInitialCapacity(allowListSpan.size());
-        for (const char* str : allowListSpan)
-            allowListVector.append(String::fromUTF8(str));
-    }
+    const auto allowListSpan = span(allowList);
+    Vector<String> allowListVector { allowListSpan.size(), [&allowListSpan](size_t i) {
+        return String::fromUTF8(allowListSpan[i]);
+    }};
 
     getPage(webView).setCORSDisablingPatterns(WTF::move(allowListVector));
 }
@@ -5761,7 +5887,7 @@ static void webkitWebViewConfigureMediaCapture(WebKitWebView* webView, WebCore::
  *
  * Get the camera capture state of a #WebKitWebView.
  *
- * Returns: The #WebKitMediaCaptureState of the camera device. If #WebKitSettings:enable-mediastream
+ * Returns: The #WebKitMediaCaptureState of the camera device. If #WebKitSettings:enable-media-stream
  * is %FALSE, this method will return %WEBKIT_MEDIA_CAPTURE_STATE_NONE.
  *
  * Since: 2.34
@@ -5783,7 +5909,7 @@ WebKitMediaCaptureState webkit_web_view_get_camera_capture_state(WebKitWebView* 
  *
  * Set the camera capture state of a #WebKitWebView.
  *
- * If #WebKitSettings:enable-mediastream is %FALSE, this method will have no visible effect. Once the
+ * If #WebKitSettings:enable-media-stream is %FALSE, this method will have no visible effect. Once the
  * state of the device has been set to %WEBKIT_MEDIA_CAPTURE_STATE_NONE it cannot be changed
  * anymore. The page can however request capture again using the mediaDevices API.
  *
@@ -5803,7 +5929,7 @@ void webkit_web_view_set_camera_capture_state(WebKitWebView* webView, WebKitMedi
  *
  * Get the microphone capture state of a #WebKitWebView.
  *
- * Returns: The #WebKitMediaCaptureState of the microphone device. If #WebKitSettings:enable-mediastream
+ * Returns: The #WebKitMediaCaptureState of the microphone device. If #WebKitSettings:enable-media-stream
  * is %FALSE, this method will return %WEBKIT_MEDIA_CAPTURE_STATE_NONE.
  *
  * Since: 2.34
@@ -5825,7 +5951,7 @@ WebKitMediaCaptureState webkit_web_view_get_microphone_capture_state(WebKitWebVi
  *
  * Set the microphone capture state of a #WebKitWebView.
  *
- * If #WebKitSettings:enable-mediastream is %FALSE, this method will have no visible effect. Once the
+ * If #WebKitSettings:enable-media-stream is %FALSE, this method will have no visible effect. Once the
  * state of the device has been set to %WEBKIT_MEDIA_CAPTURE_STATE_NONE it cannot be changed
  * anymore. The page can however request capture again using the mediaDevices API.
  *
@@ -5845,7 +5971,7 @@ void webkit_web_view_set_microphone_capture_state(WebKitWebView* webView, WebKit
  *
  * Get the display capture state of a #WebKitWebView.
  *
- * Returns: The #WebKitMediaCaptureState of the display device. If #WebKitSettings:enable-mediastream
+ * Returns: The #WebKitMediaCaptureState of the display device. If #WebKitSettings:enable-media-stream
  * is %FALSE, this method will return %WEBKIT_MEDIA_CAPTURE_STATE_NONE.
  *
  * Since: 2.34
@@ -5867,7 +5993,7 @@ WebKitMediaCaptureState webkit_web_view_get_display_capture_state(WebKitWebView*
  *
  * Set the display capture state of a #WebKitWebView.
  *
- * If #WebKitSettings:enable-mediastream is %FALSE, this method will have no visible effect. Once the
+ * If #WebKitSettings:enable-media-stream is %FALSE, this method will have no visible effect. Once the
  * state of the device has been set to %WEBKIT_MEDIA_CAPTURE_STATE_NONE it cannot be changed
  * anymore. The page can however request capture again using the mediaDevices API.
  *
@@ -5997,3 +6123,26 @@ void webkit_web_view_leave_immersive_mode(WebKitWebView* webView)
         xrSystem->invalidate(PlatformXRSystem::InvalidationReason::Client);
 #endif
 }
+
+#if ENABLE(2022_GLIB_API)
+/**
+ * webkit_web_view_get_page_icons: (get-property page-icons):
+ * @web_view: a #WebKitWebView
+ *
+ * Returns the page icons for the content loaded in the web view.
+ *
+ * Gets the page icons associated with the content currently loaded in the
+ * @web_view, if any, as a [struct@ImageList]. Changes to the page icons
+ * can be observed by connecting to the `notify::page-icons` signal.
+ *
+ * Returns: (transfer none) (nullable): a list of icons, or %NULL if there
+ *    are no icons for the content loaded in @web_view.
+ *
+ * Since: 2.54
+ */
+WebKitImageList* webkit_web_view_get_page_icons(WebKitWebView* webView)
+{
+    g_return_val_if_fail(WEBKIT_IS_WEB_VIEW(webView), nullptr);
+    return webView->priv->pageIcons.get();
+}
+#endif

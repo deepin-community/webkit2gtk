@@ -50,9 +50,9 @@ public:
     void operator()(size_t lineOffset, size_t lineLength, bool isLastLine) const
     {
         if (lineLength > 0)
-            Ref { m_dictationCommand.get() }->insertTextRunWithoutNewlines(lineOffset, lineLength);
+            protect(m_dictationCommand.get())->insertTextRunWithoutNewlines(lineOffset, lineLength);
         if (!isLastLine)
-            Ref { m_dictationCommand.get() }->insertParagraphSeparator();
+            protect(m_dictationCommand.get())->insertParagraphSeparator();
     }
 private:
     WeakRef<DictationCommand> m_dictationCommand;
@@ -68,11 +68,11 @@ public:
     void addMarkersToTextNode(Text& textNode, unsigned offsetOfInsertion, const String& textToBeInserted) override
     {
         Ref document = textNode.document();
-        auto& markerController = document->markers();
+        CheckedRef markerController = document->markers();
         for (auto& alternative : m_alternatives) {
             DocumentMarker::DictationData data { alternative.context, textToBeInserted.substring(alternative.range.location, alternative.range.length) };
-            markerController.addMarker(textNode, alternative.range.location + offsetOfInsertion, alternative.range.length, DocumentMarkerType::DictationAlternatives, WTF::move(data));
-            markerController.addMarker(textNode, alternative.range.location + offsetOfInsertion, alternative.range.length, DocumentMarkerType::SpellCheckingExemption);
+            markerController->addMarker(textNode, alternative.range.location + offsetOfInsertion, alternative.range.length, DocumentMarkerType::DictationAlternatives, WTF::move(data));
+            markerController->addMarker(textNode, alternative.range.location + offsetOfInsertion, alternative.range.length, DocumentMarkerType::SpellCheckingExemption);
         }
     }
 
@@ -116,7 +116,7 @@ void DictationCommand::doApply()
 {
     DictationCommandLineOperation operation(*this);
     forEachLineInString(m_textToInsert, operation);
-    postTextStateChangeNotification(AXTextEditTypeDictation, m_textToInsert);
+    postTextStateChangeNotification(AXTextEditType::Dictation, m_textToInsert);
 }
 
 void DictationCommand::insertTextRunWithoutNewlines(size_t lineStart, size_t lineLength)

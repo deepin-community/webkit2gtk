@@ -28,6 +28,7 @@
 
 #include "JSReadableStream.h"
 #include "JSReadableStreamBYOBRequest.h"
+#include "JSValueInWrappedObjectInlines.h"
 #include "ReadableByteStreamController.h"
 #include "ReadableStream.h"
 #include <JavaScriptCore/ArrayBufferView.h>
@@ -49,7 +50,7 @@ ReadableStreamBYOBRequest::ReadableStreamBYOBRequest(ReadableByteStreamControlle
     if (!globalObject)
         return;
 
-    m_streamWrapperForGC.set(globalObject->vm(), globalObject, toJS(globalObject, globalObject, stream.get()));
+    m_streamWrapperForGC.set(*globalObject, globalObject, toJS(globalObject, globalObject, stream.get()));
 }
 
 JSC::ArrayBufferView* ReadableStreamBYOBRequest::view() const
@@ -96,20 +97,20 @@ void ReadableStreamBYOBRequest::clearView()
 }
 
 template<typename Visitor>
-void ReadableStreamBYOBRequest::visitAdditionalChildren(Visitor& visitor)
+void ReadableStreamBYOBRequest::visitAdditionalChildrenInGCThread(Visitor& visitor)
 {
-    m_streamWrapperForGC.visit(visitor);
+    m_streamWrapperForGC.visitInGCThread(visitor);
 }
 
-DEFINE_VISIT_ADDITIONAL_CHILDREN(ReadableStreamBYOBRequest);
+DEFINE_VISIT_ADDITIONAL_CHILDREN_IN_GC_THREAD(ReadableStreamBYOBRequest);
 
 template<typename Visitor>
-void JSReadableStreamBYOBRequest::visitAdditionalChildren(Visitor& visitor)
+void JSReadableStreamBYOBRequest::visitAdditionalChildrenInGCThread(Visitor& visitor)
 {
-    // Do not ref `wrapped()` here since this function may get called on the GC thread.
-    SUPPRESS_UNCOUNTED_ARG wrapped().visitAdditionalChildren(visitor);
+    // Do not ref `wrapped()` here since this function may get called on a GC thread.
+    SUPPRESS_UNCOUNTED_ARG wrapped().visitAdditionalChildrenInGCThread(visitor);
 }
 
-DEFINE_VISIT_ADDITIONAL_CHILDREN(JSReadableStreamBYOBRequest);
+DEFINE_VISIT_ADDITIONAL_CHILDREN_IN_GC_THREAD(JSReadableStreamBYOBRequest);
 
 } // namespace WebCore

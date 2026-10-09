@@ -29,6 +29,7 @@
 #if ENABLE(WEBXR)
 
 #include "ContextDestructionObserverInlines.h"
+#include "JSDOMConvertInterface.h"
 #include "JSDOMPromiseDeferred.h"
 #include "JSWebFakeXRDevice.h"
 #include "JSXRReferenceSpaceType.h"
@@ -59,18 +60,14 @@ static PlatformXR::Device::FeatureList parseFeatures(const Vector<String>& featu
 void WebXRTest::simulateDeviceConnection(ScriptExecutionContext& context, const FakeXRDeviceInit& init, WebFakeXRDevicePromise&& promise)
 {
     // https://immersive-web.github.io/webxr-test-api/#dom-xrtest-simulatedeviceconnection
-    context.postTask([this, protectedThis = Ref { *this }, init, promise = WTF::move(promise)](ScriptExecutionContext&) mutable {
+    context.postTask([this, protectedThis = protect(*this), init, promise = WTF::move(promise)](auto&) mutable {
         auto device = WebFakeXRDevice::create();
         auto& simulatedDevice = device->simulatedXRDevice();
 
         device->setViews(init.views);
 
-        PlatformXR::Device::FeatureList supportedFeatures;
-        if (init.supportedFeatures)
-            supportedFeatures = parseFeatures(init.supportedFeatures.value());
-        PlatformXR::Device::FeatureList enabledFeatures;
-        if (init.enabledFeatures)
-            enabledFeatures = parseFeatures(init.enabledFeatures.value());
+        auto supportedFeatures = parseFeatures(init.supportedFeatures);
+        auto enabledFeatures = parseFeatures(init.enabledFeatures);
 
         if (init.boundsCoordinates) {
             if (init.boundsCoordinates->size() < 3) {

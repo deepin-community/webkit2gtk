@@ -12,6 +12,8 @@ PACKAGES+=(
     libgl1-mesa-dev
     libgtk-3-dev
     libgudev-1.0-dev
+    libharfbuzz-dev
+    libicu-dev
     libmount-dev
     libmpg123-dev
     libnotify-dev
@@ -44,6 +46,11 @@ PACKAGES+=(
     $(aptIfExists python-psutil)
     $(aptIfExists python-yaml)
 
+    # Icon themes needed by the MiniBrowser (generate-bundle needs this as well)
+    adwaita-icon-theme
+    gnome-icon-theme
+    hicolor-icon-theme
+
     # These are dependencies necessary for building the jhbuild.
     icon-naming-utils
     libcups2-dev
@@ -53,7 +60,6 @@ PACKAGES+=(
     libgpg-error-dev
     libjson-glib-dev
     libmtdev-dev
-    libp11-kit-dev
     libpciaccess-dev
     libtiff5-dev
     libudev-dev
@@ -65,6 +71,7 @@ PACKAGES+=(
     libxfont-dev
     libxkbcommon-x11-dev
     libxkbfile-dev
+    libunwind-dev
     ragel
     x11proto-gl-dev
     x11proto-input-dev

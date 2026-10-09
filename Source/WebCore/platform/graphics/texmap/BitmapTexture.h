@@ -41,6 +41,16 @@
 #include "MemoryMappedGPUBuffer.h"
 #endif
 
+#if USE(SKIA)
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
+#include <skia/core/SkRefCnt.h>
+#include <skia/gpu/ganesh/GrBackendSurface.h>
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
+class GrDirectContext;
+class SkSurface;
+enum GrSurfaceOrigin : int;
+#endif
+
 typedef void *EGLImage;
 
 namespace WebCore {
@@ -60,6 +70,9 @@ public:
         ForceLinearBuffer = 1 << 3,
         ForceVivanteSuperTiledBuffer = 1 << 4,
 #endif
+        UseBGRALayout = 1 << 5,
+        NearestFiltering = 1 << 6,
+        ExternalOESRenderTarget = 1 << 7,
     };
 
     static Ref<BitmapTexture> create(const IntSize& size, OptionSet<Flags> flags = { })
@@ -67,10 +80,10 @@ public:
         return adoptRef(*new BitmapTexture(size, flags));
     }
 
-#if USE(GBM)
-    static Ref<BitmapTexture> create(EGLImage image, OptionSet<Flags> flags = { })
+#if USE(GBM) || OS(ANDROID)
+    static Ref<BitmapTexture> create(EGLImage image, const IntSize& size, OptionSet<Flags> flags = { })
     {
-        return adoptRef(*new BitmapTexture(image, flags));
+        return adoptRef(*new BitmapTexture(image, size, flags));
     }
 #endif
 
@@ -96,14 +109,19 @@ public:
     RefPtr<const FilterOperation> filterOperation() const { return m_filterOperation; }
     void setFilterOperation(RefPtr<const FilterOperation>&& filterOperation) { m_filterOperation = WTF::move(filterOperation); }
 
-    ClipStack& clipStack() { return m_clipStack; }
+    ClipStack& clipStack() LIFETIME_BOUND { return m_clipStack; }
 
     void copyFromExternalTexture(GLuint sourceTextureID, const IntRect& targetRect, const IntSize& sourceOffset);
 
     OptionSet<TextureMapperFlags> colorConvertFlags() const;
 
+#if USE(SKIA)
+    GrBackendTexture createSkiaBackendTexture() const;
+    sk_sp<SkSurface> createSkiaSurface(GrDirectContext*, GrSurfaceOrigin = kTopLeft_GrSurfaceOrigin, unsigned sampleCount = 0) const;
+#endif
+
 #if USE(GBM)
-    MemoryMappedGPUBuffer* memoryMappedGPUBuffer() const { return m_memoryMappedGPUBuffer.get(); }
+    MemoryMappedGPUBuffer* memoryMappedGPUBuffer() const LIFETIME_BOUND { return m_memoryMappedGPUBuffer.get(); }
     IntSize allocatedSize() const;
 #else
     IntSize allocatedSize() const { return m_size; }
@@ -111,13 +129,16 @@ public:
 
 private:
     BitmapTexture(const IntSize&, OptionSet<Flags>);
-#if USE(GBM)
-    BitmapTexture(EGLImage, OptionSet<Flags>);
+#if USE(GBM) || OS(ANDROID)
+    BitmapTexture(EGLImage, const IntSize&, OptionSet<Flags>);
 #endif
 
     void clearIfNeeded();
     void createFboIfNeeded();
 
+    void determineRenderTargetAndBinding();
+
+    GLenum textureFormat() const;
     void createTexture();
     void allocateTexture();
 #if USE(GBM)
@@ -127,6 +148,8 @@ private:
     OptionSet<Flags> m_flags;
     IntSize m_size;
     GLuint m_id { 0 };
+    GLenum m_renderTarget { GL_TEXTURE_2D };
+    GLenum m_binding { GL_TEXTURE_BINDING_2D };
     GLuint m_fbo { 0 };
     GLuint m_depthBufferObject { 0 };
     GLuint m_stencilBufferObject { 0 };

@@ -32,7 +32,6 @@
 #include "JSWebAssemblyInstance.h"
 #include "WasmFormat.h"
 #include "WasmModuleInformation.h"
-#include <wtf/ScopedPrintStream.h>
 
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
@@ -40,22 +39,23 @@ namespace JSC {
 
 const ClassInfo JSWebAssemblyStruct::s_info = { "WebAssembly.Struct"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSWebAssemblyStruct) };
 
-JSWebAssemblyStruct::JSWebAssemblyStruct(VM& vm, WebAssemblyGCStructure* structure)
+JSWebAssemblyStruct::JSWebAssemblyStruct(VM& vm, WebAssemblyGCStructure* structure, unsigned payloadSize)
     : Base(vm, structure)
-    , TrailingArrayType(structure->typeDefinition().as<Wasm::StructType>()->instancePayloadSize())
 {
     // Make sure if another object is allocated while initializing the struct we don't crash the GC. It's *VERY* important this happens before finishCreation since that executes our mutator fence.
-    memsetSpan(span(), 0);
+    memset(payload(), 0, payloadSize);
 }
 
 JSWebAssemblyStruct* JSWebAssemblyStruct::tryCreate(VM& vm, WebAssemblyGCStructure* structure)
 {
-    SUPPRESS_UNCOUNTED_LOCAL auto* structType = structure->typeDefinition().as<Wasm::StructType>();
-    auto* cell = tryAllocateCell<JSWebAssemblyStruct>(vm, TrailingArrayType::allocationSize(structType->instancePayloadSize()));
+    const Wasm::RTT& structRTT = structure->rtt();
+    ASSERT(structRTT.kind() == Wasm::RTTKind::Struct);
+    unsigned payloadSize = structRTT.instancePayloadSize();
+    auto* cell = tryAllocateCell<JSWebAssemblyStruct>(vm, JSWebAssemblyStruct::allocationSize(payloadSize));
     if (!cell) [[unlikely]]
         return nullptr;
 
-    auto* structValue = new (NotNull, cell) JSWebAssemblyStruct(vm, structure);
+    auto* structValue = new (NotNull, cell) JSWebAssemblyStruct(vm, structure, payloadSize);
     structValue->finishCreation(vm);
     return structValue;
 }
@@ -105,7 +105,7 @@ uint64_t JSWebAssemblyStruct::get(uint32_t fieldIndex) const
     }
 }
 
-v128_t JSWebAssemblyStruct::getVector(uint32_t fieldIndex) const
+SUPPRESS_NODELETE v128_t JSWebAssemblyStruct::getVector(uint32_t fieldIndex) const
 {
     const uint8_t* targetPointer = fieldPointer(fieldIndex);
     ASSERT(fieldType(fieldIndex).type.unpacked().isV128());
@@ -186,16 +186,17 @@ void JSWebAssemblyStruct::visitChildrenImpl(JSCell* cell, Visitor& visitor)
 {
     Base::visitChildren(cell, visitor);
 
-    auto* wasmStruct = jsCast<JSWebAssemblyStruct*>(cell);
-    if (!wasmStruct->structType().hasRefFieldTypes()) {
+    auto* wasmStruct = uncheckedDowncast<JSWebAssemblyStruct>(cell);
+    SUPPRESS_UNCOUNTED_LOCAL const auto& structType = wasmStruct->structType();
+    if (!structType.hasRefFieldTypes()) {
 #if ASSERT_ENABLED
-        for (unsigned i = 0; i < wasmStruct->structType().fieldCount(); ++i)
+        for (unsigned i = 0; i < structType.fieldCount(); ++i)
             ASSERT(!isRefType(wasmStruct->fieldType(i).type));
 #endif
         return;
     }
 
-    for (unsigned i = 0; i < wasmStruct->structType().fieldCount(); ++i) {
+    for (unsigned i = 0; i < structType.fieldCount(); ++i) {
         auto fieldType = wasmStruct->fieldType(i).type;
         if (isRefType(fieldType)) {
             auto* writeBarrier = std::bit_cast<WriteBarrier<Unknown>*>(wasmStruct->fieldPointer(i));

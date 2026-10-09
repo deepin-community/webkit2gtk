@@ -126,11 +126,11 @@ void GStreamerRtpSenderBackend::stopSource()
 {
     GST_DEBUG_OBJECT(m_rtcSender.get(), "Stopping source");
     switchOn(m_source, [&](Ref<RealtimeOutgoingAudioSourceGStreamer>& source) {
-        source->stop([self = RefPtr { this }] {
+        source->stop([self = protect(this)] {
             self->clearSource();
         });
     }, [&](Ref<RealtimeOutgoingVideoSourceGStreamer>& source) {
-        source->stop([self = RefPtr { this }] {
+        source->stop([self = protect(this)] {
             self->clearSource();
         });
     }, [&](std::nullptr_t&) {
@@ -279,6 +279,11 @@ void GStreamerRtpSenderBackend::setParameters(const RTCRtpSendParameters& parame
     }, [](const std::nullptr_t&) {
     });
 
+    if (!parameters.encodings.isEmpty()) {
+        const auto& encoding = parameters.encodings.first();
+        auto priorityType = fromRTCPriorityType(encoding.priority);
+        g_object_set(m_rtcSender.get(), "priority", priorityType, nullptr);
+    }
     promise.resolve();
 }
 

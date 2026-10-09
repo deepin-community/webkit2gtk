@@ -42,6 +42,8 @@ public:
     explicit WebInspectorBackendProxy(WebInspectorUIProxy& proxy)
     : m_proxy(proxy) { }
 
+    virtual ~WebInspectorBackendProxy();
+
     // RefCounted
     void ref() const final { RefCounted::ref(); }
     void deref() const final { RefCounted::deref(); }
@@ -54,7 +56,7 @@ public:
     void didClose();
     void bringToFront();
     void elementSelectionChanged(bool);
-    void timelineRecordingChanged(bool);
+    void NODELETE timelineRecordingChanged(bool);
     void setDeveloperPreferenceOverride(WebCore::InspectorBackendClient::DeveloperPreference, std::optional<bool>);
 
 #if ENABLE(INSPECTOR_NETWORK_THROTTLING)
@@ -64,7 +66,6 @@ public:
     void attachAvailabilityChanged(bool);
 
 private:
-    Ref<WebInspectorUIProxy> protectedProxy() const { return m_proxy.get(); }
 
     const WeakRef<WebInspectorUIProxy> m_proxy;
 };

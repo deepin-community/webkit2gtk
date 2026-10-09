@@ -37,7 +37,7 @@
 
 namespace WebCore {
 
-static CheckedUint32 computeDataSize(const IntSize& size, ImageDataPixelFormat pixelFormat)
+static CheckedUint32 NODELETE computeDataSize(const IntSize& size, ImageDataPixelFormat pixelFormat)
 {
     return PixelBuffer::computePixelComponentCount(toPixelFormat(pixelFormat), size);
 }
@@ -49,7 +49,7 @@ PredefinedColorSpace ImageData::computeColorSpace(std::optional<ImageDataSetting
     return defaultColorSpace;
 }
 
-static ImageDataPixelFormat computePixelFormat(std::optional<ImageDataSettings> settings, ImageDataPixelFormat defaultPixelFormat = ImageDataPixelFormat::RgbaUnorm8)
+static ImageDataPixelFormat NODELETE computePixelFormat(std::optional<ImageDataSettings> settings, ImageDataPixelFormat defaultPixelFormat = ImageDataPixelFormat::RgbaUnorm8)
 {
     return settings ? settings->pixelFormat : defaultPixelFormat;
 }
@@ -57,7 +57,7 @@ static ImageDataPixelFormat computePixelFormat(std::optional<ImageDataSettings> 
 Ref<ImageData> ImageData::create(Ref<ByteArrayPixelBuffer>&& pixelBuffer, std::optional<ImageDataPixelFormat> overridingPixelFormat)
 {
     auto colorSpace = toPredefinedColorSpace(pixelBuffer->format().colorSpace);
-    return adoptRef(*new ImageData(pixelBuffer->size(), pixelBuffer->takeData(), *colorSpace, overridingPixelFormat));
+    return adoptRef(*new ImageData(pixelBuffer->size(), WTF::move(pixelBuffer.get()).takeData(), *colorSpace, overridingPixelFormat));
 }
 
 #if ENABLE(PIXEL_FORMAT_RGBA16F)

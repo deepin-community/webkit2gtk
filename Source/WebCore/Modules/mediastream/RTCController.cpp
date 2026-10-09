@@ -45,24 +45,22 @@
 
 namespace WebCore {
 
-RTCController::RTCController()
-{
-}
+RTCController::RTCController() = default;
 
 #if ENABLE(WEB_RTC)
 
 RTCController::~RTCController()
 {
-    for (Ref connection : m_peerConnections)
-        connection->clearController();
+    for (auto& connection : m_peerConnections)
+        connection.clearController();
     stopGatheringLogs();
 }
 
 void RTCController::reset(bool shouldFilterICECandidates)
 {
     m_shouldFilterICECandidates = shouldFilterICECandidates;
-    for (Ref connection : m_peerConnections)
-        connection->clearController();
+    for (auto& connection : m_peerConnections)
+        connection.clearController();
     m_peerConnections.clear();
     m_filteringDisabledOrigins.clear();
 }
@@ -74,9 +72,9 @@ void RTCController::remove(RTCPeerConnection& connection)
 
 static inline bool matchDocumentOrigin(Document& document, SecurityOrigin& topOrigin, SecurityOrigin& clientOrigin)
 {
-    if (topOrigin.isSameOriginAs(document.protectedSecurityOrigin()))
+    if (topOrigin.isSameOriginAs(protect(document.securityOrigin())))
         return true;
-    return topOrigin.isSameOriginAs(document.protectedTopOrigin()) && clientOrigin.isSameOriginAs(document.protectedSecurityOrigin());
+    return topOrigin.isSameOriginAs(protect(document.topOrigin())) && clientOrigin.isSameOriginAs(protect(document.securityOrigin()));
 }
 
 bool RTCController::shouldDisableICECandidateFiltering(Document& document)

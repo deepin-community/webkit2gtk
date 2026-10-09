@@ -59,9 +59,9 @@ public:
     static Ref<SWServerRegistration> create(SWServer&, const ServiceWorkerRegistrationKey&, ServiceWorkerUpdateViaCache, const URL& scopeURL, const URL& scriptURL, std::optional<ScriptExecutionContextIdentifier> serviceWorkerPageIdentifier, NavigationPreloadState&&);
     WEBCORE_EXPORT ~SWServerRegistration();
 
-    const ServiceWorkerRegistrationKey& key() const { return m_registrationKey; }
+    const ServiceWorkerRegistrationKey& key() const LIFETIME_BOUND { return m_registrationKey; }
 
-    SWServerWorker* getNewestWorker();
+    SWServerWorker* NODELETE getNewestWorker();
     WEBCORE_EXPORT ServiceWorkerRegistrationData data() const;
 
     void setLastUpdateTime(WallTime);
@@ -80,13 +80,9 @@ public:
 
     void setPreInstallationWorker(SWServerWorker*);
     SWServerWorker* preInstallationWorker() const { return m_preInstallationWorker.get(); }
-    RefPtr<SWServerWorker> protectedPreInstallationWorker() const { return m_preInstallationWorker; }
     SWServerWorker* installingWorker() const { return m_installingWorker.get(); }
-    RefPtr<SWServerWorker> protectedInstallingWorker() const { return m_installingWorker; }
     SWServerWorker* waitingWorker() const { return m_waitingWorker.get(); }
-    RefPtr<SWServerWorker> protectedWaitingWorker() const { return m_waitingWorker; }
     SWServerWorker* activeWorker() const { return m_activeWorker.get(); }
-    RefPtr<SWServerWorker> protectedActiveWorker() const { return m_activeWorker; }
 
     MonotonicTime creationTime() const { return m_creationTime; }
 
@@ -120,7 +116,7 @@ public:
     WEBCORE_EXPORT std::optional<ExceptionData> enableNavigationPreload();
     WEBCORE_EXPORT std::optional<ExceptionData> disableNavigationPreload();
     WEBCORE_EXPORT std::optional<ExceptionData> setNavigationPreloadHeaderValue(String&&);
-    const NavigationPreloadState& navigationPreloadState() const { return m_preloadState; }
+    const NavigationPreloadState& navigationPreloadState() const LIFETIME_BOUND { return m_preloadState; }
 
     WEBCORE_EXPORT void addCookieChangeSubscriptions(Vector<CookieChangeSubscription>&&);
     WEBCORE_EXPORT void removeCookieChangeSubscriptions(Vector<CookieChangeSubscription>&&);
@@ -133,7 +129,7 @@ private:
     void handleClientUnload();
     void softUpdate();
 
-    RefPtr<SWServer> protectedServer() const { return m_server.get(); }
+    SWServer* server() const { return m_server.get(); }
 
     ServiceWorkerRegistrationKey m_registrationKey;
     ServiceWorkerUpdateViaCache m_updateViaCache;

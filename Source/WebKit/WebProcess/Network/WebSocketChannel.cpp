@@ -43,14 +43,15 @@
 #include <WebCore/ThreadableWebSocketChannel.h>
 #include <WebCore/WebSocketChannelClient.h>
 #include <wtf/CheckedArithmetic.h>
+#include <wtf/URLParser.h>
 #include <wtf/text/MakeString.h>
 
 namespace WebKit {
 using namespace WebCore;
 
-Ref<WebSocketChannel> WebSocketChannel::create(WebPageProxyIdentifier webPageProxyID, Document& document, WebSocketChannelClient& client)
+Ref<WebSocketChannel> WebSocketChannel::create(WebPageProxyIdentifier webPageProxyID, Document& document, WebSocketChannelClient& client, IsInitiatedByDedicatedWorker isInitiatedByDedicatedWorker)
 {
-    return adoptRef(*new WebSocketChannel(webPageProxyID, document, client));
+    return adoptRef(*new WebSocketChannel(webPageProxyID, document, client, isInitiatedByDedicatedWorker));
 }
 
 void WebSocketChannel::notifySendFrame(WebSocketFrame::OpCode opCode, std::span<const uint8_t> data)
@@ -84,12 +85,13 @@ Ref<NetworkSendQueue> WebSocketChannel::createMessageQueue(Document& document, W
     });
 }
 
-WebSocketChannel::WebSocketChannel(WebPageProxyIdentifier webPageProxyID, Document& document, WebSocketChannelClient& client)
+WebSocketChannel::WebSocketChannel(WebPageProxyIdentifier webPageProxyID, Document& document, WebSocketChannelClient& client, IsInitiatedByDedicatedWorker isInitiatedByDedicatedWorker)
     : m_document(document)
     , m_client(client)
     , m_messageQueue(createMessageQueue(document, *this))
     , m_inspector(document)
     , m_webPageProxyID(webPageProxyID)
+    , m_isInitiatedByDedicatedWorker(isInitiatedByDedicatedWorker)
 {
     WebProcess::singleton().webSocketChannelManager().addChannel(*this);
 }
@@ -153,31 +155,26 @@ WebSocketChannel::ConnectStatus WebSocketChannel::connect(const URL& url, const 
             client->didUpgradeURL();
     }
 
-    OptionSet<AdvancedPrivacyProtections> advancedPrivacyProtections;
-    bool allowPrivacyProxy { true };
-    std::optional<PageIdentifier> pageID;
     StoredCredentialsPolicy storedCredentialsPolicy { StoredCredentialsPolicy::Use };
     RefPtr frame = document->frame();
-    RefPtr mainFrame = document->localMainFrame();
-    if (!mainFrame)
+    if (!frame)
         return ConnectStatus::KO;
-    auto frameID = frame ? std::optional(frame->frameID()) : std::nullopt;
-    pageID = mainFrame->pageID();
-    if (RefPtr policySourceDocumentLoader = mainFrame->document() ? mainFrame->protectedDocument()->loader() : nullptr) {
-        if (!policySourceDocumentLoader->request().url().hasSpecialScheme() && frame->document()->url().protocolIsInHTTPFamily())
-            policySourceDocumentLoader = frame->protectedDocument()->loader();
 
-        if (policySourceDocumentLoader) {
-            allowPrivacyProxy = policySourceDocumentLoader->allowPrivacyProxy();
-            advancedPrivacyProtections = policySourceDocumentLoader->advancedPrivacyProtections();
-        }
-    }
-    if (auto* page = mainFrame->page())
+    if (auto* page = frame->page())
         storedCredentialsPolicy = page->canUseCredentialStorage() ? StoredCredentialsPolicy::Use : StoredCredentialsPolicy::DoNotUse;
 
     m_inspector.didCreateWebSocket(url);
     m_url = request->url();
-    MessageSender::send(Messages::NetworkConnectionToWebProcess::CreateSocketChannel { *request, protocol, identifier(), m_webPageProxyID, frameID, pageID, document->clientOrigin(), WebProcess::singleton().hadMainFrameMainResourcePrivateRelayed(), allowPrivacyProxy, advancedPrivacyProtections, storedCredentialsPolicy });
+    m_inspector.willSendWebSocketHandshakeRequest(*request);
+    Ref mainFrame = frame->mainFrame();
+
+    Ref policySourceFrame = [&] -> Ref<Frame> {
+        if (!WTF::URLParser::isSpecialScheme(mainFrame->frameURLProtocol()) && document->url().protocolIsInHTTPFamily())
+            return *frame;
+        return mainFrame;
+    }();
+
+    MessageSender::send(Messages::NetworkConnectionToWebProcess::CreateSocketChannel { *request, protocol, identifier(), m_webPageProxyID, std::optional(frame->frameID()), frame->pageID(), document->clientOrigin(), WebProcess::singleton().hadMainFrameMainResourcePrivateRelayed(), policySourceFrame->allowPrivacyProxy(), policySourceFrame->advancedPrivacyProtections(), storedCredentialsPolicy, m_isInitiatedByDedicatedWorker });
     m_needsToCallClose = true;
     return ConnectStatus::OK;
 }
@@ -383,7 +380,7 @@ void WebSocketChannel::resume()
 
 void WebSocketChannel::didSendHandshakeRequest(ResourceRequest&& request)
 {
-    m_inspector.willSendWebSocketHandshakeRequest(request);
+    m_inspector.didSendWebSocketHandshakeRequest(request);
     m_handshakeRequest = WTF::move(request);
 }
 

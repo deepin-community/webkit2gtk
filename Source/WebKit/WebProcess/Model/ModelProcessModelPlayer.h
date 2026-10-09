@@ -28,7 +28,6 @@
 
 #if ENABLE(MODEL_PROCESS)
 
-#import "ModelIdentifier.h"
 #import "WebPage.h"
 #import "WebPageProxyMessages.h"
 #import "WebProcess.h"
@@ -66,7 +65,6 @@ private:
 
     WebPage* page() { return m_page.get(); }
     WebCore::ModelPlayerClient* client() { return m_client.get(); }
-    RefPtr<WebCore::ModelPlayerClient> protectedClient() { return m_client.get(); }
 
     template<typename T> void send(T&& message);
     template<typename T, typename C> void sendWithAsyncReply(T&& message, C&& completionHandler);
@@ -76,6 +74,7 @@ private:
     // Messages
     void didCreateLayer(WebCore::LayerHostingContextIdentifier);
     void didFinishLoading(const WebCore::FloatPoint3D&, const WebCore::FloatPoint3D&);
+    void didConvertModelData(Ref<WebCore::SharedBuffer>&&, const String& convertedMIMEType);
     void didFailLoading();
     void didUpdateEntityTransform(const WebCore::TransformationMatrix&);
     void didUpdateAnimationPlaybackState(bool isPaused, double playbackRate, Seconds duration, Seconds currentTime, MonotonicTime clockTimestamp);
@@ -85,7 +84,7 @@ private:
     WebCore::ModelPlayerIdentifier identifier() const final { return m_id; }
     std::optional<WebCore::ModelPlayerAnimationState> currentAnimationState() const final;
     std::optional<std::unique_ptr<WebCore::ModelPlayerTransformState>> currentTransformState() const final;
-    void load(WebCore::Model&, WebCore::LayoutSize) final;
+    void load(WebCore::Model&, WebCore::LayoutSize, bool) final;
     void reload(WebCore::Model&, WebCore::LayoutSize, WebCore::ModelPlayerAnimationState&, std::unique_ptr<WebCore::ModelPlayerTransformState>&&) final;
     void visibilityStateDidChange() final;
     void sizeDidChange(WebCore::LayoutSize) final;
@@ -108,9 +107,6 @@ private:
     void animationDuration(CompletionHandler<void(std::optional<Seconds>&&)>&&) final;
     void animationCurrentTime(CompletionHandler<void(std::optional<Seconds>&&)>&&) final;
     void setAnimationCurrentTime(Seconds, CompletionHandler<void(bool success)>&&) final;
-    void hasAudio(CompletionHandler<void(std::optional<bool>&&)>&&) final;
-    void isMuted(CompletionHandler<void(std::optional<bool>&&)>&&) final;
-    void setIsMuted(bool, CompletionHandler<void(bool success)>&&) final;
     WebCore::ModelPlayerAccessibilityChildren accessibilityChildren() final;
     void setAutoplay(bool) final;
     void setLoop(bool) final;

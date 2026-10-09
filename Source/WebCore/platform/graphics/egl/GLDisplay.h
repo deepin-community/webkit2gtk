@@ -46,6 +46,10 @@ public:
     EGLDisplay eglDisplay() const { return m_display; }
     bool checkVersion(int major, int minor) const;
 
+#if USE(LIBEPOXY)
+    bool isSoftwareRendered() const;
+#endif
+
     void terminate();
 
     EGLImage createImage(EGLContext, EGLenum, EGLClientBuffer, const Vector<EGLAttrib>&) const;
@@ -65,7 +69,7 @@ public:
         bool ANDROID_image_native_buffer { false };
 #endif
     };
-    const Extensions& extensions() const { return m_extensions; }
+    const Extensions& extensions() const LIFETIME_BOUND { return m_extensions; }
 
 #if USE(GBM) || OS(ANDROID)
     struct BufferFormat {

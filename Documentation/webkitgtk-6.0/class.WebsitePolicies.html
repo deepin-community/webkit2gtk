@@ -62,7 +62,7 @@ SPDX-License-Identifier: BSD, LGPL-2.1
         <h3><a href="index.html">WebKit</a></h3>
         <p>API Version: 6.0</p>
         
-        <p>Library Version: 2.52.5</p>
+        <p>Library Version: 2.54.0</p>
         
       </div>
       
@@ -98,6 +98,8 @@ SPDX-License-Identifier: BSD, LGPL-2.1
   
     <a class="method" href="method.WebsitePolicies.get_autoplay_policy.html">get_autoplay_policy</a>
   
+    <a class="method" href="method.WebsitePolicies.get_custom_user_agent.html">get_custom_user_agent</a>
+  
   </div>
 </div>
 
@@ -109,6 +111,8 @@ SPDX-License-Identifier: BSD, LGPL-2.1
   <div class="links">
   
     <a class="property" href="property.WebsitePolicies.autoplay.html">autoplay</a>
+  
+    <a class="property" href="property.WebsitePolicies.custom-user-agent.html">custom-user-agent</a>
   
   </div>
 </div>
@@ -150,7 +154,7 @@ SPDX-License-Identifier: BSD, LGPL-2.1
           Description
           <a href="#description" class="anchor"></a>
           
-          <a class="srclink" title="go to source location" href="https://github.com/WebKit/WebKit/tree/main/Source/WebKit/UIProcess/API/glib/WebKitWebsitePolicies.cpp#L31">[src]</a>
+          <a class="srclink" title="go to source location" href="https://github.com/WebKit/WebKit/tree/main/Source/WebKit/UIProcess/API/glib/WebKitWebsitePolicies.cpp#L30">[src]</a>
           
         </h4>
 
@@ -162,7 +166,7 @@ SPDX-License-Identifier: BSD, LGPL-2.1
         <div class="docblock">
           <p>View specific website&nbsp;policies.</p>
 <p>WebKitWebsitePolicies allows you to configure per-page policies,
-currently only autoplay policies are&nbsp;supported.</p>
+currently only autoplay and custom user agent policies are&nbsp;supported.</p>
         </div>
 
         <div class="docblock">
@@ -301,6 +305,16 @@ currently only autoplay policies are&nbsp;supported.</p>
           </div>
         </div>
       
+        <div class="">
+          <h6><a href="method.WebsitePolicies.get_custom_user_agent.html">webkit_website_policies_get_custom_user_agent</a></h6>
+          <div class="docblock">
+            <p>Get the <code>WebKitWebsitePolicies:custom-user-agent</code> property.</p>
+          </div>
+          <div class="docblock">
+            <p><span class="emblem available">since: 2.54</span></p>
+          </div>
+        </div>
+      
       </div>
 
       
@@ -338,6 +352,17 @@ currently only autoplay policies are&nbsp;supported.</p>
           </div>
           <div class="docblock">
             <p><span class="emblem available">since: 2.30</span></p>
+          </div>
+        </div>
+      
+        <div class="">
+          <h6><a href="property.WebsitePolicies.custom-user-agent.html">WebKit.WebsitePolicies:custom-user-agent</a></h6>
+          <div class="docblock">
+            <p>The custom user agent string to send for navigations governed by these
+<code>WebKitWebsitePolicies</code>, or <code>NULL</code> to use the default user&nbsp;agent.</p>
+          </div>
+          <div class="docblock">
+            <p><span class="emblem available">since: 2.54</span></p>
           </div>
         </div>
       

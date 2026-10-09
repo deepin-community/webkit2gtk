@@ -30,10 +30,11 @@
 #include "Document.h"
 #include "FontTaggedSettings.h"
 #include "PropertyCascade.h"
-#include "RenderStyle.h"
 #include "RuleSet.h"
 #include "SelectorChecker.h"
+#include "StyleComputedStyle.h"
 #include "StyleForVisitedLink.h"
+#include "StyleSubstitutionContext.h"
 #include "TextFlags.h"
 #include "TreeResolutionState.h"
 #include <wtf/BitSet.h>
@@ -42,8 +43,8 @@ namespace WebCore {
 
 class FontCascadeDescription;
 class FontSelectionValue;
-class StyleImage;
 class StyleResolver;
+struct CSSRegisteredCustomProperty;
 
 namespace CSSCalc {
 struct RandomCachingKey;
@@ -52,6 +53,11 @@ struct RandomCachingKey;
 namespace Style {
 
 class BuilderState;
+class Builder;
+class CustomPropertyRegistry;
+class Image;
+class LocalPropertyRegistry;
+class Scope;
 struct Color;
 struct FontFamilies;
 struct FontFeatureSettings;
@@ -81,13 +87,22 @@ struct BuilderPositionTryFallback {
     Vector<PositionTryFallbackTactic> tactics;
 };
 
+struct RegisteredSubstitutionAttribute {
+    AtomString name;
+    WeakPtr<const Scope> targetScope;
+};
+
 struct BuilderContext {
-    const RefPtr<const Document> document { };
-    const RenderStyle* parentStyle { };
-    const RenderStyle* rootElementStyle { };
+    const Ref<const Document> document;
+    const Style::ComputedStyle* parentStyle { };
+    const Style::ComputedStyle* rootElementStyle { };
     RefPtr<const Element> element { };
     CheckedPtr<TreeResolutionState> treeResolutionState { };
     std::optional<BuilderPositionTryFallback> positionTryFallback { };
+    const LocalPropertyRegistry* localPropertyRegistry { nullptr };
+    // For a custom function's hypothetical element: the builder of the calling context, used to
+    // resolve inherited custom properties on demand. https://drafts.csswg.org/css-mixins/#evaluating-custom-functions
+    Builder* callingContextBuilder { nullptr };
 };
 
 class BuilderState : public CanMakeCheckedPtr<BuilderState> {
@@ -97,33 +112,29 @@ class BuilderState : public CanMakeCheckedPtr<BuilderState> {
 public:
     template<typename T, class... Args> friend WTF::UniqueRef<T> WTF::makeUniqueRefWithoutFastMallocCheck(Args&&...);
 
-    static UniqueRef<BuilderState> create(RenderStyle& renderStyle)
+    static UniqueRef<BuilderState> create(ComputedStyle& style, BuilderContext&& builderContext)
     {
-        return makeUniqueRefWithoutRefCountedCheck<BuilderState>(renderStyle);
+        return makeUniqueRefWithoutRefCountedCheck<BuilderState>(style, WTF::move(builderContext));
     }
 
-    static UniqueRef<BuilderState> create(RenderStyle& renderStyle, BuilderContext&& builderContext)
-    {
-        return makeUniqueRefWithoutRefCountedCheck<BuilderState>(renderStyle, WTF::move(builderContext));
-    }
+    ComputedStyle& style() { return m_style; }
+    const ComputedStyle& style() const { return m_style; }
 
-    ComputedStyle& style() { return m_style.computedStyle(); }
-    const ComputedStyle& style() const { return m_style.computedStyle(); }
-    CheckedRef<const ComputedStyle> checkedStyle() const { return style(); }
+    Style::ComputedStyle& renderStyle() LIFETIME_BOUND { return m_style; }
+    const Style::ComputedStyle& renderStyle() const LIFETIME_BOUND { return m_style; }
 
-    RenderStyle& renderStyle() { return m_style; }
-    const RenderStyle& renderStyle() const { return m_style; }
-    CheckedRef<const RenderStyle> checkedRenderStyle() const { return renderStyle(); }
+    const ComputedStyle& parentStyle() const { return *m_context.parentStyle; }
+    const Style::ComputedStyle& parentRenderStyle() const LIFETIME_BOUND { return *m_context.parentStyle; }
 
-    const ComputedStyle& parentStyle() const { return m_context.parentStyle->computedStyle(); }
-    const RenderStyle& parentRenderStyle() const { return *m_context.parentStyle; }
+    Builder* callingContextBuilder() const { return m_context.callingContextBuilder; }
 
-    const ComputedStyle* rootElementStyle() const { return m_context.rootElementStyle ? &m_context.rootElementStyle->computedStyle() : nullptr; }
-    const RenderStyle* rootElementRenderStyle() const { return m_context.rootElementStyle; }
+    const ComputedStyle* rootElementStyle() const { return m_context.rootElementStyle; }
+    const Style::ComputedStyle* rootElementRenderStyle() const LIFETIME_BOUND { return m_context.rootElementStyle; }
 
-    const Document& document() const { return *m_context.document; }
-    Ref<const Document> protectedDocument() const { return *m_context.document; }
+    const Document& document() const { return m_context.document; }
     const Element* element() const { return m_context.element.get(); }
+
+    const CSSRegisteredCustomProperty* registeredProperty(const AtomString&) const;
 
     inline void setZoom(Zoom);
     inline void setUsedZoom(float);
@@ -133,49 +144,55 @@ public:
     bool fontDirty() const { return m_fontDirty; }
     void setFontDirty() { m_fontDirty = true; }
 
-    inline const FontCascadeDescription& fontDescription();
-    inline const FontCascadeDescription& parentFontDescription();
+    inline const FontCascadeDescription& fontDescription() LIFETIME_BOUND;
+    inline const FontCascadeDescription& parentFontDescription() LIFETIME_BOUND;
 
     bool applyPropertyToRegularStyle() const { return m_linkMatch != SelectorChecker::MatchVisited; }
     bool applyPropertyToVisitedLinkStyle() const { return m_linkMatch != SelectorChecker::MatchLink; }
 
-    float zoomWithTextZoomFactor();
+    float NODELETE zoomWithTextZoomFactor();
 
-    bool useSVGZoomRules() const;
-    bool useSVGZoomRulesForLength() const;
+    bool NODELETE useSVGZoomRules() const;
+    bool NODELETE useSVGZoomRulesForLength() const;
 
-    ScopeOrdinal styleScopeOrdinal() const { return m_currentProperty->styleScopeOrdinal; }
+    // Defaults to Element when called outside property cascade application (e.g. attr() resolution
+    // during container-query evaluation), where there is no current property in flight.
+    ScopeOrdinal styleScopeOrdinal() const { return m_currentProperty ? m_currentProperty->styleScopeOrdinal : ScopeOrdinal::Element; }
 
-    RefPtr<StyleImage> createStyleImage(const CSSValue&) const;
+    RefPtr<Image> createStyleImage(const CSSValue&) const;
 
-    const Vector<AtomString>& registeredContentAttributes() const { return m_registeredContentAttributes; }
-    void registerContentAttribute(const AtomString& attributeLocalName);
+    const Vector<RegisteredSubstitutionAttribute>& registeredSubstitutionAttributes() const LIFETIME_BOUND { return m_registeredSubstitutionAttributes; }
+    void registerSubstitutionAttribute(const AtomString& attributeLocalName, const Scope* targetScope = nullptr);
 
-    const CSSToLengthConversionData& cssToLengthConversionData() const { return m_cssToLengthConversionData; }
+    const CSSToLengthConversionData& cssToLengthConversionData() const LIFETIME_BOUND { return m_cssToLengthConversionData; }
+
+    GuardedSubstitutionContexts::Guard guardSubstitutionContext(SubstitutionContext&& context) { return m_guardedSubstitutionContexts.guard(WTF::move(context)); }
+    void addGuardedFunctionContexts(const BuilderState& other) { m_guardedSubstitutionContexts.addFunctionContextsFrom(other.m_guardedSubstitutionContexts); }
 
     void setIsBuildingKeyframeStyle() { m_isBuildingKeyframeStyle = true; }
+    bool hasRevertRuleOrLayerInKeyframeStyle() const { return m_hasRevertRuleOrLayerInKeyframeStyle; }
 
     bool isAuthorOrigin() const
     {
         return m_currentProperty && m_currentProperty->origin == PropertyCascade::Origin::Author;
     }
 
-    CSSPropertyID cssPropertyID() const;
+    CSSPropertyID NODELETE cssPropertyID() const;
 
-    bool isCurrentPropertyInvalidAtComputedValueTime() const;
-    void setCurrentPropertyInvalidAtComputedValueTime();
+    bool NODELETE isCurrentPropertyInvalidAtComputedValueTime() const;
+    void NODELETE setCurrentPropertyInvalidAtComputedValueTime();
 
-    void setUsesViewportUnits();
-    void setUsesContainerUnits();
+    void NODELETE setUsesViewportUnits();
+    void NODELETE setIsContainerDependent();
 
-    double lookupCSSRandomBaseValue(const CSSCalc::RandomCachingKey&, std::optional<CSS::Keyword::ElementShared>) const;
+    double lookupCSSRandomBaseValue(const CSSCalc::RandomCachingKey&, std::optional<CSS::Keyword::ElementScoped>) const;
 
     // Accessors for sibling information used by the sibling-count() and sibling-index() CSS functions.
-    unsigned siblingCount();
-    unsigned siblingIndex();
+    unsigned NODELETE siblingCount();
+    unsigned NODELETE siblingIndex();
 
-    AnchorPositionedStates* anchorPositionedStates() { return m_context.treeResolutionState ? &m_context.treeResolutionState->anchorPositionedStates : nullptr; }
-    const std::optional<BuilderPositionTryFallback>& positionTryFallback() const { return m_context.positionTryFallback; }
+    AnchorPositionedStates* anchorPositionedStates() LIFETIME_BOUND { return m_context.treeResolutionState ? &m_context.treeResolutionState->anchorPositionedStates : nullptr; }
+    const std::optional<BuilderPositionTryFallback>& positionTryFallback() const LIFETIME_BOUND { return m_context.positionTryFallback; }
 
     // FIXME: Copying a FontCascadeDescription is really inefficient. Migrate all callers to
     // setFontDescriptionXXX() variants below, then remove these functions.
@@ -192,7 +209,7 @@ public:
     void setFontDescriptionFontSmoothing(FontSmoothingMode);
     void setFontDescriptionFontStyle(FontStyle);
     void setFontDescriptionFontSynthesisSmallCaps(FontSynthesisLonghandValue);
-    void setFontDescriptionFontSynthesisStyle(FontSynthesisLonghandValue);
+    void setFontDescriptionFontSynthesisStyle(FontSynthesisStyleLonghandValue);
     void setFontDescriptionFontSynthesisWeight(FontSynthesisLonghandValue);
     void setFontDescriptionKerning(Kerning);
     void setFontDescriptionOpticalSizing(FontOpticalSizing);
@@ -230,11 +247,11 @@ private:
     // See the comment in maybeUpdateFontForLetterSpacingOrWordSpacing() about why this needs to be a friend.
     friend void maybeUpdateFontForLetterSpacingOrWordSpacing(BuilderState&, CSSValue&);
     friend class Builder;
+    friend class SubstitutionResolver;
 
-    BuilderState(RenderStyle&);
-    BuilderState(RenderStyle&, BuilderContext&&);
+    BuilderState(ComputedStyle&, BuilderContext&&);
 
-    void adjustStyleForInterCharacterRuby();
+    void NODELETE adjustStyleForInterCharacterRuby();
 
     void updateFont();
 #if ENABLE(TEXT_AUTOSIZING)
@@ -245,24 +262,25 @@ private:
     void updateFontForOrientationChange();
     void updateFontForSizeChange();
 
-    RenderStyle& m_style;
+    Style::ComputedStyle& m_style;
     BuilderContext m_context;
 
     const CSSToLengthConversionData m_cssToLengthConversionData;
 
     HashSet<AtomString> m_appliedCustomProperties;
-    HashSet<AtomString> m_inProgressCustomProperties;
-    HashSet<AtomString> m_inCycleCustomProperties;
+    GuardedSubstitutionContexts m_guardedSubstitutionContexts;
     WTF::BitSet<cssPropertyIDEnumValueCount> m_inProgressProperties;
     WTF::BitSet<cssPropertyIDEnumValueCount> m_invalidAtComputedValueTimeProperties;
 
     const PropertyCascade::Property* m_currentProperty { nullptr };
     SelectorChecker::LinkMatchMask m_linkMatch { };
+    const PropertyCascade* m_currentRollbackCascade { nullptr };
 
     bool m_fontDirty { false };
-    Vector<AtomString> m_registeredContentAttributes;
+    Vector<RegisteredSubstitutionAttribute> m_registeredSubstitutionAttributes;
 
     bool m_isBuildingKeyframeStyle { false };
+    bool m_hasRevertRuleOrLayerInKeyframeStyle { false };
 };
 
 } // namespace Style

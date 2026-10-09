@@ -292,6 +292,8 @@ std::optional<JSC::JSValue> jsValueForArguments(JSC::JSGlobalObject* globalObjec
 #if ENABLE(TEST_FEATURE)
     case MessageName::TestWithSuperclass_TestAsyncMessage:
         return jsValueForDecodedMessage<MessageName::TestWithSuperclass_TestAsyncMessage>(globalObject, decoder);
+    case MessageName::TestWithSuperclass_TestAsyncMessageAnyThread:
+        return jsValueForDecodedMessage<MessageName::TestWithSuperclass_TestAsyncMessageAnyThread>(globalObject, decoder);
     case MessageName::TestWithSuperclass_TestAsyncMessageWithNoArguments:
         return jsValueForDecodedMessage<MessageName::TestWithSuperclass_TestAsyncMessageWithNoArguments>(globalObject, decoder);
     case MessageName::TestWithSuperclass_TestAsyncMessageWithMultipleArguments:
@@ -306,6 +308,8 @@ std::optional<JSC::JSValue> jsValueForArguments(JSC::JSGlobalObject* globalObjec
 #if ENABLE(TEST_FEATURE)
     case MessageName::TestWithSuperclass_TestAsyncMessageReply:
         return jsValueForDecodedMessage<MessageName::TestWithSuperclass_TestAsyncMessageReply>(globalObject, decoder);
+    case MessageName::TestWithSuperclass_TestAsyncMessageAnyThreadReply:
+        return jsValueForDecodedMessage<MessageName::TestWithSuperclass_TestAsyncMessageAnyThreadReply>(globalObject, decoder);
     case MessageName::TestWithSuperclass_TestAsyncMessageWithNoArgumentsReply:
         return jsValueForDecodedMessage<MessageName::TestWithSuperclass_TestAsyncMessageWithNoArgumentsReply>(globalObject, decoder);
     case MessageName::TestWithSuperclass_TestAsyncMessageWithMultipleArgumentsReply:
@@ -429,6 +433,8 @@ std::optional<JSC::JSValue> jsValueForReplyArguments(JSC::JSGlobalObject* global
 #if ENABLE(TEST_FEATURE)
     case MessageName::TestWithSuperclass_TestAsyncMessage:
         return jsValueForDecodedMessageReply<MessageName::TestWithSuperclass_TestAsyncMessage>(globalObject, decoder);
+    case MessageName::TestWithSuperclass_TestAsyncMessageAnyThread:
+        return jsValueForDecodedMessageReply<MessageName::TestWithSuperclass_TestAsyncMessageAnyThread>(globalObject, decoder);
     case MessageName::TestWithSuperclass_TestAsyncMessageWithNoArguments:
         return jsValueForDecodedMessageReply<MessageName::TestWithSuperclass_TestAsyncMessageWithNoArguments>(globalObject, decoder);
     case MessageName::TestWithSuperclass_TestAsyncMessageWithMultipleArguments:
@@ -474,10 +480,12 @@ Vector<ASCIILiteral> serializedIdentifiers()
         "WebCore::BackForwardFrameItemIdentifierID"_s,
         "WebCore::BackForwardItemIdentifierID"_s,
         "WebCore::BackgroundFetchRecordIdentifier"_s,
+        "WebCore::BrowsingContextGroupIdentifier"_s,
         "WebCore::DOMCacheIdentifierID"_s,
         "WebCore::DictationContext"_s,
         "WebCore::NodeIdentifier"_s,
         "WebCore::FetchIdentifier"_s,
+        "WebCore::FileSystemHandleGlobalIdentifier"_s,
         "WebCore::FileSystemHandleIdentifier"_s,
         "WebCore::FileSystemSyncAccessHandleIdentifier"_s,
         "WebCore::FileSystemWritableFileStreamIdentifier"_s,
@@ -500,6 +508,7 @@ Vector<ASCIILiteral> serializedIdentifiers()
         "WebCore::PageIdentifier"_s,
         "WebCore::PlatformLayerIdentifierID"_s,
         "WebCore::PlaybackTargetClientContextID"_s,
+        "WebCore::NonSerializedDataIdentifier"_s,
         "WebCore::PortIdentifier"_s,
         "WebCore::ProcessIdentifier"_s,
         "WebCore::PushSubscriptionIdentifier"_s,
@@ -510,6 +519,7 @@ Vector<ASCIILiteral> serializedIdentifiers()
         "WebCore::SWServerConnectionIdentifier"_s,
         "WebCore::SamplesRendererTrackIdentifier"_s,
         "WebCore::ScrollingNodeIdentifier"_s,
+        "WebCore::ScrollRequestIdentifier"_s,
         "WebCore::ServiceWorkerIdentifier"_s,
         "WebCore::ServiceWorkerJobIdentifier"_s,
         "WebCore::ServiceWorkerRegistrationIdentifier"_s,
@@ -531,9 +541,10 @@ Vector<ASCIILiteral> serializedIdentifiers()
         "WebCore::WebTransportSendGroupIdentifier"_s,
         "WebCore::WebTransportStreamIdentifier"_s,
         "WebCore::WindowIdentifier"_s,
+        "WebCore::XRHitTestSourceIdentifier"_s,
         "WebKit::AudioMediaStreamTrackRendererInternalUnitIdentifier"_s,
         "WebKit::AuthenticationChallengeIdentifier"_s,
-        "WebKit::DDModelIdentifier"_s,
+        "WebKit::WebModelIdentifier"_s,
         "WebKit::DataTaskIdentifier"_s,
         "WebKit::DisplayLinkObserverID"_s,
         "WebKit::DownloadID"_s,
@@ -556,6 +567,7 @@ Vector<ASCIILiteral> serializedIdentifiers()
         "WebKit::PDFPluginIdentifier"_s,
         "WebKit::PageGroupIdentifier"_s,
         "WebKit::QuotaIncreaseRequestIdentifier"_s,
+        "WebKit::RealmIdentifier"_s,
         "WebKit::RemoteAudioDestinationIdentifier"_s,
         "WebKit::RemoteAudioHardwareListenerIdentifier"_s,
         "WebKit::RemoteAudioVideoRendererIdentifier"_s,
@@ -569,12 +581,12 @@ Vector<ASCIILiteral> serializedIdentifiers()
         "WebKit::RemoteLegacyCDMIdentifier"_s,
         "WebKit::RemoteLegacyCDMSessionIdentifier"_s,
         "WebKit::RemoteMediaResourceIdentifier"_s,
-        "WebKit::RemoteMediaSourceIdentifier"_s,
+        "WebKit::RemoteMediaResourceLoaderIdentifier"_s,
+        "WebKit::RemotePathImplIdentifier"_s,
         "WebKit::RemoteRemoteCommandListenerIdentifier"_s,
         "WebKit::RemoteSerializedImageBufferIdentifier"_s,
         "WebKit::RemoteSnapshotIdentifier"_s,
         "WebKit::RemoteSnapshotRecorderIdentifier"_s,
-        "WebKit::RemoteSourceBufferIdentifier"_s,
         "WebKit::RemoteVideoFrameIdentifier"_s,
         "WebKit::RemoteRenderingBackendIdentifier"_s,
         "WebKit::RenderingUpdateID"_s,
@@ -1062,6 +1074,10 @@ std::optional<Vector<ArgumentDescription>> messageArgumentDescriptions(MessageNa
         return Vector<ArgumentDescription> {
             { "twoStateEnum"_s, "WebKit::TestTwoStateEnum"_s },
         };
+    case MessageName::TestWithSuperclass_TestAsyncMessageAnyThread:
+        return Vector<ArgumentDescription> {
+            { "twoStateEnum"_s, "WebKit::TestTwoStateEnum"_s },
+        };
     case MessageName::TestWithSuperclass_TestAsyncMessageWithNoArguments:
         return Vector<ArgumentDescription> { };
     case MessageName::TestWithSuperclass_TestAsyncMessageWithMultipleArguments:
@@ -1081,6 +1097,10 @@ std::optional<Vector<ArgumentDescription>> messageArgumentDescriptions(MessageNa
         };
 #if ENABLE(TEST_FEATURE)
     case MessageName::TestWithSuperclass_TestAsyncMessageReply:
+        return Vector<ArgumentDescription> {
+            { "result"_s, "uint64_t"_s },
+        };
+    case MessageName::TestWithSuperclass_TestAsyncMessageAnyThreadReply:
         return Vector<ArgumentDescription> {
             { "result"_s, "uint64_t"_s },
         };
@@ -1290,6 +1310,10 @@ std::optional<Vector<ArgumentDescription>> messageReplyArgumentDescriptions(Mess
 #endif
 #if ENABLE(TEST_FEATURE)
     case MessageName::TestWithSuperclass_TestAsyncMessage:
+        return Vector<ArgumentDescription> {
+            { "result"_s, "uint64_t"_s },
+        };
+    case MessageName::TestWithSuperclass_TestAsyncMessageAnyThread:
         return Vector<ArgumentDescription> {
             { "result"_s, "uint64_t"_s },
         };

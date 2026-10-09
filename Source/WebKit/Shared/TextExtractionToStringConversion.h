@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include "ExtractedNodeInfo.h"
 #include "TextExtractionURLCache.h"
 #include <wtf/CompletionHandler.h>
 #include <wtf/NativePromise.h>
@@ -40,9 +41,6 @@ struct Item;
 
 } // namespace TextExtraction
 
-struct FrameIdentifierType;
-using FrameIdentifier = ObjectIdentifier<FrameIdentifierType>;
-
 struct NodeIdentifierType;
 using NodeIdentifier = ObjectIdentifier<NodeIdentifierType>;
 
@@ -53,10 +51,11 @@ namespace WebKit {
 using TextExtractionVersion = unsigned;
 
 enum class TextExtractionOptionFlag : uint8_t {
-    IncludeURLs     = 1 << 0,
-    IncludeRects    = 1 << 1,
-    OnlyIncludeText = 1 << 2,
-    ShortenURLs     = 1 << 3,
+    IncludeURLs          = 1 << 0,
+    IncludeRects         = 1 << 1,
+    ShortenURLs          = 1 << 2,
+    IncludeSelectOptions = 1 << 3,
+    IncludeTagName       = 1 << 4,
 };
 
 enum class TextExtractionOutputFormat : uint8_t {
@@ -64,6 +63,7 @@ enum class TextExtractionOutputFormat : uint8_t {
     HTMLMarkup,
     Markdown,
     MinifiedJSON,
+    PlainText,
 };
 
 using TextExtractionOptionFlags = OptionSet<TextExtractionOptionFlag>;
@@ -77,47 +77,61 @@ struct TextExtractionOptions {
         , nativeMenuItems(WTF::move(other.nativeMenuItems))
         , replacementStrings(WTF::move(other.replacementStrings))
         , version(other.version)
+        , maxWordsPerParagraph(other.maxWordsPerParagraph)
         , flags(other.flags)
         , outputFormat(other.outputFormat)
         , urlCache(WTF::move(other.urlCache))
+        , topHostName(WTF::move(other.topHostName))
     {
     }
 
-    TextExtractionOptions(WebCore::FrameIdentifier&& mainFrameIdentifier, Vector<TextExtractionFilterCallback>&& filters, Vector<String>&& items, HashMap<String, String>&& replacementStrings, std::optional<TextExtractionVersion> version, TextExtractionOptionFlags flags, TextExtractionOutputFormat outputFormat, TextExtractionURLCache* urlCache = nullptr)
+    TextExtractionOptions(WebCore::FrameIdentifier&& mainFrameIdentifier, Vector<TextExtractionFilterCallback>&& filters, Vector<String>&& items, Vector<std::pair<String, String>>&& replacementStrings, std::optional<TextExtractionVersion> version, TextExtractionOptionFlags flags, TextExtractionOutputFormat outputFormat, TextExtractionURLCache* urlCache = nullptr, std::optional<uint64_t> maxWordsPerParagraph = std::nullopt, String&& topHostName = { })
         : mainFrameIdentifier(WTF::move(mainFrameIdentifier))
         , filterCallbacks(WTF::move(filters))
         , nativeMenuItems(WTF::move(items))
         , replacementStrings(WTF::move(replacementStrings))
         , version(version)
+        , maxWordsPerParagraph(maxWordsPerParagraph)
         , flags(flags)
         , outputFormat(outputFormat)
         , urlCache(urlCache)
+        , topHostName(WTF::move(topHostName))
     {
     }
 
     WebCore::FrameIdentifier mainFrameIdentifier;
     Vector<TextExtractionFilterCallback> filterCallbacks;
     Vector<String> nativeMenuItems;
-    HashMap<String, String> replacementStrings;
+    Vector<std::pair<String, String>> replacementStrings;
     std::optional<TextExtractionVersion> version;
+    std::optional<uint64_t> maxWordsPerParagraph;
     TextExtractionOptionFlags flags;
     TextExtractionOutputFormat outputFormat { TextExtractionOutputFormat::TextTree };
     RefPtr<TextExtractionURLCache> urlCache;
+    String topHostName;
+};
+
+struct TextExtractionLineContent {
+    String contentWithoutIdentifier;
+    std::optional<String> nodeIdentifier;
 };
 
 struct TextExtractionResult {
     String textContent;
     bool filteredOutAnyText { false };
     Vector<String> shortenedURLStrings;
+    HashMap<String, Vector<ExtractedNodeInfo>> textToContainerMap;
+    Vector<TextExtractionLineContent> lineContents;
 };
 
 void convertToText(WebCore::TextExtraction::Item&&, TextExtractionOptions&&, CompletionHandler<void(TextExtractionResult&&)>&&);
 
-struct FrameAndNodeIdentifiers {
-    std::optional<WebCore::FrameIdentifier> frameIdentifier;
-    WebCore::NodeIdentifier nodeIdentifier;
-};
+String formatPDFMarkdownForOutput(const String& pdfText, TextExtractionOutputFormat);
 
-std::optional<FrameAndNodeIdentifiers> parseFrameAndNodeIdentifiers(StringView);
+std::optional<ExtractedNodeInfo> parseExtractedNodeInfo(StringView);
+
+String foldTextForReplacement(const String& source);
+
+String applyReplacements(const String& text, const Vector<std::pair<String, String>>& replacementStrings);
 
 } // namespace WebKit

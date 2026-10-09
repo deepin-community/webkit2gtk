@@ -39,6 +39,7 @@
 #include "RemoteDisplayListRecorderIdentifier.h"
 #include "RemoteGradientIdentifier.h"
 #include "RemoteGraphicsContextIdentifier.h"
+#include "RemotePathImplIdentifier.h"
 #include "RemoteRenderingBackendIdentifier.h"
 #include "RemoteResourceCache.h"
 #include "RemoteSerializedImageBufferIdentifier.h"
@@ -49,6 +50,7 @@
 #include "ScopedActiveMessageReceiveQueue.h"
 #include "ScopedRenderingResourcesRequest.h"
 #include "ShapeDetectionIdentifier.h"
+#include "SharedPreferencesForWebProcess.h"
 #include "StreamConnectionWorkQueue.h"
 #include "StreamMessageReceiver.h"
 #include "StreamServerConnection.h"
@@ -94,7 +96,6 @@ class RemoteSnapshotRecorder;
 struct BufferIdentifierSet;
 struct ImageBufferSetPrepareBufferForDisplayInputData;
 struct ImageBufferSetPrepareBufferForDisplayOutputData;
-struct SharedPreferencesForWebProcess;
 enum class SwapBuffersDisplayRequirement : uint8_t;
 
 namespace ShapeDetection {
@@ -110,9 +111,9 @@ public:
     virtual ~RemoteRenderingBackend();
     void stopListeningForIPC();
 
-    std::optional<SharedPreferencesForWebProcess> sharedPreferencesForWebProcess() const;
+    std::optional<SharedPreferencesForWebProcess> NODELETE sharedPreferencesForWebProcess() const;
 
-    RemoteResourceCache& remoteResourceCache() { return m_remoteResourceCache; }
+    RemoteResourceCache& remoteResourceCache() LIFETIME_BOUND { return m_remoteResourceCache; }
     RemoteSharedResourceCache& sharedResourceCache() { return m_sharedResourceCache; }
 
     void didReceiveStreamMessage(IPC::StreamServerConnection&, IPC::Decoder&) final;
@@ -162,6 +163,8 @@ private:
     void cacheNativeImage(WebCore::ShareableBitmap::Handle&&, WebCore::RenderingResourceIdentifier);
     void cacheNativeImageFromSharedNativeImage(WebCore::RenderingResourceIdentifier);
     void releaseNativeImage(WebCore::RenderingResourceIdentifier);
+    void cachePathImpl(Ref<WebCore::PathImpl>&&, RemotePathImplIdentifier);
+    void releasePathImpl(RemotePathImplIdentifier);
     void cacheGradient(Ref<WebCore::Gradient>&&, RemoteGradientIdentifier);
     void releaseGradient(RemoteGradientIdentifier);
     void cacheFilter(Ref<WebCore::Filter>&&);
@@ -196,7 +199,7 @@ private:
     void createTextDetector(ShapeDetectionIdentifier);
     void releaseTextDetector(ShapeDetectionIdentifier);
 
-    bool shouldUseLockdownFontParser() const;
+    bool NODELETE shouldUseLockdownFontParser() const;
 
     void getImageBufferResourceLimitsForTesting(CompletionHandler<void(WebCore::ImageBufferResourceLimits)>&&);
 
@@ -204,6 +207,9 @@ private:
     const Ref<IPC::StreamServerConnection> m_streamConnection;
     const Ref<GPUConnectionToWebProcess> m_gpuConnectionToWebProcess;
     const Ref<RemoteSharedResourceCache> m_sharedResourceCache;
+    // Snapshot taken on the main thread at construction and only ever read on the work queue,
+    // so it needs no locking. See sharedPreferencesForWebProcess().
+    const SharedPreferencesForWebProcess m_sharedPreferencesForWebProcess;
     RemoteResourceCache m_remoteResourceCache;
     WebCore::ProcessIdentity m_resourceOwner;
     RemoteRenderingBackendIdentifier m_renderingBackendIdentifier;

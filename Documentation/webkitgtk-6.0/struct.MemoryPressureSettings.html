@@ -62,7 +62,7 @@ SPDX-License-Identifier: BSD, LGPL-2.1
         <h3><a href="index.html">WebKit</a></h3>
         <p>API Version: 6.0</p>
         
-        <p>Library Version: 2.52.5</p>
+        <p>Library Version: 2.54.0</p>
         
       </div>
       
@@ -162,10 +162,10 @@ SPDX-License-Identifier: BSD, LGPL-2.1
           <p>A boxed type representing the settings for the memory pressure&nbsp;handler</p>
 <p><code>WebKitMemoryPressureSettings</code> is a boxed type that can be used to provide some custom settings
 to control how the memory pressure situations are handled by the different&nbsp;processes.</p>
-<p>The memory pressure system implemented inside the different process will try to keep the memory usage
+<p>The memory pressure system implemented inside the different processes will try to keep the memory usage
 under the defined memory limit. In order to do that, it will check the used memory with a user defined
 frequency and decide whether it should try to release memory. The thresholds passed will define how urgent
-is to release that&nbsp;memory.</p>
+it is to release that&nbsp;memory.</p>
 <p>Take into account that badly defined parameters can greatly reduce the performance of the engine. For
 example, setting memory limit too low with a fast poll interval can cause the process to constantly
 be trying to release&nbsp;memory.</p>
@@ -317,7 +317,7 @@ and the settings will be applied to all the network processes created after that
         <div class="">
           <h6><a href="method.MemoryPressureSettings.set_memory_limit.html">webkit_memory_pressure_settings_set_memory_limit</a></h6>
           <div class="docblock">
-            <p>Sets <code>memory_limit</code> the memory limit value to <code>settings</code>.</p>
+            <p>Sets <code>memory_limit</code> as the memory limit value of <code>settings</code>.</p>
           </div>
           <div class="docblock">
             <p><span class="emblem available">since: 2.34</span></p>

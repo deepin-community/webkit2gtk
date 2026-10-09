@@ -365,6 +365,12 @@ void Pasteboard::read(PasteboardFileReader& reader, std::optional<size_t>)
             return;
         }
     }
+
+    static constexpr auto svgImageType = "image/svg+xml"_s;
+    if (reader.shouldReadBuffer(svgImageType)) {
+        if (auto buffer = readBuffer(0, svgImageType))
+            reader.readBuffer("image.svg"_s, svgImageType, buffer.releaseNonNull());
+    }
 }
 
 bool Pasteboard::hasData()
@@ -377,7 +383,7 @@ bool Pasteboard::hasData()
 Vector<String> Pasteboard::typesSafeForBindings(const String& origin)
 {
     if (m_selectionData) {
-        ListHashSet<String> types;
+        OrderedHashSet<String> types;
         if (auto& buffer = m_selectionData->customData()) {
             auto customData = PasteboardCustomData::fromSharedBuffer(*buffer);
             if (customData.origin() == origin) {

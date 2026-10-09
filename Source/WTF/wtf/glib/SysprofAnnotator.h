@@ -203,6 +203,7 @@ WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
         case RenderServerSnapshotStart:
         case TakeSnapshotStart:
         case SyntheticMomentumStart:
+        case ProcessInitializeStart:
         case UpdateLayerContentBuffersStart:
         case CommitLayerTreeStart:
         case ProcessLaunchStart:
@@ -215,6 +216,7 @@ WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
         case TimerFiredStart:
         case CoreImageRenderStart:
         case TextExtractionStart:
+        case RemoteLayerTreeAnimationsUpdateStart:
             beginMark(nullptr, tracePointCodeName(code).spanIncludingNullTerminator(), "%s", "");
             break;
 
@@ -269,6 +271,7 @@ WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
         case RenderServerSnapshotEnd:
         case TakeSnapshotEnd:
         case SyntheticMomentumEnd:
+        case ProcessInitializeEnd:
         case UpdateLayerContentBuffersEnd:
         case CommitLayerTreeEnd:
         case ProcessLaunchEnd:
@@ -281,6 +284,7 @@ WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
         case TimerFiredEnd:
         case CoreImageRenderEnd:
         case TextExtractionEnd:
+        case RemoteLayerTreeAnimationsUpdateEnd:
             endMark(nullptr, tracePointCodeName(code).spanIncludingNullTerminator(), "%s", "");
             break;
 
@@ -521,6 +525,9 @@ private:
             return "RemoteLayerTreeScheduleRenderingUpdate"_s;
         case DisplayLinkUpdate:
             return "DisplayLinkUpdate"_s;
+        case ProcessInitializeStart:
+        case ProcessInitializeEnd:
+            return "ProcessInitialize"_s;
         case UpdateLayerContentBuffersStart:
         case UpdateLayerContentBuffersEnd:
             return "UpdateLayerContentBuffers"_s;
@@ -562,6 +569,10 @@ private:
         case RenderLayerTreeStart:
         case RenderLayerTreeEnd:
             return "RenderLayerTree"_s;
+
+        case RemoteLayerTreeAnimationsUpdateStart:
+        case RemoteLayerTreeAnimationsUpdateEnd:
+            return "RemoteLayerTreeAnimationsUpdate"_s;
 
         case WTFRange:
         case JavaScriptRange:

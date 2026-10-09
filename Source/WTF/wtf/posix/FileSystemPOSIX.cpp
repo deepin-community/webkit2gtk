@@ -29,30 +29,26 @@
 #include "config.h"
 #include <wtf/FileSystem.h>
 
-#include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
-#include <fnmatch.h>
-#include <libgen.h>
 #include <stdio.h>
-#include <sys/file.h>
 #include <sys/stat.h>
 #include <sys/statvfs.h>
-#include <sys/types.h>
 #include <unistd.h>
-#include <wtf/EnumTraits.h>
 #include <wtf/FileHandle.h>
-#include <wtf/MallocSpan.h>
-#include <wtf/MappedFileData.h>
 #include <wtf/SafeStrerror.h>
 #include <wtf/text/CString.h>
 #include <wtf/text/MakeString.h>
-#include <wtf/text/ParsingUtilities.h>
 #include <wtf/text/StringBuilder.h>
 #include <wtf/text/WTFString.h>
 
 #if USE(GLIB)
 #include <glib.h>
+#endif
+
+#if OS(HAIKU)
+#include "FindDirectory.h"
+#include "Path.h"
 #endif
 
 namespace WTF {
@@ -110,7 +106,7 @@ std::optional<WallTime> fileCreationTime(const String& path)
         return std::nullopt;
 
     return WallTime::fromRawSeconds(fileInfo.stx_btime.tv_sec);
-#elif OS(DARWIN) || OS(OPENBSD) || OS(NETBSD) || OS(FREEBSD)
+#elif OS(DARWIN) || OS(OPENBSD) || OS(NETBSD) || OS(FREEBSD) || OS(HAIKU)
     struct stat fileInfo;
 
     if (stat(fsRep.data(), &fileInfo) == -1)
@@ -158,6 +154,17 @@ static const char* temporaryFileDirectory()
 {
 #if USE(GLIB)
     return g_get_tmp_dir();
+#elif OS(HAIKU)
+    static char buffer[B_PATH_NAME_LENGTH];
+    static std::once_flag once;
+    std::call_once(once, [] {
+        BPath path;
+        if (find_directory(B_SYSTEM_TEMP_DIRECTORY, &path) == B_OK)
+            strlcpy(buffer, path.Path(), sizeof(buffer));
+        else
+            strlcpy(buffer, "/tmp", sizeof(buffer));
+    });
+    return buffer;
 #else
     if (auto* tmpDir = getenv("TMPDIR"))
         return tmpDir;

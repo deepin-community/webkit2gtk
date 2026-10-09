@@ -62,7 +62,7 @@ SPDX-License-Identifier: BSD, LGPL-2.1
         <h3><a href="index.html">WebKit</a></h3>
         <p>API Version: 6.0</p>
         
-        <p>Library Version: 2.52.5</p>
+        <p>Library Version: 2.54.0</p>
         
       </div>
       
@@ -96,7 +96,7 @@ webkit2gtk-5.0, which was an earlier unstable <span class="caps">API</span> vers
 <p>libsoup 2 and libsoup 3 cannot be linked together. If your application currently
 uses webkit2gtk-4.0, you must first port to webkit2gtk-4.1 by eliminating use
 of libsoup 2. See <a href="https://gnome.pages.gitlab.gnome.org/libsoup/libsoup-3.0/migrating-from-libsoup-2.html">Migrating from libsoup 2</a>
-for guidance on this. After first migrating to webkit2gtk-4.1, then it is
+for guidance on this. After first migrating to webkit2gtk-4.1, it is
 time to start looking into&nbsp;webkitgtk-6.0.</p>
 <h2 id="stop-using-deprecated-apis">Stop Using Deprecated APIs<a class="md-anchor" href="#stop-using-deprecated-apis" title="Permanent link"></a></h2>
 <p>All APIs that were previously deprecated in webkit2gtk-4.0 and webkit2gtk-4.1
@@ -113,13 +113,13 @@ to interact with and manipulate the <span class="caps">DOM</span> instead, perha
 notice use of deprecated signals and&nbsp;properties.</p>
 <h2 id="upgrade-to-gtk-4">Upgrade to GTK 4<a class="md-anchor" href="#upgrade-to-gtk-4" title="Permanent link"></a></h2>
 <p>After successfully building your webkit2gtk-4.1 application without deprecation
-warnings, then it is time to attempt to upgrade to <span class="caps">GTK</span> 4 and webkitgtk-6.0.
+warnings, it is time to attempt to upgrade to <span class="caps">GTK</span> 4 and webkitgtk-6.0.
 This is easier said than done, but <a href="https://docs.gtk.org/gtk4/migrating-3to4.html">the <span class="caps">GTK</span> 4 migration guide</a>
 will help. Good&nbsp;luck.</p>
 <h2 id="most-types-are-final">Most Types Are Final<a class="md-anchor" href="#most-types-are-final" title="Permanent link"></a></h2>
 <p>Only two types are now&nbsp;derivable:</p>
 <ul>
-<li><a href="class.WebView.html"><code>WebKitWebView</code></a> has been often subclassed to customize its behavior for an
+<li><a href="class.WebView.html"><code>WebKitWebView</code></a> has been often subclassed to customize its behavior for a
   specific application. This possibility has been kept, as it has proved
   useful in the&nbsp;past.</li>
 <li><a href="class.InputMethodContext.html"><code>WebKitInputMethodContext</code></a> is specifically designed in a way that subclassing

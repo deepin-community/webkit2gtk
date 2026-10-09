@@ -12,19 +12,19 @@
 #include "include/core/SkPathTypes.h"
 #include "include/core/SkRRect.h"
 #include "include/core/SkTypes.h"
+#include "include/private/SkAssert.h" // IWYU pragma: keep
+#include "include/private/SkFloatingPoint.h"
 #include "include/private/SkPathRef.h"
-#include "include/private/base/SkAssert.h" // IWYU pragma: keep
-#include "include/private/base/SkFloatingPoint.h"
-#include "include/private/base/SkSafe32.h"
-#include "include/private/base/SkTArray.h"
-#include "include/private/base/SkTo.h"
-#include "src/base/SkVx.h"
+#include "include/private/SkSafe32.h"
+#include "include/private/SkTArray.h"
+#include "include/private/SkTo.h"
 #include "src/core/SkGeometry.h"
 #include "src/core/SkMatrixPriv.h"
 #include "src/core/SkPathData.h"
 #include "src/core/SkPathEnums.h"
 #include "src/core/SkPathPriv.h"
 #include "src/core/SkPathRawShapes.h"
+#include "src/core/SkVx.h"
 
 #include <algorithm>
 #include <cmath>
@@ -52,6 +52,12 @@ SkPathBuilder::SkPathBuilder() {
     this->reset();
 }
 
+SkPathBuilder::SkPathBuilder(const SkPathBuilder&) = default;
+SkPathBuilder& SkPathBuilder::operator=(const SkPathBuilder&) = default;
+SkPathBuilder::SkPathBuilder(SkPathBuilder&&) = default;
+SkPathBuilder& SkPathBuilder::operator=(SkPathBuilder&&) = default;
+SkPathBuilder::~SkPathBuilder() = default;
+
 SkPathBuilder::SkPathBuilder(SkPathFillType ft) {
     this->reset();
     fFillType = ft;
@@ -61,7 +67,23 @@ SkPathBuilder::SkPathBuilder(const SkPath& src) {
     *this = src;
 }
 
-SkPathBuilder::~SkPathBuilder() {
+SkPathBuilder& SkPathBuilder::operator=(const SkPath& src) {
+    this->reset().setFillType(src.getFillType());
+    this->setIsVolatile(src.isVolatile());
+
+    if (src.isEmpty()) {
+        return *this;
+    }
+
+    this->addRaw(src.fPathData->raw(src.getFillType(), SkResolveConvexity::kYes), Reserve::kExact);
+
+    // These are not part of SkPathRaw, so we set them separately
+    fLastMoveIndex = SkPathPriv::FindLastMoveToIndex(fVerbs, fPts.size());
+    SkASSERT(fLastMoveIndex < fPts.size());
+    fType = src.fPathData->fType;
+    fIsA  = src.fPathData->fIsA;
+
+    return *this;
 }
 
 SkPathBuilder& SkPathBuilder::reset() {
@@ -96,9 +118,9 @@ bool SkPathBuilder::operator==(const SkPathBuilder& o) const {
 }
 
 void SkPathBuilder::incReserve(int extraPtCount, int extraVbCount, int extraCnCount) {
-    fPts.reserve_exact(Sk32_sat_add(fPts.size(), extraPtCount));
-    fVerbs.reserve_exact(Sk32_sat_add(fVerbs.size(), extraVbCount));
-    fConicWeights.reserve_exact(Sk32_sat_add(fConicWeights.size(), extraCnCount));
+    fPts.reserve(Sk32_sat_add(fPts.size(), extraPtCount));
+    fVerbs.reserve(Sk32_sat_add(fVerbs.size(), extraVbCount));
+    fConicWeights.reserve(Sk32_sat_add(fConicWeights.size(), extraCnCount));
 }
 
 std::tuple<SkPoint*, SkScalar*> SkPathBuilder::growForVerbsInPath(const SkPath& path) {
@@ -180,16 +202,23 @@ SkPathBuilder& SkPathBuilder::quadTo(SkPoint pt1, SkPoint pt2) {
 SkPathBuilder& SkPathBuilder::conicTo(SkPoint pt1, SkPoint pt2, SkScalar w) {
     this->ensureMove();
 
+    if (w <= 0) {
+        return this->lineTo(pt2);
+    }
     SkPoint* p = fPts.push_back_n(2);
     p[0] = pt1;
     p[1] = pt2;
     if (w == 1) {
         fVerbs.push_back(SkPathVerb::kQuad);
         fSegmentMask |= kQuad_SkPathSegmentMask;
-    } else {
+    } else if (SkIsFinite(w)) {
         fVerbs.push_back(SkPathVerb::kConic);
         fConicWeights.push_back(w);
         fSegmentMask |= kConic_SkPathSegmentMask;
+    } else {
+        fVerbs.push_back(SkPathVerb::kLine);
+        fVerbs.push_back(SkPathVerb::kLine);
+        fSegmentMask |= kLine_SkPathSegmentMask;
     }
 
     return *this;
@@ -256,6 +285,26 @@ SkPathBuilder& SkPathBuilder::rCubicTo(SkVector p1, SkVector p2, SkVector p3) {
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////
+
+SkPath SkPathBuilder::snapshot(const SkMatrix* mx) const {
+    if (!mx) {
+        mx = &SkMatrix::I();
+    }
+
+    sk_sp<SkPathData> pdata;
+    if (auto raw = SkPathPriv::Raw(*this, SkResolveConvexity::kNo)) {
+        pdata = SkPathData::MakeTransform(*raw, *mx);
+    }
+    if (pdata && fType != SkPathIsAType::kGeneral) {
+        SkASSERT(SkPathPriv::IsAxisAligned(fPts));
+        if (mx->rectStaysRect()) {
+            auto [dir, start] = SkPathPriv::TransformDirAndStart(
+                    *mx, fType == SkPathIsAType::kRRect, fIsA.fDirection, fIsA.fStartIndex);
+            pdata->setupIsA(fType, dir, start);
+        }
+    }
+    return SkPath::MakeNullCheck(std::move(pdata), fFillType, fIsVolatile);
+}
 
 SkPath SkPathBuilder::detach(const SkMatrix* mx) {
     auto path = this->snapshot(mx);
@@ -364,7 +413,7 @@ static int build_arc_conics(const SkRect& oval, const SkVector& start, const SkV
                             SkPoint* singlePt) {
     SkMatrix    matrix;
 
-    matrix.setScale(SkScalarHalf(oval.width()), SkScalarHalf(oval.height()));
+    matrix.setScale(oval.width() / 2.f, oval.height() / 2.f);
     matrix.postTranslate(oval.centerX(), oval.centerY());
 
     int count = SkConic::BuildUnitArc(start, stop, dir, &matrix, conics);
@@ -650,8 +699,14 @@ SkPathIter SkPathBuilder::iter() const {
     return SkPathIter(fPts, fVerbs, fConicWeights);
 }
 
-SkPathBuilder& SkPathBuilder::addRaw(const SkPathRaw& raw) {
-    this->incReserve(raw.points().size(), raw.verbs().size(), raw.conics().size());
+SkPathBuilder& SkPathBuilder::addRaw(const SkPathRaw& raw, Reserve reserve) {
+    if (reserve == Reserve::kGrow) {
+        this->incReserve(raw.points().size(), raw.verbs().size(), raw.conics().size());
+    } else {
+        fPts         .reserve_exact(Sk32_sat_add(fPts.size()         , raw.points().size()));
+        fVerbs       .reserve_exact(Sk32_sat_add(fVerbs.size()       , raw.verbs().size()));
+        fConicWeights.reserve_exact(Sk32_sat_add(fConicWeights.size(), raw.conics().size()));
+    }
 
     for (auto iter = raw.iter(); auto rec = iter.next();) {
         const auto pts = rec->fPoints;
@@ -677,10 +732,16 @@ SkPathBuilder& SkPathBuilder::addRaw(const SkPathRaw& raw) {
     return *this;
 }
 
-SkPathBuilder& SkPathBuilder::addRect(const SkRect& rect, SkPathDirection dir, unsigned index) {
-    const bool wasEmpty = (fSegmentMask == 0);
+// It's tempting to just look at fSegmentMask, but we could have a degenerate path (move,close)
+// before this, which is two verbs but still fSegmentMask == 0.
+static bool is_empty_or_moves(const SkSpan<const SkPathVerb>& verbs) {
+    return verbs.empty() || (verbs.size() == 1 && verbs.back() == SkPathVerb::kMove);
+}
 
-    this->addRaw(SkPathRawShapes::Rect(rect, dir, index));
+SkPathBuilder& SkPathBuilder::addRect(const SkRect& rect, SkPathDirection dir, unsigned index) {
+    const bool wasEmpty = is_empty_or_moves(fVerbs);
+
+    this->addRaw(SkPathRawShapes::Rect(rect, dir, index), Reserve::kGrow);
 
     if (wasEmpty) {
         // now we're a rect
@@ -690,9 +751,9 @@ SkPathBuilder& SkPathBuilder::addRect(const SkRect& rect, SkPathDirection dir, u
 }
 
 SkPathBuilder& SkPathBuilder::addOval(const SkRect& oval, SkPathDirection dir, unsigned index) {
-    const bool wasEmpty = (fSegmentMask == 0);
+    const bool wasEmpty = is_empty_or_moves(fVerbs);
 
-    this->addRaw(SkPathRawShapes::Oval(oval, dir, index));
+    this->addRaw(SkPathRawShapes::Oval(oval, dir, index), Reserve::kGrow);
 
     if (wasEmpty) {
         fType            = SkPathIsAType::kOval;
@@ -718,9 +779,9 @@ SkPathBuilder& SkPathBuilder::addRRect(const SkRRect& rrect, SkPathDirection dir
             break;
     }
 
-    const bool wasEmpty = (fSegmentMask == 0);
+    const bool wasEmpty = is_empty_or_moves(fVerbs);
 
-    this->addRaw(SkPathRawShapes::RRect(rrect, dir, index));
+    this->addRaw(SkPathRawShapes::RRect(rrect, dir, index), Reserve::kGrow);
 
     if (wasEmpty) {
         fType            = SkPathIsAType::kRRect;
@@ -731,9 +792,10 @@ SkPathBuilder& SkPathBuilder::addRRect(const SkRRect& rrect, SkPathDirection dir
     return *this;
 }
 
-SkPathBuilder& SkPathBuilder::addCircle(SkScalar x, SkScalar y, SkScalar r, SkPathDirection dir) {
+SkPathBuilder& SkPathBuilder::addCircle(SkPoint center, float r, SkPathDirection dir) {
     if (r >= 0) {
-        this->addOval(SkRect::MakeLTRB(x - r, y - r, x + r, y + r), dir);
+        this->addOval(SkRect::MakeLTRB(center.fX - r, center.fY - r, center.fX + r, center.fY + r),
+                      dir);
     }
     return *this;
 }
@@ -786,7 +848,7 @@ SkPathBuilder& SkPathBuilder::addPath(const SkPath& src, const SkMatrix& matrix,
     }
 
     const bool canReplaceThis = (mode == SkPath::AddPathMode::kAppend_AddPathMode &&
-                                 SkPathPriv::IsEffectivelyEmpty(*this))
+                                 this->verbs().size() <= 1)
                               || this->verbs().empty();
     if (canReplaceThis && matrix.isIdentity()) {
         const SkPathFillType fillType = fFillType;
@@ -799,7 +861,18 @@ SkPathBuilder& SkPathBuilder::addPath(const SkPath& src, const SkMatrix& matrix,
     fConvexity = SkPathConvexity::kUnknown;
 
     if (SkPath::AddPathMode::kAppend_AddPathMode == mode && !matrix.hasPerspective()) {
-        const int lastMoveToIndex = SkPathPriv::FindLastMoveToIndex(src.verbs(), src.points().size());
+        // If the current builder ends with a moveTo and src starts with one (which is always
+        // true if non-empty), we must discard the builder moveTo in order to maintain
+        // internal consistency after append (no repeating moveTos).
+        if (!fVerbs.empty() && fVerbs.back() == SkPathVerb::kMove && !src.isEmpty()) {
+            SkASSERT(src.verbs().front() == SkPathVerb::kMove);
+            fVerbs.pop_back();
+            fPts.pop_back();
+            SkASSERT(fVerbs.empty() || fVerbs.back() != SkPathVerb::kMove);
+        }
+
+        const int lastMoveToIndex =
+            SkPathPriv::FindLastMoveToIndex(src.verbs(), src.points().size());
         SkASSERT(lastMoveToIndex >= 0);
         fLastMoveIndex = lastMoveToIndex + this->countPoints();
 
@@ -946,22 +1019,23 @@ SkPathBuilder& SkPathBuilder::privateReverseAddPath(const SkPath& src) {
 }
 
 std::optional<SkPoint> SkPathBuilder::getLastPt() const {
-    int count = this->fPts.size();
+    size_t count = this->fPts.size();
     if (count > 0) {
         return this->fPts.at(count - 1);
     }
     return std::nullopt;
 }
 
-void SkPathBuilder::setLastPt(SkScalar x, SkScalar y) {
-    int count = fPts.size();
+#ifdef SK_SUPPORT_LEGACY_PATHBUILDER_SETLASTPT
+void SkPathBuilder::setLastPt(SkPoint pt) {
+    size_t count = fPts.size();
     if (count == 0) {
-        this->moveTo(x, y);
+        this->moveTo(pt);
     } else {
-        fPts.at(count-1).set(x, y);
-        fType = SkPathIsAType::kGeneral;
+        this->setPoint(count - 1, pt);
     }
 }
+#endif
 
 void SkPathBuilder::setPoint(size_t index, SkPoint p) {
     if (index < (size_t)fPts.size()) {

@@ -28,6 +28,7 @@
 
 #include "EventLoop.h"
 #include "Exception.h"
+#include "JSDOMConvertBoolean.h"
 #include "JSDOMPromiseDeferred.h"
 #include "PushSubscriptionOptions.h"
 #include "PushSubscriptionOwner.h"
@@ -109,7 +110,7 @@ void PushSubscription::unsubscribe(ScriptExecutionContext& scriptExecutionContex
             return;
         }
 
-        m_pushSubscriptionOwner->unsubscribeFromPushService(pushSubscriptionIdentifier, WTF::move(promise));
+        protect(m_pushSubscriptionOwner)->unsubscribeFromPushService(pushSubscriptionIdentifier, WTF::move(promise));
     });
 }
 

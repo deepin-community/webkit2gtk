@@ -63,6 +63,10 @@ struct NetworkProcessCreationParameters {
     bool isParentProcessFullWebBrowserOrRunningTest { false };
 #endif
 
+#if PLATFORM(IOS_FAMILY)
+    String containerTemporaryDirectory;
+#endif
+
 #if USE(SOUP)
     WebCore::HTTPCookieAcceptPolicy cookieAcceptPolicy { WebCore::HTTPCookieAcceptPolicy::AlwaysAccept };
     Vector<String> languages;
@@ -78,6 +82,9 @@ struct NetworkProcessCreationParameters {
     bool ftpEnabled { false };
 #if PLATFORM(COCOA)
     bool enableModernDownloadProgress { false };
+#endif
+#if HAVE(ENHANCED_SECURITY_LINKS)
+    bool enableEnhancedSecurityLinks { false };
 #endif
     Vector<WebsiteDataStoreParameters> websiteDataStoreParameters;
     HashMap<WebCore::ProcessIdentifier, Vector<String>> allowedFilePaths;

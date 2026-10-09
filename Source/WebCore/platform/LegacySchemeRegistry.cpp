@@ -80,7 +80,7 @@ static const URLSchemesMap& allBuiltinSchemes()
         };
 
         // Other misc schemes that the LegacySchemeRegistry doesn't know about.
-        static constexpr auto otherSchemes = std::to_array<ASCIILiteral>({
+        static constexpr auto otherSchemes = WTF::toArray<ASCIILiteral>({
             "webkit-fake-url"_s,
 #if PLATFORM(MAC)
             "safari-extension"_s,
@@ -127,7 +127,7 @@ static URLSchemesMap& localURLSchemes() WTF_REQUIRES_LOCK(schemeRegistryLock)
     return localSchemes;
 }
 
-static URLSchemesMap& displayIsolatedURLSchemes() WTF_REQUIRES_LOCK(schemeRegistryLock)
+static URLSchemesMap& NODELETE displayIsolatedURLSchemes() WTF_REQUIRES_LOCK(schemeRegistryLock)
 {
     ASSERT(schemeRegistryLock.isHeld());
     static NeverDestroyed<URLSchemesMap> displayIsolatedSchemes;
@@ -193,7 +193,7 @@ static URLSchemesMap& emptyDocumentSchemes()
     return emptyDocumentSchemes;
 }
 
-static URLSchemesMap& schemesForbiddenFromDomainRelaxation()
+static URLSchemesMap& NODELETE schemesForbiddenFromDomainRelaxation()
 {
     ASSERT(isMainThread());
     static NeverDestroyed<URLSchemesMap> schemes;
@@ -214,7 +214,7 @@ static URLSchemesMap& canDisplayOnlyIfCanRequestSchemes() WTF_REQUIRES_LOCK(sche
     return canDisplayOnlyIfCanRequestSchemes;
 }
 
-static URLSchemesMap& notAllowingJavascriptURLsSchemes()
+static URLSchemesMap& NODELETE notAllowingJavascriptURLsSchemes()
 {
     ASSERT(isMainThread());
     static NeverDestroyed<URLSchemesMap> notAllowingJavascriptURLsSchemes;
@@ -239,7 +239,7 @@ void LegacySchemeRegistry::removeURLSchemeRegisteredAsLocal(const String& scheme
     localURLSchemes().remove(scheme);
 }
 
-static MemoryCompactRobinHoodHashSet<String>& schemesHandledBySchemeHandler() WTF_REQUIRES_LOCK(schemeRegistryLock)
+static MemoryCompactRobinHoodHashSet<String>& NODELETE schemesHandledBySchemeHandler() WTF_REQUIRES_LOCK(schemeRegistryLock)
 {
     ASSERT(schemeRegistryLock.isHeld());
     static NeverDestroyed<MemoryCompactRobinHoodHashSet<String>> set;
@@ -261,7 +261,14 @@ bool LegacySchemeRegistry::schemeIsHandledBySchemeHandler(StringView scheme)
     return schemesHandledBySchemeHandler().contains<StringViewHashTranslator>(scheme);
 }
 
-static URLSchemesMap& schemesAllowingDatabaseAccessInPrivateBrowsing()
+bool LegacySchemeRegistry::isBuiltInWebKitHandledScheme(StringView scheme)
+{
+    // These schemes are exempt from the generic cross-origin no-cors block applied to
+    // WKURLSchemeHandler supported schemes.
+    return scheme == "webkit-extension"_s;
+}
+
+static URLSchemesMap& NODELETE schemesAllowingDatabaseAccessInPrivateBrowsing()
 {
     ASSERT(isMainThread());
     static NeverDestroyed<URLSchemesMap> schemesAllowingDatabaseAccessInPrivateBrowsing;
@@ -290,7 +297,7 @@ static std::span<const ASCIILiteral> builtinCSPBypassingSchemes()
 }
 #endif
 
-static URLSchemesMap& ContentSecurityPolicyBypassingSchemes() WTF_REQUIRES_LOCK(schemeRegistryLock)
+static URLSchemesMap& NODELETE ContentSecurityPolicyBypassingSchemes() WTF_REQUIRES_LOCK(schemeRegistryLock)
 {
     ASSERT(schemeRegistryLock.isHeld());
 #if ENABLE(PDFJS)
@@ -301,14 +308,14 @@ static URLSchemesMap& ContentSecurityPolicyBypassingSchemes() WTF_REQUIRES_LOCK(
     return schemes;
 }
 
-static URLSchemesMap& cachePartitioningSchemes() WTF_REQUIRES_LOCK(schemeRegistryLock)
+static URLSchemesMap& NODELETE cachePartitioningSchemes() WTF_REQUIRES_LOCK(schemeRegistryLock)
 {
     ASSERT(schemeRegistryLock.isHeld());
     static NeverDestroyed<URLSchemesMap> schemes;
     return schemes;
 }
 
-static URLSchemesMap& alwaysRevalidatedSchemes()
+static URLSchemesMap& NODELETE alwaysRevalidatedSchemes()
 {
     ASSERT(isMainThread());
     static NeverDestroyed<URLSchemesMap> schemes;
@@ -450,15 +457,16 @@ bool LegacySchemeRegistry::allowsDatabaseAccessInPrivateBrowsing(const String& s
     return !scheme.isNull() && schemesAllowingDatabaseAccessInPrivateBrowsing().contains(scheme);
 }
 
-void LegacySchemeRegistry::registerURLSchemeAsCORSEnabled(const String& scheme)
+LegacySchemeRegistry::SchemeRegisteredForTheFirstTime LegacySchemeRegistry::registerURLSchemeAsCORSEnabled(const String& scheme)
 {
     if (scheme == "about"_s)
-        return;
+        return SchemeRegisteredForTheFirstTime::No;
 
     ASSERT(!isInNetworkProcess());
     if (scheme.isNull())
-        return;
-    CORSEnabledSchemes().add(scheme);
+        return SchemeRegisteredForTheFirstTime::No;
+
+    return CORSEnabledSchemes().add(scheme).isNewEntry ? SchemeRegisteredForTheFirstTime::Yes : SchemeRegisteredForTheFirstTime::No;
 }
 
 bool LegacySchemeRegistry::shouldTreatURLSchemeAsCORSEnabled(StringView scheme)

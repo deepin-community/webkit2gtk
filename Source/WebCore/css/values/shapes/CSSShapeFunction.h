@@ -32,7 +32,7 @@ namespace WebCore {
 namespace CSS {
 
 // <coordinate-pair> = <length-percentage>{2}
-using CoordinatePair = SpaceSeparatedPoint<LengthPercentage<>>;
+using CoordinatePair = SpaceSeparatedPoint<LengthPercentage<AllUnzoomed>>;
 
 // <by-to> = by | to
 // https://drafts.csswg.org/css-shapes-2/#typedef-shape-by-to
@@ -76,6 +76,7 @@ template<> struct Serialize<ByCoordinatePair> { void operator()(StringBuilder&, 
 // Specified https://github.com/w3c/csswg-drafts/issues/10649#issuecomment-2412816773
 struct RelativeControlPoint {
     using Anchor = ControlPointAnchor;
+    static constexpr auto defaultAnchor = Anchor { Keyword::Start { } };
 
     CoordinatePair offset;
     std::optional<Anchor> anchor;
@@ -95,6 +96,7 @@ template<> struct Serialize<RelativeControlPoint> { void operator()(StringBuilde
 // Specified https://github.com/w3c/csswg-drafts/issues/10649#issuecomment-2412816773
 struct AbsoluteControlPoint {
     using Anchor = ControlPointAnchor;
+    static constexpr auto defaultAnchor = Anchor { Keyword::Origin { } };
 
     Position offset;
     std::optional<Anchor> anchor;
@@ -156,7 +158,7 @@ struct HLineCommand {
     struct By {
         static constexpr auto affinity = Keyword::By { };
 
-        LengthPercentage<> offset;
+        LengthPercentage<AllUnzoomed> offset;
 
         bool operator==(const By&) const = default;
     };
@@ -187,7 +189,7 @@ struct VLineCommand {
     struct By {
         static constexpr auto affinity = Keyword::By { };
 
-        LengthPercentage<> offset;
+        LengthPercentage<AllUnzoomed> offset;
 
         bool operator==(const By&) const = default;
     };
@@ -310,7 +312,7 @@ struct ArcCommand {
     using By = ByCoordinatePair;
     Variant<To, By> toBy;
 
-    using SizeOfEllipse = MinimallySerializingSpaceSeparatedSize<LengthPercentage<>>;
+    using SizeOfEllipse = MinimallySerializingSpaceSeparatedSize<LengthPercentage<AllUnzoomed>>;
     SizeOfEllipse size;
 
     ArcSweep arcSweep;

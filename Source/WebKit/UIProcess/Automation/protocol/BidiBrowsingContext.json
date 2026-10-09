@@ -65,6 +65,34 @@
             "spec": "https://w3c.github.io/webdriver-bidi/#type-browsingContext-UserPromptType",
             "type": "string",
             "enum": [ "alert", "beforeunload", "confirm", "prompt" ]
+        },
+        {
+            "id": "Locator",
+            "description": "Defines a strategy for locating nodes within a document.",
+            "spec": "https://w3c.github.io/webdriver-bidi/#type-browsingContext-Locator",
+            "type": "object",
+            "properties": [
+                { "name": "type", "$ref": "BidiBrowsingContext.LocatorType" },
+                { "name": "value", "type": "any" }
+            ]
+        },
+        {
+            "id": "LocatorType",
+            "description": "The type of locator strategy to use for finding nodes.",
+            "spec": "https://w3c.github.io/webdriver-bidi/#type-browsingContext-Locator",
+            "bug": "https://bugs.webkit.org/show_bug.cgi?id=288329",
+            "type": "string",
+            "enum": [ "css" ]
+        },
+        {
+            "id": "Viewport",
+            "description": "Represents viewport dimensions.",
+            "spec": "https://w3c.github.io/webdriver-bidi/#command-browsingContext-setViewport",
+            "type": "object",
+            "properties": [
+                { "name": "width", "type": "integer" },
+                { "name": "height", "type": "integer" }
+            ]
         }
     ],
     "commands": [
@@ -118,6 +146,23 @@
             ]
         },
         {
+            "name": "locateNodes",
+            "description": "Locates nodes within a browsing context using the provided locator strategy.",
+            "spec": "https://w3c.github.io/webdriver-bidi/#command-browsingContext-locateNodes",
+            "wpt": "https://github.com/web-platform-tests/wpt/tree/master/webdriver/tests/bidi/browsing_context/locate_nodes",
+            "async": true,
+            "parameters": [
+                { "name": "context", "$ref": "BidiBrowsingContext.BrowsingContext", "description": "The identifier of the browsing context to search within." },
+                { "name": "locator", "$ref": "BidiBrowsingContext.Locator", "description": "The locator strategy and value to use for finding nodes." },
+                { "name": "maxNodeCount", "type": "number", "optional": true, "description": "Maximum number of nodes to return. If not specified, all matching nodes are returned." },
+                { "name": "serializationOptions", "$ref": "BidiScript.SerializationOptions", "optional": true, "description": "Options for controlling how nodes are serialized in the response." },
+                { "name": "startNodes", "type": "array", "items": { "$ref": "BidiScript.RemoteValue" }, "optional": true, "description": "Optional array of node references to start the search from." }
+            ],
+            "returns": [
+                { "name": "nodes", "type": "array", "items": { "$ref": "BidiScript.RemoteValue" }, "description": "Array of nodes matching the locator." }
+            ]
+        },
+        {
             "name": "getTree",
             "description": "Describes the frame tree at a particular moment in time. Returns a tree of all descendant navigables including the given parent itself, or all top-level contexts when no parent is provided.",
             "spec": "https://w3c.github.io/webdriver-bidi/#command-browsingContext-getTree",
@@ -140,7 +185,7 @@
             "parameters": [
                 { "name": "context", "$ref": "BidiBrowsingContext.BrowsingContext", "description": "The identifier of the browsing context to navigate." },
                 { "name": "url", "type": "string", "description": "The URL to navigate to." },
-                { "name": "wait", "$ref": "BidiBrowsingContext.ReadinessState", "optional": true, "description": "The readiness state at which the command will return (default is 'none')." }
+                { "name": "wait", "type": "string", "optional": true, "description": "The readiness state at which the command will return (default is 'none'). Should be a BidiBrowsingContext.ReadinessState value." }
             ],
             "returns": [
                 { "name": "url", "type": "string", "description": "The URL the browsing context navigated to." },
@@ -171,6 +216,19 @@
             "parameters": [
                 { "name": "context", "$ref": "BidiBrowsingContext.BrowsingContext", "description": "The identifier of the browsing context to traverse history." },
                 { "name": "delta", "type": "integer", "description": "The number of steps to traverse in history. Positive values go forward, negative values go backward, and a value of zero will succeed with no action." }
+            ],
+            "async": true
+        },
+        {
+            "name": "setViewport",
+            "description": "Sets the viewport dimensions and/or device pixel ratio for a browsing context.",
+            "spec": "https://w3c.github.io/webdriver-bidi/#command-browsingContext-setViewport",
+            "wpt": "https://github.com/web-platform-tests/wpt/tree/master/webdriver/tests/bidi/browsing_context/set_viewport",
+            "parameters": [
+                { "name": "context", "$ref": "BidiBrowsingContext.BrowsingContext", "optional": true, "description": "The identifier of the browsing context to set viewport for." },
+                { "name": "viewport", "$ref": "BidiBrowsingContext.Viewport", "optional": true, "nullable": true, "description": "The viewport dimensions to set. If null, resets to default." },
+                { "name": "devicePixelRatio", "type": "number", "optional": true, "nullable": true, "description": "The device pixel ratio to set. If null, resets to default." },
+                { "name": "userContexts", "type": "array", "items": { "$ref": "BidiBrowser.UserContext" }, "optional": true, "description": "User context IDs to apply the viewport to." }
             ],
             "async": true
         }

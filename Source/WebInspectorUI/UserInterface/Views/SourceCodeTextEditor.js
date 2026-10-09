@@ -757,7 +757,8 @@ WI.SourceCodeTextEditor = class SourceCodeTextEditor extends WI.TextEditor
 
             // Don't show an inline widget when there is only one breakpoint location on the line
             // and it's at the start of the line.
-            if (locations.length === 1 && position.lineNumber === lineNumber && !this.line(lineNumber).slice(0, position.columnNumber).trim().length)
+            let lineContent = this.line(lineNumber);
+            if (locations.length === 1 && position.lineNumber === lineNumber && lineContent && !lineContent.slice(0, position.columnNumber).trim().length)
                 continue;
 
             console.assert(!Array.from(this._inlineBreakpointDataForLine.values()).some(({widget}) => widget.sourceCodeLocation.isEqual(location)), location, this._inlineBreakpointDataForLine);
@@ -2107,7 +2108,8 @@ WI.SourceCodeTextEditor = class SourceCodeTextEditor extends WI.TextEditor
     {
         this.tokenTrackingController.removeHighlightedRange();
 
-        this.target.RuntimeAgent.releaseObjectGroup("popover");
+        let target = WI.debuggerManager.activeCallFrame?.target || this.target;
+        target?.RuntimeAgent.releaseObjectGroup("popover");
     }
 
     _dismissPopover()
@@ -2154,8 +2156,8 @@ WI.SourceCodeTextEditor = class SourceCodeTextEditor extends WI.TextEditor
     _tokenTrackingControllerHighlightedMarkedExpression(candidate, markers)
     {
         // Look for the outermost editable marker.
-        var editableMarker;
-        for (var marker of markers) {
+        let editableMarker;
+        for (let marker of markers) {
             if (!marker.range || !Object.values(WI.TextMarker.Type).includes(marker.type))
                 continue;
 
@@ -2177,7 +2179,7 @@ WI.SourceCodeTextEditor = class SourceCodeTextEditor extends WI.TextEditor
 
         this._editingController = this.editingControllerForMarker(editableMarker);
 
-        if (marker.type === WI.TextMarker.Type.Color) {
+        if (editableMarker.type === WI.TextMarker.Type.Color) {
             var color = this._editingController.value;
             if (!color || !color.valid) {
                 editableMarker.clear();

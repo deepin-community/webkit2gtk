@@ -33,12 +33,13 @@
 #include "LocalFrame.h"
 #include "Page.h"
 #include "PaintInfo.h"
+#include "PlatformRenderTheme.h"
 #include "RenderObjectInlines.h"
-#include "RenderStyle+GettersInlines.h"
 #include "RenderText.h"
 #include "RenderTheme.h"
 #include "RenderView.h"
 #include "Settings.h"
+#include "StyleComputedStyle+GettersInlines.h"
 
 namespace WebCore {
 
@@ -67,12 +68,14 @@ static Color adjustColorForVisibilityOnBackground(const Color& textColor, const 
     if (textColorIsLegibleAgainstBackgroundColor(textColor, backgroundColor))
         return textColor;
 
-    if (textColor.luminance() > 0.5)
-        return textColor.darkened();
-    return textColor.lightened();
+    auto darkened = textColor.darkened();
+    auto lightened = textColor.lightened();
+    if (contrastRatio(darkened, backgroundColor) > contrastRatio(lightened, backgroundColor))
+        return darkened;
+    return lightened;
 }
 
-TextPaintStyle computeTextPaintStyle(const RenderText& renderer, const RenderStyle& lineStyle, const PaintInfo& paintInfo)
+TextPaintStyle computeTextPaintStyle(const RenderText& renderer, const Style::ComputedStyle& lineStyle, const PaintInfo& paintInfo)
 {
     Ref frame = renderer.frame();
     RefPtr frameView = frame->view();
@@ -118,7 +121,7 @@ TextPaintStyle computeTextPaintStyle(const RenderText& renderer, const RenderSty
     paintStyle.fillColor = lineStyle.visitedDependentTextFillColorApplyingColorFilter(paintInfo.paintBehavior);
 
     bool forceBackgroundToWhite = false;
-    if (frame->document() && frame->protectedDocument()->printing()) {
+    if (frame->document() && protect(frame->document())->printing()) {
         if (lineStyle.printColorAdjust() == PrintColorAdjust::Economy)
             forceBackgroundToWhite = true;
 
@@ -126,7 +129,7 @@ TextPaintStyle computeTextPaintStyle(const RenderText& renderer, const RenderSty
             forceBackgroundToWhite = false;
 
         if (forceBackgroundToWhite) {
-            if (Style::hasAnyBackgroundClipText(renderer.checkedStyle()->backgroundLayers()))
+            if (Style::hasAnyBackgroundClipText(renderer.style().backgroundLayers()))
                 paintStyle.fillColor = Color::black;
         }
     }
@@ -150,7 +153,7 @@ TextPaintStyle computeTextPaintStyle(const RenderText& renderer, const RenderSty
     return paintStyle;
 }
 
-TextPaintStyle computeTextSelectionPaintStyle(const TextPaintStyle& textPaintStyle, const RenderText& renderer, const RenderStyle& lineStyle, const PaintInfo& paintInfo, Style::TextShadows& selectionShadow)
+TextPaintStyle computeTextSelectionPaintStyle(const TextPaintStyle& textPaintStyle, const RenderText& renderer, const Style::ComputedStyle& lineStyle, const PaintInfo& paintInfo, Style::TextShadows& selectionShadow)
 {
     TextPaintStyle selectionPaintStyle = textPaintStyle;
 
@@ -197,7 +200,7 @@ void updateGraphicsContext(GraphicsContext& context, const TextPaintStyle& paint
         mode = newMode;
     }
 
-    Color fillColor = fillColorType == UseEmphasisMarkColor ? paintStyle.emphasisMarkColor : paintStyle.fillColor;
+    Color fillColor = fillColorType == FillColorType::EmphasisMark ? paintStyle.emphasisMarkColor : paintStyle.fillColor;
     if (mode.contains(TextDrawingMode::Fill) && (fillColor != context.fillColor()))
         context.setFillColor(fillColor);
 

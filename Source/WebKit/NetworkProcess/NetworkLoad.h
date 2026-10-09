@@ -67,19 +67,19 @@ public:
 
     bool isAllowedToAskUserForCredentials() const;
 
-    const WebCore::ResourceRequest& currentRequest() const { return m_currentRequest; }
+    const WebCore::ResourceRequest& currentRequest() const LIFETIME_BOUND { return m_currentRequest; }
     void updateRequestAfterRedirection(WebCore::ResourceRequest&) const;
     void reprioritizeRequest(WebCore::ResourceLoadPriority);
 
-    const NetworkLoadParameters& parameters() const { return m_parameters; }
-    const URL& url() const { return parameters().request.url(); }
+    const NetworkLoadParameters& parameters() const LIFETIME_BOUND { return m_parameters; }
+    const URL& url() const LIFETIME_BOUND { return parameters().request.url(); }
     String attributedBundleIdentifier(WebPageProxyIdentifier);
 
     void convertTaskToDownload(PendingDownload&, const WebCore::ResourceRequest&, const WebCore::ResourceResponse&, ResponseCompletionHandler&&);
-    void setPendingDownloadID(DownloadID);
+    void NODELETE setPendingDownloadID(DownloadID);
     void setSuggestedFilename(const String&);
-    void setPendingDownload(PendingDownload&);
-    std::optional<DownloadID> pendingDownloadID() { return protectedTask()->pendingDownloadID(); }
+    void NODELETE setPendingDownload(PendingDownload&);
+    std::optional<DownloadID> pendingDownloadID() { return m_task->pendingDownloadID(); }
 
     bool shouldCaptureExtraNetworkLoadMetrics() const final;
 
@@ -87,11 +87,11 @@ public:
     void setH2PingCallback(const URL&, CompletionHandler<void(Expected<WTF::Seconds, WebCore::ResourceError>&&)>&&);
 
     void setTimingAllowFailedFlag();
-    std::optional<WebCore::FrameIdentifier> webFrameID() const;
-    std::optional<WebCore::PageIdentifier> webPageID() const;
-    Ref<NetworkProcess> networkProcess();
+    std::optional<WebCore::FrameIdentifier> NODELETE webFrameID() const;
+    std::optional<WebCore::PageIdentifier> NODELETE webPageID() const;
+    Ref<NetworkProcess> NODELETE networkProcess();
 
-    size_t bytesTransferredOverNetwork() const;
+    size_t NODELETE bytesTransferredOverNetwork() const;
 
     void clearClient() { m_client = nullptr; }
 
@@ -118,8 +118,6 @@ private:
     void wasBlockedByRestrictions() final;
     void wasBlockedByDisabledFTP() final;
     void didNegotiateModernTLS(const URL&) final;
-
-    RefPtr<NetworkDataTask> protectedTask();
 
     void notifyDidReceiveResponse(WebCore::ResourceResponse&&, NegotiatedLegacyTLS, PrivateRelayed, ResponseCompletionHandler&&);
 

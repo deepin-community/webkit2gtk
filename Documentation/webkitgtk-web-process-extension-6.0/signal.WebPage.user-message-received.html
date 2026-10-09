@@ -62,7 +62,7 @@ SPDX-License-Identifier: BSD, LGPL-2.1
         <h3><a href="index.html">WebKitWebProcessExtension</a></h3>
         <p>API Version: 6.0</p>
         
-        <p>Library Version: 2.52.5</p>
+        <p>Library Version: 2.54.0</p>
         
       </div>
       
@@ -130,7 +130,7 @@ SPDX-License-Identifier: BSD, LGPL-2.1
         Description
         <a href="#description" class="anchor"></a>
         
-        <a class="srclink" title="go to source location" href="https://github.com/WebKit/WebKit/tree/main/Source/WebKit/WebProcess/InjectedBundle/API/glib/WebKitWebPage.cpp#L764">[src]</a>
+        <a class="srclink" title="go to source location" href="https://github.com/WebKit/WebKit/tree/main/Source/WebKit/WebProcess/InjectedBundle/API/glib/WebKitWebPage.cpp#L765">[src]</a>
         
       </h4>
 
@@ -140,7 +140,7 @@ SPDX-License-Identifier: BSD, LGPL-2.1
 using&nbsp;webkit_user_message_send_reply().</p>
 <p>You can handle the user message asynchronously by calling <code>g_object_ref()</code> on
 <code>message</code> and returning <code>TRUE</code>. If the last reference of <code>message</code> is removed
-and the message has been replied, the operation in the <code>WebKitWebView</code> will
+and the message has not been replied to, the operation in the <code>WebKitWebView</code> will
 finish with error <code>WEBKIT_USER_MESSAGE_UNHANDLED_MESSAGE</code>.</p>
       </div>
 

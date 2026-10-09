@@ -26,10 +26,15 @@
 #include "GStreamerCommon.h"
 #include "GStreamerElementHarness.h"
 #include "GStreamerRegistryScanner.h"
+#include "PlatformDisplay.h"
 #include "VideoFrameGStreamer.h"
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/WorkQueue.h>
 #include <wtf/text/MakeString.h>
+
+#if USE(GSTREAMER_GL)
+#include <gst/gl/gl.h>
+#endif
 
 namespace WebCore {
 
@@ -89,6 +94,11 @@ private:
 
 void GStreamerVideoDecoder::create(const String& codecName, const Config& config, CreateCallback&& callback, OutputCallback&& outputCallback)
 {
+    if (!ensureGStreamerInitialized()) [[unlikely]] {
+        callback(makeUnexpected("GStreamer initialization failed"_s));
+        return;
+    }
+
     static std::once_flag debugRegisteredFlag;
     std::call_once(debugRegisteredFlag, [] {
         GST_DEBUG_CATEGORY_INIT(webkit_video_decoder_debug, "webkitvideodecoder", 0, "WebKit WebCodecs Video Decoder");
@@ -171,6 +181,14 @@ GStreamerInternalVideoDecoder::GStreamerInternalVideoDecoder(const String& codec
     GST_DEBUG_OBJECT(element.get(), "Configuring decoder for codec %s", codecName.ascii().data());
     configureVideoDecoderForHarnessing(element);
 
+#if USE(GSTREAMER_GL)
+    static ASCIILiteral gstGlDisplayContextType = ASCIILiteral::fromLiteralUnsafe(GST_GL_DISPLAY_CONTEXT_TYPE);
+    if (!setGstElementGLContext(element.get(), gstGlDisplayContextType))
+        return;
+    if (!setGstElementGLContext(element.get(), "gst.gl.app_context"_s))
+        return;
+#endif
+
     auto* factory = gst_element_get_factory(element.get());
     ASCIILiteral parser;
     if (codecName.startsWith("avc1"_s)) {
@@ -199,7 +217,7 @@ GStreamerInternalVideoDecoder::GStreamerInternalVideoDecoder(const String& codec
         if (!gst_element_factory_can_sink_all_caps(factory, m_inputCaps.get()))
             parser = "h265parse"_s;
     } else {
-        WTFLogAlways("Codec %s not wired in yet", codecName.ascii().data());
+        GST_ERROR("Codec %s not wired in yet", codecName.ascii().data());
         return;
     }
 
@@ -218,15 +236,22 @@ GStreamerInternalVideoDecoder::GStreamerInternalVideoDecoder(const String& codec
         harnessedElement = gst_bin_new(nullptr);
         gst_bin_add_many(GST_BIN_CAST(harnessedElement.get()), parserElement, element.get(), nullptr);
         gst_element_link(parserElement, element.get());
-        auto sinkPad = adoptGRef(gst_element_get_static_pad(parserElement, "sink"));
+        GRefPtr sinkPad = adoptGRef(gst_element_get_static_pad(parserElement, "sink"));
         gst_element_add_pad(harnessedElement.get(), gst_ghost_pad_new("sink", sinkPad.get()));
-        auto srcPad = adoptGRef(gst_element_get_static_pad(element.get(), "src"));
+        GRefPtr srcPad = adoptGRef(gst_element_get_static_pad(element.get(), "src"));
         gst_element_add_pad(harnessedElement.get(), gst_ghost_pad_new("src", srcPad.get()));
     } else
         harnessedElement = WTF::move(element);
 
-    // FIXME: Add DMABuf and GL caps here. See also https://bugs.webkit.org/show_bug.cgi?id=288625.
-    auto allowedSinkCaps = adoptGRef(gst_caps_from_string("video/x-raw"));
+    GRefPtr allowedSinkCaps = adoptGRef(gst_caps_new_empty());
+#if USE(GSTREAMER_GL)
+#if USE(GBM)
+    gst_caps_append(allowedSinkCaps.get(), buildDMABufCaps().leakRef());
+#endif // USE(GBM)
+    gst_caps_append(allowedSinkCaps.get(), gst_caps_from_string("video/x-raw(memory:GLMemory)"));
+#endif // USE(GSTREAMER_GL)
+    gst_caps_append(allowedSinkCaps.get(), gst_caps_from_string("video/x-raw"));
+
     m_harness = GStreamerElementHarness::create(WTF::move(harnessedElement), [weakThis = ThreadSafeWeakPtr { *this }, this](auto& stream, GRefPtr<GstSample>&& outputSample) {
         RefPtr protectedThis = weakThis.get();
         if (!protectedThis)

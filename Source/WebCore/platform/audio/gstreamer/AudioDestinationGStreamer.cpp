@@ -68,14 +68,14 @@ static unsigned long maximumNumberOfOutputChannels()
             }
         }
 
-        auto monitor = adoptGRef(gst_device_monitor_new());
-        auto caps = adoptGRef(gst_caps_new_empty_simple("audio/x-raw"));
+        GRefPtr monitor = adoptGRef(gst_device_monitor_new());
+        GRefPtr caps = adoptGRef(gst_caps_new_empty_simple("audio/x-raw"));
         gst_device_monitor_add_filter(monitor.get(), "Audio/Sink", caps.get());
         bool started = gst_device_monitor_start(monitor.get());
         auto* devices = gst_device_monitor_get_devices(monitor.get());
         while (devices) {
-            auto device = adoptGRef(GST_DEVICE_CAST(devices->data));
-            auto caps = adoptGRef(gst_device_get_caps(device.get()));
+            GRefPtr device = adoptGRef(GST_DEVICE_CAST(devices->data));
+            GRefPtr caps = adoptGRef(gst_device_get_caps(device.get()));
             unsigned size = gst_caps_get_size(caps.get());
             for (unsigned i = 0; i < size; i++) {
                 auto* structure = gst_caps_get_structure(caps.get(), i);
@@ -330,8 +330,12 @@ void AudioDestinationGStreamer::notifyIsPlaying(bool isPlaying)
 
     GST_DEBUG("Is playing: %s", boolForPrinting(isPlaying));
     m_isPlaying = isPlaying;
-    if (m_callback)
-        m_callback->isPlayingDidChange();
+
+    {
+        Locker locker { m_callbackLock };
+        if (m_callback)
+            m_callback->isPlayingDidChange();
+    }
 }
 
 #undef GST_CAT_DEFAULT

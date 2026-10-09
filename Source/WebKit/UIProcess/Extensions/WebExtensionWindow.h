@@ -30,10 +30,10 @@
 #include "WebExtensionError.h"
 #include "WebExtensionWindowIdentifier.h"
 #include "WebPageProxyIdentifier.h"
-#include <wtf/Forward.h>
 #include <wtf/Identified.h>
 #include <wtf/RefCountedAndCanMakeWeakPtr.h>
 #include <wtf/TZoneMalloc.h>
+#include <wtf/WeakPtr.h>
 #if PLATFORM(COCOA)
 #include <wtf/WeakObjCPtr.h>
 #endif
@@ -99,7 +99,7 @@ public:
     WebExtensionWindowParameters parameters(PopulateTabs = PopulateTabs::No) const;
     WebExtensionWindowParameters minimalParameters() const;
 
-    WebExtensionContext* extensionContext() const;
+    WebExtensionContext* NODELETE extensionContext() const;
 
     bool operator==(const WebExtensionWindow&) const;
 

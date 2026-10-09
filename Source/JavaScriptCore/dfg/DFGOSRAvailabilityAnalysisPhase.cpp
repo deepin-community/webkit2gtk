@@ -28,11 +28,11 @@
 
 #if ENABLE(DFG_JIT)
 
-#include "DFGBlockMapInlines.h"
 #include "DFGMayExit.h"
 #include "DFGPhase.h"
 #include "JSCJSValueInlines.h"
 #include "OperandsInlines.h"
+#include <wtf/IndexMap.h>
 
 namespace JSC { namespace DFG {
 
@@ -89,7 +89,7 @@ public:
             
             for (BasicBlock* block : m_graph.blocksInNaturalOrder()) {
                 if (verbose) {
-                    dataLogLn("Before changing Block #", block->index);
+                    dataLogLn("Before changing Block #", block->index());
                     dumpAvailability(block);
                 }
 
@@ -110,7 +110,7 @@ public:
                 changed = true;
 
                 if (verbose) {
-                    dataLogLn("After changing Block #", block->index);
+                    dataLogLn("After changing Block #", block->index());
                     dumpAvailability(block);
                 }
 
@@ -124,7 +124,7 @@ public:
                     availabilityAtHead(successor).pruneByLiveness(
                         m_graph, successor->at(0)->origin.forExit);
                     if (verbose) {
-                        dataLogLn("After pruning Block #", successor->index);
+                        dataLogLn("After pruning Block #", successor->index());
                         dumpAvailability(successor);
                         dumpBytecodeLivenessAtHead(successor);
                     }
@@ -189,7 +189,7 @@ public:
                     Availability availability = availabilityMap.m_locals[i];
                     if (availability.isDead() && m_graph.isLiveInBytecode(operand, exitOrigin)) {
                         for (BasicBlock* block : m_graph.blocksInNaturalOrder()) {
-                            dataLogLn("Block #", block->index);
+                            dataLogLn("Block #", block->index());
                             dataLogLn("Availability at head: ", availabilityAtHead(block));
                             dataLogLn("Availability at tail: ", availabilityAtTail(block));
                             dataLogLn();
@@ -257,8 +257,8 @@ bool performOSRAvailabilityAnalysis(Graph& graph)
 
 void validateOSRExitAvailability(Graph& graph)
 {
-    BlockMap<AvailabilityMap> availabilityMapAtHead(graph);
-    BlockMap<AvailabilityMap> availabilityMapAtTail(graph);
+    IndexMap<BasicBlock*, AvailabilityMap> availabilityMapAtHead(graph.numBlocks());
+    IndexMap<BasicBlock*, AvailabilityMap> availabilityMapAtTail(graph.numBlocks());
 
     for (BasicBlock* block : graph.blocksInNaturalOrder()) {
         availabilityMapAtHead[block] = AvailabilityMap(block->ssa->availabilityAtHead);
@@ -296,7 +296,7 @@ void LocalOSRAvailabilityCalculator::executeNode(Node* node)
         if (!localAvailability.isFlushUseful() || localAvailability.flushedAt().virtualRegister() == VirtualRegister())
             return;
 
-        // In theory this is O(n) and we could have a seperate HashMap tracking Operand -> AbstractHeap's with relevant flushes. In practice, the availability heap is small (there's not usually a lot of phantom objects) so the O(n) search isn't bad.
+        // In theory this is O(n) and we could have a separate HashMap tracking Operand -> AbstractHeap's with relevant flushes. In practice, the availability heap is small (there's not usually a lot of phantom objects) so the O(n) search isn't bad.
         for (auto& heapPair : m_availability.m_heap) {
             if (heapPair.value.flushedAt().virtualRegister() == localAvailability.flushedAt().virtualRegister())
                 heapPair.value.setFlush(FlushedAt(ConflictingFlush));
@@ -347,7 +347,7 @@ void LocalOSRAvailabilityCalculator::executeNode(Node* node)
         const Vector<FlushFormat>& argumentFormats = m_graph.m_argumentFormats[entrypointIndex];
         for (unsigned argument = argumentFormats.size(); argument--; ) {
             FlushedAt flushedAt = FlushedAt(argumentFormats[argument], virtualRegisterForArgumentIncludingThis(argument));
-            m_availability.m_locals.argument(argument) = Availability(flushedAt);
+            m_availability.m_locals.argument(argument).setFlush(flushedAt);
         }
         break;
     }
@@ -359,8 +359,10 @@ void LocalOSRAvailabilityCalculator::executeNode(Node* node)
     case LoadVarargs:
     case ForwardVarargs: {
         LoadVarargsData* data = node->loadVarargsData();
-        m_availability.m_locals.operand(data->count) = Availability(FlushedAt(FlushedInt32, data->machineCount));
+        killHeaps(data->count);
+        m_availability.m_locals.operand(data->count) = Availability(node->child1().node(), FlushedAt(FlushedInt32, data->machineCount));
         for (unsigned i = data->limit; i--;) {
+            killHeaps(data->start + i);
             m_availability.m_locals.operand(data->start + i) =
                 Availability(FlushedAt(FlushedJSValue, data->machineStart.isValid() ? (data->machineStart + i) : VirtualRegister()));
         }

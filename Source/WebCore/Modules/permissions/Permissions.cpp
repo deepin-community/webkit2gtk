@@ -32,6 +32,7 @@
 #include "DocumentQuirks.h"
 #include "Exception.h"
 #include "Geolocation.h"
+#include "JSDOMConvertInterface.h"
 #include "JSDOMPromiseDeferred.h"
 #include "JSPermissionDescriptor.h"
 #include "JSPermissionStatus.h"
@@ -52,6 +53,7 @@
 #include "WorkerGlobalScope.h"
 #include "WorkerLoaderProxy.h"
 #include "WorkerThread.h"
+#include <JavaScriptCore/HeapCellInlines.h>
 #include <optional>
 #include <wtf/Expected.h>
 #include <wtf/TZoneMallocInlines.h>
@@ -70,7 +72,7 @@ static std::optional<PermissionState> determineGeolocationPermissionState(Permis
     if (!window)
         return std::nullopt;
 
-    RefPtr geolocation = NavigatorGeolocation::optionalGeolocation(window->protectedNavigator());
+    RefPtr geolocation = NavigatorGeolocation::optionalGeolocation(protect(window->navigator()));
 
     switch (permissionState) {
     case PermissionState::Granted:
@@ -163,6 +165,11 @@ static Expected<PermissionState, Exception> processPermissionQueryResult(std::op
 {
     if (!permissionState)
         return makeUnexpected(Exception { ExceptionCode::NotSupportedError, "Permissions::query does not support this API"_s });
+
+#if !ENABLE(GEOLOCATION) && !ENABLE(MEDIA_STREAM)
+    UNUSED_PARAM(permissionDescriptor);
+    UNUSED_PARAM(document);
+#endif
 
 #if ENABLE(GEOLOCATION)
     if (permissionDescriptor.name == PermissionName::Geolocation) {

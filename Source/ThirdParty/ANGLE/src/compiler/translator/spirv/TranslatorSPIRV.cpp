@@ -9,11 +9,8 @@
 //   See: https://www.khronos.org/registry/vulkan/specs/misc/GL_KHR_vulkan_glsl.txt
 //
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
-
 #include "compiler/translator/spirv/TranslatorSPIRV.h"
+#include "common/unsafe_buffers.h"
 
 #include "common/PackedEnums.h"
 #include "common/utilities.h"
@@ -26,14 +23,13 @@
 #include "compiler/translator/tree_ops/GatherDefaultUniforms.h"
 #include "compiler/translator/tree_ops/MonomorphizeUnsupportedFunctions.h"
 #include "compiler/translator/tree_ops/RemoveAtomicCounterBuiltins.h"
+#include "compiler/translator/tree_ops/RemoveInvariantDeclaration.h"
 #include "compiler/translator/tree_ops/RewriteArrayOfArrayOfOpaqueUniforms.h"
 #include "compiler/translator/tree_ops/RewriteAtomicCounters.h"
 #include "compiler/translator/tree_ops/RewriteDfdy.h"
 #include "compiler/translator/tree_ops/RewriteStructSamplers.h"
-#include "compiler/translator/tree_ops/SeparateStructFromUniformDeclarations.h"
 #include "compiler/translator/tree_ops/spirv/ClampGLLayer.h"
 #include "compiler/translator/tree_ops/spirv/EmulateAdvancedBlendEquations.h"
-#include "compiler/translator/tree_ops/spirv/EmulateDithering.h"
 #include "compiler/translator/tree_ops/spirv/EmulateFragColorData.h"
 #include "compiler/translator/tree_ops/spirv/EmulateFramebufferFetch.h"
 #include "compiler/translator/tree_ops/spirv/EmulateYUVBuiltIns.h"
@@ -52,7 +48,6 @@
 #include "compiler/translator/tree_util/ReplaceVariable.h"
 #include "compiler/translator/tree_util/RewriteSampleMaskVariable.h"
 #include "compiler/translator/tree_util/RunAtTheEndOfShader.h"
-#include "compiler/translator/tree_util/SpecializationConstant.h"
 #include "compiler/translator/util.h"
 
 namespace sh
@@ -61,6 +56,7 @@ namespace sh
 namespace
 {
 constexpr ImmutableString kFlippedPointCoordName    = ImmutableString("flippedPointCoord");
+constexpr ImmutableString kFlippedSamplePositionName = ImmutableString("flippedSamplePosition");
 constexpr ImmutableString kFlippedFragCoordName     = ImmutableString("flippedFragCoord");
 constexpr ImmutableString kDefaultUniformsBlockName = ImmutableString("defaultUniforms");
 
@@ -559,52 +555,29 @@ ShaderVariable *FindIOBlockShaderVariable(std::vector<ShaderVariable> *vars,
     return nullptr;
 }
 
-ShaderVariable *FindUniformFieldShaderVariable(std::vector<ShaderVariable> *vars,
-                                               const ImmutableString &name,
-                                               const char *prefix)
+void GetSamplersInStruct(std::vector<ShaderVariable> *fields, TVector<ShaderVariable *> *samplers)
 {
-    for (ShaderVariable &var : *vars)
+    for (ShaderVariable &var : *fields)
     {
-        // The name of the sampler is derived from the uniform name + fields
-        // that reach the uniform, concatenated with '_' per RewriteStructSamplers.
-        std::string varName = prefix;
-        varName += '_';
-        varName += var.name;
-
-        if (name == varName)
+        if (gl::IsSamplerType(var.type))
         {
-            return &var;
+            samplers->push_back(&var);
         }
-
-        ShaderVariable *field = FindUniformFieldShaderVariable(&var.fields, name, varName.c_str());
-        if (field != nullptr)
+        else
         {
-            return field;
+            GetSamplersInStruct(&var.fields, samplers);
         }
     }
-    return nullptr;
 }
 
-ShaderVariable *FindUniformShaderVariable(std::vector<ShaderVariable> *vars,
-                                          const ImmutableString &name)
+TVector<ShaderVariable *> GetSamplersInStructs(std::vector<ShaderVariable> *vars)
 {
+    TVector<ShaderVariable *> samplers;
     for (ShaderVariable &var : *vars)
     {
-        if (name == var.name)
-        {
-            return &var;
-        }
-
-        // Note: samplers in structs are moved out.  Such samplers will be found in the fields of
-        // the struct uniform.
-        ShaderVariable *field = FindUniformFieldShaderVariable(&var.fields, name, var.name.c_str());
-        if (field != nullptr)
-        {
-            return field;
-        }
+        GetSamplersInStruct(&var.fields, &samplers);
     }
-    UNREACHABLE();
-    return nullptr;
+    return samplers;
 }
 
 void SetSpirvIdInFields(uint32_t id, std::vector<ShaderVariable> *fields)
@@ -615,6 +588,18 @@ void SetSpirvIdInFields(uint32_t id, std::vector<ShaderVariable> *fields)
         SetSpirvIdInFields(id, &field.fields);
     }
 }
+
+bool IsOnlyOpaqueType(const ShaderVariable &uniform)
+{
+    if (uniform.fields.empty())
+    {
+        return gl::IsOpaqueType(uniform.type);
+    }
+
+    // The parser places sampler types in the end of the struct, so if there are any non-opaque
+    // fields in the uniform, at least the first field must be non-opaque.
+    return IsOnlyOpaqueType(uniform.fields[0]);
+}
 }  // anonymous namespace
 
 TranslatorSPIRV::TranslatorSPIRV(sh::GLenum type, ShShaderSpec spec)
@@ -624,25 +609,16 @@ TranslatorSPIRV::TranslatorSPIRV(sh::GLenum type, ShShaderSpec spec)
 bool TranslatorSPIRV::translateImpl(TIntermBlock *root,
                                     const ShCompileOptions &compileOptions,
                                     PerformanceDiagnostics * /*perfDiagnostics*/,
-                                    SpecConst *specConst,
                                     DriverUniform *driverUniforms)
 {
-    if (getShaderType() == GL_VERTEX_SHADER)
-    {
-        if (!ShaderBuiltinsWorkaround(this, root, &getSymbolTable(), compileOptions))
-        {
-            return false;
-        }
-    }
-
     // Write out default uniforms into a uniform block assigned to a specific set/binding.
     int defaultUniformCount           = 0;
     int aggregateTypesUsedForUniforms = 0;
     int r32fImageCount                = 0;
     int atomicCounterCount            = 0;
-    for (const auto &uniform : getUniforms())
+    for (const ShaderVariable &uniform : getUniforms())
     {
-        if (!uniform.isBuiltIn() && uniform.active && !gl::IsOpaqueType(uniform.type))
+        if (!uniform.isBuiltIn() && uniform.active && !IsOnlyOpaqueType(uniform))
         {
             ++defaultUniformCount;
         }
@@ -673,29 +649,24 @@ bool TranslatorSPIRV::translateImpl(TIntermBlock *root,
     // - It dramatically simplifies future transformations w.r.t to samplers in structs, array of
     //   arrays of opaque types, atomic counters etc.
     // - Avoids the need for shader*ArrayDynamicIndexing Vulkan features.
-    UnsupportedFunctionArgsBitSet args{UnsupportedFunctionArgs::StructContainingSamplers,
-                                       UnsupportedFunctionArgs::ArrayOfArrayOfSamplerOrImage,
-                                       UnsupportedFunctionArgs::AtomicCounter,
-                                       UnsupportedFunctionArgs::Image};
-    if (!MonomorphizeUnsupportedFunctions(this, root, &getSymbolTable(), args))
+    if (!compileOptions.useIR)
     {
-        return false;
+        UnsupportedFunctionArgsBitSet args{UnsupportedFunctionArgs::StructContainingSamplers,
+                                           UnsupportedFunctionArgs::ArrayOfArrayOfSamplerOrImage,
+                                           UnsupportedFunctionArgs::AtomicCounter,
+                                           UnsupportedFunctionArgs::Image};
+        if (!MonomorphizeUnsupportedFunctions(this, root, &getSymbolTable(), args))
+        {
+            return false;
+        }
     }
 
     if (aggregateTypesUsedForUniforms > 0)
     {
-        if (!SeparateStructFromUniformDeclarations(this, root, &getSymbolTable()))
+        if (!RewriteStructSamplers(this, root, &getSymbolTable()))
         {
             return false;
         }
-
-        int removedUniformsCount;
-
-        if (!RewriteStructSamplers(this, root, &getSymbolTable(), &removedUniformsCount))
-        {
-            return false;
-        }
-        defaultUniformCount -= removedUniformsCount;
     }
 
     // Replace array of array of opaque uniforms with a flattened array.  This is run after
@@ -739,6 +710,15 @@ bool TranslatorSPIRV::translateImpl(TIntermBlock *root,
     assignSpirvId(
         driverUniforms->getDriverUniformsVariable()->getType().getInterfaceBlock()->uniqueId(),
         vk::spirv::kIdDriverUniformsBlock);
+
+    if (getShaderType() == GL_VERTEX_SHADER)
+    {
+        if (!ShaderBuiltinsWorkaround(this, root, driverUniforms, &getSymbolTable(),
+                                      compileOptions))
+        {
+            return false;
+        }
+    }
 
     if (r32fImageCount > 0 && compileOptions.emulateR32fImageAtomicExchange)
     {
@@ -890,16 +870,29 @@ bool TranslatorSPIRV::translateImpl(TIntermBlock *root,
                     continue;
                 }
 
+                if (inputVarying.name == "gl_SampleID")
+                {
+                    const TVariable *sampleID =
+                        static_cast<const TVariable *>(getSymbolTable().findBuiltIn(
+                            ImmutableString("gl_SampleID"), getShaderVersion()));
+                    assignSpirvId(sampleID->uniqueId(), vk::spirv::kIdSampleID);
+                    continue;
+                }
+
                 if (inputVarying.name == "gl_PointCoord")
                 {
                     usesPointCoord = true;
-                    break;
+                    continue;
                 }
 
                 if (inputVarying.name == "gl_FragCoord")
                 {
                     usesFragCoord = true;
-                    break;
+                    const TVariable *fragCoord =
+                        static_cast<const TVariable *>(getSymbolTable().findBuiltIn(
+                            ImmutableString("gl_FragCoord"), getShaderVersion()));
+                    assignSpirvId(fragCoord->uniqueId(), vk::spirv::kIdFragCoord);
+                    continue;
                 }
             }
 
@@ -930,6 +923,11 @@ bool TranslatorSPIRV::translateImpl(TIntermBlock *root,
                 }
             }
 
+            if (!RemoveInvariantDeclaration(this, root))
+            {
+                return false;
+            }
+
             if (usesPointCoord)
             {
                 TIntermTyped *flipNegXY =
@@ -957,7 +955,7 @@ bool TranslatorSPIRV::translateImpl(TIntermBlock *root,
                         ImmutableString("gl_SamplePosition"), getShaderVersion()));
                 if (!RotateAndFlipBuiltinVariable(this, root, GetMainSequence(root), swapXY, flipXY,
                                                   &getSymbolTable(), samplePositionBuiltin,
-                                                  kFlippedPointCoordName, pivot))
+                                                  kFlippedSamplePositionName, pivot))
                 {
                     return false;
                 }
@@ -970,6 +968,7 @@ bool TranslatorSPIRV::translateImpl(TIntermBlock *root,
                 {
                     return false;
                 }
+                mMetadataFlags[MetadataFlags::HasFragCoord] = true;
             }
 
             // Emulate gl_FragColor and gl_FragData with normal output variables.
@@ -1052,12 +1051,6 @@ bool TranslatorSPIRV::translateImpl(TIntermBlock *root,
                 }
             }
 
-            if (!EmulateDithering(this, compileOptions, root, &getSymbolTable(), specConst,
-                                  driverUniforms))
-            {
-                return false;
-            }
-
             break;
         }
 
@@ -1104,12 +1097,6 @@ bool TranslatorSPIRV::translateImpl(TIntermBlock *root,
             break;
     }
 
-    specConst->declareSpecConsts(root);
-    mValidateASTOptions.validateSpecConstReferences = true;
-
-    // Gather specialization constant usage bits so that we can feedback to context.
-    mSpecConstUsageBits = specConst->getSpecConstUsageBits();
-
     if (!validateAST(root))
     {
         return false;
@@ -1154,8 +1141,6 @@ bool TranslatorSPIRV::translate(TIntermBlock *root,
     mUniqueToSpirvIdMap.clear();
     mFirstUnusedSpirvId = 0;
 
-    SpecConst specConst(&getSymbolTable(), getShaderType());
-
     DriverUniform driverUniforms(DriverUniformMode::InterfaceBlock);
     DriverUniformExtended driverUniformsExt(DriverUniformMode::InterfaceBlock);
 
@@ -1163,7 +1148,7 @@ bool TranslatorSPIRV::translate(TIntermBlock *root,
 
     DriverUniform *uniforms = useExtendedDriverUniforms ? &driverUniformsExt : &driverUniforms;
 
-    if (!translateImpl(root, compileOptions, perfDiagnostics, &specConst, uniforms))
+    if (!translateImpl(root, compileOptions, perfDiagnostics, uniforms))
     {
         return false;
     }
@@ -1218,6 +1203,12 @@ void TranslatorSPIRV::assignSpirvIds(TIntermBlock *root)
     // ids for shader variables form a minimal contiguous range.  The Vulkan backend takes advantage
     // of this fact for optimal hashing.
     mFirstUnusedSpirvId = vk::spirv::kIdFirstUnreserved;
+
+    // Extracted samplers are given generic names and cannot be looked up.  They are given IDs in
+    // sequence based on declaration order, which also means they cannot be dead-code eliminated or
+    // reordered by any transformation
+    TVector<ShaderVariable *> extractedSamplers = GetSamplersInStructs(&mUniforms);
+    uint32_t nextExtractedSampler               = 0;
 
     for (TIntermNode *node : *root->getSequence())
     {
@@ -1286,8 +1277,22 @@ void TranslatorSPIRV::assignSpirvIds(TIntermBlock *root)
         }
         else if (qualifier == EvqUniform)
         {
-            ShaderVariable *uniform = FindUniformShaderVariable(&mUniforms, symbol->getName());
-            variableId              = &uniform->id;
+            // The translator never adds any samplers that are not declared in the shader.  As such,
+            // the only |AngleInternal| samplers are those that are extracted from uniforms.
+            if (IsSampler(type.getBasicType()) &&
+                symbol->variable().symbolType() == SymbolType::AngleInternal)
+            {
+                // Since the samplers are declared in the shader in the same order as they are
+                // collected in reflection info, pick the next |ShaderVariable| for these samplers.
+                ASSERT(nextExtractedSampler < extractedSamplers.size());
+                variableId = &extractedSamplers[nextExtractedSampler]->id;
+                ++nextExtractedSampler;
+            }
+            else
+            {
+                ShaderVariable *uniform = FindShaderVariable(&mUniforms, symbol->getName());
+                variableId              = &uniform->id;
+            }
         }
         else if (qualifier == EvqAttribute || qualifier == EvqVertexIn)
         {
@@ -1308,7 +1313,7 @@ void TranslatorSPIRV::assignSpirvIds(TIntermBlock *root)
             if (angle::BeginsWith(name.data(), "webgl_") &&
                 symbol->variable().symbolType() == SymbolType::AngleInternal)
             {
-                name = ImmutableString(name.data() + 3, name.length() - 3);
+                name = ImmutableString(ANGLE_UNSAFE_TODO(name.data() + 3), name.length() - 3);
             }
 
             ShaderVariable *output = FindShaderVariable(&mOutputVariables, name);

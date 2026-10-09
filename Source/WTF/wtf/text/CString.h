@@ -96,13 +96,13 @@ public:
 
     bool isNull() const { return !m_buffer; }
     bool isEmpty() const { return isNull() || !m_buffer->length(); }
-    bool isSafeToSendToAnotherThread() const;
+    bool NODELETE isSafeToSendToAnotherThread() const;
 
     CStringBuffer* buffer() const LIFETIME_BOUND { return m_buffer.get(); }
 
     bool isHashTableDeletedValue() const { return m_buffer.isHashTableDeletedValue(); }
 
-    WTF_EXPORT_PRIVATE unsigned hash() const;
+    WTF_EXPORT_PRIVATE unsigned NODELETE hash() const;
 
 private:
     void copyBufferIfNeeded();
@@ -110,8 +110,8 @@ private:
     RefPtr<CStringBuffer> m_buffer;
 } SWIFT_ESCAPABLE;
 
-WTF_EXPORT_PRIVATE bool operator==(const CString&, const CString&);
-WTF_EXPORT_PRIVATE bool operator==(const CString&, ASCIILiteral);
+WTF_EXPORT_PRIVATE bool NODELETE operator==(const CString&, const CString&);
+WTF_EXPORT_PRIVATE bool NODELETE operator==(const CString&, ASCIILiteral);
 WTF_EXPORT_PRIVATE bool operator<(const CString&, const CString&);
 
 WTF_EXPORT_PRIVATE CString convertToASCIILowercase(std::span<const char8_t>);
@@ -119,7 +119,7 @@ WTF_EXPORT_PRIVATE CString convertToASCIIUppercase(std::span<const char8_t>);
 
 struct CStringHash {
     static unsigned hash(const CString& string) { return string.hash(); }
-    WTF_EXPORT_PRIVATE static bool equal(const CString& a, const CString& b);
+    WTF_EXPORT_PRIVATE static bool NODELETE equal(const CString& a, const CString& b);
     static constexpr bool safeToCompareToEmptyOrDeleted = true;
 };
 

@@ -58,7 +58,7 @@ SVGPathBlender::SVGPathBlender(SVGPathSource& fromSource, SVGPathSource& toSourc
 }
 
 // Helper functions
-static inline FloatPoint blendFloatPoint(const FloatPoint& a, const FloatPoint& b, float progress)
+static inline FloatPoint NODELETE blendFloatPoint(const FloatPoint& a, const FloatPoint& b, float progress)
 {
     BlendingContext context { progress };
     return FloatPoint(blend(a.x(), b.x(), context), blend(a.y(), b.y(), context));
@@ -311,11 +311,17 @@ bool SVGPathBlender::blendArcToSegment(float progress)
             m_fromMode);
     } else {
         BlendingContext context { progress };
+        // Per spec, the arc flags interpolate as numbers (with progress clamped to
+        // [0, 1]) and any non-zero result is treated as a set flag, matching <path>.
+        // https://w3c.github.io/svgwg/specs/paths/#PathElement
+        BlendingContext flagContext { clampTo<float>(progress, 0.0f, 1.0f) };
+        bool largeArc = blend(from.largeArc ? 1.0f : 0.0f, to.largeArc ? 1.0f : 0.0f, flagContext);
+        bool sweep = blend(from.sweep ? 1.0f : 0.0f, to.sweep ? 1.0f : 0.0f, flagContext);
         m_consumer->arcTo(blend(from.rx, to.rx, context),
             blend(from.ry, to.ry, context),
             blend(from.angle, to.angle, context),
-            m_isInFirstHalfOfAnimation ? from.largeArc : to.largeArc,
-            m_isInFirstHalfOfAnimation ? from.sweep : to.sweep,
+            largeArc,
+            sweep,
             blendAnimatedFloatPoint(from.targetPoint, to.targetPoint, progress),
             m_isInFirstHalfOfAnimation ? m_fromMode : m_toMode);
     }
@@ -324,25 +330,25 @@ bool SVGPathBlender::blendArcToSegment(float progress)
     return true;
 }
 
-static inline PathCoordinateMode coordinateModeOfCommand(const SVGPathSegType& type)
+static inline PathCoordinateMode NODELETE coordinateModeOfCommand(const SVGPathSegType& type)
 {
     if (type < SVGPathSegType::MoveToAbs)
         return AbsoluteCoordinates;
 
     // Odd number = relative command
-    if (enumToUnderlyingType(type) % 2)
+    if (std::to_underlying(type) % 2)
         return RelativeCoordinates;
 
     return AbsoluteCoordinates;
 }
 
-static inline bool isSegmentEqual(const SVGPathSegType& fromType, const SVGPathSegType& toType, const PathCoordinateMode& fromMode, const PathCoordinateMode& toMode)
+static inline bool NODELETE isSegmentEqual(const SVGPathSegType& fromType, const SVGPathSegType& toType, const PathCoordinateMode& fromMode, const PathCoordinateMode& toMode)
 {
     if (fromType == toType && (fromType == SVGPathSegType::Unknown || fromType == SVGPathSegType::ClosePath))
         return true;
 
-    auto from = enumToUnderlyingType(fromType);
-    auto to = enumToUnderlyingType(toType);
+    auto from = std::to_underlying(fromType);
+    auto to = std::to_underlying(toType);
     if (fromMode == toMode)
         return from == to;
     if (fromMode == AbsoluteCoordinates)

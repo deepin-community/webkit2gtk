@@ -64,7 +64,7 @@ struct IDLArrayBuffer;
 template<typename> class DOMPromiseDeferred;
 template<typename> class ExceptionOr;
 
-using BlobPartVariant = Variant<RefPtr<JSC::ArrayBufferView>, RefPtr<JSC::ArrayBuffer>, RefPtr<Blob>, String>;
+using BlobPartVariant = Variant<Ref<JSC::ArrayBufferView>, Ref<JSC::ArrayBuffer>, Ref<Blob>, String>;
 
 class Blob : public ScriptWrappable, public URLRegistrable, public RefCounted<Blob>, public ActiveDOMObject {
     WTF_MAKE_TZONE_ALLOCATED_EXPORT(Blob, WEBCORE_EXPORT);
@@ -79,7 +79,7 @@ public:
         return blob;
     }
 
-    static Ref<Blob> create(ScriptExecutionContext& context, Vector<BlobPartVariant>&& blobPartVariants, const BlobPropertyBag& propertyBag)
+    static Ref<Blob> create(ScriptExecutionContext& context, std::optional<Vector<BlobPartVariant>>&& blobPartVariants, const BlobPropertyBag& propertyBag)
     {
         Ref blob = adoptRef(*new Blob(context, WTF::move(blobPartVariants), propertyBag));
         blob->suspendIfNeeded();
@@ -111,13 +111,13 @@ public:
     virtual ~Blob();
 
     URL url() const { return m_internalURL; }
-    const String& type() const { return m_type; }
+    const String& type() const LIFETIME_BOUND { return m_type; }
 
     WEBCORE_EXPORT unsigned long long size() const;
     virtual bool isFile() const { return false; }
 
     // The checks described in the File API spec.
-    static bool isValidContentType(const String&);
+    static bool NODELETE isValidContentType(const String&);
     // The normalization procedure described in the File API spec.
     static String normalizedContentType(const String&);
 #if ASSERT_ENABLED
@@ -144,7 +144,7 @@ public:
 
 protected:
     WEBCORE_EXPORT explicit Blob(ScriptExecutionContext*);
-    Blob(ScriptExecutionContext&, Vector<BlobPartVariant>&&, const BlobPropertyBag&);
+    Blob(ScriptExecutionContext&, std::optional<Vector<BlobPartVariant>>&&, const BlobPropertyBag&);
     Blob(ScriptExecutionContext*, Vector<uint8_t>&&, const String& contentType);
     Blob(ScriptExecutionContext*, Ref<FragmentedSharedBuffer>&&, const String& contentType);
 
@@ -172,10 +172,10 @@ private:
     // into an HTML or for FileRead'ing, public blob URLs must be used for those purposes.
     URL m_internalURL;
 
-    HashSet<RefPtr<BlobLoader>> m_blobLoaders;
+    HashSet<Ref<BlobLoader>> m_blobLoaders;
 };
 
-WebCoreOpaqueRoot root(Blob*);
+WebCoreOpaqueRoot NODELETE root(Blob*);
 
 } // namespace WebCore
 

@@ -44,8 +44,8 @@ ScrollingTreeScrollingNodeDelegateCoordinated::ScrollingTreeScrollingNodeDelegat
     ASSERT(isMainThread());
 #if USE(COORDINATED_GRAPHICS_ASYNC_SCROLLBAR)
     if (is<ScrollingTreeOverflowScrollingNode>(scrollingNode) && ScrollbarTheme::theme().usesOverlayScrollbars()) {
-        m_scrollerPair->horizontalScroller().setOverlayScrollbarEnabled(true);
-        m_scrollerPair->verticalScroller().setOverlayScrollbarEnabled(true);
+        protect(m_scrollerPair->horizontalScroller())->setOverlayScrollbarEnabled(true);
+        protect(m_scrollerPair->verticalScroller())->setOverlayScrollbarEnabled(true);
     }
 #endif
 }

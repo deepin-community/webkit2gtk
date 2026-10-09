@@ -53,7 +53,7 @@ public:
     virtual ~ImageLoader();
 
     // CachedResourceClient.
-    void ref() const final;
+    void NODELETE ref() const final;
     void deref() const final;
 
     // This function should be called when the element is attached to a document; starts
@@ -68,16 +68,14 @@ public:
 
     void elementDidMoveToNewDocument(Document&);
 
-    Element& element() { return m_element.get(); }
-    const Element& element() const { return m_element.get(); }
-    Ref<Element> protectedElement() const { return m_element.get(); }
+    Element& element() { return m_element; }
+    const Element& element() const { return m_element; }
 
     bool shouldIgnoreCandidateWhenLoadingFromArchive(const ImageCandidate&) const;
 
     bool imageComplete() const { return m_imageComplete; }
 
     CachedImage* image() const { return m_image.get(); }
-    CachedResourceHandle<CachedImage> protectedImage() const;
     void clearImage(); // Cancels pending load events, and doesn't dispatch new ones.
     
     size_t pendingDecodePromisesCountForTesting() const { return m_decodingPromises.size(); }
@@ -99,7 +97,6 @@ public:
     bool isDeferred() const { return m_lazyImageLoadState == LazyImageLoadState::Deferred || m_lazyImageLoadState == LazyImageLoadState::LoadImmediately; }
 
     Document& document() { return m_element->document(); }
-    Ref<Document> protectedDocument() { return m_element->document(); }
 
 protected:
     explicit ImageLoader(Element&);
@@ -111,13 +108,13 @@ private:
     virtual void dispatchLoadEvent() = 0;
 
     void updatedHasPendingEvent();
-    void didUpdateCachedImage(RelevantMutation, CachedResourceHandle<CachedImage>&&);
+    void didUpdateCachedImage(RelevantMutation, RefPtr<CachedImage>&&);
 
     void dispatchPendingBeforeLoadEvent();
     void dispatchPendingLoadEvent();
     void dispatchPendingErrorEvent();
 
-    RenderImageResource* renderImageResource();
+    RenderImageResource* NODELETE renderImageResource();
     void updateRenderer();
 
     void clearImageWithoutConsideringPendingLoadEvent();
@@ -138,8 +135,8 @@ private:
     CachedResourceHandle<CachedImage> m_image;
     Timer m_derefElementTimer;
     RefPtr<Element> m_protectedElement;
-    AtomString m_failedLoadURL;
-    AtomString m_pendingURL;
+    String m_failedLoadURL;
+    String m_pendingURL;
     Vector<Ref<DeferredPromise>> m_decodingPromises;
     bool m_hasPendingBeforeLoadEvent : 1;
     bool m_hasPendingLoadEvent : 1;

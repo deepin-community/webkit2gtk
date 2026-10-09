@@ -30,7 +30,7 @@
 #include "InlineLevelBoxInlines.h"
 #include "LayoutBoxGeometry.h"
 #include "LayoutElementBox.h"
-#include "RenderStyle+GettersInlines.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
@@ -62,7 +62,7 @@ InlineRect LineBox::logicalRectForTextRun(const Line::Run& run) const
     ASSERT(ancestorInlineBox->isInlineBox());
     auto runlogicalTop = ancestorInlineBox->logicalTop() - ancestorInlineBox->inlineBoxContentOffsetForTextBoxTrim();
     auto& metricsOfPrimaryFont = ancestorInlineBox->primarymetricsOfPrimaryFont();
-    auto logicalHeight = InlineFormattingUtils::snapToInt(metricsOfPrimaryFont.ascent(), *ancestorInlineBox) + InlineFormattingUtils::snapToInt(metricsOfPrimaryFont.descent(), *ancestorInlineBox);
+    auto logicalHeight = metricsOfPrimaryFont.ascent() + metricsOfPrimaryFont.descent();
 
     while (ancestorInlineBox != &m_rootInlineBox && !ancestorInlineBox->hasLineBoxRelativeAlignment()) {
         ancestorInlineBox = &parentInlineBox(*ancestorInlineBox);

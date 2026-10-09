@@ -36,7 +36,6 @@
 #include "Event.h"
 #include "EventLoop.h"
 #include "EventNames.h"
-#include "AddEventListenerOptionsInlines.h"
 #include "Exception.h"
 #include "FrameLoader.h"
 #include "IDLTypes.h"
@@ -102,13 +101,13 @@ ServiceWorkerContainer::ServiceWorkerContainer(ScriptExecutionContext* context, 
     , m_navigator(navigator)
 {
     // We should queue messages until the DOMContentLoaded event has fired or startMessages() has been called.
-    if (RefPtr document = dynamicDowncast<Document>(context); document && document->parsing())
+    if (auto* document = dynamicDowncast<Document>(context); document && document->parsing())
         m_shouldDeferMessageEvents = true;
 }
 
 ServiceWorkerContainer::~ServiceWorkerContainer()
 {
-    ASSERT(m_creationThread.ptr() == &Thread::currentSingleton());
+    ASSERT(m_creationThreadID == currentThreadID());
 }
 
 ScriptExecutionContext* ServiceWorkerContainer::scriptExecutionContext() const
@@ -145,7 +144,7 @@ auto ServiceWorkerContainer::ready() -> ReadyPromise&
             return *m_readyPromise;
 
         Ref context = *scriptExecutionContext();
-        ensureProtectedSWClientConnection()->whenRegistrationReady(context->topOrigin().data(), context->url(), [this, protectedThis = Ref { *this }](ServiceWorkerRegistrationData&& registrationData) mutable {
+        protect(ensureSWClientConnection())->whenRegistrationReady(context->topOrigin().data(), context->url(), [this, protectedThis = Ref { *this }](ServiceWorkerRegistrationData&& registrationData) mutable {
             queueTaskKeepingObjectAlive(*this, TaskSource::DOMManipulation, [registrationData = WTF::move(registrationData)](ServiceWorkerContainer& container) mutable {
                 RefPtr context = container.scriptExecutionContext();
                 if (!context || !container.m_readyPromise)
@@ -160,14 +159,14 @@ auto ServiceWorkerContainer::ready() -> ReadyPromise&
 
 ServiceWorker* ServiceWorkerContainer::controller() const
 {
-    auto* context = scriptExecutionContext();
+    RefPtr context = scriptExecutionContext();
     ASSERT_WITH_MESSAGE(!context || is<Document>(*context) || is<DedicatedWorkerGlobalScope>(*context)  || is<SharedWorkerGlobalScope>(*context) || !context->activeServiceWorker(), "Only documents, dedicated and shared workers can have a controller.");
     return context ? context->activeServiceWorker() : nullptr;
 }
 
-void ServiceWorkerContainer::addRegistration(Variant<RefPtr<TrustedScriptURL>, String>&& relativeScriptURL, const RegistrationOptions& options, Ref<DeferredPromise>&& promise)
+void ServiceWorkerContainer::addRegistration(Variant<Ref<TrustedScriptURL>, String>&& relativeScriptURL, const RegistrationOptions& options, Ref<DeferredPromise>&& promise)
 {
-    auto stringValueHolder = trustedTypeCompliantString(*protectedScriptExecutionContext(), WTF::move(relativeScriptURL), "ServiceWorkerContainer register"_s);
+    auto stringValueHolder = trustedTypeCompliantString(*protect(scriptExecutionContext()), WTF::move(relativeScriptURL), "ServiceWorkerContainer register"_s);
 
     if (stringValueHolder.hasException()) {
         promise->reject(stringValueHolder.releaseException());
@@ -186,14 +185,19 @@ void ServiceWorkerContainer::addRegistration(Variant<RefPtr<TrustedScriptURL>, S
         return;
     }
 
-    ServiceWorkerJobData jobData(ensureProtectedSWClientConnection()->serverConnectionIdentifier(), contextIdentifier());
+    ServiceWorkerJobData jobData(protect(ensureSWClientConnection())->serverConnectionIdentifier(), contextIdentifier());
 
     Ref context = *scriptExecutionContext();
-    jobData.scriptURL = context->completeURL(trustedRelativeScriptURL);
+    jobData.scriptURL = context->encodingParseURL(trustedRelativeScriptURL);
 
     RefPtr document = dynamicDowncast<Document>(context);
     CheckedPtr contentSecurityPolicy = document ? document->contentSecurityPolicy() : nullptr;
-    if (contentSecurityPolicy && !contentSecurityPolicy->allowWorkerFromSource(jobData.scriptURL)) {
+
+    std::optional<TextPosition> sourcePosition;
+    if (document)
+        sourcePosition = document->currentParserSourcePosition();
+
+    if (contentSecurityPolicy && !contentSecurityPolicy->allowWorkerFromSource(jobData.scriptURL, WTF::move(sourcePosition))) {
         promise->reject(Exception { ExceptionCode::SecurityError });
         return;
     }
@@ -220,7 +224,7 @@ void ServiceWorkerContainer::addRegistration(Variant<RefPtr<TrustedScriptURL>, S
     }
 
     if (!options.scope.isEmpty())
-        jobData.scopeURL = context->completeURL(options.scope);
+        jobData.scopeURL = context->encodingParseURL(options.scope);
     else
         jobData.scopeURL = URL(jobData.scriptURL, "./"_s);
 
@@ -243,7 +247,7 @@ void ServiceWorkerContainer::addRegistration(Variant<RefPtr<TrustedScriptURL>, S
     jobData.topOrigin = context->topOrigin().data();
     jobData.workerType = options.type;
     jobData.type = ServiceWorkerJobType::Register;
-    jobData.domainForCachePartition = context->domainForCachePartition();
+    jobData.shouldBlockThirdPartyStorage = context->shouldBlockThirdPartyStorage();
     jobData.registrationOptions = options;
 
     scheduleJob(ServiceWorkerJob::create(*this, WTF::move(promise), WTF::move(jobData)));
@@ -297,7 +301,7 @@ void ServiceWorkerContainer::updateRegistration(const URL& scopeURL, const URL& 
     jobData.topOrigin = context->topOrigin().data();
     jobData.workerType = workerType;
     jobData.type = ServiceWorkerJobType::Update;
-    jobData.domainForCachePartition = context->domainForCachePartition();
+    jobData.shouldBlockThirdPartyStorage = context->shouldBlockThirdPartyStorage();
     jobData.scopeURL = scopeURL;
     jobData.scriptURL = scriptURL;
 
@@ -308,7 +312,7 @@ void ServiceWorkerContainer::updateRegistration(const URL& scopeURL, const URL& 
 
 void ServiceWorkerContainer::scheduleJob(Ref<ServiceWorkerJob>&& job)
 {
-    ASSERT(m_creationThread.ptr() == &Thread::currentSingleton());
+    ASSERT(m_creationThreadID == currentThreadID());
     RefPtr swConnection = m_swConnection;
     ASSERT(swConnection);
     ASSERT(!isStopped());
@@ -329,19 +333,19 @@ void ServiceWorkerContainer::getRegistration(const String& clientURL, Ref<Deferr
     }
 
     Ref context = *scriptExecutionContext();
-    URL parsedURL = context->completeURL(clientURL);
+    URL parsedURL = context->encodingParseURL(clientURL);
     if (!protocolHostAndPortAreEqual(parsedURL, context->url())) {
         promise->reject(Exception { ExceptionCode::SecurityError, "Origin of clientURL is not client's origin"_s });
         return;
     }
 
-    ensureProtectedSWClientConnection()->matchRegistration(SecurityOriginData { context->topOrigin().data() }, parsedURL, [this, protectedThis = Ref { *this }, promise = WTF::move(promise)](std::optional<ServiceWorkerRegistrationData>&& result) mutable {
+    protect(ensureSWClientConnection())->matchRegistration(SecurityOriginData { context->topOrigin().data() }, parsedURL, [this, protectedThis = Ref { *this }, promise = WTF::move(promise)](std::optional<ServiceWorkerRegistrationData>&& result) mutable {
         queueTaskKeepingObjectAlive(*this, TaskSource::DOMManipulation, [promise = WTF::move(promise), result = WTF::move(result)](ServiceWorkerContainer& container) mutable {
             if (!result) {
                 promise->resolve();
                 return;
             }
-            promise->resolve<IDLInterface<ServiceWorkerRegistration>>(ServiceWorkerRegistration::getOrCreate(*container.protectedScriptExecutionContext(), container, WTF::move(result.value())));
+            promise->resolve<IDLInterface<ServiceWorkerRegistration>>(ServiceWorkerRegistration::getOrCreate(*protect(container.scriptExecutionContext()), container, WTF::move(result.value())));
         });
     });
 }
@@ -354,7 +358,7 @@ void ServiceWorkerContainer::updateRegistrationState(ServiceWorkerRegistrationId
     queueTaskKeepingObjectAlive(*this, TaskSource::DOMManipulation, [identifier, state, serviceWorkerData = std::optional<ServiceWorkerData> { serviceWorkerData }](ServiceWorkerContainer& container) mutable {
         RefPtr<ServiceWorker> serviceWorker;
         if (serviceWorkerData)
-            serviceWorker = ServiceWorker::getOrCreate(*container.protectedScriptExecutionContext(), WTF::move(*serviceWorkerData));
+            serviceWorker = ServiceWorker::getOrCreate(*protect(container.scriptExecutionContext()), WTF::move(*serviceWorkerData));
 
         if (RefPtr registration = container.m_registrations.get(identifier))
             registration->updateStateFromServer(state, WTF::move(serviceWorker));
@@ -380,10 +384,10 @@ void ServiceWorkerContainer::getRegistrations(Ref<DeferredPromise>&& promise)
     }
 
     Ref context = *scriptExecutionContext();
-    ensureProtectedSWClientConnection()->getRegistrations(SecurityOriginData { context->topOrigin().data() }, context->url(), [this, protectedThis = Ref { *this }, promise = WTF::move(promise)] (Vector<ServiceWorkerRegistrationData>&& registrationDatas) mutable {
+    protect(ensureSWClientConnection())->getRegistrations(SecurityOriginData { context->topOrigin().data() }, context->url(), [this, protectedThis = Ref { *this }, promise = WTF::move(promise)] (Vector<ServiceWorkerRegistrationData>&& registrationDatas) mutable {
         queueTaskKeepingObjectAlive(*this, TaskSource::DOMManipulation, [promise = WTF::move(promise), registrationDatas = WTF::move(registrationDatas)](ServiceWorkerContainer& container) mutable {
             auto registrations = WTF::map(WTF::move(registrationDatas), [&](auto&& registrationData) {
-                return ServiceWorkerRegistration::getOrCreate(*container.protectedScriptExecutionContext(), container, WTF::move(registrationData));
+                return ServiceWorkerRegistration::getOrCreate(*protect(container.scriptExecutionContext()), container, WTF::move(registrationData));
             });
             promise->resolve<IDLSequence<IDLInterface<ServiceWorkerRegistration>>>(WTF::move(registrations));
         });
@@ -408,7 +412,7 @@ void ServiceWorkerContainer::startMessages()
 
 void ServiceWorkerContainer::jobFailedWithException(ServiceWorkerJob& job, const Exception& exception)
 {
-    ASSERT(m_creationThread.ptr() == &Thread::currentSingleton());
+    ASSERT(m_creationThreadID == currentThreadID());
 
     auto guard = makeScopeExit([this, protectedThis = Ref { *this }, job = Ref { job }] {
         destroyJob(job);
@@ -426,7 +430,7 @@ void ServiceWorkerContainer::jobFailedWithException(ServiceWorkerJob& job, const
 
 void ServiceWorkerContainer::queueTaskToFireUpdateFoundEvent(ServiceWorkerRegistrationIdentifier identifier)
 {
-    ASSERT(m_creationThread.ptr() == &Thread::currentSingleton());
+    ASSERT(m_creationThreadID == currentThreadID());
 
     if (RefPtr registration = m_registrations.get(identifier))
         registration->queueTaskToFireUpdateFoundEvent();
@@ -434,7 +438,7 @@ void ServiceWorkerContainer::queueTaskToFireUpdateFoundEvent(ServiceWorkerRegist
 
 void ServiceWorkerContainer::jobResolvedWithRegistration(ServiceWorkerJob& job, ServiceWorkerRegistrationData&& data, ShouldNotifyWhenResolved shouldNotifyWhenResolved)
 {
-    ASSERT(m_creationThread.ptr() == &Thread::currentSingleton());
+    ASSERT(m_creationThreadID == currentThreadID());
 
     if (job.data().type == ServiceWorkerJobType::Register) {
         CONTAINER_RELEASE_LOG("jobResolvedWithRegistration: Registration job %" PRIu64 " succeeded", job.identifier().toUInt64());
@@ -459,7 +463,7 @@ void ServiceWorkerContainer::jobResolvedWithRegistration(ServiceWorkerJob& job, 
     queueTaskKeepingObjectAlive(*this, TaskSource::DOMManipulation, [promise = job.takePromise(), jobIdentifier = job.identifier(), data = WTF::move(data), shouldNotifyWhenResolved, notifyIfExitEarly = WTF::move(notifyIfExitEarly)](ServiceWorkerContainer& container) mutable {
         notifyIfExitEarly.release();
 
-        Ref registration = ServiceWorkerRegistration::getOrCreate(*container.protectedScriptExecutionContext(), container, WTF::move(data));
+        Ref registration = ServiceWorkerRegistration::getOrCreate(*protect(container.scriptExecutionContext()), container, WTF::move(data));
 
         CONTAINER_RELEASE_LOG_WITH_THIS(&container, "jobResolvedWithRegistration: Resolving promise for job %" PRIu64 ". registrationID=%" PRIu64, jobIdentifier.toUInt64(), registration->identifier().toUInt64());
 
@@ -491,9 +495,9 @@ void ServiceWorkerContainer::postMessage(MessageWithMessagePorts&& message, Serv
         return;
 
     auto& vm = globalObject->vm();
-    auto scope = DECLARE_CATCH_SCOPE(vm);
+    auto scope = DECLARE_TOP_EXCEPTION_SCOPE(vm);
 
-    MessageEventSource source = RefPtr<ServiceWorker> { ServiceWorker::getOrCreate(context.get(), WTF::move(sourceData)) };
+    MessageEventSource source = ServiceWorker::getOrCreate(context.get(), WTF::move(sourceData));
 
     auto messageEvent = MessageEvent::create(*globalObject, message.message.releaseNonNull(), WTF::move(sourceOrigin), { }, WTF::move(source), MessagePort::entanglePorts(context.get(), WTF::move(message.transferredPorts)));
     if (scope.exception()) [[unlikely]] {
@@ -514,12 +518,12 @@ void ServiceWorkerContainer::postMessage(MessageWithMessagePorts&& message, Serv
 
 void ServiceWorkerContainer::notifyRegistrationIsSettled(const ServiceWorkerRegistrationKey& registrationKey)
 {
-    ensureProtectedSWClientConnection()->didResolveRegistrationPromise(registrationKey);
+    protect(ensureSWClientConnection())->didResolveRegistrationPromise(registrationKey);
 }
 
 void ServiceWorkerContainer::jobResolvedWithUnregistrationResult(ServiceWorkerJob& job, bool unregistrationResult)
 {
-    ASSERT(m_creationThread.ptr() == &Thread::currentSingleton());
+    ASSERT(m_creationThreadID == currentThreadID());
 
     auto guard = makeScopeExit([this, protectedThis = Ref { *this }, job = Ref { job }] {
         destroyJob(job);
@@ -539,7 +543,7 @@ void ServiceWorkerContainer::jobResolvedWithUnregistrationResult(ServiceWorkerJo
 
 void ServiceWorkerContainer::startScriptFetchForJob(ServiceWorkerJob& job, FetchOptions::Cache cachePolicy)
 {
-    ASSERT(m_creationThread.ptr() == &Thread::currentSingleton());
+    ASSERT(m_creationThreadID == currentThreadID());
 
     CONTAINER_RELEASE_LOG("startScriptFetchForJob: Starting script fetch for job %" PRIu64, job.identifier().toUInt64());
 
@@ -556,16 +560,16 @@ void ServiceWorkerContainer::startScriptFetchForJob(ServiceWorkerJob& job, Fetch
 
 void ServiceWorkerContainer::jobFinishedLoadingScript(ServiceWorkerJob& job, WorkerFetchResult&& fetchResult)
 {
-    ASSERT(m_creationThread.ptr() == &Thread::currentSingleton());
+    ASSERT(m_creationThreadID == currentThreadID());
 
     CONTAINER_RELEASE_LOG("jobFinishedLoadingScript: Successfuly finished fetching script for job %" PRIu64, job.identifier().toUInt64());
 
-    ensureProtectedSWClientConnection()->finishFetchingScriptInServer(job.data().identifier(), ServiceWorkerRegistrationKey { job.data().registrationKey() }, WTF::move(fetchResult));
+    protect(ensureSWClientConnection())->finishFetchingScriptInServer(job.data().identifier(), ServiceWorkerRegistrationKey { job.data().registrationKey() }, WTF::move(fetchResult));
 }
 
 void ServiceWorkerContainer::jobFailedLoadingScript(ServiceWorkerJob& job, const ResourceError& error, Exception&& exception)
 {
-    ASSERT(m_creationThread.ptr() == &Thread::currentSingleton());
+    ASSERT(m_creationThreadID == currentThreadID());
 
     CONTAINER_RELEASE_LOG_ERROR("jobFinishedLoadingScript: Failed to fetch script for job %" PRIu64 ", error: %s", job.identifier().toUInt64(), error.localizedDescription().utf8().data());
 
@@ -582,12 +586,12 @@ void ServiceWorkerContainer::jobFailedLoadingScript(ServiceWorkerJob& job, const
 
 void ServiceWorkerContainer::notifyFailedFetchingScript(ServiceWorkerJob& job, const ResourceError& error)
 {
-    ensureProtectedSWClientConnection()->finishFetchingScriptInServer(job.data().identifier(), ServiceWorkerRegistrationKey { job.data().registrationKey() }, workerFetchError(ResourceError { error }));
+    protect(ensureSWClientConnection())->finishFetchingScriptInServer(job.data().identifier(), ServiceWorkerRegistrationKey { job.data().registrationKey() }, workerFetchError(ResourceError { error }));
 }
 
 void ServiceWorkerContainer::destroyJob(ServiceWorkerJob& job)
 {
-    ASSERT(m_creationThread.ptr() == &Thread::currentSingleton());
+    ASSERT(m_creationThreadID == currentThreadID());
     ASSERT(m_jobMap.contains(job.identifier()));
 
     bool isRegisterJob = job.data().type == ServiceWorkerJobType::Register;
@@ -614,22 +618,17 @@ SWClientConnection& ServiceWorkerContainer::ensureSWClientConnection()
     return *m_swConnection;
 }
 
-Ref<SWClientConnection> ServiceWorkerContainer::ensureProtectedSWClientConnection()
-{
-    return ensureSWClientConnection();
-}
-
 void ServiceWorkerContainer::addRegistration(ServiceWorkerRegistration& registration)
 {
-    ASSERT(m_creationThread.ptr() == &Thread::currentSingleton());
+    ASSERT(m_creationThreadID == currentThreadID());
 
-    ensureProtectedSWClientConnection()->addServiceWorkerRegistrationInServer(registration.identifier());
+    protect(ensureSWClientConnection())->addServiceWorkerRegistrationInServer(registration.identifier());
     m_registrations.add(registration.identifier(), registration);
 }
 
 void ServiceWorkerContainer::removeRegistration(ServiceWorkerRegistration& registration)
 {
-    ASSERT(m_creationThread.ptr() == &Thread::currentSingleton());
+    ASSERT(m_creationThreadID == currentThreadID());
 
     Ref { *m_swConnection }->removeServiceWorkerRegistrationInServer(registration.identifier());
     m_registrations.remove(registration.identifier());
@@ -637,7 +636,7 @@ void ServiceWorkerContainer::removeRegistration(ServiceWorkerRegistration& regis
 
 void ServiceWorkerContainer::subscribeToPushService(ServiceWorkerRegistration& registration, const Vector<uint8_t>& applicationServerKey, DOMPromiseDeferred<IDLInterface<PushSubscription>>&& promise)
 {
-    ensureProtectedSWClientConnection()->subscribeToPushService(registration.identifier(), applicationServerKey, [protectedRegistration = Ref { registration }, promise = WTF::move(promise)](ExceptionOr<PushSubscriptionData>&& result) mutable {
+    protect(ensureSWClientConnection())->subscribeToPushService(registration.identifier(), applicationServerKey, [protectedRegistration = Ref { registration }, promise = WTF::move(promise)](ExceptionOr<PushSubscriptionData>&& result) mutable {
         if (result.hasException()) {
             promise.reject(result.releaseException());
             return;
@@ -649,14 +648,14 @@ void ServiceWorkerContainer::subscribeToPushService(ServiceWorkerRegistration& r
 
 void ServiceWorkerContainer::unsubscribeFromPushService(ServiceWorkerRegistrationIdentifier identifier, PushSubscriptionIdentifier subscriptionIdentifier, DOMPromiseDeferred<IDLBoolean>&& promise)
 {
-    ensureProtectedSWClientConnection()->unsubscribeFromPushService(identifier, subscriptionIdentifier, [promise = WTF::move(promise)](auto&& result) mutable {
+    protect(ensureSWClientConnection())->unsubscribeFromPushService(identifier, subscriptionIdentifier, [promise = WTF::move(promise)](auto&& result) mutable {
         promise.settle(WTF::move(result));
     });
 }
 
 void ServiceWorkerContainer::getPushSubscription(ServiceWorkerRegistration& registration, DOMPromiseDeferred<IDLNullable<IDLInterface<PushSubscription>>>&& promise)
 {
-    ensureProtectedSWClientConnection()->getPushSubscription(registration.identifier(), [protectedRegistration = Ref { registration }, promise = WTF::move(promise)](ExceptionOr<std::optional<PushSubscriptionData>>&& result) mutable {
+    protect(ensureSWClientConnection())->getPushSubscription(registration.identifier(), [protectedRegistration = Ref { registration }, promise = WTF::move(promise)](ExceptionOr<std::optional<PushSubscriptionData>>&& result) mutable {
         if (result.hasException()) {
             promise.reject(result.releaseException());
             return;
@@ -674,7 +673,7 @@ void ServiceWorkerContainer::getPushSubscription(ServiceWorkerRegistration& regi
 
 void ServiceWorkerContainer::getPushPermissionState(ServiceWorkerRegistrationIdentifier identifier, DOMPromiseDeferred<IDLEnumeration<PushPermissionState>>&& promise)
 {
-    ensureProtectedSWClientConnection()->getPushPermissionState(identifier, [promise = WTF::move(promise)](auto&& result) mutable {
+    protect(ensureSWClientConnection())->getPushPermissionState(identifier, [promise = WTF::move(promise)](auto&& result) mutable {
         promise.settle(WTF::move(result));
     });
 }
@@ -682,7 +681,7 @@ void ServiceWorkerContainer::getPushPermissionState(ServiceWorkerRegistrationIde
 #if ENABLE(NOTIFICATIONS) && ENABLE(NOTIFICATION_EVENT)
 void ServiceWorkerContainer::getNotifications(const URL& serviceWorkerRegistrationURL, const String& tag, DOMPromiseDeferred<IDLSequence<IDLInterface<Notification>>>&& promise)
 {
-    ensureProtectedSWClientConnection()->getNotifications(serviceWorkerRegistrationURL, tag, [promise = WTF::move(promise), protectedThis = Ref { *this }](auto&& result) mutable {
+    protect(ensureSWClientConnection())->getNotifications(serviceWorkerRegistrationURL, tag, [promise = WTF::move(promise), protectedThis = Ref { *this }](auto&& result) mutable {
         RefPtr context = protectedThis->scriptExecutionContext();
         if (!context)
             return;
@@ -704,7 +703,7 @@ void ServiceWorkerContainer::getNotifications(const URL& serviceWorkerRegistrati
 
 void ServiceWorkerContainer::queueTaskToDispatchControllerChangeEvent()
 {
-    ASSERT(m_creationThread.ptr() == &Thread::currentSingleton());
+    ASSERT(m_creationThreadID == currentThreadID());
 
     queueTaskToDispatchEvent(*this, TaskSource::DOMManipulation, Event::create(eventNames().controllerchangeEvent, Event::CanBubble::No, Event::IsCancelable::No));
 }
@@ -727,7 +726,7 @@ void ServiceWorkerContainer::stop()
 
 ServiceWorkerOrClientIdentifier ServiceWorkerContainer::contextIdentifier()
 {
-    ASSERT(m_creationThread.ptr() == &Thread::currentSingleton());
+    ASSERT(m_creationThreadID == currentThreadID());
     ASSERT(scriptExecutionContext());
     if (RefPtr serviceWorkerGlobal = dynamicDowncast<ServiceWorkerGlobalScope>(*scriptExecutionContext()))
         return serviceWorkerGlobal->thread()->identifier();
@@ -754,35 +753,35 @@ bool ServiceWorkerContainer::addEventListener(const AtomString& eventType, Ref<E
 
 void ServiceWorkerContainer::enableNavigationPreload(ServiceWorkerRegistrationIdentifier identifier, VoidPromise&& promise)
 {
-    ensureProtectedSWClientConnection()->enableNavigationPreload(identifier, [promise = WTF::move(promise)](auto&& result) mutable {
+    protect(ensureSWClientConnection())->enableNavigationPreload(identifier, [promise = WTF::move(promise)](auto&& result) mutable {
         promise.settle(WTF::move(result));
     });
 }
 
 void ServiceWorkerContainer::disableNavigationPreload(ServiceWorkerRegistrationIdentifier identifier, VoidPromise&& promise)
 {
-    ensureProtectedSWClientConnection()->disableNavigationPreload(identifier, [promise = WTF::move(promise)](auto&& result) mutable {
+    protect(ensureSWClientConnection())->disableNavigationPreload(identifier, [promise = WTF::move(promise)](auto&& result) mutable {
         promise.settle(WTF::move(result));
     });
 }
 
 void ServiceWorkerContainer::setNavigationPreloadHeaderValue(ServiceWorkerRegistrationIdentifier identifier, String&& headerValue, VoidPromise&& promise)
 {
-    ensureProtectedSWClientConnection()->setNavigationPreloadHeaderValue(identifier, WTF::move(headerValue), [promise = WTF::move(promise)](auto&& result) mutable {
+    protect(ensureSWClientConnection())->setNavigationPreloadHeaderValue(identifier, WTF::move(headerValue), [promise = WTF::move(promise)](auto&& result) mutable {
         promise.settle(WTF::move(result));
     });
 }
 
 void ServiceWorkerContainer::getNavigationPreloadState(ServiceWorkerRegistrationIdentifier identifier, NavigationPreloadStatePromise&& promise)
 {
-    ensureProtectedSWClientConnection()->getNavigationPreloadState(identifier, [promise = WTF::move(promise)](auto&& result) mutable {
+    protect(ensureSWClientConnection())->getNavigationPreloadState(identifier, [promise = WTF::move(promise)](auto&& result) mutable {
         promise.settle(WTF::move(result));
     });
 }
 
 void ServiceWorkerContainer::addCookieChangeSubscriptions(ServiceWorkerRegistrationIdentifier identifier, Vector<CookieChangeSubscription>&& subscriptions, Ref<DeferredPromise>&& promise)
 {
-    ensureProtectedSWClientConnection()->addCookieChangeSubscriptions(identifier, WTF::move(subscriptions), [promise = WTF::move(promise)](auto&& result) mutable {
+    protect(ensureSWClientConnection())->addCookieChangeSubscriptions(identifier, WTF::move(subscriptions), [promise = WTF::move(promise)](auto&& result) mutable {
         if (result.hasException())
             promise->reject(Exception { result.releaseException() });
         else
@@ -792,7 +791,7 @@ void ServiceWorkerContainer::addCookieChangeSubscriptions(ServiceWorkerRegistrat
 
 void ServiceWorkerContainer::removeCookieChangeSubscriptions(ServiceWorkerRegistrationIdentifier identifier, Vector<CookieChangeSubscription>&& subscriptions, Ref<DeferredPromise>&& promise)
 {
-    ensureProtectedSWClientConnection()->removeCookieChangeSubscriptions(identifier, WTF::move(subscriptions), [promise = WTF::move(promise)](auto&& result) mutable {
+    protect(ensureSWClientConnection())->removeCookieChangeSubscriptions(identifier, WTF::move(subscriptions), [promise = WTF::move(promise)](auto&& result) mutable {
         if (result.hasException())
             promise->reject(Exception { result.releaseException() });
         else
@@ -802,7 +801,7 @@ void ServiceWorkerContainer::removeCookieChangeSubscriptions(ServiceWorkerRegist
 
 void ServiceWorkerContainer::cookieChangeSubscriptions(ServiceWorkerRegistrationIdentifier identifier, Ref<DeferredPromise>&& promise)
 {
-    ensureProtectedSWClientConnection()->cookieChangeSubscriptions(identifier, [promise = WTF::move(promise)](auto&& result) mutable {
+    protect(ensureSWClientConnection())->cookieChangeSubscriptions(identifier, [promise = WTF::move(promise)](auto&& result) mutable {
         if (result.hasException())
             promise->reject(Exception { result.releaseException() });
         else {

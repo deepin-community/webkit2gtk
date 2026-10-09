@@ -28,18 +28,46 @@
 #if USE(COORDINATED_GRAPHICS)
 #include "CoordinatedPlatformLayerBuffer.h"
 
+#if USE(GSTREAMER) && USE(GBM)
+#include "CoordinatedPlatformLayerBufferYUV.h"
+#include "GRefPtrGStreamer.h"
+#endif
+
 namespace WebCore {
+
+class BitmapTexture;
 
 class CoordinatedPlatformLayerBufferExternalOES final : public CoordinatedPlatformLayerBuffer {
 public:
     static std::unique_ptr<CoordinatedPlatformLayerBufferExternalOES> create(unsigned textureID, const IntSize&, OptionSet<TextureMapperFlags>, std::unique_ptr<GLFence>&&);
     CoordinatedPlatformLayerBufferExternalOES(unsigned textureID, const IntSize&, OptionSet<TextureMapperFlags>, std::unique_ptr<GLFence>&&);
+#if USE(GSTREAMER) && USE(GBM)
+    enum class SampleRange : bool { Narrow, Full };
+    static std::unique_ptr<CoordinatedPlatformLayerBufferExternalOES> create(GRefPtr<GstBuffer>&&, uint32_t fourcc, CoordinatedPlatformLayerBufferYUV::YuvToRgbColorSpace, SampleRange, const IntSize&, OptionSet<TextureMapperFlags>);
+    CoordinatedPlatformLayerBufferExternalOES(GRefPtr<GstBuffer>&&, uint32_t fourcc, CoordinatedPlatformLayerBufferYUV::YuvToRgbColorSpace, SampleRange, const IntSize&, OptionSet<TextureMapperFlags>);
+#endif
+
     virtual ~CoordinatedPlatformLayerBufferExternalOES();
 
 private:
     void paintToTextureMapper(TextureMapper&, const FloatRect&, const TransformationMatrix& modelViewMatrix = TransformationMatrix(), float opacity = 1.0) override;
 
+#if USE(SKIA)
+    sk_sp<SkImage> skiaImage() override;
+#endif
+
+#if USE(GSTREAMER) && USE(GBM)
+    RefPtr<BitmapTexture> createExternalOESTexture();
+#endif
+
     unsigned m_textureID { 0 };
+#if USE(GSTREAMER) && USE(GBM)
+    uint32_t m_fourcc { 0 };
+    CoordinatedPlatformLayerBufferYUV::YuvToRgbColorSpace m_yuvColorSpace { CoordinatedPlatformLayerBufferYUV::YuvToRgbColorSpace::Bt601 };
+    SampleRange m_sampleRange { SampleRange::Narrow };
+    GRefPtr<GstBuffer> m_buffer;
+    RefPtr<BitmapTexture> m_externalOESTexture;
+#endif
 };
 
 } // namespace WebCore

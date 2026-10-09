@@ -23,8 +23,8 @@
 
 #if ENABLE_SWIFTUI
 
-internal import SwiftUI
-@_spi(Private) internal import WebKit
+import SwiftUI
+@_spi(Private) import WebKit
 
 struct ContextMenuContext {
     #if os(macOS)
@@ -50,5 +50,13 @@ struct ScrollEdgeEffectStyleContext {
     let style: ScrollEdgeEffectStyle?
     let edges: Edge.Set
 }
+
+#if ENABLE_MODEL_ELEMENT_IMMERSIVE
+struct ImmersiveEnvironmentRequestContext {
+    let shouldAllow: @MainActor (_ sourceFrame: WebPage.FrameInfo) async -> Bool
+    let present: @MainActor (_ environment: WebPage.ImmersiveEnvironment) async throws -> Void
+    let dismiss: @MainActor (_ environment: WebPage.ImmersiveEnvironment) async -> Void
+}
+#endif
 
 #endif

@@ -39,6 +39,8 @@ public:
         IteratedString,
     };
 
+    static constexpr int32_t doneIndex = -1;
+
     DECLARE_EXPORT_INFO;
 
     static size_t allocationSize(Checked<size_t> inlineCapacity)
@@ -66,6 +68,8 @@ public:
 
     inline static Structure* createStructure(VM&, JSGlobalObject*, JSValue);
 
+    static JSStringIterator* createWithInitialValues(VM&, Structure*);
+
     static JSStringIterator* create(VM& vm, Structure* structure, JSString* iteratedString)
     {
         JSStringIterator* instance = new (NotNull, allocateCell<JSStringIterator>(vm)) JSStringIterator(vm, structure);
@@ -77,6 +81,9 @@ public:
     JSValue index() const { return internalField(Field::Index).get(); }
     JSStringIterator* clone(JSGlobalObject*);
 
+    static inline std::pair<JSString*, int32_t> advance(JSGlobalObject*, VM&, JSString*, int32_t position);
+    inline JSString* nextWithAdvance(JSGlobalObject*, VM&);
+
     DECLARE_VISIT_CHILDREN;
 
 private:
@@ -85,6 +92,7 @@ private:
     {
     }
 
+    void finishCreation(VM&);
     void finishCreation(VM&, JSString* iteratedString);
 };
 

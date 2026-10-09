@@ -28,6 +28,7 @@
 #include "RegExpInlines.h"
 #include "YarrJIT.h"
 #include <wtf/Assertions.h>
+#include <wtf/Atomics.h>
 #include <wtf/DataLog.h>
 #include <wtf/text/MakeString.h>
 
@@ -63,8 +64,10 @@ void RegExpFunctionalTestCollector::outputOneTest(RegExp* regExp, StringView s, 
     for (unsigned i = 0; i <= regExp->numSubpatterns(); i++) {
         int subpatternBegin = ovector[i * 2];
         int subpatternEnd = ovector[i * 2 + 1];
-        if (subpatternBegin == -1)
+        if (subpatternBegin == -1 || subpatternEnd < subpatternBegin) {
+            subpatternBegin = -1;
             subpatternEnd = -1;
+        }
         fprintf(m_file, "%d, %d", subpatternBegin, subpatternEnd);
         if (i < regExp->numSubpatterns())
             fputs(", ", m_file);
@@ -164,16 +167,31 @@ void RegExp::finishCreation(VM& vm)
         return;
     }
 
+    updateMetadataFromPattern(pattern);
+}
+
+void RegExp::updateMetadataFromPattern(Yarr::YarrPattern& pattern)
+{
     m_atom = WTF::move(pattern.m_atom);
     m_specificPattern = pattern.m_specificPattern;
 
     m_numSubpatterns = pattern.m_numSubpatterns;
     if (!pattern.m_captureGroupNames.isEmpty() || !pattern.m_namedGroupToParenIndices.isEmpty()) {
-        m_rareData = makeUnique<RareData>();
-        m_rareData->m_numDuplicateNamedCaptureGroups = pattern.m_numDuplicateNamedCaptureGroups;
-        m_rareData->m_captureGroupNames.swap(pattern.m_captureGroupNames);
-        m_rareData->m_namedGroupToParenIndices.swap(pattern.m_namedGroupToParenIndices);
+        auto rareData = makeUnique<RareData>();
+        rareData->m_numDuplicateNamedCaptureGroups = pattern.m_numDuplicateNamedCaptureGroups;
+        rareData->m_captureGroupNames = WTF::map(pattern.m_captureGroupNames, [](auto& name) {
+            return AtomString { name };
+        });
+        rareData->m_namedGroupToParenIndices.swap(pattern.m_namedGroupToParenIndices);
+        // The concurrent GC thread reads m_rareData in visitChildren, so it must observe a fully initialized RareData.
+        WTF::storeStoreFence();
+        m_rareData = WTF::move(rareData);
     }
+
+    unsigned offsetVectorSize = offsetVectorBaseForNamedCaptures();
+    if (hasNamedCaptures())
+        offsetVectorSize += m_rareData->m_numDuplicateNamedCaptureGroups;
+    m_ovector.resize(offsetVectorSize);
 }
 
 void RegExp::destroy(JSCell* cell)
@@ -193,7 +211,49 @@ size_t RegExp::estimatedSize(JSCell* cell, VM& vm)
     if (auto* jitCode = thisObject->m_regExpJITCode.get())
         regexDataSize += jitCode->size();
 #endif
+    regexDataSize += thisObject->m_ovector.capacity() * sizeof(int);
     return Base::estimatedSize(cell, vm) + regexDataSize;
+}
+
+template<typename Visitor>
+void RegExp::visitChildrenImpl(JSCell* cell, Visitor& visitor)
+{
+    auto* thisObject = uncheckedDowncast<RegExp>(cell);
+    ASSERT_GC_OBJECT_INHERITS(thisObject, info());
+    Base::visitChildren(thisObject, visitor);
+    if (thisObject->m_rareData)
+        visitor.append(thisObject->m_rareData->m_cachedGroupsStructureID);
+}
+
+DEFINE_VISIT_CHILDREN(RegExp);
+
+Structure* RegExp::ensureGroupsStructure(VM& vm, JSGlobalObject* globalObject)
+{
+    ASSERT(hasNamedCaptures());
+    if (Structure* cached = m_rareData->m_cachedGroupsStructureID.get()) {
+        if (cached->realm() == globalObject)
+            return cached;
+    }
+
+    Structure* baseStructure = globalObject->nullPrototypeObjectStructure();
+    if (m_rareData->m_namedGroupToParenIndices.size() > baseStructure->inlineCapacity())
+        return nullptr;
+
+    Structure* structure = baseStructure;
+    PropertyOffset offset = invalidOffset;
+    PropertyOffset expectedOffset = 0;
+    for (auto& name : m_rareData->m_captureGroupNames) {
+        if (name.isEmpty())
+            continue;
+        structure = Structure::addPropertyTransition(vm, structure, Identifier::fromString(vm, name), 0, offset);
+        // Callers store via putDirectOffset assuming sequential inline offsets.
+        if (offset != expectedOffset || structure->isDictionary())
+            return nullptr;
+        expectedOffset++;
+    }
+    ASSERT(!structure->outOfLineCapacity());
+    m_rareData->m_cachedGroupsStructureID.set(vm, this, structure);
+    return structure;
 }
 
 RegExp* RegExp::createWithoutCaching(VM& vm, const String& patternString, OptionSet<Yarr::Flags> flags)
@@ -226,10 +286,7 @@ void RegExp::byteCodeCompileIfNecessary(VM* vm)
         m_state = ParseError;
         return;
     }
-    ASSERT(m_numSubpatterns == pattern.m_numSubpatterns);
-
-    m_atom = WTF::move(pattern.m_atom);
-    m_specificPattern = pattern.m_specificPattern;
+    updateMetadataFromPattern(pattern);
 
     m_regExpBytecode = byteCodeCompilePattern(vm, pattern, m_constructionErrorCode);
     if (!m_regExpBytecode) {
@@ -247,10 +304,7 @@ void RegExp::compile(VM* vm, Yarr::CharSize charSize, std::optional<StringView> 
         m_state = ParseError;
         return;
     }
-    ASSERT(m_numSubpatterns == pattern.m_numSubpatterns);
-
-    m_atom = WTF::move(pattern.m_atom);
-    m_specificPattern = pattern.m_specificPattern;
+    updateMetadataFromPattern(pattern);
 
     if (!hasCode()) {
         ASSERT(m_state == NotCompiled);
@@ -266,7 +320,7 @@ void RegExp::compile(VM* vm, Yarr::CharSize charSize, std::optional<StringView> 
         && !pattern.m_containsLookbehinds
         ) {
         auto& jitCode = ensureRegExpJITCode();
-        Yarr::jitCompile(pattern, m_patternString, charSize, sampleString, vm, jitCode, Yarr::JITCompileMode::IncludeSubpatterns);
+        Yarr::jitCompile(pattern, m_patternString, charSize, sampleString, vm, jitCode, Yarr::ExecutionMode::IncludeSubpatterns);
         if (!jitCode.failureReason()) {
             m_state = JITCode;
             return;
@@ -287,20 +341,22 @@ void RegExp::compile(VM* vm, Yarr::CharSize charSize, std::optional<StringView> 
     }
 }
 
-int RegExp::match(JSGlobalObject* globalObject, StringView s, unsigned startOffset, Vector<int>& ovector)
+int RegExp::match(JSGlobalObject* globalObject, StringView s, unsigned startOffset, std::span<int> ovector)
 {
     return matchInline(globalObject, globalObject->vm(), s, startOffset, ovector);
 }
 
 bool RegExp::matchConcurrently(
-    VM& vm, StringView s, unsigned startOffset, int& position, Vector<int>& ovector)
+    VM& vm, StringView s, unsigned startOffset, int& position, std::span<int> ovector)
 {
     Locker locker { cellLock() };
 
     if (!hasCodeFor(s.is8Bit() ? Yarr::CharSize::Char8 : Yarr::CharSize::Char16))
         return false;
 
-    position = matchInline<Vector<int>&, Yarr::MatchFrom::CompilerThread>(nullptr, vm, s, startOffset, ovector);
+    position = matchInline<Yarr::MatchFrom::CompilerThread>(nullptr, vm, s, startOffset, ovector);
+    if (position == static_cast<int>(Yarr::JSRegExpResult::JITCodeFailure))
+        return false;
     if (m_state == ParseError)
         return false;
     return true;
@@ -309,16 +365,13 @@ bool RegExp::matchConcurrently(
 void RegExp::compileMatchOnly(VM* vm, Yarr::CharSize charSize, std::optional<StringView> sampleString)
 {
     Locker locker { cellLock() };
-    
-    Yarr::YarrPattern pattern(m_patternString, m_flags, m_constructionErrorCode);
+
+    Yarr::YarrPattern pattern(m_patternString, m_flags, m_constructionErrorCode, Yarr::ExecutionMode::MatchOnly);
     if (hasError(m_constructionErrorCode)) {
         m_state = ParseError;
         return;
     }
-    ASSERT(m_numSubpatterns == pattern.m_numSubpatterns);
-
-    m_atom = WTF::move(pattern.m_atom);
-    m_specificPattern = pattern.m_specificPattern;
+    updateMetadataFromPattern(pattern);
 
     if (!hasCode()) {
         ASSERT(m_state == NotCompiled);
@@ -334,7 +387,7 @@ void RegExp::compileMatchOnly(VM* vm, Yarr::CharSize charSize, std::optional<Str
         && !pattern.m_containsLookbehinds
         ) {
         auto& jitCode = ensureRegExpJITCode();
-        Yarr::jitCompile(pattern, m_patternString, charSize, sampleString, vm, jitCode, Yarr::JITCompileMode::MatchOnly);
+        Yarr::jitCompile(pattern, m_patternString, charSize, sampleString, vm, jitCode, Yarr::ExecutionMode::MatchOnly);
         if (!jitCode.failureReason()) {
             m_state = JITCode;
             return;
@@ -348,7 +401,16 @@ void RegExp::compileMatchOnly(VM* vm, Yarr::CharSize charSize, std::optional<Str
     dataLogLnIf(Options::dumpCompiledRegExpPatterns(), "Can't JIT this regular expression: \"/", m_patternString, "/\"");
 
     m_state = ByteCode;
-    m_regExpBytecode = byteCodeCompilePattern(vm, pattern, m_constructionErrorCode);
+    // m_regExpBytecode is shared with capture-observing operations (exec/match) and the Yarr
+    // interpreter has no StringList fast path, so compile it from a capture-complete pattern rather
+    // than the match-only one above, whose capturing fixed-string alternations may have been
+    // flattened (dropping their subpatterns) for the JIT.
+    Yarr::YarrPattern bytecodePattern(m_patternString, m_flags, m_constructionErrorCode, Yarr::ExecutionMode::IncludeSubpatterns);
+    if (hasError(m_constructionErrorCode)) {
+        m_state = ParseError;
+        return;
+    }
+    m_regExpBytecode = byteCodeCompilePattern(vm, bytecodePattern, m_constructionErrorCode);
     if (!m_regExpBytecode) {
         m_state = ParseError;
         return;
@@ -368,6 +430,8 @@ bool RegExp::matchConcurrently(VM& vm, StringView s, unsigned startOffset, Match
         return false;
 
     result = matchInline<Yarr::MatchFrom::CompilerThread>(nullptr, vm, s, startOffset);
+    if (result.start == static_cast<size_t>(Yarr::JSRegExpResult::JITCodeFailure))
+        return false;
     return true;
 }
 
@@ -416,7 +480,7 @@ void RegExp::matchCompareWithInterpreter(StringView s, int startOffset, int* off
         dataLog("RegExp Discrepency for ", toSourceString(), "\n    string input ");
         unsigned segmentLen = s.length() - static_cast<unsigned>(startOffset);
 
-        dataLogF((segmentLen < 150) ? "\"%s\"\n" : "\"%148s...\"\n", s.utf8().data() + startOffset);
+        SAFE_DATALOGF((segmentLen < 150) ? "\"%s\"\n" : "\"%148s...\"\n", s.utf8() + startOffset);
 
         if (jitResult != interpreterResult) {
             dataLogF("    JIT result = %d, interpreted result = %d\n", jitResult, interpreterResult);
@@ -502,7 +566,7 @@ void RegExp::printTraceData()
         memcpy(formattedRegExp, result.utf8().data(), result.length());
         formattedRegExp[result.length()] = '\0';
     } else
-        dataLogF("/%s/%s\n", rawPattern.utf8().data(), Yarr::flagsString(flags()).data());
+        SAFE_DATALOGF("/%s/%s\n", rawPattern.utf8(), Yarr::flagsString(flags()).data());
 
     constexpr int addrWidth = 12;
 #if ENABLE(YARR_JIT)
@@ -573,7 +637,7 @@ void RegExp::printTraceData()
 void RegExp::dumpToStream(const JSCell* cell, PrintStream& out)
 {
     // This function can be called concurrently. So we must not ref m_pattern.
-    auto* regExp = jsCast<const RegExp*>(cell);
+    auto* regExp = uncheckedDowncast<RegExp>(cell);
     out.print(toCString("/", regExp->pattern().impl(), "/", Yarr::flagsString(regExp->flags()).data()));
 }
 

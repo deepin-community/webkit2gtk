@@ -26,7 +26,6 @@
 #include "config.h"
 #include "CanvasBase.h"
 
-#include "ByteArrayPixelBuffer.h"
 #include "CanvasRenderingContext.h"
 #include "Chrome.h"
 #include "Document.h"
@@ -40,9 +39,10 @@
 #include "IntRect.h"
 #include "NoiseInjectionPolicy.h"
 #include "RenderElementInlines.h"
-#include "RenderStyle+GettersInlines.h"
 #include "ScriptTrackingPrivacyCategory.h"
 #include "StyleCanvasImage.h"
+#include "StyleComputedStyle+GettersInlines.h"
+#include "TypedArrayPixelBuffer.h"
 #include "WebCoreOpaqueRoot.h"
 #include "WorkerClient.h"
 #include "WorkerGlobalScope.h"
@@ -85,6 +85,10 @@ RefPtr<ImageBuffer> CanvasBase::makeRenderingResultsAvailable(ShouldApplyPostPro
 {
     if (RefPtr context = renderingContext()) {
         RefPtr buffer = context->surfaceBufferToImageBuffer(CanvasRenderingContext::SurfaceBuffer::DrawingBuffer);
+#if ASSERT_ENABLED && HAVE(IOSURFACE)
+        if (RefPtr scriptExecutionContext = canvasBaseScriptExecutionContext())
+            ASSERT(!(scriptExecutionContext->isWorkerGlobalScope() && buffer && buffer->surface() && !buffer->isRemoteImageBufferProxy()), "Worker OffscreenCanvas is backed by a local IOSurface");
+#endif
         if (m_canvasNoiseHashSalt && shouldApplyPostProcessingToDirtyRect == ShouldApplyPostProcessingToDirtyRect::Yes)
             m_canvasNoiseInjection.postProcessDirtyCanvasBuffer(buffer.get(), *m_canvasNoiseHashSalt, context->is2d() ? CanvasNoiseInjectionPostProcessArea::DirtyRect : CanvasNoiseInjectionPostProcessArea::FullBuffer);
         return buffer;
@@ -95,7 +99,7 @@ RefPtr<ImageBuffer> CanvasBase::makeRenderingResultsAvailable(ShouldApplyPostPro
     return ImageBuffer::create(size(), RenderingMode::Unaccelerated, RenderingPurpose::Unspecified, 1, DestinationColorSpace::SRGB(), PixelFormat::BGRA8);
 }
 
-static inline size_t maxCanvasArea()
+static inline size_t NODELETE maxCanvasArea()
 {
     if (maxCanvasAreaForTesting)
         return *maxCanvasAreaForTesting;
@@ -119,7 +123,7 @@ void CanvasBase::addObserver(CanvasObserver& observer)
 {
     m_observers.add(observer);
 
-    if (is<StyleCanvasImage>(observer))
+    if (is<Style::CanvasImage>(observer))
         InspectorInstrumentation::didChangeCSSCanvasClientNodes(*this);
 }
 
@@ -127,7 +131,7 @@ void CanvasBase::removeObserver(CanvasObserver& observer)
 {
     m_observers.remove(observer);
 
-    if (is<StyleCanvasImage>(observer))
+    if (is<Style::CanvasImage>(observer))
         InspectorInstrumentation::didChangeCSSCanvasClientNodes(*this);
 }
 
@@ -197,7 +201,7 @@ HashSet<Element*> CanvasBase::cssCanvasClients() const
 {
     HashSet<Element*> cssCanvasClients;
     for (CheckedRef observer : m_observers) {
-        RefPtr image = dynamicDowncast<StyleCanvasImage>(observer.get());
+        RefPtr image = dynamicDowncast<Style::CanvasImage>(observer.get());
         if (!image)
             continue;
 
@@ -237,8 +241,8 @@ bool CanvasBase::shouldAccelerate() const
         return false;
     if (area < scriptExecutionContext->settingsValues().minimumAccelerated2DContextArea)
         return false;
-#if PLATFORM(GTK)
-    if (!scriptExecutionContext->settingsValues().acceleratedCompositingEnabled)
+#if PLATFORM(GTK) || ENABLE(WPE_PLATFORM)
+    if (!scriptExecutionContext->settingsValues().hardwareAccelerationEnabled)
         return false;
 #endif
     return true;
@@ -336,16 +340,6 @@ RefPtr<ImageBuffer> CanvasBase::createImageForNoiseInjection() const
 WebCoreOpaqueRoot root(CanvasBase* canvas)
 {
     return WebCoreOpaqueRoot { canvas };
-}
-
-RefPtr<ScriptExecutionContext> CanvasBase::protectedCanvasBaseScriptExecutionContext() const
-{
-    return canvasBaseScriptExecutionContext();
-}
-
-RefPtr<ScriptExecutionContext> CanvasBase::protectedScriptExecutionContext() const
-{
-    return scriptExecutionContext();
 }
 
 } // namespace WebCore

@@ -31,6 +31,7 @@
 #include "CSSPropertyParserConsumer+NumberDefinitions.h"
 #include "CSSToLengthConversionData.h"
 #include "CSSTokenizer.h"
+#include "CSSUnits.h"
 #include "ExceptionOr.h"
 #include "SVGElement.h"
 #include "SVGLengthContext.h"
@@ -43,7 +44,7 @@ namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(SVGLengthValue);
 
-static inline SVGLengthType cssLengthUnitToSVGLengthType(CSS::LengthPercentageUnit unit)
+static inline SVGLengthType NODELETE cssLengthUnitToSVGLengthType(CSS::LengthPercentageUnit unit)
 {
     switch (unit) {
     case CSS::LengthPercentageUnit::Px:                 return SVGLengthType::Pixels;
@@ -61,7 +62,7 @@ static inline SVGLengthType cssLengthUnitToSVGLengthType(CSS::LengthPercentageUn
     }
 }
 
-static inline CSS::LengthPercentageUnit svgLengthTypeToCSSLengthUnit(SVGLengthType type)
+static inline CSS::LengthPercentageUnit NODELETE svgLengthTypeToCSSLengthUnit(SVGLengthType type)
 {
     switch (type) {
     case SVGLengthType::Number:       return CSS::LengthPercentageUnit::Px;
@@ -80,7 +81,7 @@ static inline CSS::LengthPercentageUnit svgLengthTypeToCSSLengthUnit(SVGLengthTy
     }
 }
 
-static Variant<CSS::Number<>, CSS::LengthPercentage<>> createVariantForLengthType(float value, SVGLengthType lengthType)
+static Variant<CSS::Number<>, CSS::LengthPercentage<CSS::AllUnzoomed>> createVariantForLengthType(float value, SVGLengthType lengthType)
 {
     if (lengthType == SVGLengthType::Number)
         return CSS::Number<>(value);
@@ -91,7 +92,7 @@ static Variant<CSS::Number<>, CSS::LengthPercentage<>> createVariantForLengthTyp
         return CSS::Number<>(value);
     }
 
-    return CSS::LengthPercentage<>(svgLengthTypeToCSSLengthUnit(lengthType), value);
+    return CSS::LengthPercentage<CSS::AllUnzoomed>(svgLengthTypeToCSSLengthUnit(lengthType), value);
 }
 
 
@@ -120,13 +121,21 @@ SVGLengthValue SVGLengthValue::construct(SVGLengthMode lengthMode, StringView va
     SVGLengthValue length(lengthMode);
 
     parseError = SVGParsingError::None;
+
+    // Empty string should use fallback.
+    if (valueAsString.isEmpty()) {
+        if (!fallbackValue.isNull())
+            return SVGLengthValue(lengthMode, fallbackValue);
+        return length;
+    }
+
     if (length.setValueAsString(valueAsString).hasException())
         parseError = SVGParsingError::ParsingFailed;
     else if (negativeValuesMode == SVGLengthNegativeValuesMode::Forbid && length.valueInSpecifiedUnits() < 0)
         parseError = SVGParsingError::ForbiddenNegativeValue;
 
-    // If parsing failed or value is null, and we have a fallback, use it
-    if (!fallbackValue.isNull() && (parseError != SVGParsingError::None || valueAsString.isNull()))
+    // If parsing failed and we have a fallback, use it.
+    if (!fallbackValue.isNull() && parseError != SVGParsingError::None)
         return SVGLengthValue(lengthMode, fallbackValue);
 
     return length;
@@ -144,7 +153,7 @@ SVGLengthType SVGLengthValue::lengthType() const
         [](const CSS::Number<>&) -> SVGLengthType {
             return SVGLengthType::Number;
         },
-        [](const CSS::LengthPercentage<>& length) -> SVGLengthType {
+        [](const CSS::LengthPercentage<CSS::AllUnzoomed>& length) -> SVGLengthType {
             if (auto raw = length.raw())
                 return cssLengthUnitToSVGLengthType(raw->unit);
 
@@ -168,7 +177,7 @@ bool SVGLengthValue::isRelative() const
         [](const CSS::Number<>&) {
             return false;
         },
-        [](const CSS::LengthPercentage<>& length) {
+        [](const CSS::LengthPercentage<CSS::AllUnzoomed>& length) {
             if (auto raw = length.raw()) {
                 using Unit = CSS::LengthPercentageUnit;
                 switch (raw->unit) {
@@ -200,6 +209,31 @@ float SVGLengthValue::value(const SVGLengthContext& context) const
     return result.releaseReturnValue();
 }
 
+static float convertToPixels(float value, CSS::LengthPercentageUnit unit)
+{
+    switch (unit) {
+    case CSS::LengthPercentageUnit::Px:
+        return value;
+    case CSS::LengthPercentageUnit::Cm:
+        return value * CSS::pixelsPerCm;
+    case CSS::LengthPercentageUnit::Mm:
+        return value * CSS::pixelsPerMm;
+    case CSS::LengthPercentageUnit::Q:
+        return value * CSS::pixelsPerQ;
+    case CSS::LengthPercentageUnit::In:
+        return value * CSS::pixelsPerInch;
+    case CSS::LengthPercentageUnit::Pt:
+        return value * CSS::pixelsPerPt;
+    case CSS::LengthPercentageUnit::Pc:
+        return value * CSS::pixelsPerPc;
+    default:
+        return value;
+    }
+}
+
+// FIXME: Returning float loses precision for callers that multiply by a viewport dimension
+// (e.g. resolveRectangle with objectBoundingBox units). Consider returning double to keep
+// the division by 100 in double precision. See https://bugs.webkit.org/show_bug.cgi?id=309035
 float SVGLengthValue::valueAsPercentage() const
 {
     return WTF::switchOn(m_value,
@@ -209,12 +243,12 @@ float SVGLengthValue::valueAsPercentage() const
 
             return 0.0f;
         },
-        [](const CSS::LengthPercentage<>& length) -> float {
+        [](const CSS::LengthPercentage<CSS::AllUnzoomed>& length) -> float {
             if (auto raw = length.raw()) {
                 if (raw->unit == CSS::LengthPercentageUnit::Percentage)
                     return raw->value / 100.0f;
 
-                return raw->value;
+                return convertToPixels(raw->value, raw->unit);
             }
 
             return 0.0f;
@@ -266,7 +300,7 @@ ExceptionOr<float> SVGLengthValue::valueForBindings(const SVGLengthContext& cont
 
             return Exception { ExceptionCode::NotFoundError };
         },
-        [&](const CSS::LengthPercentage<>& length) -> ExceptionOr<float> {
+        [&](const CSS::LengthPercentage<CSS::AllUnzoomed>& length) -> ExceptionOr<float> {
             if (auto raw = length.raw())
                 return context.resolveValueToUserUnits(raw->value, raw->unit, m_lengthMode);
 
@@ -281,9 +315,9 @@ void SVGLengthValue::setValueInSpecifiedUnits(float value)
         [&](const CSS::Number<>&) -> decltype(m_value) {
             return CSS::Number<>(value);
         },
-        [&](const CSS::LengthPercentage<>& current) -> decltype(m_value) {
+        [&](const CSS::LengthPercentage<CSS::AllUnzoomed>& current) -> decltype(m_value) {
             if (auto raw = current.raw())
-                return CSS::LengthPercentage<>(raw->unit, value);
+                return CSS::LengthPercentage<CSS::AllUnzoomed>(raw->unit, value);
 
             return CSS::Number<>(value);
         }
@@ -297,7 +331,7 @@ ExceptionOr<void> SVGLengthValue::setValue(const SVGLengthContext& context, floa
             m_value = CSS::Number<>(value);
             return { };
         },
-        [&](const CSS::LengthPercentage<>& current) -> ExceptionOr<void> {
+        [&](const CSS::LengthPercentage<CSS::AllUnzoomed>& current) -> ExceptionOr<void> {
             if (auto raw = current.raw()) {
                 auto resolvedValue = context.resolveValueFromUserUnits(value, raw->unit, m_lengthMode);
                 if (resolvedValue.hasException())
@@ -335,12 +369,8 @@ ExceptionOr<void> SVGLengthValue::setValueAsString(StringView string)
     // CSS::Range only clamps to boundaries, but we historically handled
     // overflow values like "-45e58" to 0 instead of FLT_MAX.
     // FIXME: Consider setting to a proper value
-    auto isFloatOverflow = [](const auto& parsedValue) {
-        if (auto raw = parsedValue.raw()) {
-            double value = raw->value;
-            return value > FLT_MAX || value < -FLT_MAX;
-        }
-        return true;
+    auto isFloatOverflow = [](const auto& value) {
+        return value > FLT_MAX || value < -FLT_MAX;
     };
 
     auto parserContext = CSSParserContext { SVGAttributeMode };
@@ -351,30 +381,27 @@ ExceptionOr<void> SVGLengthValue::setValueAsString(StringView string)
     CSSTokenizer tokenizer(trimmedString.toString());
     auto tokenRange = tokenizer.tokenRange();
 
-    if (auto number = CSSPropertyParserHelpers::MetaConsumer<CSS::Number<>>::consume(tokenRange, parserState, { })) {
-        if (!tokenRange.atEnd())
-            return Exception { ExceptionCode::SyntaxError };
+    auto parsedValue = CSSPropertyParserHelpers::MetaConsumer<CSS::Number<>, CSS::LengthPercentage<CSS::AllUnzoomed>>::consume(tokenRange, parserState, { });
+    if (!parsedValue || !tokenRange.atEnd())
+        return Exception { ExceptionCode::SyntaxError };
 
-        m_value = isFloatOverflow(*number) ? CSS::Number<>(0) : WTF::move(*number);
-
-        return { };
-    }
-
-    tokenRange = tokenizer.tokenRange();
-    if (auto length = CSSPropertyParserHelpers::MetaConsumer<CSS::LengthPercentage<>>::consume(tokenRange, parserState, { })) {
-        if (!tokenRange.atEnd())
-            return Exception { ExceptionCode::SyntaxError };
-
-        // FIXME: Add support for calculated lengths.
-        if (length->isCalc())
-            return Exception { ExceptionCode::SyntaxError };
-
-        m_value = WTF::move(*length);
-
-        return { };
-    }
-
-    return Exception { ExceptionCode::SyntaxError };
+    return WTF::switchOn(WTF::move(*parsedValue),
+        [&](CSS::Number<>&& number) -> ExceptionOr<void> {
+            auto raw = number.raw();
+            if (!raw || isFloatOverflow(raw->value))
+                m_value = CSS::Number<>(0);
+            else
+                m_value = WTF::move(number);
+            return { };
+        },
+        [&](CSS::LengthPercentage<CSS::AllUnzoomed>&& length) -> ExceptionOr<void> {
+            // FIXME: Add support for calculated lengths.
+            if (length.isCalc())
+                return Exception { ExceptionCode::SyntaxError };
+            m_value = WTF::move(length);
+            return { };
+        }
+    );
 }
 
 ExceptionOr<void> SVGLengthValue::convertToSpecifiedUnits(const SVGLengthContext& context, SVGLengthType targetType)

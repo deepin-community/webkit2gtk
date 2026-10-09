@@ -47,26 +47,24 @@ public:
     SVGStringList& systemLanguage() { return m_systemLanguage; }
 
 private:
-    Ref<SVGStringList> m_requiredExtensions;
-    Ref<SVGStringList> m_systemLanguage;
+    const Ref<SVGStringList> m_requiredExtensions;
+    const Ref<SVGStringList> m_systemLanguage;
 };
 
 class SVGTests {
     WTF_MAKE_NONCOPYABLE(SVGTests);
 public:
-    static bool hasExtension(const String&);
+    static bool NODELETE hasExtension(const String&);
     using PropertyRegistry = SVGPropertyOwnerRegistry<SVGTests>;
 
     static void addSupportedAttributes(MemoryCompactLookupOnlyRobinHoodHashSet<QualifiedName>&);
 
     SVGConditionalProcessingAttributes& conditionalProcessingAttributes();
-    SVGConditionalProcessingAttributes* conditionalProcessingAttributesIfExists() const;
+    SVGConditionalProcessingAttributes* NODELETE conditionalProcessingAttributesIfExists() const;
 
     // These methods are called from DOM through the super classes.
     SVGStringList& requiredExtensions() { return conditionalProcessingAttributes().requiredExtensions(); }
-    Ref<SVGStringList> protectedRequiredExtensions();
     SVGStringList& systemLanguage() { return conditionalProcessingAttributes().systemLanguage(); }
-    Ref<SVGStringList> protectedSystemLanguage();
 
 protected:
     bool isValid() const;
@@ -77,8 +75,6 @@ protected:
     SVGTests(SVGElement* contextElement);
 
 private:
-    Ref<SVGElement> protectedContextElement() const;
-
     WeakRef<SVGElement, WeakPtrImplWithEventTargetData> m_contextElement;
 };
 

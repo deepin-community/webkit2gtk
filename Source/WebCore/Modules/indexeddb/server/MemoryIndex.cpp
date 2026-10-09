@@ -58,11 +58,6 @@ MemoryObjectStore* MemoryIndex::objectStore()
     return m_objectStore.get();
 }
 
-RefPtr<MemoryObjectStore> MemoryIndex::protectedObjectStore()
-{
-    return m_objectStore.get();
-}
-
 void MemoryIndex::cursorDidBecomeClean(MemoryIndexCursor& cursor)
 {
     m_cleanCursors.add(cursor);
@@ -240,6 +235,26 @@ IDBError MemoryIndex::putIndexKey(const IDBKeyData& valueKey, const IndexKey& in
     return IDBError { };
 }
 
+bool MemoryIndex::hasRecordForOtherPrimaryKey(const IDBKeyData& indexKey, const IDBKeyData& primaryKey)
+{
+    ASSERT(m_info.unique());
+
+    CheckedPtr records = m_records.get();
+    if (!records)
+        return false;
+
+    auto valueKeys = records->valueKeys(indexKey);
+    if (!valueKeys)
+        return false;
+
+    for (auto& valueKey : *valueKeys) {
+        if (valueKey != primaryKey)
+            return true;
+    }
+
+    return false;
+}
+
 void MemoryIndex::removeRecord(const IDBKeyData& valueKey, const IndexKey& indexKey)
 {
     LOG(IndexedDB, "MemoryIndex::removeRecord");
@@ -284,7 +299,7 @@ void MemoryIndex::removeEntriesWithValueKey(const IDBKeyData& valueKey)
 MemoryIndexCursor* MemoryIndex::maybeOpenCursor(const IDBCursorInfo& info, MemoryBackingStoreTransaction& transaction)
 {
     if (transaction.isWriting()) {
-        RefPtr objectStore = m_objectStore.get();
+        auto* objectStore = m_objectStore.get();
         if (!objectStore)
             return nullptr;
 
@@ -292,12 +307,12 @@ MemoryIndexCursor* MemoryIndex::maybeOpenCursor(const IDBCursorInfo& info, Memor
             return nullptr;
     }
 
-    auto result = m_cursors.add(info.identifier(), nullptr);
+    auto result = m_cursors.ensure(info.identifier(), [&] {
+        return MemoryIndexCursor::create(*this, info, transaction);
+    });
     if (!result.isNewEntry)
         return nullptr;
-
-    result.iterator->value = MemoryIndexCursor::create(*this, info, transaction);
-    return result.iterator->value.get();
+    return result.iterator->value.ptr();
 }
 
 IDBError MemoryIndex::addIndexRecord(const IDBKeyData& indexKey, const IDBKeyData& valueKey)

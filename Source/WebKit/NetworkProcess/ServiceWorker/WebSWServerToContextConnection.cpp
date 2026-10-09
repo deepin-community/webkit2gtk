@@ -51,9 +51,10 @@ using namespace WebCore;
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(WebSWServerToContextConnection);
 
-Ref<WebSWServerToContextConnection> WebSWServerToContextConnection::create(NetworkConnectionToWebProcess& connection, WebPageProxyIdentifier webPageProxyID, Site&& registrableDomain, std::optional<WebCore::ScriptExecutionContextIdentifier> serviceWorkerPageIdentifier, WebCore::SWServer& server)
+Ref<WebSWServerToContextConnection> WebSWServerToContextConnection::create(NetworkConnectionToWebProcess& connection, WebPageProxyIdentifier webPageProxyID, Site&& registrableDomain, std::optional<WebCore::ScriptExecutionContextIdentifier> serviceWorkerPageIdentifier, WebCore::SWServer& server, WebCore::CrossOriginEmbedderPolicyValue crossOriginEmbedderPolicy)
 {
     Ref contextConnection = adoptRef(*new WebSWServerToContextConnection(connection, webPageProxyID, WTF::move(registrableDomain), serviceWorkerPageIdentifier, server));
+    contextConnection->setCrossOriginEmbedderPolicyValue(crossOriginEmbedderPolicy);
     server.addContextConnection(contextConnection.get());
     return contextConnection;
 }
@@ -75,13 +76,13 @@ WebSWServerToContextConnection::~WebSWServerToContextConnection()
 template<typename T>
 void WebSWServerToContextConnection::sendToParentProcess(T&& message)
 {
-    protectedNetworkProcess()->protectedParentProcessConnection()->send(WTF::move(message), 0);
+    networkProcess()->parentProcessConnection()->send(WTF::move(message), 0);
 }
 
 template<typename T, typename C>
 void WebSWServerToContextConnection::sendWithAsyncReplyToParentProcess(T&& message, C&& callback)
 {
-    protectedNetworkProcess()->protectedParentProcessConnection()->sendWithAsyncReply(WTF::move(message), WTF::move(callback), 0);
+    networkProcess()->parentProcessConnection()->sendWithAsyncReply(WTF::move(message), WTF::move(callback), 0);
 }
 
 void WebSWServerToContextConnection::stop()
@@ -98,34 +99,19 @@ void WebSWServerToContextConnection::stop()
             download->contextClosed();
     }
 
-    if (RefPtr server = this->server(); server && server->contextConnectionForRegistrableDomain(registrableDomain()) == this)
+    if (RefPtr server = this->server(); server && server->contextConnectionForRegistrableDomain(registrableDomain(), crossOriginEmbedderPolicyValue()) == this)
         server->removeContextConnection(*this);
 }
 
 void WebSWServerToContextConnection::terminateIdleServiceWorkers()
 {
-    if (RefPtr server = this->server(); server && server->contextConnectionForRegistrableDomain(registrableDomain()) == this)
+    if (RefPtr server = this->server(); server && server->contextConnectionForRegistrableDomain(registrableDomain(), crossOriginEmbedderPolicyValue()) == this)
         server->terminateIdleServiceWorkers(*this);
-}
-
-RefPtr<NetworkConnectionToWebProcess> WebSWServerToContextConnection::protectedConnection() const
-{
-    return m_connection.get();
 }
 
 NetworkProcess* WebSWServerToContextConnection::networkProcess()
 {
     return m_connection ? &m_connection->networkProcess() : nullptr;
-}
-
-RefPtr<NetworkProcess> WebSWServerToContextConnection::protectedNetworkProcess()
-{
-    return networkProcess();
-}
-
-RefPtr<IPC::Connection> WebSWServerToContextConnection::protectedIPCConnection() const
-{
-    return ipcConnection();
 }
 
 IPC::Connection* WebSWServerToContextConnection::ipcConnection() const
@@ -209,7 +195,7 @@ void WebSWServerToContextConnection::fireNotificationEvent(ServiceWorkerIdentifi
         if (!--protectedThis->m_processingFunctionalEventCount)
             protectedThis->sendToParentProcess(Messages::NetworkProcessProxy::EndServiceWorkerBackgroundProcessing { protectedThis->webProcessIdentifier() });
 
-        CheckedPtr session = protectedThis->protectedConnection()->networkSession();
+        CheckedPtr session = protect(protectedThis->m_connection)->networkSession();
         if (RefPtr resourceLoadStatistics = session ? session->resourceLoadStatistics() : nullptr; resourceLoadStatistics && wasProcessed && eventType == NotificationEventType::Click) {
             return resourceLoadStatistics->setMostRecentWebPushInteractionTime(RegistrableDomain(protectedThis->registrableDomain()), [callback = WTF::move(callback), wasProcessed] () mutable {
                 callback(wasProcessed);
@@ -257,7 +243,7 @@ void WebSWServerToContextConnection::fireBackgroundFetchClickEvent(ServiceWorker
 void WebSWServerToContextConnection::terminateWorker(ServiceWorkerIdentifier serviceWorkerIdentifier)
 {
     if (!m_processingFunctionalEventCount++)
-        protectedConnection()->networkProcess().protectedParentProcessConnection()->send(Messages::NetworkProcessProxy::StartServiceWorkerBackgroundProcessing { webProcessIdentifier() }, 0);
+        m_connection->networkProcess().parentProcessConnection()->send(Messages::NetworkProcessProxy::StartServiceWorkerBackgroundProcessing { webProcessIdentifier() }, 0);
 
     send(Messages::WebSWContextManagerConnection::TerminateWorker(serviceWorkerIdentifier));
 }
@@ -268,7 +254,7 @@ void WebSWServerToContextConnection::setAsInspected(ServiceWorkerIdentifier serv
 
 #if ENABLE(WEB_PUSH_NOTIFICATIONS)
     if (isInspected) {
-        CheckedPtr session = protectedConnection()->networkSession();
+        CheckedPtr session = protect(m_connection)->networkSession();
         RefPtr worker = SWServerWorker::existingWorkerForIdentifier(serviceWorkerIdentifier);
 
         if (session && worker) {
@@ -291,7 +277,7 @@ void WebSWServerToContextConnection::workerTerminated(ServiceWorkerIdentifier se
     SWServerToContextConnection::workerTerminated(serviceWorkerIdentifier);
 
     if (!--m_processingFunctionalEventCount)
-        protectedConnection()->networkProcess().protectedParentProcessConnection()->send(Messages::NetworkProcessProxy::EndServiceWorkerBackgroundProcessing { webProcessIdentifier() }, 0);
+        m_connection->networkProcess().parentProcessConnection()->send(Messages::NetworkProcessProxy::EndServiceWorkerBackgroundProcessing { webProcessIdentifier() }, 0);
 }
 
 void WebSWServerToContextConnection::didFinishActivation(WebCore::ServiceWorkerIdentifier serviceWorkerIdentifier)
@@ -342,7 +328,7 @@ void WebSWServerToContextConnection::didSaveScriptsToDisk(ServiceWorkerIdentifie
 
 void WebSWServerToContextConnection::terminateDueToUnresponsiveness()
 {
-    protectedConnection()->terminateSWContextConnectionDueToUnresponsiveness();
+    protect(m_connection)->terminateSWContextConnectionDueToUnresponsiveness();
 }
 
 void WebSWServerToContextConnection::openWindow(WebCore::ServiceWorkerIdentifier identifier, const URL& url, OpenWindowCallback&& callback)
@@ -511,7 +497,7 @@ void WebSWServerToContextConnection::reportNetworkUsageToWorkerClient(const WebC
 
 std::optional<SharedPreferencesForWebProcess> WebSWServerToContextConnection::sharedPreferencesForWebProcess() const
 {
-    if (RefPtr connection = m_connection.get())
+    if (auto* connection = m_connection.get())
         return connection->sharedPreferencesForWebProcess();
 
     return std::nullopt;

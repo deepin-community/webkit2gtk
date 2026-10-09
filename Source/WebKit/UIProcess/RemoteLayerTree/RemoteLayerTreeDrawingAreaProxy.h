@@ -116,7 +116,7 @@ public:
     void ref() const final { RefCounted::ref(); }
     void deref() const final { RefCounted::deref(); }
 
-    const RemoteLayerTreeHost& remoteLayerTreeHost() const { return *m_remoteLayerTreeHost; }
+    const RemoteLayerTreeHost& remoteLayerTreeHost() const LIFETIME_BOUND { return *m_remoteLayerTreeHost; }
     std::unique_ptr<RemoteLayerTreeHost> detachRemoteLayerTreeHost();
 
     virtual std::unique_ptr<RemoteScrollingCoordinatorProxy> createScrollingCoordinatorProxy() const = 0;
@@ -124,15 +124,15 @@ public:
     void acceleratedAnimationDidStart(WebCore::PlatformLayerIdentifier, const String& key, MonotonicTime startTime);
     void acceleratedAnimationDidEnd(WebCore::PlatformLayerIdentifier, const String& key);
 
-    TransactionID nextMainFrameLayerTreeTransactionID() const;
-    TransactionID lastCommittedMainFrameLayerTreeTransactionID() const;
+    TransactionID NODELETE nextMainFrameLayerTreeTransactionID() const;
+    TransactionID NODELETE lastCommittedMainFrameLayerTreeTransactionID() const;
 
     virtual void didRefreshDisplay();
-    virtual void setDisplayLinkWantsFullSpeedUpdates(bool) { }
+    virtual bool displayLinkWantsHighFrameRateForTesting() const { return false; };
 
     bool hasDebugIndicator() const { return !!m_debugIndicatorLayerTreeHost; }
 
-    CALayer *layerWithIDForTesting(WebCore::PlatformLayerIdentifier) const;
+    RetainPtr<CALayer> layerWithIDForTesting(WebCore::PlatformLayerIdentifier) const;
 
     void viewWillStartLiveResize() final;
     void viewWillEndLiveResize() final;
@@ -164,11 +164,12 @@ protected:
     bool shouldCoalesceVisualEditorStateUpdates() const override { return true; }
 
     ProcessState& processStateForConnection(IPC::Connection&);
-    const ProcessState& processStateForIdentifier(WebCore::ProcessIdentifier) const;
+    const ProcessState& NODELETE processStateForIdentifier(WebCore::ProcessIdentifier) const;
     IPC::Connection* connectionForIdentifier(WebCore::ProcessIdentifier);
     void forEachProcessState(NOESCAPE Function<void(ProcessState&, WebProcessProxy&)>&&);
 
     std::unique_ptr<RemoteLayerTreeHost> m_remoteLayerTreeHost;
+    bool m_needsDisplayRefreshCallbacksForDrawing { false };
 private:
 #if ENABLE(TILED_CA_DRAWING_AREA)
     DrawingAreaType type() const final { return DrawingAreaType::RemoteLayerTree; }

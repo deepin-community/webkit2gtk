@@ -33,7 +33,6 @@
 #include "Document.h"
 #include "Element.h"
 #include "NodeDocument.h"
-#include "NodeInlines.h"
 #include "StyleSingleAnimationRange.h"
 
 namespace WebCore {
@@ -59,10 +58,10 @@ RefPtr<CSSValue> convertToCSSValue(TimelineRangeValue&& value, RefPtr<Element> e
                 return offset->toCSSValue();
             return nullptr;
         },
-        [&](RefPtr<CSSKeywordValue> rangeKeyword) {
+        [&](Ref<CSSOMKeywordValue> rangeKeyword) {
             return rangeKeyword->toCSSValue();
         },
-        [&](RefPtr<CSSNumericValue> rangeValue) {
+        [&](Ref<CSSNumericValue> rangeValue) {
             return rangeValue->toCSSValue();
         }
     );

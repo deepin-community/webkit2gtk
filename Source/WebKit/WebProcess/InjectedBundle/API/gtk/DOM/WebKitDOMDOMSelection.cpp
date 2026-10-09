@@ -25,7 +25,6 @@
 #include <WebCore/DOMException.h>
 #include <WebCore/Document.h>
 #include <WebCore/JSExecState.h>
-#include <WebCore/ShadowRoot.h>
 #include "WebKitDOMDOMSelectionPrivate.h"
 #include "WebKitDOMNodePrivate.h"
 #include "WebKitDOMPrivate.h"
@@ -68,7 +67,7 @@ WebKitDOMDOMSelection* wrapDOMSelection(WebCore::DOMSelection* coreObject)
 
 } // namespace WebKit
 
-WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GTK
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GTK port
 G_DEFINE_TYPE(WebKitDOMDOMSelection, webkit_dom_dom_selection, WEBKIT_DOM_TYPE_OBJECT)
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 

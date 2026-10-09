@@ -58,7 +58,7 @@ public:
     explicit WebLoaderStrategy(WebProcess&);
     ~WebLoaderStrategy() final;
 
-    void ref() const;
+    void NODELETE ref() const;
     void deref() const;
     
     void loadResource(WebCore::LocalFrame&, WebCore::CachedResource&, WebCore::ResourceRequest&&, const WebCore::ResourceLoaderOptions&, CompletionHandler<void(RefPtr<WebCore::SubresourceLoader>&&)>&&) final;
@@ -115,6 +115,7 @@ private:
 
     WebCore::ResourceError cancelledError(const WebCore::ResourceRequest&) const final;
     WebCore::ResourceError blockedError(const WebCore::ResourceRequest&) const final;
+    bool isBlockedError(const WebCore::ResourceError&) const final;
     WebCore::ResourceError blockedByContentBlockerError(const WebCore::ResourceRequest&) const final;
     WebCore::ResourceError cannotShowURLError(const WebCore::ResourceRequest&) const final;
     WebCore::ResourceError interruptedForPolicyChangeError(const WebCore::ResourceRequest&) const final;
@@ -126,6 +127,7 @@ private:
     WebCore::ResourceError fileDoesNotExistError(const WebCore::ResourceResponse&) const final;
     WebCore::ResourceError httpsUpgradeRedirectLoopError(const WebCore::ResourceRequest&) const final;
     WebCore::ResourceError httpNavigationWithHTTPSOnlyError(const WebCore::ResourceRequest&) const final;
+    bool isHttpNavigationWithHTTPSOnlyError(const WebCore::ResourceError&) const final;
     WebCore::ResourceError pluginWillHandleLoadError(const WebCore::ResourceResponse&) const final;
 
     struct SyncLoadResult {
@@ -156,7 +158,7 @@ private:
     }
 
     WeakRef<WebProcess> m_webProcess;
-    HashSet<RefPtr<WebCore::ResourceLoader>> m_internallyFailedResourceLoaders;
+    HashSet<Ref<WebCore::ResourceLoader>> m_internallyFailedResourceLoaders;
     RunLoop::Timer m_internallyFailedLoadTimer;
 
     HashMap<WebCore::ResourceLoaderIdentifier, Ref<WebResourceLoader>> m_webResourceLoaders;

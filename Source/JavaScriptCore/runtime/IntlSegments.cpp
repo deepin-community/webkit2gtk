@@ -27,13 +27,11 @@
 #include "IntlSegments.h"
 
 #include "IntlObjectInlines.h"
+#include "IntlSegmentDataObject.h"
 #include "IntlSegmentIterator.h"
 #include "IntlWorkaround.h"
 #include "JSCInlines.h"
 #include "ObjectConstructor.h"
-#include <unicode/ucurr.h>
-#include <unicode/uloc.h>
-#include <wtf/unicode/icu/ICUHelpers.h>
 
 namespace JSC {
 
@@ -84,7 +82,7 @@ JSValue IntlSegments::containing(JSGlobalObject* globalObject, JSValue indexValu
         endIndex = m_buffer->size();
 
     scope.release();
-    return IntlSegmenter::createSegmentDataObject(globalObject, m_string.get(), startIndex, endIndex, *m_segmenter, m_granularity);
+    return createSegmentDataObject(globalObject, m_string.get(), startIndex, endIndex, *m_segmenter, m_granularity);
 }
 
 // https://tc39.es/proposal-intl-segmenter/#sec-%segmentsprototype%-@@iterator
@@ -107,7 +105,7 @@ JSObject* IntlSegments::createSegmentIterator(JSGlobalObject* globalObject)
 template<typename Visitor>
 void IntlSegments::visitChildrenImpl(JSCell* cell, Visitor& visitor)
 {
-    auto* thisObject = jsCast<IntlSegments*>(cell);
+    auto* thisObject = uncheckedDowncast<IntlSegments>(cell);
     Base::visitChildren(thisObject, visitor);
     visitor.append(thisObject->m_string);
 }

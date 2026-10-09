@@ -26,12 +26,10 @@
 #pragma once
 
 #include <JavaScriptCore/CPU.h>
-#include <JavaScriptCore/JITOperationValidation.h>
 #include <JavaScriptCore/OperationResult.h>
 #include <climits>
 #include <cmath>
 #include <optional>
-#include <wtf/MathExtras.h>
 
 namespace JSC {
 
@@ -58,14 +56,16 @@ consteval uint64_t maxSafeIntegerAsUInt64()
     return 9007199254740991ULL;
 }
 
+// Use value - trunc(value) == 0.0 which rejects NaN and Infinity without
+// an explicit check since NaN - NaN and Inf - Inf both produce NaN.
 inline bool isInteger(double value)
 {
-    return std::isfinite(value) && std::trunc(value) == value;
+    return value - std::trunc(value) == 0.0;
 }
 
 inline bool isInteger(float value)
 {
-    return std::isfinite(value) && std::trunc(value) == value;
+    return value - std::truncf(value) == 0.0f;
 }
 
 inline bool isSafeInteger(double value)

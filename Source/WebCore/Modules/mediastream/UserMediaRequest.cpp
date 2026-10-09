@@ -40,6 +40,7 @@
 #include "ContextDestructionObserverInlines.h"
 #include "DocumentPage.h"
 #include "ExceptionCode.h"
+#include "JSDOMConvertInterface.h"
 #include "JSDOMPromiseDeferred.h"
 #include "JSMediaStream.h"
 #include "JSOverconstrainedError.h"
@@ -109,7 +110,7 @@ void UserMediaRequest::start()
     //    attribute name allowusermedia, return a promise rejected with a DOMException object whose name
     //    attribute has the value SecurityError.
     Ref document = downcast<Document>(*context);
-    auto* controller = UserMediaController::from(document->protectedPage().get());
+    auto* controller = UserMediaController::from(protect(document->page()).get());
     if (!controller) {
         deny(MediaAccessDenialReason::UserMediaDisabled);
         return;
@@ -163,7 +164,7 @@ void UserMediaRequest::allow(CaptureDevice&& audioDevice, CaptureDevice&& videoD
 
     Ref document = downcast<Document>(*scriptExecutionContext());
     RefPtr localWindow = document->window();
-    RefPtr mediaDevices = localWindow ? NavigatorMediaDevices::mediaDevices(localWindow->protectedNavigator()) : nullptr;
+    RefPtr mediaDevices = localWindow ? NavigatorMediaDevices::mediaDevices(protect(localWindow->navigator())) : nullptr;
     if (mediaDevices)
         mediaDevices->willStartMediaCapture(!!audioDevice, !!videoDevice);
 
@@ -287,7 +288,7 @@ void UserMediaRequest::deny(MediaAccessDenialReason reason, const String& messag
 void UserMediaRequest::stop()
 {
     Ref document = downcast<Document>(*scriptExecutionContext());
-    if (auto* controller = UserMediaController::from(document->protectedPage().get()))
+    if (auto* controller = UserMediaController::from(protect(document->page()).get()))
         controller->cancelUserMediaAccessRequest(*this);
 }
 

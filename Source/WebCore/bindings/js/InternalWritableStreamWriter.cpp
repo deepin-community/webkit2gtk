@@ -28,8 +28,12 @@
 
 #include "InternalWritableStream.h"
 #include "JSDOMPromise.h"
+#include "ScriptExecutionContext.h"
 #include "WebCoreJSClientData.h"
 #include "WritableStream.h"
+#include <JavaScriptCore/CallData.h>
+#include <JavaScriptCore/JSObjectInlines.h>
+#include <JavaScriptCore/MarkedVector.h>
 
 namespace WebCore {
 
@@ -69,22 +73,6 @@ ExceptionOr<Ref<InternalWritableStreamWriter>> acquireWritableStreamDefaultWrite
     return InternalWritableStreamWriter::create(globalObject, *result.returnValue().toObject(&globalObject));
 }
 
-int writableStreamDefaultWriterGetDesiredSize(InternalWritableStreamWriter& writer)
-{
-    auto* globalObject = writer.globalObject();
-    if (!globalObject)
-        return 0;
-
-    auto* clientData = downcast<JSVMClientData>(globalObject->vm().clientData);
-    auto& privateName = clientData->builtinFunctions().writableStreamInternalsBuiltins().writableStreamDefaultWriterGetDesiredSizePrivateName();
-
-    JSC::MarkedArgumentBuffer arguments;
-    arguments.append(writer.guardedObject());
-
-    auto result = invokeWritableStreamWriterFunction(*globalObject, privateName, arguments);
-    return result.returnValue().toNumber(globalObject);
-}
-
 RefPtr<DOMPromise> writableStreamDefaultWriterCloseWithErrorPropagation(InternalWritableStreamWriter& writer)
 {
     auto* globalObject = writer.globalObject();
@@ -101,7 +89,7 @@ RefPtr<DOMPromise> writableStreamDefaultWriterCloseWithErrorPropagation(Internal
     if (result.hasException())
         return nullptr;
 
-    auto* promise = jsCast<JSC::JSPromise*>(result.returnValue());
+    auto* promise = downcast<JSC::JSPromise>(result.returnValue());
     if (!promise)
         return nullptr;
 
@@ -140,7 +128,7 @@ RefPtr<DOMPromise> writableStreamDefaultWriterWrite(InternalWritableStreamWriter
     if (result.hasException())
         return nullptr;
 
-    auto* promise = jsCast<JSC::JSPromise*>(result.returnValue());
+    auto* promise = downcast<JSC::JSPromise>(result.returnValue());
     if (!promise)
         return nullptr;
 
@@ -163,15 +151,16 @@ void InternalWritableStreamWriter::onClosedPromiseRejection(Function<void(JSDOMG
     if (result.hasException())
         return;
 
-    auto* promise = jsCast<JSC::JSPromise*>(result.returnValue());
+    auto* promise = downcast<JSC::JSPromise>(result.returnValue());
     if (!promise)
         return;
 
     Ref domPromise = DOMPromise::create(*globalObject, *promise);
-    domPromise->whenSettledWithResult([domPromise, callback = WTF::move(callback)](auto* globalObject, bool isFulfilled, auto result) mutable {
-        if (domPromise->activeDOMObjectAreStopped())
-            return;
+    domPromise->whenSettledWithResult([callback = WTF::move(callback)](auto* globalObject, bool isFulfilled, auto result) mutable {
         if (isFulfilled || !globalObject)
+            return;
+        auto* scriptExecutionContext = globalObject->scriptExecutionContext();
+        if (!scriptExecutionContext || scriptExecutionContext->activeDOMObjectsAreStopped())
             return;
         callback(*globalObject, result);
     });
@@ -193,22 +182,50 @@ void InternalWritableStreamWriter::onClosedPromiseResolution(Function<void()>&& 
     if (result.hasException())
         return;
 
-    auto* promise = jsCast<JSC::JSPromise*>(result.returnValue());
+    auto* promise = downcast<JSC::JSPromise>(result.returnValue());
     if (!promise)
         return;
 
     Ref domPromise = DOMPromise::create(*globalObject, *promise);
-    domPromise->whenSettledWithResult([domPromise, callback = WTF::move(callback)](auto*, bool isFulfilled, auto) mutable {
-        if (domPromise->activeDOMObjectAreStopped())
+    domPromise->whenSettledWithResult([callback = WTF::move(callback)](auto* globalObject, bool isFulfilled, auto) mutable {
+        if (!isFulfilled || !globalObject)
             return;
-        if (!isFulfilled)
+        auto* scriptExecutionContext = globalObject->scriptExecutionContext();
+        if (!scriptExecutionContext || scriptExecutionContext->activeDOMObjectsAreStopped())
             return;
         callback();
     });
 }
 
+static std::optional<int> writableStreamDefaultWriterGetDesiredSize(InternalWritableStreamWriter& writer)
+{
+    auto* globalObject = writer.globalObject();
+    if (!globalObject)
+        return 0;
+
+    auto* clientData = downcast<JSVMClientData>(globalObject->vm().clientData);
+    auto& privateName = clientData->builtinFunctions().writableStreamInternalsBuiltins().writableStreamDefaultWriterGetDesiredSizePrivateName();
+
+    JSC::MarkedArgumentBuffer arguments;
+    arguments.append(writer.guardedObject());
+
+    auto result = invokeWritableStreamWriterFunction(*globalObject, privateName, arguments);
+    if (result.hasException())
+        return { };
+    return result.returnValue().toNumber(globalObject);
+}
+
 void InternalWritableStreamWriter::whenReady(Function<void (bool)>&& callback)
 {
+    auto size = writableStreamDefaultWriterGetDesiredSize(*this);
+    if (!size)
+        return;
+
+    if (*size > 0) {
+        callback(true);
+        return;
+    }
+
     auto* globalObject = this->globalObject();
     if (!globalObject)
         return;
@@ -223,13 +240,16 @@ void InternalWritableStreamWriter::whenReady(Function<void (bool)>&& callback)
     if (result.hasException())
         return;
 
-    auto* promise = jsCast<JSC::JSPromise*>(result.returnValue());
+    auto* promise = downcast<JSC::JSPromise>(result.returnValue());
     if (!promise)
         return;
 
     Ref domPromise = DOMPromise::create(*globalObject, *promise);
-    domPromise->whenSettledWithResult([domPromise, callback = WTF::move(callback)](auto*, bool isFulfilled, auto) mutable {
-        if (domPromise->activeDOMObjectAreStopped())
+    domPromise->whenSettledWithResult([callback = WTF::move(callback)](auto* globalObject, bool isFulfilled, auto) mutable {
+        if (!globalObject)
+            return;
+        auto* scriptExecutionContext = globalObject->scriptExecutionContext();
+        if (!scriptExecutionContext || scriptExecutionContext->activeDOMObjectsAreStopped())
             return;
         callback(isFulfilled);
     });

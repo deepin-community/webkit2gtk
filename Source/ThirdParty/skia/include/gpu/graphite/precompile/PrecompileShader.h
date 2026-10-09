@@ -12,7 +12,7 @@
 
 #include "include/core/SkBlendMode.h"
 #include "include/core/SkImageInfo.h"
-#include "include/effects/SkGradientShader.h"
+#include "include/effects/SkGradient.h"
 
 class SkColorSpace;
 
@@ -86,6 +86,7 @@ protected:
     ~PrecompileShader() override;
 
     virtual bool isConstant(int /* desiredCombination */) const { return false; }
+    virtual bool isOpaque(int /* desiredCombination */) const = 0;
 
     virtual bool isALocalMatrixShader() const { return false; }
 };
@@ -202,7 +203,7 @@ namespace PrecompileShaders {
         kNoLarge = kSmall | kMedium,
     };
 
-    // --- This block of four matches all the factories in SkGradientShader (SkGradientShader.h)
+    // --- This block of four matches all the factories in SkGradientShader (SkGradient.h)
     SK_API sk_sp<PrecompileShader> LinearGradient(
             GradientShaderFlags = GradientShaderFlags::kAll,
             SkGradient::Interpolation = SkGradient::Interpolation());

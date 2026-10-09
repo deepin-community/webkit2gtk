@@ -29,7 +29,7 @@
 #if USE(LIBWEBRTC)
 
 #include "DeprecatedGlobalSettings.h"
-#include "MediaCapabilitiesInfo.h"
+#include "PlatformMediaCapabilitiesInfo.h"
 #include "VP9UtilitiesCocoa.h"
 
 #include <webrtc/api/create_modular_peer_connection_factory.h>
@@ -57,9 +57,7 @@ UniqueRef<WebRTCProvider> WebRTCProvider::create()
     return makeUniqueRef<LibWebRTCProviderCocoa>();
 }
 
-LibWebRTCProviderCocoa::~LibWebRTCProviderCocoa()
-{
-}
+LibWebRTCProviderCocoa::~LibWebRTCProviderCocoa() = default;
 
 std::unique_ptr<webrtc::VideoDecoderFactory> LibWebRTCProviderCocoa::createDecoderFactory()
 {
@@ -83,12 +81,12 @@ std::unique_ptr<webrtc::VideoEncoderFactory> LibWebRTCProviderCocoa::createEncod
     return webrtc::createWebKitEncoderFactory(isSupportingH265() ? webrtc::WebKitH265::On : webrtc::WebKitH265::Off, vp9Support, isSupportingAV1() ? webrtc::WebKitAv1::On : webrtc::WebKitAv1::Off);
 }
 
-std::optional<MediaCapabilitiesInfo> LibWebRTCProviderCocoa::computeVPParameters(const VideoConfiguration& configuration)
+std::optional<PlatformMediaCapabilitiesInfo> LibWebRTCProviderCocoa::computeVPParameters(const PlatformMediaCapabilitiesVideoConfiguration& configuration)
 {
     return WebCore::computeVPParameters(configuration, isSupportingVP9HardwareDecoder());
 }
 
-bool LibWebRTCProviderCocoa::isVPSoftwareDecoderSmooth(const VideoConfiguration& configuration)
+bool LibWebRTCProviderCocoa::isVPSoftwareDecoderSmooth(const PlatformMediaCapabilitiesVideoConfiguration& configuration)
 {
     return WebCore::isVPSoftwareDecoderSmooth(configuration);
 }

@@ -48,6 +48,7 @@
 #include <wtf/Forward.h>
 #include <wtf/Lock.h>
 #include <wtf/LoggerHelper.h>
+#include <wtf/NativePromise.h>
 #include <wtf/OptionSet.h>
 #include <wtf/RefCounted.h>
 #include <wtf/RunLoop.h>
@@ -147,8 +148,7 @@ public:
     void pause() override;
     bool paused() const final;
     bool ended() const final;
-    bool seeking() const override { return m_isSeeking; }
-    void seekToTarget(const SeekTarget&) override;
+    Ref<MediaTimePromise> seekToTarget(const SeekTarget&) override;
     void setRate(float) override;
     double rate() const final;
     void setPreservesPitch(bool) final;
@@ -161,7 +161,7 @@ public:
     MediaPlayer::NetworkState networkState() const final;
     MediaPlayer::ReadyState readyState() const final;
     void setPageIsVisible(bool visible) final { m_pageIsVisible = visible; }
-    void setVisibleInViewport(bool isVisible) final;
+    void setViewportVisibility(ViewportVisibility) final;
     void setPresentationSize(const IntSize&) final;
     MediaTime duration() const override;
     MediaTime currentTime() const override;
@@ -191,7 +191,7 @@ public:
     GstElement* pipeline() const { return m_pipeline.get(); }
 
 #if USE(COORDINATED_GRAPHICS)
-    PlatformLayer* platformLayer() const override;
+    PlatformLayer* NODELETE platformLayer() const override;
     bool supportsAcceleratedRendering() const override { return true; }
 #endif
 
@@ -241,7 +241,7 @@ public:
 
     // This AbortableTaskQueue must be aborted everytime a flush is sent downstream from the main thread
     // to avoid deadlocks from threads in the playback pipeline waiting for the main thread.
-    AbortableTaskQueue& sinkTaskQueue() { return m_sinkTaskQueue; }
+    AbortableTaskQueue& sinkTaskQueue() LIFETIME_BOUND { return m_sinkTaskQueue; }
 
     String codecForStreamId(TrackID streamId);
     bool shouldDownload() { return m_fillTimer.isActive(); }
@@ -300,6 +300,8 @@ protected:
         Ok,
         Rejected,
         Failed,
+        // Pipeline is suspended, and the requested state change was saved to be executed when it resumes.
+        SavedUntilResume,
     };
     ChangePipelineStateResult changePipelineState(GstState);
 
@@ -342,12 +344,13 @@ protected:
     void ensureAudioSourceProvider();
     virtual void checkPlayingConsistency();
 
-    virtual bool doSeek(const SeekTarget& position, float rate, bool isAsync = false, bool isSegment = false);
+    virtual bool doSeek(const SeekTarget&, float rate, bool isAsync = false, bool isSegment = false);
     void invalidateCachedPosition() const;
+    bool prepareSeek(const SeekTarget&);
 
     static void sourceSetupCallback(MediaPlayerPrivateGStreamer*, GstElement*);
 
-    void timeChanged(const MediaTime&); // If MediaTime is valid, indicates that a seek has completed.
+    void timeChanged();
     void loadingFailed(MediaPlayer::NetworkState, MediaPlayer::ReadyState = MediaPlayer::ReadyState::HaveNothing, bool forceNotifications = false);
     void loadStateChanged();
 
@@ -402,13 +405,14 @@ protected:
     GstState m_requestedState { GST_STATE_VOID_PENDING };
     bool m_shouldResetPipeline { false };
     bool m_isSeeking { false };
+    std::optional<MediaTimePromise::AutoRejectProducer> m_seekPromise;
     bool m_isSeekPending { false };
     SeekTarget m_seekTarget;
     GRefPtr<GstElement> m_source { nullptr };
     bool m_areVolumeAndMuteInitialized { false };
 
-    // Reflects whether the pipeline was paused due to the HTMLMediaElement being both muted and invisible in the viewport.
-    bool isPausedByViewport() const { return m_stateToRestoreWhenVisible != GST_STATE_VOID_PENDING; };
+    // Reflects whether the pipeline was suspended due to the HTMLMediaElement being both muted and invisible in the viewport.
+    bool isSuspended() const { return m_isSuspended; };
 
 #if USE(TEXTURE_MAPPER)
     OptionSet<TextureMapperFlags> m_textureMapperFlags;
@@ -522,7 +526,10 @@ private:
 
     virtual void updateStates();
     void finishSeek();
-    virtual void didPreroll() { }
+    virtual void didPreroll();
+
+    void managePlayerSuspend();
+    virtual GstState suspendTargetState() const { return GST_STATE_NULL; }
 
     void createGSTPlayBin(const URL&);
 
@@ -620,7 +627,12 @@ private:
     RefPtr<MediaStreamPrivate> m_streamPrivate;
 #endif
 
+    // Only notifyPlayerOfMute uses this to avoid sending redundant notifications.
+    // Since it's updated by a callback, this will be incorrect right after un/muting the player,
+    // use isMuted() instead.
     bool m_isMuted { false };
+
+    bool m_isVisibleInViewport { true };
 
     // Whether the page containing the HTMLMediaElement is visible, reflects: setPageIsVisible()
     bool m_pageIsVisible { false };
@@ -683,8 +695,12 @@ private:
 
     bool m_didTryToRecoverPlayingState { false };
 
-    // The state the pipeline should be set back to after the player becomes visible in the viewport again.
-    GstState m_stateToRestoreWhenVisible { GST_STATE_VOID_PENDING };
+    bool m_isSuspended { false };
+    // The state the pipeline should be set back to after the player is resumed.
+    GstState m_stateToResume { GST_STATE_VOID_PENDING };
+    MediaTime m_positionToResume { MediaTime::invalidTime() };
+    // If set, contains the target state of the on-going transition from suspended state.
+    GstState m_ongoingReturnFromSuspendedState { GST_STATE_VOID_PENDING };
 
     // Specific to MediaStream playback.
     MediaTime m_startTime;
@@ -692,6 +708,8 @@ private:
     String m_videoDecoderName;
 
     void setupCodecProbe(GstElement*);
+    Lock m_decoderConfigurationLock;
+    Vector<RefPtr<PadProbeHandle<MediaPlayerPrivateGStreamer>>> m_codecProbes WTF_GUARDED_BY_LOCK(m_decoderConfigurationLock);
     Lock m_codecsLock;
     TrackIDHashMap<String> m_codecs WTF_GUARDED_BY_LOCK(m_codecsLock);
 
@@ -701,6 +719,8 @@ private:
     HashMap<const GStreamerQuirk*, std::unique_ptr<GStreamerQuirkBase::GStreamerQuirkState>> m_quirkStates;
 
     std::optional<VideoFrameGStreamer::Info> m_videoInfo;
+    RefPtr<PadProbeHandle<MediaPlayerPrivateGStreamer>> m_videoFrameInputProbe WTF_GUARDED_BY_LOCK(m_decoderConfigurationLock);
+    RefPtr<PadProbeHandle<MediaPlayerPrivateGStreamer>> m_videoFrameOutputProbe WTF_GUARDED_BY_LOCK(m_decoderConfigurationLock);
 
     bool m_volumeLocked { false };
 

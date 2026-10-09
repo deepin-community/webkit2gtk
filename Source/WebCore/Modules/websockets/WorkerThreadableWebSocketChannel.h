@@ -75,7 +75,7 @@ public:
         WTF_MAKE_TZONE_ALLOCATED(Peer);
         WTF_MAKE_NONCOPYABLE(Peer);
     public:
-        static Ref<Peer> create(Ref<ThreadableWebSocketChannelClientWrapper>&&, ScriptExecutionContext&, ScriptExecutionContextIdentifier, const String& taskMode, SocketProvider&);
+        static Ref<Peer> create(Ref<ThreadableWebSocketChannelClientWrapper>&&, ScriptExecutionContext&, ScriptExecutionContextIdentifier, const String& taskMode, SocketProvider&, IsInitiatedByDedicatedWorker);
         ~Peer();
 
         ConnectStatus connect(const URL&, const String& protocol);
@@ -100,7 +100,7 @@ public:
         void didUpgradeURL() final;
 
     private:
-        Peer(Ref<ThreadableWebSocketChannelClientWrapper>&&, ScriptExecutionContext&, ScriptExecutionContextIdentifier, const String& taskMode, SocketProvider&);
+        Peer(Ref<ThreadableWebSocketChannelClientWrapper>&&, ScriptExecutionContext&, ScriptExecutionContextIdentifier, const String& taskMode, SocketProvider&, IsInitiatedByDedicatedWorker);
 
         ThreadSafeWeakPtr<ThreadableWebSocketChannelClientWrapper> m_workerClientWrapper;
         RefPtr<ThreadableWebSocketChannel> m_mainWebSocketChannel;
@@ -137,7 +137,7 @@ private:
         static void setWebSocketChannel(ScriptExecutionContext*, Bridge* thisPtr, Peer*, Ref<ThreadableWebSocketChannelClientWrapper>&&);
 
         // Executed on the main thread to create a Peer for this bridge.
-        static RefPtr<Peer> mainThreadInitialize(ScriptExecutionContext&, WorkerThread&, ScriptExecutionContextIdentifier, Ref<ThreadableWebSocketChannelClientWrapper>&&, const String& taskMode, Ref<SocketProvider>&&);
+        static RefPtr<Peer> mainThreadInitialize(ScriptExecutionContext&, WorkerThread&, ScriptExecutionContextIdentifier, Ref<ThreadableWebSocketChannelClientWrapper>&&, const String& taskMode, Ref<SocketProvider>&&, IsInitiatedByDedicatedWorker);
 
         // Executed on the worker context's thread.
         void clearClientWrapper();
@@ -160,7 +160,7 @@ private:
     bool hasCreatedHandshake() const final { return false; }
     bool isConnected() const final { return false; }
     ResourceRequest clientHandshakeRequest(const CookieGetter&) const final { return m_handshakeRequest; }
-    const ResourceResponse& serverHandshakeResponse() const final { return m_handshakeResponse; }
+    const ResourceResponse& serverHandshakeResponse() const LIFETIME_BOUND final { return m_handshakeResponse; }
 
     const Ref<WorkerGlobalScope> m_workerGlobalScope;
     const Ref<ThreadableWebSocketChannelClientWrapper> m_workerClientWrapper;

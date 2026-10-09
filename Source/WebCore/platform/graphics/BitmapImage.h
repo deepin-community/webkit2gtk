@@ -60,7 +60,6 @@ public:
     unsigned currentFrameIndex() const { return m_source->currentFrameIndex(); }
     bool currentFrameHasAlpha() const { return m_source->currentImageFrame().hasAlpha(); }
     ImageOrientation currentFrameOrientation() const { return m_source->currentImageFrame().orientation(); }
-    Headroom currentFrameHeadroom(ShouldDecodeToHDR shouldDecodeToHDR) const { return m_source->currentImageFrame().headroom(shouldDecodeToHDR); }
     DecodingOptions currentFrameDecodingOptions() const { return m_source->currentImageFrame().decodingOptions(std::nullopt); }
 
     // Primary & current NativeImage
@@ -69,8 +68,10 @@ public:
     RefPtr<NativeImage> currentNativeImage() final { return m_source->currentNativeImage(); }
 
     // Image Metadata
+    String uti() const final { return m_source->uti(); }
     FloatSize size(ImageOrientation orientation = ImageOrientation::Orientation::FromImage) const final { return m_source->size(orientation); }
     FloatSize sourceSize(ImageOrientation orientation = ImageOrientation::Orientation::FromImage) const { return m_source->sourceSize(orientation); }
+    FloatSize density() const { return m_source->density(); }
     DestinationColorSpace colorSpace() final { return m_source->colorSpace(); }
     bool hasHDRContent() const final { return m_source->hasHDRContent(); }
     ImageOrientation orientation() const final { return m_source->orientation(); }
@@ -95,6 +96,13 @@ public:
     unsigned decodeCountForTesting() const { return m_source->decodeCountForTesting(); }
     unsigned blankDrawCountForTesting() const { return m_source->blankDrawCountForTesting(); }
 
+#if ENABLE(SPATIAL_IMAGE_DETECTION)
+    bool isSpatial() const final { return m_source->isSpatial(); }
+    std::optional<unsigned> spatialLeftEyeFrameIndex() const { return m_source->spatialLeftEyeFrameIndex(); }
+    std::optional<unsigned> spatialRightEyeFrameIndex() const { return m_source->spatialRightEyeFrameIndex(); }
+    std::optional<SpatialImageEyeProperties> spatialEyePropertiesAtIndex(unsigned index) const { return m_source->spatialEyePropertiesAtIndex(index); }
+#endif
+
 private:
     BitmapImage(ImageObserver*, AlphaOption, GammaAndColorProfileOption);
     BitmapImage(Ref<NativeImage>&&);
@@ -102,6 +110,9 @@ private:
     // Encoded and decoded data
     EncodedDataStatus dataChanged(bool allDataReceived) final;
     void destroyDecodedData(bool destroyAll = true) final;
+
+    bool canReplaceData() const final { return m_source->canReplaceData(); }
+    void dataReplaced() final;
 
     // Current ImageFrame
     bool currentFrameKnownToBeOpaque() const final { return !currentFrameHasAlpha(); }
@@ -112,18 +123,13 @@ private:
 
     // Image Metadata
     bool hasDensityCorrectedSize() const final { return m_source->hasDensityCorrectedSize(); }
-    String uti() const final { return m_source->uti(); }
     String filenameExtension() const final { return m_source->filenameExtension(); }
     String accessibilityDescription() const final { return m_source->accessibilityDescription(); }
     std::optional<IntPoint> hotSpot() const final { return m_source->hotSpot(); }
     std::optional<Color> singlePixelSolidColor() const final { return m_source->singlePixelSolidColor(); }
 
 #if ENABLE(QUICKLOOK_FULLSCREEN)
-    bool shouldUseQuickLookForFullscreen() const final { return m_source->shouldUseQuickLookForFullscreen(); }
-#endif
-
-#if ENABLE(SPATIAL_IMAGE_DETECTION)
-    bool isSpatial() const final { return m_source->isSpatial(); }
+    bool isPanorama() const final { return m_source->isPanorama(); }
 #endif
 
 #if ENABLE(SPATIAL_IMAGE_CONTROLS)
@@ -142,7 +148,7 @@ private:
 
     void dump(WTF::TextStream&) const final;
 
-    Ref<ImageSource> m_source;
+    const Ref<ImageSource> m_source;
 };
 
 } // namespace WebCore

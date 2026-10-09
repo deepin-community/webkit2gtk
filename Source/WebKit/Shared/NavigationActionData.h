@@ -30,6 +30,7 @@
 #include "WebMouseEvent.h"
 #include "WebPageProxyIdentifier.h"
 #include <WebCore/AdvancedPrivacyProtections.h>
+#include <WebCore/BackForwardFrameItemIdentifier.h>
 #include <WebCore/BackForwardItemIdentifier.h>
 #include <WebCore/FloatPoint.h>
 #include <WebCore/FrameLoaderTypes.h>
@@ -86,10 +87,15 @@ struct NavigationActionData {
     std::optional<WebPageProxyIdentifier> originatingPageID;
     FrameInfoData frameInfo;
     std::optional<WebCore::NavigationIdentifier> navigationID;
-    WebCore::ResourceRequest originalRequest;
+    // Sent as nullopt when equal to `request`, to avoid serializing and re-parsing a potentially
+    // very large URL twice. Resolve via originalRequestOrFallback() / fall back to `request`.
+    std::optional<WebCore::ResourceRequest> originalRequest;
     WebCore::ResourceRequest request;
     String invalidURLString;
     std::optional<WebCore::NavigationRequester> requester;
+
+    // `originalRequest` is sent as nullopt when it equals `request`; resolve it here.
+    const WebCore::ResourceRequest& originalRequestOrFallback() const { return originalRequest ? *originalRequest : request; }
 };
 
 }

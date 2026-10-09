@@ -33,7 +33,6 @@
 #include "BSyscall.h"
 #include "BVMTags.h"
 #include "Logging.h"
-#include "Range.h"
 #include "Sizes.h"
 #include <algorithm>
 #include <cstddef>
@@ -54,6 +53,18 @@
 #define BMALLOC_USE_MADV_ZERO 0
 #else
 #define BMALLOC_USE_MADV_ZERO 0
+#endif
+
+#if BOS(LINUX)
+#include <sys/prctl.h>
+
+#ifndef PR_SET_VMA
+#define PR_SET_VMA 0x53564d41
+#endif
+
+#ifndef PR_SET_VMA_ANON_NAME
+#define PR_SET_VMA_ANON_NAME 0
+#endif
 #endif
 
 BALLOW_UNSAFE_BUFFER_USAGE_BEGIN
@@ -249,9 +260,12 @@ inline size_t vmPageSizePhysical()
 inline void* tryVMAllocate(size_t vmSize, VMTag usage)
 {
     vmValidate(vmSize);
-    void* result = mmap(0, vmSize, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON | BMALLOC_NORESERVE, static_cast<int>(usage), 0);
+    void* result = mmap(0, vmSize, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON | BMALLOC_NORESERVE, vmTagFd(usage), 0);
     if (result == MAP_FAILED)
         return nullptr;
+#if BOS(LINUX)
+    prctl(PR_SET_VMA, PR_SET_VMA_ANON_NAME, result, vmSize, vmTagName(usage));
+#endif
     return result;
 }
 
@@ -275,7 +289,7 @@ inline void vmZeroAndPurge(void* p, size_t vmSize, VMTag usage)
 {
     vmValidate(p, vmSize);
     int flags = MAP_PRIVATE | MAP_ANON | MAP_FIXED | BMALLOC_NORESERVE;
-    int tag = static_cast<int>(usage);
+    int tag = vmTagFd(usage);
 #if BMALLOC_USE_MADV_ZERO
     if (isMadvZeroSupported()) {
         int rc = madvise(p, vmSize, MADV_ZERO);
@@ -288,10 +302,18 @@ inline void vmZeroAndPurge(void* p, size_t vmSize, VMTag usage)
     if (tryVmZeroAndPurgeMTECase(p, vmSize, usage))
         return;
 #endif // BENABLE(MTE) && BOS(DARWIN)
+
+#if BOS(LINUX)
+    BUNUSED(flags);
+    BUNUSED(tag);
+    int result = madvise(p, vmSize, MADV_DONTNEED);
+    RELEASE_BASSERT(!result);
+#else
     // MAP_ANON guarantees the memory is zeroed. This will also cause
     // page faults on accesses to this range following this call.
     void* result = mmap(p, vmSize, PROT_READ | PROT_WRITE, flags, tag, 0);
     RELEASE_BASSERT(result == p);
+#endif
 }
 
 inline void vmDeallocatePhysicalPages(void* p, size_t vmSize)
@@ -388,8 +410,21 @@ inline void vmZeroAndPurge(void* p, size_t vmSize, VMTag usage)
     BUNUSED_PARAM(usage);
 
     vmValidate(p, vmSize);
-    DWORD result = DiscardVirtualMemory(p, vmSize);
-    RELEASE_BASSERT(result == ERROR_SUCCESS);
+
+    size_t totalSeen = 0;
+    void* currentPtr = p;
+    while (totalSeen < vmSize) {
+        MEMORY_BASIC_INFORMATION memInfo;
+        VirtualQuery(currentPtr, &memInfo, sizeof(memInfo));
+        RELEASE_BASSERT(memInfo.RegionSize > 0);
+        size_t chunkSize = std::min(memInfo.RegionSize, vmSize - totalSeen);
+        BOOL freeResult = VirtualFree(currentPtr, chunkSize, MEM_DECOMMIT);
+        RELEASE_BASSERT(freeResult);
+        void* allocResult = VirtualAlloc(currentPtr, chunkSize, MEM_COMMIT, PAGE_READWRITE);
+        RELEASE_BASSERT(allocResult == currentPtr);
+        currentPtr = reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(currentPtr) + memInfo.RegionSize);
+        totalSeen += memInfo.RegionSize;
+    }
 }
 
 inline void vmDeallocatePhysicalPages(void* p, size_t vmSize)

@@ -39,13 +39,16 @@ class Document;
 class Element;
 class Node;
 class RenderImage;
-class RenderStyle;
 class RenderObject;
 class StyleProperties;
 
+namespace Style {
+class ComputedStyle;
+}
+
 bool hasRole(Element&, StringView role);
-bool hasAnyRole(Element&, Vector<StringView>&& roles);
-bool hasAnyRole(Element*, Vector<StringView>&& roles);
+bool hasAnyRole(Element&, std::initializer_list<StringView> roles);
+bool hasAnyRole(Element*, std::initializer_list<StringView> roles);
 bool hasCellARIARole(Element&);
 bool hasPresentationRole(Element&);
 bool hasTableRole(Element&);
@@ -55,27 +58,31 @@ RefPtr<ContainerNode> composedParentIgnoringDocumentFragments(const Node&);
 RefPtr<ContainerNode> composedParentIgnoringDocumentFragments(const Node*);
 
 // Returns NodeName and not ElementName because it's impossible to forward declare ElementName.
-NodeName elementName(Node*);
-NodeName elementName(Node&);
+NodeName NODELETE elementName(Node*);
+NodeName NODELETE elementName(Node&);
 
 RenderImage* toSimpleImage(RenderObject&);
 
 // Returns true if the element has an attribute that will result in an accname being computed.
 // https://www.w3.org/TR/accname-1.2/
 bool hasAccNameAttribute(Element&);
+// Like hasAccNameAttribute, but only checks ARIA attributes (aria-label, aria-labelledby,
+// aria-describedby, aria-description), not the HTML title attribute.
+bool hasARIAAccNameAttribute(Element&);
 
 bool isNodeFocused(Node&);
 
 bool needsLayoutOrStyleRecalc(const Document&);
 
-bool isRenderHidden(const RenderStyle*);
+bool NODELETE isRenderHidden(const Style::ComputedStyle*);
 // Checks both CSS display properties, and CSS visibility properties.
-bool isRenderHidden(const RenderStyle&);
+bool NODELETE isRenderHidden(const Style::ComputedStyle&);
 // Only checks CSS visibility properties.
-bool isVisibilityHidden(const RenderStyle&);
-const RenderStyle* safeStyleFrom(Element&);
+bool NODELETE isVisibilityHidden(const Style::ComputedStyle&);
+const Style::ComputedStyle* safeStyleFrom(Element&);
 
 WTF::TextStream& operator<<(WTF::TextStream&, AXNotification);
+WTF::TextStream& operator<<(WTF::TextStream&, const AXNotificationWithData&);
 
 void dumpAccessibilityTreeToStderr(Document&);
 
@@ -83,6 +90,6 @@ String roleToString(AccessibilityRole);
 
 std::optional<CursorType> cursorTypeFrom(const StyleProperties&);
 
-RefPtr<Node> lastNode(const FixedVector<AXID>&, AXObjectCache&);
+RefPtr<Node> lastNonAriaHiddenNode(const FixedVector<AXID>&, AXObjectCache&);
 
 } // WebCore

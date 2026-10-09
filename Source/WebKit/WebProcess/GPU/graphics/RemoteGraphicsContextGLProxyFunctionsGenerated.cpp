@@ -596,11 +596,11 @@ void RemoteGraphicsContextGLProxy::generateMipmap(GCGLenum target)
     }
 }
 
-std::optional<WebCore::GraphicsContextGLActiveInfo> RemoteGraphicsContextGLProxy::getActiveAttrib(PlatformGLObject program, GCGLuint index)
+Vector<WebCore::GCGLAttribActiveInfo> RemoteGraphicsContextGLProxy::activeAttribs(PlatformGLObject program)
 {
     if (isContextLost())
         return { };
-    auto sendResult = sendSync(Messages::RemoteGraphicsContextGL::GetActiveAttrib(program, index));
+    auto sendResult = sendSync(Messages::RemoteGraphicsContextGL::ActiveAttribs(program));
     if (!sendResult.succeeded()) {
         markContextLost();
         return { };
@@ -609,24 +609,11 @@ std::optional<WebCore::GraphicsContextGLActiveInfo> RemoteGraphicsContextGLProxy
     return returnValue;
 }
 
-std::optional<WebCore::GraphicsContextGLActiveInfo> RemoteGraphicsContextGLProxy::getActiveUniform(PlatformGLObject program, GCGLuint index)
+Vector<WebCore::GCGLUniformActiveInfo> RemoteGraphicsContextGLProxy::activeUniforms(PlatformGLObject program)
 {
     if (isContextLost())
         return { };
-    auto sendResult = sendSync(Messages::RemoteGraphicsContextGL::GetActiveUniform(program, index));
-    if (!sendResult.succeeded()) {
-        markContextLost();
-        return { };
-    }
-    auto& [returnValue] = sendResult.reply();
-    return returnValue;
-}
-
-GCGLint RemoteGraphicsContextGLProxy::getAttribLocation(PlatformGLObject arg0, const CString& name)
-{
-    if (isContextLost())
-        return { };
-    auto sendResult = sendSync(Messages::RemoteGraphicsContextGL::GetAttribLocation(arg0, name));
+    auto sendResult = sendSync(Messages::RemoteGraphicsContextGL::ActiveUniforms(program));
     if (!sendResult.succeeded()) {
         markContextLost();
         return { };
@@ -895,19 +882,6 @@ void RemoteGraphicsContextGLProxy::getUniformuiv(PlatformGLObject program, GCGLi
     }
     auto& [valueReply] = sendResult.reply();
     memcpySpan(value, valueReply);
-}
-
-GCGLint RemoteGraphicsContextGLProxy::getUniformLocation(PlatformGLObject arg0, const CString& name)
-{
-    if (isContextLost())
-        return { };
-    auto sendResult = sendSync(Messages::RemoteGraphicsContextGL::GetUniformLocation(arg0, name));
-    if (!sendResult.succeeded()) {
-        markContextLost();
-        return { };
-    }
-    auto& [returnValue] = sendResult.reply();
-    return returnValue;
 }
 
 GCGLsizeiptr RemoteGraphicsContextGLProxy::getVertexAttribOffset(GCGLuint index, GCGLenum pname)
@@ -1630,11 +1604,11 @@ void RemoteGraphicsContextGLProxy::texSubImage2D(GCGLenum target, GCGLint level,
     }
 }
 
-void RemoteGraphicsContextGLProxy::compressedTexImage2D(GCGLenum target, GCGLint level, GCGLenum internalformat, GCGLsizei width, GCGLsizei height, GCGLint border, GCGLsizei imageSize, std::span<const uint8_t> data)
+void RemoteGraphicsContextGLProxy::compressedTexImage2D(GCGLenum target, GCGLint level, GCGLenum internalformat, GCGLsizei width, GCGLsizei height, GCGLint border, std::span<const uint8_t> data)
 {
     if (isContextLost())
         return;
-    auto sendResult = send(Messages::RemoteGraphicsContextGL::CompressedTexImage2D0(target, level, internalformat, width, height, border, imageSize, data));
+    auto sendResult = send(Messages::RemoteGraphicsContextGL::CompressedTexImage2D0(target, level, internalformat, width, height, border, data));
     if (sendResult != IPC::Error::NoError) {
         markContextLost();
         return;
@@ -1652,11 +1626,11 @@ void RemoteGraphicsContextGLProxy::compressedTexImage2D(GCGLenum target, GCGLint
     }
 }
 
-void RemoteGraphicsContextGLProxy::compressedTexSubImage2D(GCGLenum target, GCGLint level, GCGLint xoffset, GCGLint yoffset, GCGLsizei width, GCGLsizei height, GCGLenum format, GCGLsizei imageSize, std::span<const uint8_t> data)
+void RemoteGraphicsContextGLProxy::compressedTexSubImage2D(GCGLenum target, GCGLint level, GCGLint xoffset, GCGLint yoffset, GCGLsizei width, GCGLsizei height, GCGLenum format, std::span<const uint8_t> data)
 {
     if (isContextLost())
         return;
-    auto sendResult = send(Messages::RemoteGraphicsContextGL::CompressedTexSubImage2D0(target, level, xoffset, yoffset, width, height, format, imageSize, data));
+    auto sendResult = send(Messages::RemoteGraphicsContextGL::CompressedTexSubImage2D0(target, level, xoffset, yoffset, width, height, format, data));
     if (sendResult != IPC::Error::NoError) {
         markContextLost();
         return;
@@ -1887,11 +1861,11 @@ void RemoteGraphicsContextGLProxy::copyTexSubImage3D(GCGLenum target, GCGLint le
     }
 }
 
-void RemoteGraphicsContextGLProxy::compressedTexImage3D(GCGLenum target, GCGLint level, GCGLenum internalformat, GCGLsizei width, GCGLsizei height, GCGLsizei depth, GCGLint border, GCGLsizei imageSize, std::span<const uint8_t> data)
+void RemoteGraphicsContextGLProxy::compressedTexImage3D(GCGLenum target, GCGLint level, GCGLenum internalformat, GCGLsizei width, GCGLsizei height, GCGLsizei depth, GCGLint border, std::span<const uint8_t> data)
 {
     if (isContextLost())
         return;
-    auto sendResult = send(Messages::RemoteGraphicsContextGL::CompressedTexImage3D0(target, level, internalformat, width, height, depth, border, imageSize, data));
+    auto sendResult = send(Messages::RemoteGraphicsContextGL::CompressedTexImage3D0(target, level, internalformat, width, height, depth, border, data));
     if (sendResult != IPC::Error::NoError) {
         markContextLost();
         return;
@@ -1909,11 +1883,11 @@ void RemoteGraphicsContextGLProxy::compressedTexImage3D(GCGLenum target, GCGLint
     }
 }
 
-void RemoteGraphicsContextGLProxy::compressedTexSubImage3D(GCGLenum target, GCGLint level, GCGLint xoffset, GCGLint yoffset, GCGLint zoffset, GCGLsizei width, GCGLsizei height, GCGLsizei depth, GCGLenum format, GCGLsizei imageSize, std::span<const uint8_t> data)
+void RemoteGraphicsContextGLProxy::compressedTexSubImage3D(GCGLenum target, GCGLint level, GCGLint xoffset, GCGLint yoffset, GCGLint zoffset, GCGLsizei width, GCGLsizei height, GCGLsizei depth, GCGLenum format, std::span<const uint8_t> data)
 {
     if (isContextLost())
         return;
-    auto sendResult = send(Messages::RemoteGraphicsContextGL::CompressedTexSubImage3D0(target, level, xoffset, yoffset, zoffset, width, height, depth, format, imageSize, data));
+    auto sendResult = send(Messages::RemoteGraphicsContextGL::CompressedTexSubImage3D0(target, level, xoffset, yoffset, zoffset, width, height, depth, format, data));
     if (sendResult != IPC::Error::NoError) {
         markContextLost();
         return;
@@ -2544,7 +2518,7 @@ void RemoteGraphicsContextGLProxy::transformFeedbackVaryings(PlatformGLObject pr
     }
 }
 
-std::optional<WebCore::GraphicsContextGLActiveInfo> RemoteGraphicsContextGLProxy::getTransformFeedbackVarying(PlatformGLObject program, GCGLuint index)
+std::optional<WebCore::GCGLTransformFeedbackActiveInfo> RemoteGraphicsContextGLProxy::getTransformFeedbackVarying(PlatformGLObject program, GCGLuint index)
 {
     if (isContextLost())
         return { };
@@ -2599,32 +2573,6 @@ void RemoteGraphicsContextGLProxy::bindBufferRange(GCGLenum target, GCGLuint ind
         markContextLost();
         return;
     }
-}
-
-Vector<GCGLuint> RemoteGraphicsContextGLProxy::getUniformIndices(PlatformGLObject program, const Vector<CString>& uniformNames)
-{
-    if (isContextLost())
-        return { };
-    auto sendResult = sendSync(Messages::RemoteGraphicsContextGL::GetUniformIndices(program, uniformNames));
-    if (!sendResult.succeeded()) {
-        markContextLost();
-        return { };
-    }
-    auto& [returnValue] = sendResult.reply();
-    return returnValue;
-}
-
-Vector<GCGLint> RemoteGraphicsContextGLProxy::getActiveUniforms(PlatformGLObject program, const Vector<GCGLuint>& uniformIndices, GCGLenum pname)
-{
-    if (isContextLost())
-        return { };
-    auto sendResult = sendSync(Messages::RemoteGraphicsContextGL::GetActiveUniforms(program, uniformIndices, pname));
-    if (!sendResult.succeeded()) {
-        markContextLost();
-        return { };
-    }
-    auto& [returnValue] = sendResult.reply();
-    return returnValue;
 }
 
 GCGLuint RemoteGraphicsContextGLProxy::getUniformBlockIndex(PlatformGLObject program, const CString& uniformBlockName)

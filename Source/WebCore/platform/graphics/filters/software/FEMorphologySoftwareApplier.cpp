@@ -106,7 +106,10 @@ void FEMorphologySoftwareApplier::applyPlatformGeneric(PixelBuffer& sourceBuffer
 
 void FEMorphologySoftwareApplier::applyPlatformWorker(ApplyParameters* params)
 {
-    applyPlatformGeneric(*params->sourceBuffer, *params->destinationBuffer, params->sourceSize, params->destinationRect, params->type, params->radius);
+    RELEASE_ASSERT(params && params->sourceBuffer && params->destinationBuffer);
+    Ref sourceBuffer = *params->sourceBuffer;
+    Ref destinationBuffer = *params->destinationBuffer;
+    applyPlatformGeneric(sourceBuffer, destinationBuffer, params->sourceSize, params->destinationRect, params->type, params->radius);
 }
 
 bool FEMorphologySoftwareApplier::applyPlatform(PixelBuffer& sourceBuffer, PixelBuffer& destinationBuffer, MorphologyOperatorType type, const IntSize& radius)

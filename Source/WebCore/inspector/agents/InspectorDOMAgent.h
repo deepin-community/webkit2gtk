@@ -39,6 +39,7 @@
 #include <JavaScriptCore/InspectorFrontendDispatchers.h>
 #include <wtf/CanMakeWeakPtr.h>
 #include <wtf/CheckedPtr.h>
+#include <wtf/CheckedRef.h>
 #include <wtf/HashMap.h>
 #include <wtf/HashSet.h>
 #include <wtf/JSONValues.h>
@@ -100,11 +101,11 @@ public:
 
     // We represent embedded doms as a part of the same hierarchy. Hence we treat children of frame owners differently.
     // We also skip whitespace text nodes conditionally. Following methods encapsulate these specifics.
-    static Node* innerFirstChild(Node*);
-    static Node* innerNextSibling(Node*);
-    static Node* innerPreviousSibling(Node*);
+    static Node* NODELETE innerFirstChild(Node*);
+    static Node* NODELETE innerNextSibling(Node*);
+    static Node* NODELETE innerPreviousSibling(Node*);
     static unsigned innerChildNodeCount(Node*);
-    static Node* innerParentNode(Node*);
+    static Node* NODELETE innerParentNode(Node*);
 
     static Node* scriptValueAsNode(JSC::JSValue);
     static JSC::JSValue nodeAsScriptValue(JSC::JSGlobalObject&, Node*);
@@ -186,7 +187,7 @@ public:
     void didInsertDOMNode(Node&);
     void didRemoveDOMNode(Node&);
     void willDestroyDOMNode(Node&);
-    void willModifyDOMAttr(Element&, const AtomString& oldValue, const AtomString& newValue);
+    void NODELETE willModifyDOMAttr(Element&, const AtomString& oldValue, const AtomString& newValue);
     void didModifyDOMAttr(Element&, const AtomString& name, const AtomString& value);
     void didRemoveDOMAttr(Element&, const AtomString& name);
     void characterDataModified(CharacterData&);
@@ -226,7 +227,7 @@ public:
     void inspect(Node*);
     void focusNode();
 
-    InspectorHistory* history() { return m_history.get(); }
+    InspectorHistory* history() LIFETIME_BOUND { return m_history.get(); }
     Vector<Document*> documents();
     Vector<size_t> flexibleBoxRendererCachedItemsAtStartOfLine(const RenderObject&);
     void reset();
@@ -277,9 +278,9 @@ private:
 
     void relayoutDocument();
 
-    Ref<InspectorOverlay> protectedOverlay() const;
+    InspectorOverlay& overlay() const { return m_overlay.get(); }
 
-    Inspector::InjectedScriptManager& m_injectedScriptManager;
+    const CheckedRef<Inspector::InjectedScriptManager> m_injectedScriptManager;
     const UniqueRef<Inspector::DOMFrontendDispatcher> m_frontendDispatcher;
     const Ref<Inspector::DOMBackendDispatcher> m_backendDispatcher;
     WeakRef<Page> m_inspectedPage;

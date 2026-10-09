@@ -63,7 +63,7 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(CachedPage);
 CachedPage::CachedPage(Page& page)
     : m_page(page)
     , m_expirationTime(MonotonicTime::now() + page.settings().backForwardCacheExpirationInterval())
-    , m_cachedMainFrame(makeUnique<CachedFrame>(page.protectedMainFrame()))
+    , m_cachedMainFrame(makeUnique<CachedFrame>(protect(page.mainFrame())))
     , m_loadedSubresourceDomains([&] {
         RefPtr localFrame = page.localMainFrame();
         return localFrame ? localFrame->loader().client().loadedSubresourceDomains() : Vector<RegistrableDomain>();
@@ -134,8 +134,14 @@ void CachedPage::restore(Page& page)
 
     // Restore the focus appearance for the focused element.
     RefPtr focusedOrMainFrame = page.focusController().focusedOrMainFrame();
-    if (!focusedOrMainFrame)
+    if (!focusedOrMainFrame) {
+        // The cached page's data has already been transferred to the live page by open();
+        // release the cached frame state even though the focus restoration block is skipped
+        // (e.g. iframe-process restoration where the page's main frame is a RemoteFrame
+        // and focusController has no focused or main local frame to operate on).
+        clear();
         return;
+    }
 
     RefPtr focusedDocument = focusedOrMainFrame->document();
     if (RefPtr element = focusedDocument->focusedElement()) {
@@ -146,7 +152,7 @@ void CachedPage::restore(Page& page)
             localMainFrame->selection().suppressScrolling();
 
         bool hadProhibitsScrolling = false;
-        RefPtr frameView = localMainFrame->protectedVirtualView();
+        RefPtr frameView = localMainFrame->virtualView();
         if (frameView) {
             hadProhibitsScrolling = frameView->prohibitsScrolling();
             frameView->setProhibitsScrolling(true);
@@ -157,7 +163,7 @@ void CachedPage::restore(Page& page)
         if (frameView)
             frameView->setProhibitsScrolling(hadProhibitsScrolling);
         if (localMainFrame)
-            localMainFrame->checkedSelection()->restoreScrolling();
+            protect(localMainFrame->selection())->restoreScrolling();
 #endif
     }
 
@@ -172,7 +178,7 @@ void CachedPage::restore(Page& page)
 #endif
 
     if (m_needsUpdateContentsSize) {
-        if (RefPtr frameView = localMainFrame->protectedVirtualView())
+        if (RefPtr frameView = localMainFrame->virtualView())
             frameView->updateContentsSize();
     }
 
@@ -205,7 +211,7 @@ void CachedPage::restoreNavigationAPIHistoryItems(LocalFrame& frame, BackForward
         auto allItems = checkedBackForwardController->allItems(frame.frameID());
         auto filteredItems = Navigation::filterHistoryItemsForNavigationAPI(WTF::move(allItems), *currentItem);
 
-        window->protectedNavigation()->updateForReactivation(WTF::move(filteredItems), *currentItem, previousItem.get());
+        protect(window->navigation())->updateForReactivation(WTF::move(filteredItems), *currentItem, previousItem.get());
     }
 
     for (RefPtr child = frame.tree().firstChild(); child; child = child->tree().nextSibling()) {
@@ -230,11 +236,6 @@ void CachedPage::clear()
 bool CachedPage::hasExpired() const
 {
     return MonotonicTime::now() > m_expirationTime;
-}
-
-RefPtr<DocumentLoader> CachedPage::protectedDocumentLoader() const
-{
-    return documentLoader();
 }
 
 } // namespace WebCore

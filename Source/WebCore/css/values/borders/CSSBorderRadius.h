@@ -32,8 +32,9 @@ namespace CSS {
 // <'border-radius'> = <length-percentage [0,∞]>{1,4} [ / <length-percentage [0,∞]>{1,4} ]?
 // https://drafts.csswg.org/css-backgrounds-3/#propdef-border-radius
 struct BorderRadius {
-    using Axis = SpaceSeparatedArray<LengthPercentage<Nonnegative>, 4>;
-    using Corner = MinimallySerializingSpaceSeparatedSize<LengthPercentage<Nonnegative>>;
+    using LengthPercentage = CSS::LengthPercentage<NonnegativeUnzoomed>;
+    using Axis = SpaceSeparatedArray<LengthPercentage, 4>;
+    using Corner = MinimallySerializingSpaceSeparatedSize<LengthPercentage>;
 
     static BorderRadius defaultValue();
 

@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2007 Nicholas Shanks <contact@nickshanks.com>
- * Copyright (C) 2008-2023 Apple Inc. All rights reserved.
+ * Copyright (C) 2008-2026 Apple Inc. All rights reserved.
  * Copyright (C) 2025 Samuel Weinig <sam@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
@@ -41,32 +41,31 @@ FontDescription::FontDescription()
     : m_variantAlternates(FontVariantAlternates::Normal())
     , m_fontPalette({ FontPalette::Type::Normal, nullAtom() })
     , m_fontSelectionRequest { normalWeightValue(), normalWidthValue(), std::nullopt }
-    , m_orientation(enumToUnderlyingType(FontOrientation::Horizontal))
-    , m_nonCJKGlyphOrientation(enumToUnderlyingType(NonCJKGlyphOrientation::Mixed))
-    , m_widthVariant(enumToUnderlyingType(FontWidthVariant::RegularWidth))
-    , m_textRendering(enumToUnderlyingType(TextRenderingMode::Auto))
+    , m_orientation(std::to_underlying(FontOrientation::Horizontal))
+    , m_nonCJKGlyphOrientation(std::to_underlying(NonCJKGlyphOrientation::Mixed))
+    , m_widthVariant(std::to_underlying(FontWidthVariant::RegularWidth))
+    , m_textRendering(std::to_underlying(TextRenderingMode::Auto))
     , m_script(USCRIPT_COMMON)
-    , m_fontSynthesisWeight(enumToUnderlyingType(FontSynthesisLonghandValue::Auto))
-    , m_fontSynthesisStyle(enumToUnderlyingType(FontSynthesisLonghandValue::Auto))
-    , m_fontSynthesisCaps(enumToUnderlyingType(FontSynthesisLonghandValue::Auto))
-    , m_variantCommonLigatures(enumToUnderlyingType(FontVariantLigatures::Normal))
-    , m_variantDiscretionaryLigatures(enumToUnderlyingType(FontVariantLigatures::Normal))
-    , m_variantHistoricalLigatures(enumToUnderlyingType(FontVariantLigatures::Normal))
-    , m_variantContextualAlternates(enumToUnderlyingType(FontVariantLigatures::Normal))
-    , m_variantPosition(enumToUnderlyingType(FontVariantPosition::Normal))
-    , m_variantCaps(enumToUnderlyingType(FontVariantCaps::Normal))
-    , m_variantNumericFigure(enumToUnderlyingType(FontVariantNumericFigure::Normal))
-    , m_variantNumericSpacing(enumToUnderlyingType(FontVariantNumericSpacing::Normal))
-    , m_variantNumericFraction(enumToUnderlyingType(FontVariantNumericFraction::Normal))
-    , m_variantNumericOrdinal(enumToUnderlyingType(FontVariantNumericOrdinal::Normal))
-    , m_variantNumericSlashedZero(enumToUnderlyingType(FontVariantNumericSlashedZero::Normal))
-    , m_variantEastAsianVariant(enumToUnderlyingType(FontVariantEastAsianVariant::Normal))
-    , m_variantEastAsianWidth(enumToUnderlyingType(FontVariantEastAsianWidth::Normal))
-    , m_variantEastAsianRuby(enumToUnderlyingType(FontVariantEastAsianRuby::Normal))
-    , m_variantEmoji(enumToUnderlyingType(FontVariantEmoji::Normal))
-    , m_opticalSizing(enumToUnderlyingType(FontOpticalSizing::Auto))
-    , m_fontStyleAxis(enumToUnderlyingType(FontStyleAxis::slnt))
-    , m_shouldAllowUserInstalledFonts(enumToUnderlyingType(AllowUserInstalledFonts::No))
+    , m_fontSynthesisWeight(std::to_underlying(FontSynthesisLonghandValue::Auto))
+    , m_fontSynthesisStyle(std::to_underlying(FontSynthesisStyleLonghandValue::Auto))
+    , m_fontSynthesisCaps(std::to_underlying(FontSynthesisLonghandValue::Auto))
+    , m_variantCommonLigatures(std::to_underlying(FontVariantLigatures::Normal))
+    , m_variantDiscretionaryLigatures(std::to_underlying(FontVariantLigatures::Normal))
+    , m_variantHistoricalLigatures(std::to_underlying(FontVariantLigatures::Normal))
+    , m_variantContextualAlternates(std::to_underlying(FontVariantLigatures::Normal))
+    , m_variantPosition(std::to_underlying(FontVariantPosition::Normal))
+    , m_variantCaps(std::to_underlying(FontVariantCaps::Normal))
+    , m_variantNumericFigure(std::to_underlying(FontVariantNumericFigure::Normal))
+    , m_variantNumericSpacing(std::to_underlying(FontVariantNumericSpacing::Normal))
+    , m_variantNumericFraction(std::to_underlying(FontVariantNumericFraction::Normal))
+    , m_variantNumericOrdinal(std::to_underlying(FontVariantNumericOrdinal::Normal))
+    , m_variantNumericSlashedZero(std::to_underlying(FontVariantNumericSlashedZero::Normal))
+    , m_variantEastAsianVariant(std::to_underlying(FontVariantEastAsianVariant::Normal))
+    , m_variantEastAsianWidth(std::to_underlying(FontVariantEastAsianWidth::Normal))
+    , m_variantEastAsianRuby(std::to_underlying(FontVariantEastAsianRuby::Normal))
+    , m_variantEmoji(std::to_underlying(FontVariantEmoji::Normal))
+    , m_opticalSizing(std::to_underlying(FontOpticalSizing::Auto))
+    , m_shouldAllowUserInstalledFonts(std::to_underlying(AllowUserInstalledFonts::No))
     , m_shouldDisableLigaturesForSpacing(false)
     , m_evaluationTimeZoomEnabled(false)
 {
@@ -83,7 +82,7 @@ static AtomString computeSpecializedChineseLocale()
     return "zh-hans"_s; // We have no signal. Pick one option arbitrarily.
 }
 
-static AtomString& cachedSpecializedChineseLocale()
+static AtomString& NODELETE cachedSpecializedChineseLocale()
 {
     static MainThreadNeverDestroyed<AtomString> specializedChineseLocale;
     return specializedChineseLocale.get();
@@ -200,6 +199,22 @@ void FontDescription::setVariantLigatures(FontVariantLigaturesValues values)
     setVariantDiscretionaryLigatures(values.discretionary);
     setVariantHistoricalLigatures(values.historical);
     setVariantContextualAlternates(values.contextual);
+}
+
+// Resolves which axis a font's slope is applied to when realizing variations. The slnt variation
+// implements oblique values and ital=1 implements italic values. WebKit treats italic as a synonym
+// for oblique, which css-fonts-4 permits ("User agents may treat italic as a synonym for oblique"),
+// so when italic is requested against a face that exposes its slope on the 'slnt' axis (an
+// oblique-angle @font-face, no 'ital' axis) and no synthetic oblique applies, drive the 'slnt' axis
+// rather than the absent 'ital' axis.
+FontStyleAxis variationStyleAxis(const FontDescription& description, const FontSelectionSpecifiedCapabilities& faceCapabilities)
+{
+    auto axis = description.fontStyleAxis();
+    if (axis != FontStyleAxis::ital || faceCapabilities.faceAxis != FontStyleAxis::slnt)
+        return axis;
+    bool willSynthesizeOblique = description.allowsItalicOrObliqueFontSynthesisStyle()
+        && faceCapabilities.slope && !isItalic(faceCapabilities.slope->maximum);
+    return willSynthesizeOblique ? axis : FontStyleAxis::slnt;
 }
 
 } // namespace WebCore

@@ -72,6 +72,9 @@ public:
     RetainPtr<CMSampleBufferRef> convertCMSampleBuffer(CMSampleBufferRef, const IntSize&, const WTF::MediaTime* = nullptr);
     void setCroppingRectangle(std::optional<FloatRect>, FloatSize = { });
 
+    enum DestinationColorSpace : bool { Unspecified, BT709 };
+    WEBCORE_EXPORT static RetainPtr<CVPixelBufferRef> convertPixelBuffer(CVPixelBufferRef source, uint32_t targetPixelFormat, DestinationColorSpace = DestinationColorSpace::Unspecified);
+
 private:
     WEBCORE_EXPORT ImageTransferSessionVT(uint32_t pixelFormat, bool shouldUseIOSurface);
 

@@ -54,6 +54,7 @@ class EditorClient;
 class HTMLImageElement;
 class PageConfiguration;
 enum class BroadcastFocusedElement : bool;
+enum class ContentChange : uint8_t;
 struct FocusOptions;
 
 class EmptyChromeClient : public ChromeClient {
@@ -75,16 +76,13 @@ class EmptyChromeClient : public ChromeClient {
     void focusedElementChanged(Element*, LocalFrame*, FocusOptions, BroadcastFocusedElement) final { }
     void focusedFrameChanged(Frame*) final { }
 
-    RefPtr<Page> createWindow(LocalFrame&, const String&, const WindowFeatures&, const NavigationAction&) final { return nullptr; }
+    RefPtr<Page> createWindow(LocalFrame&, const String&, const WindowFeatures&, const NavigationAction&) final;
     void show() final { }
 
     bool canRunModal() const final { return false; }
     void runModal() final { }
 
-    bool toolbarsVisible() const final { return false; }
-    bool statusbarVisible() const final { return false; }
-    bool scrollbarsVisible() const final { return false; }
-    bool menubarVisible() const final { return false; }
+    bool isPopup() const final { return false; }
 
     void setResizable(bool) final { }
 
@@ -102,8 +100,6 @@ class EmptyChromeClient : public ChromeClient {
     bool runJavaScriptConfirm(LocalFrame&, const String&) final { return false; }
     bool runJavaScriptPrompt(LocalFrame&, const String&, const String&, String&) final { return false; }
 
-    bool selectItemWritingDirectionIsNatural() final { return false; }
-    bool selectItemAlignmentFollowsMenuWritingDirection() final { return false; }
     RefPtr<PopupMenu> createPopupMenu(PopupMenuClient&) const final;
     RefPtr<SearchPopupMenu> createSearchPopupMenu(PopupMenuClient&) const final;
 
@@ -143,8 +139,6 @@ class EmptyChromeClient : public ChromeClient {
 
     void exceededDatabaseQuota(LocalFrame&, const String&, DatabaseDetails) final { }
 
-    void reachedMaxAppCacheSize(int64_t) final { }
-
     RefPtr<ColorChooser> createColorChooser(ColorChooserClient&, const Color&) final;
 
     RefPtr<DataListSuggestionPicker> createDataListSuggestionPicker(DataListSuggestionsClient&) final;
@@ -152,13 +146,13 @@ class EmptyChromeClient : public ChromeClient {
 
     RefPtr<DateTimeChooser> createDateTimeChooser(DateTimeChooserClient&) final;
 
-    void setTextIndicator(RefPtr<TextIndicator>&&) const final;
-    void updateTextIndicator(RefPtr<TextIndicator>&&) const final;
+    void NODELETE setTextIndicator(RefPtr<TextIndicator>&&) const final;
+    void NODELETE updateTextIndicator(RefPtr<TextIndicator>&&) const final;
 
-    DisplayRefreshMonitorFactory* displayRefreshMonitorFactory() const final;
+    DisplayRefreshMonitorFactory* NODELETE displayRefreshMonitorFactory() const final;
 
-    void runOpenPanel(LocalFrame&, FileChooser&) final;
-    void showShareSheet(ShareDataWithParsedURL&&, CompletionHandler<void(bool)>&&) final;
+    void NODELETE runOpenPanel(LocalFrame&, FileChooser&) final;
+    void NODELETE showShareSheet(ShareDataWithParsedURL&&, CompletionHandler<void(bool)>&&) final;
     void loadIconForFiles(const Vector<String>&, FileIconLoader&) final { }
 
     void elementDidFocus(Element&, const FocusOptions&) final { }
@@ -193,7 +187,6 @@ class EmptyChromeClient : public ChromeClient {
 #if PLATFORM(IOS_FAMILY)
     void didReceiveMobileDocType(bool) final { }
     void setNeedsScrollNotifications(LocalFrame&, bool) final { }
-    void didFinishContentChangeObserving(LocalFrame&, WKContentChange) final { }
     void notifyRevealedSelectionByScrollingFrame(LocalFrame&) final { }
     void didLayout(LayoutType) final { }
     void didStartOverflowScroll() final { }
@@ -211,6 +204,10 @@ class EmptyChromeClient : public ChromeClient {
     bool showDataDetectorsUIForElement(const Element&, const Event&) final { return false; }
 #endif // PLATFORM(IOS_FAMILY)
 
+#if ENABLE(CONTENT_CHANGE_OBSERVER)
+    void didFinishContentChangeObserving(LocalFrame&, ContentChange) final { }
+#endif
+
 #if ENABLE(ORIENTATION_EVENTS)
     IntDegrees deviceOrientation() const final { return 0; }
 #endif
@@ -227,11 +224,9 @@ class EmptyChromeClient : public ChromeClient {
     bool shouldNotifyOnFormChanges() final { return false; }
 
     RefPtr<Icon> createIconForFiles(const Vector<String>& /* filenames */) final;
-
-    void requestCookieConsent(CompletionHandler<void(CookieConsentDecisionResult)>&&) final;
 };
 
-DiagnosticLoggingClient& emptyDiagnosticLoggingClient();
+DiagnosticLoggingClient& NODELETE emptyDiagnosticLoggingClient();
 WEBCORE_EXPORT PageConfiguration pageConfigurationWithEmptyClients(std::optional<PageIdentifier>, PAL::SessionID);
 
 class EmptyCryptoClient: public CryptoClient {

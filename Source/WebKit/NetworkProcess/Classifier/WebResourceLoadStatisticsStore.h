@@ -217,8 +217,8 @@ public:
     void setPersistedDomains(const HashSet<RegistrableDomain>&);
     void didCreateNetworkProcess();
 
-    NetworkSession* networkSession();
-    void invalidateAndCancel();
+    NetworkSession* NODELETE networkSession();
+    void NODELETE invalidateAndCancel();
 
     void resourceLoadStatisticsUpdated(Vector<WebCore::ResourceLoadStatistics>&&, CompletionHandler<void()>&&);
     void requestStorageAccessUnderOpener(DomainInNeedOfStorageAccess&&, WebCore::PageIdentifier openerID, OpenerDomain&&);
@@ -276,9 +276,6 @@ private:
     HashMap<TopFrameDomain, Vector<SubResourceDomain>> m_domainsWithCrossPageStorageAccessQuirk;
     HashMap<RegistrableDomain, std::pair<IsLoggedIn, std::optional<WebCore::LoginStatus>>> m_loginStatus;
     HashMap<WebPageProxyIdentifier, HashSet<std::pair<TopFrameDomain, SubFrameDomain>>> m_domainsGrantedStorageAccessPermissionInPage;
-
-    bool m_hasScheduledProcessStats { false };
-    bool m_firstNetworkProcessCreated { false };
 
     struct StorageAccessRequestRecordValue {
         Markable<WebPageProxyIdentifier> webPageProxyID;

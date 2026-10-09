@@ -26,6 +26,8 @@
 
 #pragma once
 
+#if ENABLE(WEB_AUTHN)
+
 #include <WebCore/BasicCredential.h>
 #include <wtf/RefCounted.h>
 #include <wtf/WeakPtr.h>
@@ -62,9 +64,9 @@ private:
     WeakPtr<Document, WeakPtrImplWithEventTargetData> m_document;
 
 protected:
-    template<typename Options>
-    bool performCommonChecks(const Options&, CredentialPromise&);
     const Document* document() const { return m_document.get(); }
 };
 
 } // namespace WebCore
+
+#endif // ENABLE(WEB_AUTHN)

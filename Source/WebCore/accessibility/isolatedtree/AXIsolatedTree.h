@@ -30,9 +30,11 @@
 
 #include <WebCore/AXCoreObject.h>
 #include <WebCore/AXLoggerBase.h>
+#include <WebCore/AXObjectCache.h>
 #include <WebCore/AXTextMarker.h>
 #include <WebCore/AXTextRun.h>
 #include <WebCore/AXTreeStore.h>
+#include <WebCore/AccessibilityObject.h>
 #include <WebCore/ColorHash.h>
 #include <WebCore/FrameIdentifier.h>
 #include <WebCore/RenderStyleConstants.h>
@@ -57,7 +59,7 @@ class AXObjectCache;
 class AccessibilityObject;
 enum class AXStreamOptions : uint16_t;
 
-static constexpr uint16_t lastPropertyFlagIndex = 29;
+static constexpr uint16_t lastPropertyFlagIndex = 30;
 // The most common boolean properties are stored in a bitfield rather than in a HashMap.
 // If you edit these, make sure the corresponding AXProperty is ordered correctly in that
 // enum, and update lastPropertyFlagIndex above.
@@ -71,27 +73,28 @@ enum class AXPropertyFlag : uint32_t {
     HasItalicFont                                 = 1 << 6,
     HasPlainText                                  = 1 << 7,
     HasPointerEventsNone                          = 1 << 8,
-    IsBlockFlow                                   = 1 << 9,
-    IsEnabled                                     = 1 << 10,
-    IsExposedTableCell                            = 1 << 11,
-    IsExposedTableRow                             = 1 << 12,
-    IsGrabbed                                     = 1 << 13,
-    IsHiddenUntilFoundContainer                   = 1 << 14,
-    IsIgnored                                     = 1 << 15,
-    IsInlineText                                  = 1 << 16,
-    IsKeyboardFocusable                           = 1 << 17,
-    IsNonLayerSVGObject                           = 1 << 18,
+    IsARIAHidden                                  = 1 << 9,
+    IsBlockFlow                                   = 1 << 10,
+    IsEnabled                                     = 1 << 11,
+    IsExposedTableCell                            = 1 << 12,
+    IsExposedTableRow                             = 1 << 13,
+    IsGrabbed                                     = 1 << 14,
+    IsHiddenUntilFoundContainer                   = 1 << 15,
+    IsIgnored                                     = 1 << 16,
+    IsInlineText                                  = 1 << 17,
+    IsKeyboardFocusable                           = 1 << 18,
+    IsNonLayerSVGObject                           = 1 << 19,
     // These IsTextEmissionBehavior flags are the variants of enum TextEmissionBehavior.
-    IsTextEmissionBehaviorTab                     = 1 << 19,
-    IsTextEmissionBehaviorNewline                 = 1 << 20,
-    IsTextEmissionBehaviorDoubleNewline           = 1 << 21,
-    IsVisited                                     = 1 << 22,
-    ShowsCursorOnHover                            = 1 << 23,
-    SupportsCheckedState                          = 1 << 24,
-    SupportsDragging                              = 1 << 25,
-    SupportsExpanded                              = 1 << 26,
-    SupportsPath                                  = 1 << 27,
-    SupportsPosInSet                              = 1 << 28,
+    IsTextEmissionBehaviorTab                     = 1 << 20,
+    IsTextEmissionBehaviorNewline                 = 1 << 21,
+    IsTextEmissionBehaviorDoubleNewline           = 1 << 22,
+    IsVisited                                     = 1 << 23,
+    ShowsCursorOnHover                            = 1 << 24,
+    SupportsCheckedState                          = 1 << 25,
+    SupportsDragging                              = 1 << 26,
+    SupportsExpanded                              = 1 << 27,
+    SupportsPath                                  = 1 << 28,
+    SupportsPosInSet                              = 1 << 29,
     SupportsSetSize                               = 1 << lastPropertyFlagIndex
 };
 
@@ -105,37 +108,33 @@ enum class AXProperty : uint16_t {
     HasItalicFont = 6,
     HasPlainText = 7,
     HasPointerEventsNone = 8,
-    IsBlockFlow = 9,
-    IsEnabled = 10,
-    IsExposedTableCell = 11,
-    IsExposedTableRow = 12,
-    IsGrabbed = 13,
-    IsHiddenUntilFoundContainer = 14,
-    IsIgnored = 15,
-    IsInlineText = 16,
-    IsKeyboardFocusable = 17,
-    IsNonLayerSVGObject = 18,
-    IsTextEmissionBehaviorTab = 19,
-    IsTextEmissionBehaviorNewline = 20,
-    IsTextEmissionBehaviorDoubleNewline = 21,
-    IsVisited = 22,
-    ShowsCursorOnHover = 23,
-    SupportsCheckedState = 24,
-    SupportsDragging = 25,
-    SupportsExpanded = 26,
-    SupportsPath = 27,
-    SupportsPosInSet = 28,
+    IsARIAHidden = 9,
+    IsBlockFlow = 10,
+    IsEnabled = 11,
+    IsExposedTableCell = 12,
+    IsExposedTableRow = 13,
+    IsGrabbed = 14,
+    IsHiddenUntilFoundContainer = 15,
+    IsIgnored = 16,
+    IsInlineText = 17,
+    IsKeyboardFocusable = 18,
+    IsNonLayerSVGObject = 19,
+    IsTextEmissionBehaviorTab = 20,
+    IsTextEmissionBehaviorNewline = 21,
+    IsTextEmissionBehaviorDoubleNewline = 22,
+    IsVisited = 23,
+    ShowsCursorOnHover = 24,
+    SupportsCheckedState = 25,
+    SupportsDragging = 26,
+    SupportsExpanded = 27,
+    SupportsPath = 28,
+    SupportsPosInSet = 29,
     SupportsSetSize = lastPropertyFlagIndex,
     // End bool attributes that are matched in order by AXPropertyFlag.
 
     Abbreviation,
     ARIALevel,
     ARIARoleDescription,
-#if !ENABLE(AX_THREAD_TEXT_APIS)
-    // Rather than caching text content as property when ENABLE(AX_THREAD_TEXT_APIS), we should
-    // synthesize it on-the-fly using AXProperty::TextRuns.
-    AttributedText,
-#endif // !ENABLE(AX_THREAD_TEXT_APIS)
     AXColumnCount,
     AXColumnIndex,
     AXColumnIndexText,
@@ -160,6 +159,7 @@ enum class AXProperty : uint16_t {
     Columns,
     ColumnIndex,
     ColumnIndexRange,
+    IsFocusedWebArea,
     CrossFrameChildFrameID,
     CrossFrameParentFrameID,
     CrossFrameParentAXID,
@@ -181,7 +181,6 @@ enum class AXProperty : uint16_t {
     ExplicitLiveRegionRelevant,
     ExplicitLiveRegionStatus,
     ExplicitOrientation,
-    ExplicitPopupValue,
     ExtendedDescription,
 #if PLATFORM(COCOA)
     Font,
@@ -189,8 +188,10 @@ enum class AXProperty : uint16_t {
 #endif
     TextColor,
     HasApplePDFAnnotationAttribute,
+    HasExplicitGroupRole,
     HasLinethrough,
     HasRemoteFrameChild,
+    HeadingLevel,
     InputType,
     IsEditableWebArea,
     IsSubscript,
@@ -243,10 +244,8 @@ enum class AXProperty : uint16_t {
     KeyShortcuts,
     Language,
     LinethroughColor,
-#if ENABLE(AX_THREAD_TEXT_APIS)
     ListMarkerLineID,
     ListMarkerText,
-#endif // ENABLE(AX_THREAD_TEXT_APIS)
     LiveRegionAtomic,
     LocalizedActionVerb,
     MathFencedOpenString,
@@ -267,11 +266,11 @@ enum class AXProperty : uint16_t {
     MinValueForRange,
     NameAttribute,
     OuterHTML,
-    Path,
     PlaceholderValue,
 #if PLATFORM(COCOA)
     PlatformWidget,
 #endif
+    PopupValue,
     PosInSet,
     PreventKeyboardDOMEventDispatch,
     RadioButtonGroupMembers,
@@ -279,6 +278,8 @@ enum class AXProperty : uint16_t {
     RemoteFrameOffset,
     RemoteFramePlatformElement,
 #if PLATFORM(COCOA)
+    RemoteFrameID,
+    RemoteFrameProcessIdentifier,
     RemoteParent,
 #endif
     RevealableText,
@@ -300,15 +301,8 @@ enum class AXProperty : uint16_t {
     SupportsCurrent,
     SupportsKeyShortcuts,
     TextContentPrefixFromListMarker,
-#if !ENABLE(AX_THREAD_TEXT_APIS)
-    // Rather than caching text content as property when ENABLE(AX_THREAD_TEXT_APIS), we should
-    // synthesize it on-the-fly using AXProperty::TextRuns.
-    TextContent,
-#endif // !ENABLE(AX_THREAD_TEXT_APIS)
     TextInputMarkedTextMarkerRange,
-#if ENABLE(AX_THREAD_TEXT_APIS)
     TextRuns,
-#endif
     TitleAttribute,
     URL,
     UnderlineColor,
@@ -336,20 +330,18 @@ public:
 };
 
 // If this type is modified, the switchOn statment in AXIsolatedObject::setProperty must be updated as well.
-using AXPropertyValueVariant = Variant<std::nullptr_t, Markable<AXID>, String, bool, int, unsigned, double, float, uint64_t, WallTime, DateComponentsType, AccessibilityButtonState, Color, std::unique_ptr<URL>, LayoutRect, FloatPoint, FloatRect, InputType::Type, IntPoint, IntRect, std::pair<unsigned, unsigned>, Vector<AccessibilityText>, Vector<AXID>, Vector<std::pair<Markable<AXID>, Markable<AXID>>>, Vector<String>, std::unique_ptr<Path>, Vector<AXStitchGroup>, OptionSet<AXAncestorFlag>, Vector<Vector<Markable<AXID>>>, CharacterRange, std::unique_ptr<AXIDAndCharacterRange>, ElementName, AccessibilityOrientation
+using AXPropertyValueVariant = Variant<std::nullptr_t, Markable<AXID>, String, bool, int, unsigned, double, float, uint64_t, WallTime, DateComponentsType, AccessibilityButtonState, Color, std::unique_ptr<URL>, LayoutRect, FloatPoint, FloatRect, InputType::Type, IntPoint, IntRect, std::pair<unsigned, unsigned>, Vector<AccessibilityText>, Vector<AXID>, Vector<std::pair<Markable<AXID>, Markable<AXID>>>, Vector<String>, Vector<AXStitchGroup>, OptionSet<AXAncestorFlag>, Vector<Vector<Markable<AXID>>>, CharacterRange, std::unique_ptr<AXIDAndCharacterRange>, ElementName, AccessibilityOrientation
 #if PLATFORM(COCOA)
     , RetainPtr<NSAttributedString>
     , RetainPtr<NSView>
     , RetainPtr<id>
     , Style::SpeakAs
 #endif // PLATFORM(COCOA)
-#if ENABLE(AX_THREAD_TEXT_APIS)
     , RetainPtr<CTFontRef>
     , FontOrientation
     , std::unique_ptr<AXTextRuns>
     , AXTextRunLineID
     , FrameIdentifier
-#endif // ENABLE(AX_THREAD_TEXT_APIS)
 >;
 using AXPropertyVector = Vector<std::pair<AXProperty, AXPropertyValueVariant>>;
 WTF::TextStream& operator<<(WTF::TextStream&, const AXPropertyVector&);
@@ -393,6 +385,11 @@ struct NodeUpdateOptions {
 
 void setPropertyIn(AXProperty, AXPropertyValueVariant&&, AXPropertyVector&, OptionSet<AXPropertyFlag>&);
 
+struct NodeAndParentID {
+    AXID nodeID;
+    Markable<AXID> parentID;
+};
+
 struct IsolatedObjectData {
     Vector<AXID> childrenIDs;
     AXPropertyVector properties;
@@ -426,6 +423,8 @@ struct IsolatedObjectData {
     }
 };
 
+enum class DidTearDown : bool { No, Yes };
+
 DECLARE_ALLOCATOR_WITH_HEAP_IDENTIFIER(AXIsolatedTree);
 class AXIsolatedTree : public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<AXIsolatedTree>
     , public AXTreeStore<AXIsolatedTree> {
@@ -438,6 +437,7 @@ public:
     // Creates a tree consisting of only the Scrollview and the WebArea objects. This tree is used as a temporary placeholder while the whole tree is being built.
     static Ref<AXIsolatedTree> createEmpty(AXObjectCache&);
     constexpr bool isEmptyContentTree() const { return m_isEmptyContentTree; }
+    unsigned nodeMapSize() const { return m_nodeMap.size(); }
     virtual ~AXIsolatedTree();
 
     static void removeTreeForFrameID(FrameIdentifier);
@@ -447,13 +447,25 @@ public:
     AXObjectCache* axObjectCache() const;
     constexpr AXGeometryManager* geometryManager() const { return m_geometryManager.get(); }
 
-    AXIsolatedObject* rootNode() { AX_ASSERT(!isMainThread()); return m_rootNode.get(); }
+#if ENABLE(ACCESSIBILITY_LOCAL_FRAME)
+    AXFrameGeometry frameGeometry() const { return m_frameGeometry; }
+    IntPoint frameViewOriginScrollPosition() const { return m_frameViewOriginScrollPosition; }
+    bool isFrameGeometryInitialized() const { return m_hasReceivedFrameGeometry; }
+    void setFrameGeometry(AXFrameGeometry&&, IntPoint viewOriginScrollPosition);
+    void updateFrameGeometryAndScrollPositionIfNeeded(AXObjectCache&);
+#endif
+
+    AXIsolatedObject* rootNode() { AX_ASSERT(!isMainThread()); return objectForID(m_rootNodeID); }
     std::optional<AXID> pendingRootNodeID();
     RefPtr<AXIsolatedObject> rootWebArea();
     std::optional<AXID> focusedNodeID();
     WEBCORE_EXPORT RefPtr<AXIsolatedObject> focusedNode();
 
     bool unsafeHasObjectForID(AXID axID) const;
+    // Not threadsafe, only for debug snapshot use.
+    std::optional<AXID> unsafeFocusedNodeID() const { return m_focusedNodeID; }
+    std::optional<AXID> unsafeRootNodeID() const { return m_rootNodeID; }
+
     inline AXIsolatedObject* objectForID(AXID axID) const
     {
         AX_ASSERT(!isMainThread());
@@ -469,6 +481,14 @@ public:
     }
     template<typename U> Vector<Ref<AXCoreObject>> objectsForIDs(const U&);
 
+    struct CachedUnignoredChildren {
+        Vector<Ref<AXCoreObject>> children;
+        bool hasPotentialStitchable { false };
+        // true if any child hosts a cross-frame subtree (i.e. a LocalFrame).
+        bool hasCrossFrameChild { false };
+    };
+    HashMap<AXID, CachedUnignoredChildren>& cachedUnignoredChildrenMap() { AX_ASSERT(!isMainThread()); return m_cachedUnignoredChildren; }
+
     void generateSubtree(AccessibilityObject&);
     bool shouldCreateNodeChange(AccessibilityObject&);
     enum class ResolveNodeChanges : bool { No, Yes };
@@ -479,8 +499,8 @@ public:
     void updateRootScreenRelativePosition();
     void overrideNodeProperties(AXID, AXPropertyVector&&);
 
-    double loadingProgress();
-    void updateLoadingProgress(double);
+    double NODELETE loadingProgress();
+    void NODELETE updateLoadingProgress(double);
 
     void addUnconnectedNode(Ref<AccessibilityObject>);
     bool isUnconnectedNode(std::optional<AXID> axID) const { return axID && m_unconnectedNodes.contains(*axID); }
@@ -491,57 +511,22 @@ public:
 
     void objectBecameIgnored(const AccessibilityObject& object)
     {
-#if !ENABLE(INCLUDE_IGNORED_IN_CORE_AX_TREE)
-        // When an object becomes ignored, we should immediately remove it from the nodemap.
-        // This is critical because objects can become ignored at any point, including in the
-        // middle of AXObjectCache::handleChildrenChanged(). Consider this tree structure:
-        //   <main> (not ignored)
-        //   ++<div> (not ignored)
-        // Imagine <div> gains new children, and we run handleChildrenChanged() for it. However,
-        // it becomes ignored in the middle of handleChildrenChanged(). We will still call
-        // AXIsolatedTree::updateChildren for this <div>, and because it isn't yet removed from
-        // the nodemap, we will run the children update on the <div> rather than the <main>.
-        // Eagerly removing <div> from the nodemap when it becomes ignored prevents this by
-        // allowing us to ascend up the nodemap to the <main>, which can properly scoop up <div>s children.
-
-        // Note that this problem is only relevant in a world where !ENABLE(INCLUDE_IGNORED_IN_CORE_AX_TREE),
-        // because when that flag is on, is-ignored doesn't matter when building the core-tree.
-
-        // Normally, when removing things from the nodemap, we want to use removeSubtreeFromNodeMap because
-        // it removes both the given object, and all its descendants, as the descendants should not be in the
-        // tree without some parent. However, when something becomes ignored, those descendants still exist,
-        // just with a different parent (the next unignored ancestor). So we can safely only remove the given
-        // object from the nodemap, and rely on the normal updateChildren flow to repair parent relationships
-        // as needed.
-        m_nodeMap.remove(object.objectID());
-        // Any queued parent updates no longer need to happen (and if we do try to process them, we'll crash,
-        // since this object is no longer in the node map).
-        m_needsParentUpdate.remove(object.objectID());
-#endif // !ENABLE(INCLUDE_IGNORED_IN_CORE_AX_TREE)
-
-#if ENABLE(INCLUDE_IGNORED_IN_CORE_AX_TREE)
         objectChangedIgnoredState(object);
         queueNodeUpdate(object.objectID(), { { AXProperty::IsIgnored, AXProperty::RevealableText } });
-#endif // ENABLE(INCLUDE_IGNORED_IN_CORE_AX_TREE)
     }
     void objectBecameUnignored(const AccessibilityObject& object)
     {
-#if ENABLE(INCLUDE_IGNORED_IN_CORE_AX_TREE)
         // We only cache minimal properties for ignored objects, so do a full node update to ensure all properties are cached.
         queueNodeUpdate(object.objectID(), NodeUpdateOptions::nodeUpdate());
         objectChangedIgnoredState(object);
-#else
-        UNUSED_PARAM(object);
-#endif // ENABLE(INCLUDE_IGNORED_IN_CORE_AX_TREE)
     }
 
     // Both setPendingRootNodeLocked and setFocusedNodeID are called during the generation
     // of the IsolatedTree.
     // Focused node updates in AXObjectCache use setFocusNodeID.
     void setPendingRootNodeID(AXID);
-    void setPendingRootNodeIDLocked(AXID) WTF_REQUIRES_LOCK(m_changeLogLock);
+    void NODELETE setPendingRootNodeIDLocked(AXID) WTF_REQUIRES_LOCK(m_changeLogLock);
     void setFocusedNodeID(std::optional<AXID>);
-    void applyPendingRootNodeLocked() WTF_REQUIRES_LOCK(m_changeLogLock);
 
     // Relationships between objects.
     std::optional<ListHashSet<AXID>> relatedObjectIDsFor(const AXIsolatedObject&, AXRelation);
@@ -552,18 +537,48 @@ public:
     AXCoreObject::AccessibilityChildrenVector sortedNonRootWebAreas();
 
     void markMostRecentlyPaintedTextDirty() { m_mostRecentlyPaintedTextIsDirty = true; }
-    const HashMap<AXID, LineRange>& mostRecentlyPaintedText() const { return m_mostRecentlyPaintedText; }
+    const HashMap<AXID, LineRange>& mostRecentlyPaintedText() const LIFETIME_BOUND { return m_mostRecentlyPaintedText; }
 
     // Called on AX thread from WebAccessibilityObjectWrapper methods.
     WEBCORE_EXPORT void applyPendingChanges();
     void applyPendingChangesUnlessQueuedForDestruction();
 
-    constexpr AXID treeID() const { return m_id; }
+#if ENABLE(ACCESSIBILITY_THREAD_DISPATCHING)
+    enum class AXThreadDispatchResult : bool { Succeeded, Failed };
+    static AXThreadDispatchResult callOnAXThread(Function<void()>&&);
+#endif
+
+    // Returns DidTearDown::Yes if this tree was queued for destruction and tree teardown was performed.
+    // "Tear down" is very intentionally chosen wording, as it means we've cleared all internal
+    // member variables that could hold a strong-ref to the tree, but we can't actually force
+    // tree destruction until its ref-count falls to zero (which may or may not happen from the
+    // teardown depending on the outstanding ref-count elsewhere).
+    //
+    // Callers are responsible for removing the tree from isolatedTreeMap() when true is returned
+    // (hence the [[nodiscard]]).
+    [[nodiscard]] DidTearDown applyPendingChangesOrTearDown();
+
+    // Returns true if any tree has been queued for destruction but not yet cleaned up.
+    static bool anyTreeNeedsTearDown() { return s_anyTreeNeedsTearDown.load(std::memory_order_relaxed); }
+    static void clearAnyTreeNeedsTearDown() { s_anyTreeNeedsTearDown.store(false, std::memory_order_relaxed); }
+
+    static bool shouldCacheIdentifierAttribute()
+    {
+#if !LOG_DISABLED
+        // Always cache the ID when logging is enabled to avoid
+        // main-thread hits when logging objects.
+        return true;
+#else
+        return AXObjectCache::clientIsInTestMode();
+#endif
+    }
+
+    constexpr AXTreeID treeID() const { return m_id; }
     constexpr ProcessID processID() const { return m_processID; }
+    constexpr bool isMainFrame() const { return m_isMainFrame; }
+    constexpr bool siteIsolationEnabled() const { return m_siteIsolationEnabled; }
     void setPageActivityState(OptionSet<ActivityState>);
-    OptionSet<ActivityState> pageActivityState() const;
-    // Use only if the s_storeLock is already held like in findAXTree.
-    WEBCORE_EXPORT OptionSet<ActivityState> lockedPageActivityState() const;
+    WEBCORE_EXPORT OptionSet<ActivityState> pageActivityState() const;
 
     AXTextMarkerRange selectedTextMarkerRange() { return m_selectedTextMarkerRange; }
     void setSelectedTextMarkerRange(AXTextMarkerRange&&);
@@ -578,10 +593,10 @@ public:
     void queueNodeRemoval(const AccessibilityObject&);
     void processQueuedNodeUpdates();
 
-#if ENABLE(AX_THREAD_TEXT_APIS)
     AXTextMarker firstMarker();
     AXTextMarker lastMarker();
-#endif
+
+    RefPtr<AXIsolatedTree> replacingTreeForLogging() const { return m_replacingTree; }
 
 private:
     AXIsolatedTree(AXObjectCache&);
@@ -593,10 +608,18 @@ private:
     // because it could be being used by the secondary thread to service an AX request.
     void queueForDestruction();
 
-    void applyPendingChangesLocked() WTF_REQUIRES_LOCK(m_changeLogLock);
+    void deleteSubtree(Ref<AXCoreObject>&&, const HashSet<AXID>& protectedFromDeletionIDs);
+    void clearTreeContentsLocked() WTF_REQUIRES_LOCK(m_changeLogLock);
+    bool hasPendingChanges() const { return m_hasPendingChanges.load(); }
+
+#if ENABLE(ACCESSIBILITY_THREAD_DISPATCHING)
+    static AXThreadDispatchResult platformCallOnAXThread(Function<void()>&&);
+#endif
+
+    static std::atomic<bool> s_anyTreeNeedsTearDown;
 
     // rdar://161259641 (Figure out a way to enforce WTF_REQUIRES_LOCK when we might need to access it while already holding the lock)
-    static HashMap<FrameIdentifier, Ref<AXIsolatedTree>>& treeFrameCache(); // WTF_REQUIRES_LOCK(s_storeLock);
+    static HashMap<FrameIdentifier, Ref<AXIsolatedTree>>& NODELETE treeFrameCache(); // WTF_REQUIRES_LOCK(s_storeLock);
 
     void createEmptyContent(AccessibilityObject&);
     constexpr bool isUpdatingSubtree() const { return m_rootOfSubtreeBeingUpdated; }
@@ -618,6 +641,63 @@ private:
         NodeChange(NodeChange&&) = default;
     };
 
+    struct PendingChanges {
+        Markable<AXID> focusedNodeID;
+        Markable<AXID> rootNodeID;
+        Vector<NodeChange> appends;
+        Vector<AXPropertyChange> propertyChanges;
+        Vector<NodeAndParentID> subtreeRemovals;
+        Vector<std::pair<AXID, Vector<AXID>>> childrenUpdates;
+        HashSet<AXID> protectedFromDeletionIDs;
+        HashMap<AXID, AXID> parentUpdates;
+        std::optional<Vector<AXID>> sortedLiveRegionIDs;
+        std::optional<Vector<AXID>> sortedNonRootWebAreaIDs;
+        std::optional<HashMap<AXID, LineRange>> mostRecentlyPaintedText;
+        std::optional<HashMap<AXID, AXRelations>> relations;
+        std::optional<AXTextMarkerRange> selectedTextMarkerRange;
+#if ENABLE(ACCESSIBILITY_LOCAL_FRAME)
+        std::optional<AXFrameGeometry> frameGeometry;
+        std::optional<IntPoint> frameViewOriginScrollPosition;
+#endif
+    };
+
+    class PendingChangesAccessor {
+        WTF_MAKE_NONCOPYABLE(PendingChangesAccessor);
+    public:
+        PendingChangesAccessor(PendingChanges& data, std::atomic<bool>& flagToSetOnCompletion)
+            : m_data(data), m_flagToSetOnCompletion(flagToSetOnCompletion) { }
+        ~PendingChangesAccessor()
+        {
+            // Don't create a PendingChangesAccessor without using it — the destructor
+            // unconditionally sets m_hasPendingChanges, so unused accessors cause
+            // false-positive dirty flags.
+            AX_ASSERT(m_wasAccessed);
+            m_flagToSetOnCompletion.store(true);
+        }
+        PendingChanges* operator->()
+        {
+#if ASSERT_ENABLED
+            m_wasAccessed = true;
+#endif
+            return &m_data;
+        }
+    private:
+        PendingChanges& m_data;
+        std::atomic<bool>& m_flagToSetOnCompletion;
+#if ASSERT_ENABLED
+        bool m_wasAccessed { false };
+#endif
+    };
+
+    PendingChangesAccessor mutablePendingChanges() WTF_REQUIRES_LOCK(m_changeLogLock)
+    {
+        return { m_pendingChanges, m_hasPendingChanges };
+    }
+
+    PendingChanges takePendingChangesLocked() WTF_REQUIRES_LOCK(m_changeLogLock);
+    void applyPendingChangesFromSnapshot(PendingChanges&&);
+    void removeStaleAppends(const Vector<NodeAndParentID>&, Vector<NodeChange>&);
+
     void updateChildren(AccessibilityObject&, ResolveNodeChanges = ResolveNodeChanges::Yes);
     void updateNode(AccessibilityObject&);
     void updateNodeProperties(AccessibilityObject&, const AXPropertySet&);
@@ -626,11 +706,11 @@ private:
     void collectNodeChangesForSubtree(AccessibilityObject&);
     bool isCollectingNodeChanges() const { return m_isCollectingNodeChanges; }
     void queueChange(NodeChange&&) WTF_REQUIRES_LOCK(m_changeLogLock);
-    void queueRemovals(Vector<AXID>&&);
-    void queueRemovalsLocked(Vector<AXID>&&) WTF_REQUIRES_LOCK(m_changeLogLock);
+    void queueRemovals(Vector<NodeAndParentID>&&);
+    void queueRemovalsLocked(Vector<NodeAndParentID>&&) WTF_REQUIRES_LOCK(m_changeLogLock);
     void queueRemovalsAndUnresolvedChanges();
     Vector<NodeChange> resolveAppends();
-    void queueAppendsAndRemovals(Vector<NodeChange>&&, Vector<AXID>&&);
+    void queueAppendsAndRemovals(Vector<NodeChange>&&, Vector<NodeAndParentID>&&);
 
     void objectChangedIgnoredState(const AccessibilityObject&);
 
@@ -662,7 +742,7 @@ private:
     // While performing tree updates, we append nodes to this list that are no longer connected
     // in the tree and should be removed. This list turns into m_pendingSubtreeRemovals when
     // handed off to the secondary thread.
-    Vector<AXID> m_subtreesToRemove;
+    Vector<NodeAndParentID> m_subtreesToRemove;
     // Only accessed on the main thread.
     // This is used when updating the isolated tree in response to dynamic children changes.
     // It is required to protect objects from being incorrectly deleted when they are re-parented,
@@ -675,37 +755,41 @@ private:
 
     // Only accessed on AX thread.
     HashMap<AXID, Ref<AXIsolatedObject>> m_readerThreadNodeMap;
-    RefPtr<AXIsolatedObject> m_rootNode;
+    Markable<AXID> m_rootNodeID;
 
     // Written to by main thread under lock, accessed and applied by AX thread.
-    Markable<AXID> m_pendingRootNodeID WTF_GUARDED_BY_LOCK(m_changeLogLock);
-    Vector<NodeChange> m_pendingAppends WTF_GUARDED_BY_LOCK(m_changeLogLock); // Nodes to be added to the tree and platform-wrapped.
-    Vector<AXPropertyChange> m_pendingPropertyChanges WTF_GUARDED_BY_LOCK(m_changeLogLock);
-    HashSet<AXID> m_pendingSubtreeRemovals WTF_GUARDED_BY_LOCK(m_changeLogLock); // Nodes whose subtrees are to be removed from the tree.
-    Vector<std::pair<AXID, Vector<AXID>>> m_pendingChildrenUpdates WTF_GUARDED_BY_LOCK(m_changeLogLock);
-    HashSet<AXID> m_pendingProtectedFromDeletionIDs WTF_GUARDED_BY_LOCK(m_changeLogLock);
-    HashMap<AXID, AXID> m_pendingParentUpdates WTF_GUARDED_BY_LOCK(m_changeLogLock);
-    Markable<AXID> m_pendingFocusedNodeID WTF_GUARDED_BY_LOCK(m_changeLogLock);
-    std::optional<Vector<AXID>> m_pendingSortedLiveRegionIDs WTF_GUARDED_BY_LOCK(m_changeLogLock);
+    PendingChanges m_pendingChanges WTF_GUARDED_BY_LOCK(m_changeLogLock);
 
-    // These three are placed here to fit in padding that would otherwise be between m_pendingSortedLiveRegionIDs and m_pendingSortedNonRootWebAreaIDs.
+    // These are placed here to fit in padding that would otherwise be between m_pendingSortedLiveRegionIDs and m_pendingSortedNonRootWebAreaIDs.
     OptionSet<ActivityState> m_pageActivityState;
     bool m_isEmptyContentTree { false };
     bool m_queuedForDestruction WTF_GUARDED_BY_LOCK(m_changeLogLock) { false };
+    bool m_isMainFrame { false };
+    bool m_siteIsolationEnabled { false };
 
-    std::optional<Vector<AXID>> m_pendingSortedNonRootWebAreaIDs WTF_GUARDED_BY_LOCK(m_changeLogLock);
-    std::optional<HashMap<AXID, LineRange>> m_pendingMostRecentlyPaintedText WTF_GUARDED_BY_LOCK(m_changeLogLock);
-    std::optional<HashMap<AXID, AXRelations>> m_pendingRelations WTF_GUARDED_BY_LOCK(m_changeLogLock);
-    std::optional<AXTextMarkerRange> m_pendingSelectedTextMarkerRange WTF_GUARDED_BY_LOCK(m_changeLogLock);
     Markable<AXID> m_focusedNodeID;
     std::atomic<double> m_loadingProgress { 0 };
     std::atomic<double> m_processingProgress { 1 };
+    std::atomic<bool> m_hasPendingChanges { false };
+#if ENABLE(ACCESSIBILITY_THREAD_DISPATCHING)
+    std::atomic<bool> m_appliedOrApplyingMainThreadSnapshot { true };
+#endif
 
     // Only accessed on the accessibility thread.
     Vector<AXID> m_sortedLiveRegionIDs;
     Vector<AXID> m_sortedNonRootWebAreaIDs;
     HashMap<AXID, LineRange> m_mostRecentlyPaintedText;
     HashMap<AXID, AXRelations> m_relations;
+    // Cache of unignoredChildren() results for AXIsolatedObjects. Populated lazily
+    // on cache miss; cleared in applyPendingChangesFromSnapshot when the incoming snapshot
+    // carries a change that could affect any unignored-children list (tree structure change,
+    // or IsIgnored / IsExposableTable / StitchGroups property update).
+    HashMap<AXID, CachedUnignoredChildren> m_cachedUnignoredChildren;
+#if ENABLE(ACCESSIBILITY_LOCAL_FRAME)
+    AXFrameGeometry m_frameGeometry;
+    IntPoint m_frameViewOriginScrollPosition;
+    bool m_hasReceivedFrameGeometry { false };
+#endif
 
     // Set to true by the AXObjectCache and false by AXIsolatedTree.
     // Both are only to be used on the main-thread.
@@ -729,7 +813,7 @@ private:
 };
 
 IsolatedObjectData createIsolatedObjectData(const Ref<AccessibilityObject>&, Ref<AXIsolatedTree>);
-std::optional<AXPropertyFlag> convertToPropertyFlag(AXProperty);
+std::optional<AXPropertyFlag> NODELETE convertToPropertyFlag(AXProperty);
 
 inline AXObjectCache* AXIsolatedTree::axObjectCache() const
 {

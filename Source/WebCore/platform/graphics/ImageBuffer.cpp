@@ -36,6 +36,7 @@
 #include "HostWindow.h"
 #include "ImageBufferDisplayListBackend.h"
 #include "ImageBufferPlatformBackend.h"
+#include "ImageUtilities.h"
 #include "MIMETypeRegistry.h"
 #include "ProcessCapabilities.h"
 #include "TransparencyLayerContextSwitcher.h"
@@ -45,18 +46,13 @@
 
 #if USE(CG)
 #include "ImageBufferCGPDFDocumentBackend.h"
-#include "ImageBufferUtilitiesCG.h"
-#endif
-
-#if USE(CAIRO)
-#include "ImageBufferUtilitiesCairo.h"
 #endif
 
 #if USE(SKIA)
 #include "GLContext.h"
 #include "ImageBufferSkiaAcceleratedBackend.h"
-#include "ImageBufferUtilitiesSkia.h"
 #include "PlatformDisplay.h"
+#include "SkiaSerializedImageBuffer.h"
 
 WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
 #include <skia/gpu/ganesh/GrBackendSurface.h>
@@ -124,7 +120,7 @@ RefPtr<ImageBuffer> ImageBuffer::create(const FloatSize& size, RenderingMode ren
 }
 
 ImageBuffer::ImageBuffer(Parameters parameters, const ImageBufferBackend::Info& backendInfo, const WebCore::ImageBufferCreationContext&, std::unique_ptr<ImageBufferBackend>&& backend, RenderingResourceIdentifier renderingResourceIdentifier)
-    : m_parameters(parameters)
+    : m_parameters(WTF::move(parameters))
     , m_backendInfo(backendInfo)
     , m_backend(WTF::move(backend))
     , m_renderingResourceIdentifier(renderingResourceIdentifier)
@@ -161,6 +157,7 @@ RefPtr<ImageBuffer> SerializedImageBuffer::sinkIntoImageBuffer(std::unique_ptr<S
     return buffer->sinkIntoImageBuffer();
 }
 
+#if !USE(SKIA)
 // The default serialization of an ImageBuffer just assumes that we can
 // pass it as-is, as long as this is the only reference.
 class DefaultSerializedImageBuffer : public SerializedImageBuffer {
@@ -169,10 +166,6 @@ public:
     DefaultSerializedImageBuffer(ImageBuffer* image)
         : m_buffer(image)
     {
-#if USE(SKIA)
-        if (image->renderingMode() == RenderingMode::Accelerated)
-            image->flushDrawingContext();
-#endif
     }
 
     RefPtr<ImageBuffer> sinkIntoImageBuffer() final
@@ -193,12 +186,17 @@ public:
 private:
     RefPtr<ImageBuffer> m_buffer;
 };
+#endif
 
 std::unique_ptr<SerializedImageBuffer> ImageBuffer::sinkIntoSerializedImageBuffer()
 {
     ASSERT(hasOneRef());
     ASSERT(!controlBlock().weakRefCount());
+#if USE(SKIA)
+    return makeUnique<SkiaSerializedImageBuffer>(*this);
+#else
     return makeUnique<DefaultSerializedImageBuffer>(this);
+#endif
 }
 
 std::unique_ptr<SerializedImageBuffer> ImageBuffer::sinkIntoSerializedImageBuffer(RefPtr<ImageBuffer>&& image)
@@ -281,16 +279,6 @@ static RefPtr<NativeImage> copyImageBufferToNativeImage(Ref<ImageBuffer> source,
     return ImageBuffer::sinkIntoNativeImage(WTF::move(copyBuffer));
 }
 
-static RefPtr<NativeImage> copyImageBufferToOpaqueNativeImage(Ref<ImageBuffer> source, PreserveResolution preserveResolution)
-{
-    // Composite this ImageBuffer on top of opaque black, because JPEG does not have an alpha channel.
-    auto copyBuffer = copyImageBuffer(WTF::move(source), preserveResolution);
-    if (!copyBuffer)
-        return { };
-    // We composite the copy on top of black by drawing black under the copy.
-    copyBuffer->context().fillRect({ { }, copyBuffer->logicalSize() }, Color::black, CompositeOperator::DestinationOver);
-    return ImageBuffer::sinkIntoNativeImage(WTF::move(copyBuffer));
-}
 
 RefPtr<ImageBuffer> ImageBuffer::clone() const
 {
@@ -319,6 +307,12 @@ bool ImageBuffer::flushDrawingContextAsync()
     // This function is only really useful for the Remote subclass.
     flushDrawingContext();
     return true;
+}
+
+void ImageBuffer::submitDrawingCommands()
+{
+    if (auto* backend = ensureBackend())
+        backend->submitDrawingCommands();
 }
 
 void ImageBuffer::prepareForDisplay()
@@ -354,6 +348,11 @@ RefPtr<NativeImage> ImageBuffer::createNativeImageReference() const
     if (auto* backend = ensureBackend())
         return backend->createNativeImageReference();
     return nullptr;
+}
+
+bool ImageBuffer::isRemoteImageBufferProxy() const
+{
+    return false;
 }
 
 RefPtr<NativeImage> ImageBuffer::sinkIntoNativeImage()
@@ -477,36 +476,6 @@ void ImageBuffer::transformToColorSpace(const DestinationColorSpace& newColorSpa
         backend->transformToColorSpace(newColorSpace);
         m_parameters.colorSpace = newColorSpace;
     }
-}
-
-String ImageBuffer::toDataURL(const String& mimeType, std::optional<double> quality, PreserveResolution preserveResolution) const
-{
-    return toDataURL(Ref { const_cast<ImageBuffer&>(*this) }, mimeType, quality, preserveResolution);
-}
-
-Vector<uint8_t> ImageBuffer::toData(const String& mimeType, std::optional<double> quality, PreserveResolution preserveResolution) const
-{
-    return toData(Ref { const_cast<ImageBuffer&>(*this) }, mimeType, quality, preserveResolution);
-}
-
-String ImageBuffer::toDataURL(Ref<ImageBuffer> source, const String& mimeType, std::optional<double> quality, PreserveResolution preserveResolution)
-{
-    auto encodedData = toData(WTF::move(source), mimeType, quality, preserveResolution);
-    if (encodedData.isEmpty())
-        return "data:,"_s;
-    return makeString("data:"_s, mimeType, ";base64,"_s, base64Encoded(encodedData));
-}
-
-Vector<uint8_t> ImageBuffer::toData(Ref<ImageBuffer> source, const String& mimeType, std::optional<double> quality, PreserveResolution preserveResolution)
-{
-    RefPtr<NativeImage> image = MIMETypeRegistry::isJPEGMIMEType(mimeType) ? copyImageBufferToOpaqueNativeImage(WTF::move(source), preserveResolution) : copyImageBufferToNativeImage(WTF::move(source), DontCopyBackingStore, preserveResolution);
-    if (!image)
-        return { };
-#if USE(SKIA)
-    return encodeData(*image, mimeType, quality);
-#elif USE(CG) || USE(CAIRO)
-    return encodeData(image->platformImage().get(), mimeType, quality);
-#endif
 }
 
 RefPtr<PixelBuffer> ImageBuffer::getPixelBuffer(const PixelBufferFormat& destinationFormat, const IntRect& sourceRect, const ImageBufferAllocator& allocator) const
@@ -636,7 +605,8 @@ std::optional<DynamicContentScalingDisplayList> ImageBuffer::dynamicContentScali
 
 void ImageBuffer::transferToNewContext(const ImageBufferCreationContext& context)
 {
-    backend()->transferToNewContext(context);
+    if (auto* backend = ensureBackend())
+        backend->transferToNewContext(context);
 }
 
 String ImageBuffer::debugDescription() const

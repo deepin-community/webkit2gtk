@@ -73,7 +73,6 @@ public:
     static Ref<HTMLCanvasElement> create(const QualifiedName&, Document&);
     virtual ~HTMLCanvasElement();
 
-    using HTMLElement::protectedScriptExecutionContext;
 
     WEBCORE_EXPORT ExceptionOr<void> setWidth(unsigned);
     WEBCORE_EXPORT ExceptionOr<void> setHeight(unsigned);
@@ -138,7 +137,7 @@ public:
     void setIsSnapshotting(bool isSnapshotting) { m_isSnapshotting = isSnapshotting; }
     bool isSnapshotting() const { return m_isSnapshotting; }
 
-    bool isControlledByOffscreen() const;
+    bool NODELETE isControlledByOffscreen() const;
 
     void queueTaskKeepingObjectAlive(TaskSource, Function<void(CanvasBase&)>&&) final;
     void dispatchEvent(Event&) final;
@@ -165,8 +164,8 @@ private:
     void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) final;
     bool hasPresentationalHintsForAttribute(const QualifiedName&) const final;
     void collectPresentationalHintsForAttribute(const QualifiedName&, const AtomString&, MutableStyleProperties&) final;
-    RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) final;
-    bool isReplaced(const RenderStyle* = nullptr) const final;
+    RenderPtr<RenderElement> createElementRenderer(Style::ComputedStyle&&, const RenderTreePosition&) final;
+    bool isReplaced(const Style::ComputedStyle* = nullptr) const final;
 
     bool canContainRangeEndPoint() const final;
     bool canStartSelection() const final;
@@ -176,7 +175,6 @@ private:
     bool usesContentsAsLayerContents() const;
 
     ScriptExecutionContext* canvasBaseScriptExecutionContext() const final { return HTMLElement::scriptExecutionContext(); }
-    RefPtr<ScriptExecutionContext> protectedCanvasBaseScriptExecutionContext() const { return canvasBaseScriptExecutionContext(); }
 
     void didMoveToNewDocument(Document& oldDocument, Document& newDocument) final;
 

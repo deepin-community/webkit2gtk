@@ -27,7 +27,6 @@
 #include "XMLDocumentParserScope.h"
 
 #include "CachedResourceLoader.h"
-#include "Text.h"
 #include "XMLDocumentParser.h"
 
 namespace WebCore {

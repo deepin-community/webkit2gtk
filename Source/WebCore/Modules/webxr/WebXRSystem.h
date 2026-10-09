@@ -32,10 +32,12 @@
 #include "EventTarget.h"
 #include "EventTargetInterfaces.h"
 #include "HTMLCanvasElement.h"
+#include "IntSize.h"
 #include "JSDOMPromiseDeferredForward.h"
 #include "PlatformXR.h"
 #include "WebGLContextAttributes.h"
 #include "WebGLRenderingContextBase.h"
+#include "WebXRSessionListener.h"
 #include "XRReferenceSpaceType.h"
 #include "XRSessionMode.h"
 #include <wtf/HashSet.h>
@@ -53,7 +55,7 @@ class WebXRSession;
 class SecurityOriginData;
 struct XRSessionInit;
 
-class WebXRSystem final : public RefCounted<WebXRSystem>, public EventTarget, public ActiveDOMObject {
+class WebXRSystem final : public RefCounted<WebXRSystem>, public WebXRSessionListener, public EventTarget, public ActiveDOMObject {
     WTF_MAKE_TZONE_ALLOCATED(WebXRSystem);
 public:
     using IsSessionSupportedPromise = DOMPromiseDeferred<IDLBoolean>;
@@ -75,13 +77,15 @@ public:
     bool hasActiveImmersiveXRDevice() const { return !!m_activeImmersiveDevice.get(); }
 
     RefPtr<WebXRSession> activeImmersiveSession() const;
-    void sessionEnded(WebXRSession&);
+
+    // WebXRSessionListener.
+    void onSessionEnded(const WebXRSession&) override;
 
     // For testing purpouses only.
     WEBCORE_EXPORT void registerSimulatedXRDeviceForTesting(PlatformXR::Device&);
     WEBCORE_EXPORT void unregisterSimulatedXRDeviceForTesting(PlatformXR::Device&);
 
-    Navigator* navigator();
+    Navigator* NODELETE navigator();
 
 protected:
     // EventTarget
@@ -127,7 +131,10 @@ private:
 
         void requestFrame(std::optional<PlatformXR::RequestData>&&, PlatformXR::Device::RequestFrameCallback&&) final;
         Vector<Device::ViewData> views(XRSessionMode) const final;
-        std::optional<PlatformXR::LayerHandle> createLayerProjection(uint32_t, uint32_t, bool) final { return std::nullopt; }
+        std::optional<PlatformXR::LayerInfo> createLayerProjection(uint32_t, uint32_t, bool) final { return std::nullopt; }
+#if ENABLE(WEBXR_LAYERS)
+        std::optional<PlatformXR::LayerInfo> createCompositionLayer(PlatformXR::CompositionLayerType, IntSize, PlatformXR::LayerLayout) final { return std::nullopt; }
+#endif
         void deleteLayer(PlatformXR::LayerHandle) final { }
 #if ENABLE(WEBXR_HIT_TEST)
         void requestHitTestSource(const PlatformXR::HitTestOptions&, CompletionHandler<void(WebCore::ExceptionOr<PlatformXR::HitTestSource>)>&&) final { };

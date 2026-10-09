@@ -605,80 +605,6 @@ TEST(WTF, getMSBSet)
     EXPECT_EQ(WTF::getMSBSet<uint64_t>(42), 5U);
 }
 
-TEST(WTF, clzConstexpr)
-{
-    EXPECT_EQ(WTF::clzConstexpr<int32_t>(1), 31U);
-    EXPECT_EQ(WTF::clzConstexpr<int32_t>(42), 26U);
-    EXPECT_EQ(WTF::clzConstexpr<uint32_t>(static_cast<uint32_t>(-1)), 0U);
-    EXPECT_EQ(WTF::clzConstexpr<uint32_t>(static_cast<uint32_t>(std::numeric_limits<int32_t>::min()) >> 1), 1U);
-    EXPECT_EQ(WTF::clzConstexpr<uint32_t>(0), 32U);
-
-    EXPECT_EQ(WTF::clzConstexpr<int8_t>(42), 2U);
-    EXPECT_EQ(WTF::clzConstexpr<int8_t>(3), 6U);
-    EXPECT_EQ(WTF::clzConstexpr<uint8_t>(static_cast<uint8_t>(-1)), 0U);
-    EXPECT_EQ(WTF::clzConstexpr<uint8_t>(0), 8U);
-
-    EXPECT_EQ(WTF::clzConstexpr<int64_t>(-1), 0U);
-    EXPECT_EQ(WTF::clzConstexpr<int64_t>(1), 63U);
-    EXPECT_EQ(WTF::clzConstexpr<int64_t>(3), 62U);
-    EXPECT_EQ(WTF::clzConstexpr<uint64_t>(42), 58U);
-    EXPECT_EQ(WTF::clzConstexpr<uint64_t>(0), 64U);
-}
-
-TEST(WTF, ctzConstexpr)
-{
-    EXPECT_EQ(WTF::ctzConstexpr<int32_t>(1), 0U);
-    EXPECT_EQ(WTF::ctzConstexpr<int32_t>(42), 1U);
-    EXPECT_EQ(WTF::ctzConstexpr<uint32_t>(static_cast<uint32_t>(-1)), 0U);
-    EXPECT_EQ(WTF::ctzConstexpr<uint32_t>(static_cast<uint32_t>(std::numeric_limits<int32_t>::min()) >> 1), 30U);
-    EXPECT_EQ(WTF::ctzConstexpr<uint32_t>(0), 32U);
-
-    EXPECT_EQ(WTF::ctzConstexpr<int8_t>(42), 1U);
-    EXPECT_EQ(WTF::ctzConstexpr<int8_t>(3), 0U);
-    EXPECT_EQ(WTF::ctzConstexpr<uint8_t>(static_cast<uint8_t>(-1)), 0U);
-    EXPECT_EQ(WTF::ctzConstexpr<uint8_t>(0), 8U);
-
-    EXPECT_EQ(WTF::ctzConstexpr<int64_t>(static_cast<uint32_t>(-1)), 0U);
-    EXPECT_EQ(WTF::ctzConstexpr<int64_t>(1), 0U);
-    EXPECT_EQ(WTF::ctzConstexpr<int64_t>(3), 0U);
-    EXPECT_EQ(WTF::ctzConstexpr<uint64_t>(42), 1U);
-    EXPECT_EQ(WTF::ctzConstexpr<uint64_t>(0), 64U);
-}
-
-TEST(WTF, getLSBSetConstexpr)
-{
-    EXPECT_EQ(WTF::getLSBSetConstexpr<int32_t>(1), 0U);
-    EXPECT_EQ(WTF::getLSBSetConstexpr<int32_t>(42), 1U);
-    EXPECT_EQ(WTF::getLSBSetConstexpr<uint32_t>(static_cast<uint32_t>(-1)), 0U);
-    EXPECT_EQ(WTF::getLSBSetConstexpr<uint32_t>(static_cast<uint32_t>(std::numeric_limits<int32_t>::min()) >> 1), 30U);
-
-    EXPECT_EQ(WTF::getLSBSetConstexpr<int8_t>(42), 1U);
-    EXPECT_EQ(WTF::getLSBSetConstexpr<int8_t>(3), 0U);
-    EXPECT_EQ(WTF::getLSBSetConstexpr<uint8_t>(static_cast<uint8_t>(-1)), 0U);
-
-    EXPECT_EQ(WTF::getLSBSetConstexpr<int64_t>(-1), 0U);
-    EXPECT_EQ(WTF::getLSBSetConstexpr<int64_t>(1), 0U);
-    EXPECT_EQ(WTF::getLSBSetConstexpr<int64_t>(3), 0U);
-    EXPECT_EQ(WTF::getLSBSetConstexpr<uint64_t>(42), 1U);
-}
-
-TEST(WTF, getMSBSetConstexpr)
-{
-    EXPECT_EQ(WTF::getMSBSetConstexpr<int32_t>(1), 0U);
-    EXPECT_EQ(WTF::getMSBSetConstexpr<int32_t>(42), 5U);
-    EXPECT_EQ(WTF::getMSBSetConstexpr<uint32_t>(static_cast<uint32_t>(-1)), 31U);
-    EXPECT_EQ(WTF::getMSBSetConstexpr<uint32_t>(static_cast<uint32_t>(std::numeric_limits<int32_t>::min()) >> 1), 30U);
-
-    EXPECT_EQ(WTF::getMSBSetConstexpr<int8_t>(42), 5U);
-    EXPECT_EQ(WTF::getMSBSetConstexpr<int8_t>(3), 1U);
-    EXPECT_EQ(WTF::getMSBSetConstexpr<uint8_t>(static_cast<uint8_t>(-1)), 7U);
-
-    EXPECT_EQ(WTF::getMSBSetConstexpr<int64_t>(-1), 63U);
-    EXPECT_EQ(WTF::getMSBSetConstexpr<int64_t>(1), 0U);
-    EXPECT_EQ(WTF::getMSBSetConstexpr<int64_t>(3), 1U);
-    EXPECT_EQ(WTF::getMSBSetConstexpr<uint64_t>(42), 5U);
-}
-
 TEST(WTF, fastLog2)
 {
     EXPECT_EQ(WTF::fastLog2(0u), 0u);
@@ -751,6 +677,31 @@ TEST(WTF, negate)
     EXPECT_EQ(WTF::negate<long long>(std::numeric_limits<long long>::min() + 1LL), std::numeric_limits<long long>::max());
     EXPECT_EQ(WTF::negate<long long>(-1LL), 1LL);
     EXPECT_EQ(WTF::negate<long long>(0LL), 0LL);
+}
+
+TEST(WTF, divideRoundedUp)
+{
+    // Basic rounding behavior.
+    EXPECT_EQ(divideRoundedUp<unsigned>(0, 3), 0U);
+    EXPECT_EQ(divideRoundedUp<unsigned>(1, 3), 1U);
+    EXPECT_EQ(divideRoundedUp<unsigned>(3, 3), 1U);
+    EXPECT_EQ(divideRoundedUp<unsigned>(4, 3), 2U);
+    EXPECT_EQ(divideRoundedUp<unsigned>(6, 3), 2U);
+    EXPECT_EQ(divideRoundedUp<unsigned>(7, 3), 3U);
+
+    // Divisor of 1 returns the dividend unchanged, even at the maximum.
+    EXPECT_EQ(divideRoundedUp<uint8_t>(std::numeric_limits<uint8_t>::max(), 1), std::numeric_limits<uint8_t>::max());
+    EXPECT_EQ(divideRoundedUp<size_t>(std::numeric_limits<size_t>::max(), 1), std::numeric_limits<size_t>::max());
+
+    // Dividends near the maximum must not overflow the (a + b - 1) intermediate.
+    EXPECT_EQ(divideRoundedUp<uint8_t>(std::numeric_limits<uint8_t>::max(), 2), 128U);
+    EXPECT_EQ(divideRoundedUp<uint16_t>(std::numeric_limits<uint16_t>::max(), 2), 32768U);
+    EXPECT_EQ(divideRoundedUp<uint32_t>(std::numeric_limits<uint32_t>::max(), 2), 2147483648U);
+    EXPECT_EQ(divideRoundedUp<uint64_t>(std::numeric_limits<uint64_t>::max(), 2), 9223372036854775808ULL);
+
+    EXPECT_EQ(divideRoundedUp<uint8_t>(std::numeric_limits<uint8_t>::max(), std::numeric_limits<uint8_t>::max()), 1U);
+    EXPECT_EQ(divideRoundedUp<size_t>(std::numeric_limits<size_t>::max(), std::numeric_limits<size_t>::max()), 1U);
+    EXPECT_EQ(divideRoundedUp<size_t>(std::numeric_limits<size_t>::max() - 1, std::numeric_limits<size_t>::max()), 1U);
 }
 
 } // namespace TestWebKitAPI

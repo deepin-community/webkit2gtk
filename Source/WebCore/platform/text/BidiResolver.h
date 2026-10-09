@@ -21,9 +21,9 @@
 
 #pragma once
 
-#include <WebCore/BidiContext.h>
-#include <WebCore/BidiRunList.h>
-#include <WebCore/WritingMode.h>
+#include "BidiContext.h"
+#include "BidiRunList.h"
+#include "WritingMode.h"
 #include <wtf/HashMap.h>
 #include <wtf/Noncopyable.h>
 #include <wtf/TZoneMallocInlines.h>
@@ -67,7 +67,7 @@ public:
         m_transitions[index].fastDecrement();
     }
 
-    const Vector<Iterator>& transitions() { return m_transitions; }
+    const Vector<Iterator>& transitions() LIFETIME_BOUND { return m_transitions; }
     size_t numTransitions() const { return m_transitions.size(); }
     size_t currentTransition() const { return m_currentTransition; }
     void setCurrentTransition(size_t currentTransition) { m_currentTransition = currentTransition; }
@@ -124,6 +124,7 @@ inline bool operator==(const BidiStatus& status1, const BidiStatus& status2)
     return status1.eor == status2.eor && status1.last == status2.last && status1.lastStrong == status2.lastStrong && *(status1.context) == *(status2.context);
 }
 
+template<typename ConcreteRunType>
 struct BidiCharacterRun {
     WTF_MAKE_TZONE_ALLOCATED_INLINE(BidiCharacterRun);
 public:
@@ -163,18 +164,23 @@ public:
     bool reversed(bool visuallyOrdered) { return m_level % 2 && !visuallyOrdered; }
     bool dirOverride(bool visuallyOrdered) { return m_override || visuallyOrdered; }
 
-    BidiCharacterRun* next() const { return m_next.get(); }
-    std::unique_ptr<BidiCharacterRun> takeNext() { return WTF::move(m_next); }
-    void setNext(std::unique_ptr<BidiCharacterRun>&& next) { m_next = WTF::move(next); }
+    ConcreteRunType* next() const LIFETIME_BOUND { return m_next.get(); }
+    std::unique_ptr<ConcreteRunType> takeNext() { return WTF::move(m_next); }
+    void setNext(std::unique_ptr<ConcreteRunType>&& next) { m_next = WTF::move(next); }
 
 private:
-    std::unique_ptr<BidiCharacterRun> m_next;
+    std::unique_ptr<ConcreteRunType> m_next;
 
 public:
     unsigned m_start;
     unsigned m_stop;
     unsigned char m_level;
     bool m_override : 1;
+};
+
+// Standalone BidiCharacterRun for cases that don't need a derived class.
+struct SimpleBidiCharacterRun : BidiCharacterRun<SimpleBidiCharacterRun> {
+    using BidiCharacterRun<SimpleBidiCharacterRun>::BidiCharacterRun;
 };
 
 enum VisualDirectionOverride {
@@ -188,7 +194,7 @@ enum VisualDirectionOverride {
 template<typename Iterator, typename Run, typename DerivedClass> class BidiResolverBase {
     WTF_MAKE_NONCOPYABLE(BidiResolverBase);
 public:
-    const Iterator& position() const { return m_current; }
+    const Iterator& position() const LIFETIME_BOUND { return m_current; }
     void setPositionIgnoringNestedIsolates(const Iterator& position) { m_current = position; }
     void setPosition(const Iterator& position, unsigned nestedIsolatedCount)
     {
@@ -208,10 +214,10 @@ public:
     UCharDirection dir() const { return m_direction; }
     void setDir(UCharDirection direction) { m_direction = direction; }
 
-    const BidiStatus& status() const { return m_status; }
+    const BidiStatus& status() const LIFETIME_BOUND { return m_status; }
     void setStatus(BidiStatus status) { m_status = status; }
 
-    WhitespaceCollapsingState<Iterator>& whitespaceCollapsingState() { return m_whitespaceCollapsingState; }
+    WhitespaceCollapsingState<Iterator>& whitespaceCollapsingState() LIFETIME_BOUND { return m_whitespaceCollapsingState; }
 
     // The current algorithm handles nested isolates one layer of nesting at a time.
     // But when we layout each isolated span, we will walk into (and ignore) all
@@ -225,7 +231,7 @@ public:
 
     void createBidiRunsForLine(const Iterator& end, VisualDirectionOverride = NoVisualOverride, bool hardLineBreak = false);
 
-    BidiRunList<Run>& runs() { return m_runs; }
+    BidiRunList<Run>& runs() LIFETIME_BOUND { return m_runs; }
 
     // FIXME: This used to be part of deleteRuns() but was a layering violation.
     // It's unclear if this is still needed.
@@ -290,7 +296,7 @@ public:
     void incrementInternal();
     void appendRunInternal();
     bool needsContinuePastEndInternal() const;
-    Vector<IsolateRun>& isolatedRuns() { return m_isolatedRuns; }
+    Vector<IsolateRun>& isolatedRuns() LIFETIME_BOUND { return m_isolatedRuns; }
 
 private:
     Vector<IsolateRun> m_isolatedRuns;
@@ -438,7 +444,7 @@ bool BidiResolverBase<Iterator, Run, DerivedClass>::commitExplicitEmbedding()
 
     for (auto& embedding : m_currentExplicitEmbeddingSequence) {
         if (embedding.direction == U_POP_DIRECTIONAL_FORMAT) {
-            if (auto* parentContext = toContext->parent())
+            if (RefPtr parentContext = toContext->parent())
                 toContext = parentContext;
         } else {
             UCharDirection direction = (embedding.direction == U_RIGHT_TO_LEFT_EMBEDDING || embedding.direction == U_RIGHT_TO_LEFT_OVERRIDE) ? U_RIGHT_TO_LEFT : U_LEFT_TO_RIGHT;
@@ -577,7 +583,7 @@ void BidiResolverBase<Iterator, Run, DerivedClass>::createBidiRunsForLine(const 
     while (true) {
         UCharDirection dirCurrent;
         if (pastEnd && (hardLineBreak || m_current.atEnd())) {
-            BidiContext* c = context();
+            RefPtr c = context();
             if (hardLineBreak) {
                 // A deviation from the Unicode Bidi Algorithm in order to match
                 // WinIE and user expectations: hard line breaks reset bidi state

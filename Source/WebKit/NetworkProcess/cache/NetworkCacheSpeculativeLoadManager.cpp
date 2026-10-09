@@ -34,7 +34,9 @@
 #include "NetworkProcess.h"
 #include "NetworkSession.h"
 #include "PreconnectTask.h"
+#include <WebCore/DiagnosticLoggingClient.h>
 #include <WebCore/DiagnosticLoggingKeys.h>
+#include <WebCore/HTTPStatusCodes.h>
 #include <pal/HysteresisActivity.h>
 #include <wtf/HashCountedSet.h>
 #include <wtf/NeverDestroyed.h>
@@ -90,14 +92,13 @@ static inline Key makeSubresourcesKey(const Key& resourceKey, const Salt& salt)
 static inline ResourceRequest constructRevalidationRequest(const Key& key, const SubresourceInfo& subResourceInfo, const Entry* entry)
 {
     ResourceRequest revalidationRequest(URL { key.identifier() });
+    revalidationRequest.setShouldBlockThirdPartyStorage(!key.partition().isEmpty());
     revalidationRequest.setHTTPHeaderFields(subResourceInfo.requestHeaders());
     revalidationRequest.setFirstPartyForCookies(subResourceInfo.firstPartyForCookies());
     revalidationRequest.setIsSameSite(subResourceInfo.isSameSite());
     revalidationRequest.setIsTopSite(subResourceInfo.isTopSite());
     revalidationRequest.setIsAppInitiated(subResourceInfo.isAppInitiated());
 
-    if (!key.partition().isEmpty())
-        revalidationRequest.setCachePartition(key.partition());
     ASSERT_WITH_MESSAGE(key.range().isEmpty(), "range is not supported");
     
     revalidationRequest.makeUnconditional();
@@ -157,8 +158,8 @@ public:
         return WTF::move(m_entry);
     }
 
-    const std::optional<ResourceRequest>& revalidationRequest() const { return m_speculativeValidationRequest; }
-    bool wasRevalidated() const { return !!m_speculativeValidationRequest; }
+    const std::optional<ResourceRequest>& NODELETE revalidationRequest() const { return m_speculativeValidationRequest; }
+    bool NODELETE wasRevalidated() const { return !!m_speculativeValidationRequest; }
 
 private:
     std::unique_ptr<Entry> m_entry;
@@ -210,7 +211,7 @@ public:
         saveToDiskIfReady();
     }
 
-    bool didReceiveMainResourceResponse() const { return m_didReceiveMainResourceResponse; }
+    bool NODELETE didReceiveMainResourceResponse() const { return m_didReceiveMainResourceResponse; }
     void markMainResourceResponseAsReceived()
     {
         m_didReceiveMainResourceResponse = true;
@@ -275,16 +276,6 @@ SpeculativeLoadManager::SpeculativeLoadManager(Cache& cache, Storage& storage)
 }
 
 SpeculativeLoadManager::~SpeculativeLoadManager() = default;
-
-Ref<Cache> SpeculativeLoadManager::protectedCache() const
-{
-    return m_cache.get();
-}
-
-Ref<Storage> SpeculativeLoadManager::protectedStorage() const
-{
-    return m_storage.get();
-}
 
 bool SpeculativeLoadManager::canUsePreloadedEntry(const PreloadedEntry& entry, const ResourceRequest& actualRequest)
 {
@@ -380,7 +371,7 @@ void SpeculativeLoadManager::registerLoad(GlobalFrameID frameID, const ResourceR
         ASSERT(!m_pendingFrameLoads.contains(frameID));
 
         // Start tracking loads in this frame.
-        auto pendingFrameLoad = PendingFrameLoad::create(protectedStorage(), resourceKey, [weakThis = WeakPtr { *this }, frameID] {
+        auto pendingFrameLoad = PendingFrameLoad::create(protect(m_storage), resourceKey, [weakThis = WeakPtr { *this }, frameID] {
             CheckedPtr checkedThis = weakThis.get();
             if (!checkedThis)
                 return;
@@ -430,15 +421,15 @@ void SpeculativeLoadManager::addPreloadedEntry(std::unique_ptr<Entry> entry, con
         auto preloadedEntry = checkedThis->m_preloadedEntries.take(key);
         ASSERT(preloadedEntry);
         if (preloadedEntry->wasRevalidated())
-            logSpeculativeLoadingDiagnosticMessage(checkedThis->protectedCache()->networkProcess(), frameID, DiagnosticLoggingKeys::wastedSpeculativeWarmupWithRevalidationKey());
+            logSpeculativeLoadingDiagnosticMessage(checkedThis->m_cache->networkProcess(), frameID, DiagnosticLoggingKeys::wastedSpeculativeWarmupWithRevalidationKey());
         else
-            logSpeculativeLoadingDiagnosticMessage(checkedThis->protectedCache()->networkProcess(), frameID, DiagnosticLoggingKeys::wastedSpeculativeWarmupWithoutRevalidationKey());
+            logSpeculativeLoadingDiagnosticMessage(checkedThis->m_cache->networkProcess(), frameID, DiagnosticLoggingKeys::wastedSpeculativeWarmupWithoutRevalidationKey());
     }));
 }
 
 void SpeculativeLoadManager::retrieveEntryFromStorage(const SubresourceInfo& info, RetrieveCompletionHandler&& completionHandler)
 {
-    protectedStorage()->retrieve(info.key(), static_cast<unsigned>(info.priority()), [completionHandler = WTF::move(completionHandler)](auto record, auto timings) {
+    protect(m_storage)->retrieve(info.key(), static_cast<unsigned>(info.priority()), [completionHandler = WTF::move(completionHandler)](auto record, auto timings) {
         if (record.isNull()) {
             completionHandler(nullptr);
             return false;
@@ -446,6 +437,12 @@ void SpeculativeLoadManager::retrieveEntryFromStorage(const SubresourceInfo& inf
 
         auto entry = Entry::decodeStorageRecord(record);
         if (!entry) {
+            completionHandler(nullptr);
+            return false;
+        }
+
+        // FIXME: This is a workaround for rdar://181130091, which we can drop after a release.
+        if (entry->response().httpStatusCode() == httpStatus304NotModified) {
             completionHandler(nullptr);
             return false;
         }
@@ -533,7 +530,7 @@ void SpeculativeLoadManager::revalidateSubresource(const SubresourceInfo& subres
 
     LOG(NetworkCacheSpeculativePreloading, "(NetworkProcess) Speculatively revalidating '%s':", key.identifier().utf8().data());
 
-    Ref revalidator = SpeculativeLoad::create(protectedCache(), frameID, revalidationRequest, WTF::move(entry), isNavigatingToAppBoundDomain, allowPrivacyProxy, advancedPrivacyProtections, [weakThis = WeakPtr { *this }, key, revalidationRequest, frameID](std::unique_ptr<Entry> revalidatedEntry) {
+    Ref revalidator = SpeculativeLoad::create(protect(m_cache), frameID, revalidationRequest, WTF::move(entry), isNavigatingToAppBoundDomain, allowPrivacyProxy, advancedPrivacyProtections, [weakThis = WeakPtr { *this }, key, revalidationRequest, frameID](std::unique_ptr<Entry> revalidatedEntry) {
         ASSERT(!revalidatedEntry || !revalidatedEntry->needsValidation());
         ASSERT(!revalidatedEntry || revalidatedEntry->key() == key);
         CheckedPtr checkedThis = weakThis.get();
@@ -544,7 +541,7 @@ void SpeculativeLoadManager::revalidateSubresource(const SubresourceInfo& subres
 
         if (checkedThis->satisfyPendingRequests(key, revalidatedEntry.get())) {
             if (revalidatedEntry)
-                logSpeculativeLoadingDiagnosticMessage(checkedThis->protectedCache()->networkProcess(), frameID, DiagnosticLoggingKeys::successfulSpeculativeWarmupWithRevalidationKey());
+                logSpeculativeLoadingDiagnosticMessage(checkedThis->m_cache->networkProcess(), frameID, DiagnosticLoggingKeys::successfulSpeculativeWarmupWithRevalidationKey());
             return;
         }
 
@@ -607,7 +604,7 @@ void SpeculativeLoadManager::preloadEntry(const Key& key, const SubresourceInfo&
 
         if (checkedThis->satisfyPendingRequests(key, entry.get())) {
             if (entry)
-                logSpeculativeLoadingDiagnosticMessage(checkedThis->protectedCache()->networkProcess(), frameID, DiagnosticLoggingKeys::successfulSpeculativeWarmupWithoutRevalidationKey());
+                logSpeculativeLoadingDiagnosticMessage(checkedThis->m_cache->networkProcess(), frameID, DiagnosticLoggingKeys::successfulSpeculativeWarmupWithoutRevalidationKey());
             return;
         }
         
@@ -634,7 +631,7 @@ void SpeculativeLoadManager::startSpeculativeRevalidation(const GlobalFrameID& f
                 CheckedPtr checkedThis = weakThis.get();
                 if (!checkedThis)
                     return;
-                logSpeculativeLoadingDiagnosticMessage(checkedThis->protectedCache()->networkProcess(), frameID, DiagnosticLoggingKeys::entryRightlyNotWarmedUpKey());
+                logSpeculativeLoadingDiagnosticMessage(checkedThis->m_cache->networkProcess(), frameID, DiagnosticLoggingKeys::entryRightlyNotWarmedUpKey());
                 checkedThis->m_notPreloadedEntries.remove(key);
             }));
         }

@@ -62,7 +62,7 @@ SPDX-License-Identifier: BSD, LGPL-2.1
         <h3><a href="index.html">JavaScriptCore</a></h3>
         <p>API Version: 6.0</p>
         
-        <p>Library Version: 2.52.5</p>
+        <p>Library Version: 2.54.0</p>
         
       </div>
       
@@ -160,14 +160,14 @@ SPDX-License-Identifier: BSD, LGPL-2.1
         Description
         <a href="#description" class="anchor"></a>
         
-        <a class="srclink" title="go to source location" href="https://github.com/WebKit/WebKit/tree/Source/JavaScriptCore/API/glib/JSCValue.cpp#L1259">[src]</a>
+        <a class="srclink" title="go to source location" href="https://github.com/WebKit/WebKit/tree/Source/JavaScriptCore/API/glib/JSCValue.cpp#L1260">[src]</a>
         
       </h4>
 
       <div class="docblock">
         <p>Create a function in <code>context</code>. If <code>name</code> is <code>NULL</code> an anonymous function will be created.
 When the function is called by JavaScript or jsc_value_function_call(), <code>callback</code> is called
-receiving an <code>GPtrArray</code> of <code>JSCValue</code><!-- -->s with the arguments and then <code>user_data</code> as last parameter.
+receiving a <code>GPtrArray</code> of <code>JSCValue</code> objects with the arguments and then <code>user_data</code> as last parameter.
 When the function is cleared in <code>context</code>, <code>destroy_notify</code> is called with <code>user_data</code> as&nbsp;parameter.</p>
 <p>Note that the value returned by <code>callback</code> must be fully transferred. In case of boxed types, you could use
 <code>G_TYPE_POINTER</code> instead of the actual boxed <code>GType</code> to ensure that the instance owned by <code>JSCClass</code> is used.

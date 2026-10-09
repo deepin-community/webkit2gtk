@@ -147,7 +147,7 @@ JSTypedArrayType JSValueGetTypedArrayType(JSContextRef ctx, JSValueRef valueRef,
         return kJSTypedArrayTypeNone;
     JSObject* object = value.getObject();
 
-    if (jsDynamicCast<JSArrayBuffer*>(object))
+    if (is<JSArrayBuffer>(object))
         return kJSTypedArrayTypeArrayBuffer;
 
     return toJSTypedArrayType(object->type());
@@ -158,7 +158,7 @@ JSObjectRef JSObjectMakeTypedArray(JSContextRef ctx, JSTypedArrayType arrayType,
     JSGlobalObject* globalObject = toJS(ctx);
     VM& vm = globalObject->vm();
     JSLockHolder locker(vm);
-    auto scope = DECLARE_CATCH_SCOPE(vm);
+    auto scope = DECLARE_TOP_EXCEPTION_SCOPE(vm);
 
     if (arrayType == kJSTypedArrayTypeNone || arrayType == kJSTypedArrayTypeArrayBuffer)
         return nullptr;
@@ -177,7 +177,7 @@ JSObjectRef JSObjectMakeTypedArrayWithBytesNoCopy(JSContextRef ctx, JSTypedArray
     JSGlobalObject* globalObject = toJS(ctx);
     VM& vm = globalObject->vm();
     JSLockHolder locker(vm);
-    auto scope = DECLARE_CATCH_SCOPE(vm);
+    auto scope = DECLARE_TOP_EXCEPTION_SCOPE(vm);
 
     if (arrayType == kJSTypedArrayTypeNone || arrayType == kJSTypedArrayTypeArrayBuffer)
         return nullptr;
@@ -199,12 +199,12 @@ JSObjectRef JSObjectMakeTypedArrayWithArrayBuffer(JSContextRef ctx, JSTypedArray
     JSGlobalObject* globalObject = toJS(ctx);
     VM& vm = globalObject->vm();
     JSLockHolder locker(vm);
-    auto scope = DECLARE_CATCH_SCOPE(vm);
+    auto scope = DECLARE_TOP_EXCEPTION_SCOPE(vm);
 
     if (arrayType == kJSTypedArrayTypeNone || arrayType == kJSTypedArrayTypeArrayBuffer)
         return nullptr;
 
-    JSArrayBuffer* jsBuffer = jsDynamicCast<JSArrayBuffer*>(toJS(jsBufferRef));
+    JSArrayBuffer* jsBuffer = dynamicDowncast<JSArrayBuffer>(toJS(jsBufferRef));
     if (!jsBuffer) {
         setException(ctx, exception, createTypeError(globalObject, "JSObjectMakeTypedArrayWithArrayBuffer expects buffer to be an Array Buffer object"_s));
         return nullptr;
@@ -227,12 +227,12 @@ JSObjectRef JSObjectMakeTypedArrayWithArrayBufferAndOffset(JSContextRef ctx, JST
     JSGlobalObject* globalObject = toJS(ctx);
     VM& vm = globalObject->vm();
     JSLockHolder locker(vm);
-    auto scope = DECLARE_CATCH_SCOPE(vm);
+    auto scope = DECLARE_TOP_EXCEPTION_SCOPE(vm);
 
     if (arrayType == kJSTypedArrayTypeNone || arrayType == kJSTypedArrayTypeArrayBuffer)
         return nullptr;
 
-    JSArrayBuffer* jsBuffer = jsDynamicCast<JSArrayBuffer*>(toJS(jsBufferRef));
+    JSArrayBuffer* jsBuffer = dynamicDowncast<JSArrayBuffer>(toJS(jsBufferRef));
     if (!jsBuffer) {
         setException(ctx, exception, createTypeError(globalObject, "JSObjectMakeTypedArrayWithArrayBuffer expects buffer to be an Array Buffer object"_s));
         return nullptr;
@@ -251,7 +251,7 @@ void* JSObjectGetTypedArrayBytesPtr(JSContextRef ctx, JSObjectRef objectRef, JSV
     JSLockHolder locker(vm);
     JSObject* object = toJS(objectRef);
 
-    if (JSArrayBufferView* typedArray = jsDynamicCast<JSArrayBufferView*>(object)) {
+    if (JSArrayBufferView* typedArray = dynamicDowncast<JSArrayBufferView>(object)) {
         if (ArrayBuffer* buffer = typedArray->possiblySharedBuffer()) {
             buffer->pinAndLock();
             return buffer->data();
@@ -266,7 +266,7 @@ size_t JSObjectGetTypedArrayLength(JSContextRef, JSObjectRef objectRef, JSValueR
 {
     JSObject* object = toJS(objectRef);
 
-    if (JSArrayBufferView* typedArray = jsDynamicCast<JSArrayBufferView*>(object))
+    if (JSArrayBufferView* typedArray = dynamicDowncast<JSArrayBufferView>(object))
         return typedArray->length();
 
     return 0;
@@ -276,7 +276,7 @@ size_t JSObjectGetTypedArrayByteLength(JSContextRef, JSObjectRef objectRef, JSVa
 {
     JSObject* object = toJS(objectRef);
 
-    if (JSArrayBufferView* typedArray = jsDynamicCast<JSArrayBufferView*>(object))
+    if (JSArrayBufferView* typedArray = dynamicDowncast<JSArrayBufferView>(object))
         return typedArray->byteLength();
 
     return 0;
@@ -286,7 +286,7 @@ size_t JSObjectGetTypedArrayByteOffset(JSContextRef, JSObjectRef objectRef, JSVa
 {
     JSObject* object = toJS(objectRef);
 
-    if (JSArrayBufferView* typedArray = jsDynamicCast<JSArrayBufferView*>(object))
+    if (JSArrayBufferView* typedArray = dynamicDowncast<JSArrayBufferView>(object))
         return typedArray->byteOffset();
 
     return 0;
@@ -300,9 +300,9 @@ JSObjectRef JSObjectGetTypedArrayBuffer(JSContextRef ctx, JSObjectRef objectRef,
     JSObject* object = toJS(objectRef);
 
 
-    if (JSArrayBufferView* typedArray = jsDynamicCast<JSArrayBufferView*>(object)) {
+    if (JSArrayBufferView* typedArray = dynamicDowncast<JSArrayBufferView>(object)) {
         if (ArrayBuffer* buffer = typedArray->possiblySharedBuffer())
-            return toRef(vm.m_typedArrayController->toJS(globalObject, typedArray->globalObject(), buffer));
+            return toRef(vm.m_typedArrayController->toJS(globalObject, typedArray->realm(), *buffer));
 
         setException(ctx, exception, createOutOfMemoryError(globalObject));
     }
@@ -315,7 +315,7 @@ JSObjectRef JSObjectMakeArrayBufferWithBytesNoCopy(JSContextRef ctx, void* bytes
     JSGlobalObject* globalObject = toJS(ctx);
     VM& vm = globalObject->vm();
     JSLockHolder locker(vm);
-    auto scope = DECLARE_CATCH_SCOPE(vm);
+    auto scope = DECLARE_TOP_EXCEPTION_SCOPE(vm);
 
     auto buffer = ArrayBuffer::createFromBytes({ static_cast<const uint8_t*>(bytes), byteLength }, createSharedTask<void(void*)>([=](void* p) {
         if (bytesDeallocator)
@@ -336,7 +336,7 @@ void* JSObjectGetArrayBufferBytesPtr(JSContextRef ctx, JSObjectRef objectRef, JS
     JSLockHolder locker(vm);
     JSObject* object = toJS(objectRef);
 
-    if (JSArrayBuffer* jsBuffer = jsDynamicCast<JSArrayBuffer*>(object)) {
+    if (JSArrayBuffer* jsBuffer = dynamicDowncast<JSArrayBuffer>(object)) {
         ArrayBuffer* buffer = jsBuffer->impl();
         if (buffer->isWasmMemory()) {
             setException(ctx, exception, createTypeError(globalObject, "Cannot get the backing buffer for a WebAssembly.Memory"_s));
@@ -370,7 +370,7 @@ size_t JSObjectGetArrayBufferByteLength(JSContextRef, JSObjectRef objectRef, JSV
         return 0;
     }
 
-    if (JSArrayBuffer* jsBuffer = jsDynamicCast<JSArrayBuffer*>(object))
+    if (JSArrayBuffer* jsBuffer = dynamicDowncast<JSArrayBuffer>(object))
         return jsBuffer->impl()->byteLength();
     
     return 0;

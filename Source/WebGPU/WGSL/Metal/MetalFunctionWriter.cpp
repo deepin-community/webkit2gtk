@@ -121,6 +121,23 @@ DEFINE_VOLATILE_HELPER(pack_float_to_unorm2x16, PackFloatToUnorm2x16)
 DEFINE_VOLATILE_HELPER(pack_float_to_snorm4x8, PackFloatToSnorm4x8)
 DEFINE_VOLATILE_HELPER(pack_float_to_unorm4x8, PackFloatToUnorm4x8)
 
+DEFINE_HELPER(TextureSampleBaseClampToEdge, \
+    float4 __wgslTextureSampleBaseClampToEdge(texture2d<float> __texture, sampler __sampler, float2 __coords)\n \
+    {\n \
+        float2 const __bounds = (float2(0.5f) / float2(uint2(__texture.get_width(), __texture.get_height()))); \
+        return __texture.sample(__sampler, clamp(__coords, __bounds, float2(1.0f) - __bounds)); \
+    }\n)
+
+DEFINE_HELPER(TextureExternalSampleBaseClampToEdge, \
+    float4 __wgslTextureSampleBaseClampToEdge(texture_external __texture, sampler __sampler, float2 __inputCoords)\n \
+    {\n \
+        auto __coords = (__texture.UVRemapMatrix * float3(__inputCoords, 1)).xy; \
+        auto __y = __texture.FirstPlane.sample(__sampler, __coords).r; \
+        auto __cbcr = __texture.SecondPlane.sample(__sampler, __coords).rg; \
+        auto __ycbcr = float3(__y, __cbcr); \
+        return float4(__texture.ColorSpaceConversionMatrix * float4(__ycbcr, 1), 1); \
+    }\n)
+
 };
 
 #undef DEFINE_TRIG_HELPER
@@ -205,10 +222,10 @@ public:
 
     void visit(const Type*, bool shouldPack = false);
 
-    StringBuilder& stringBuilder() { return m_body; }
-    Indentation<4>& indent() { return m_indent; }
-    unsigned metalAppleGPUFamily() const { return m_deviceState.appleGPUFamily; }
-    bool shaderValidationEnabled() const { return m_deviceState.shaderValidationEnabled; }
+    StringBuilder& NODELETE stringBuilder() { return m_body; }
+    Indentation<4>& NODELETE indent() { return m_indent; }
+    unsigned NODELETE metalAppleGPUFamily() const { return m_deviceState.appleGPUFamily; }
+    bool NODELETE shaderValidationEnabled() const { return m_deviceState.shaderValidationEnabled; }
 
 private:
     void emitNecessaryHelpers();
@@ -220,7 +237,7 @@ private:
     void serializeConstant(const Type*, ConstantValue);
     void serializeBinaryExpression(AST::Expression&, AST::BinaryOperation, AST::Expression&);
     void visitStatements(AST::Statement::List&);
-    bool shouldPackType() const;
+    bool NODELETE shouldPackType() const;
 
     HelperGenerator m_helperGenerator;
     StringBuilder m_body;
@@ -312,14 +329,33 @@ void FunctionDefinitionWriter::emitNecessaryHelpers()
                 m_indent, "\n"_s,
                 m_indent, "PackedVec3(packed_vec<T, 3> v) : x(v.x), y(v.y), z(v.z) { }\n"_s,
                 m_indent, "\n"_s,
-                m_indent, "operator vec<T, 3>() { return vec<T, 3>(x, y, z); }\n"_s,
-                m_indent, "operator packed_vec<T, 3>() { return packed_vec<T, 3>(x, y, z); }\n"_s,
+                m_indent, "operator vec<T, 3>() const thread { return vec<T, 3>(x, y, z); }\n"_s,
+                m_indent, "operator vec<T, 3>() const device { return vec<T, 3>(x, y, z); }\n"_s,
+                m_indent, "operator vec<T, 3>() const constant { return vec<T, 3>(x, y, z); }\n"_s,
+                m_indent, "operator vec<T, 3>() const threadgroup { return vec<T, 3>(x, y, z); }\n"_s,
+                m_indent, "operator packed_vec<T, 3>() const thread { return packed_vec<T, 3>(x, y, z); }\n"_s,
+                m_indent, "operator packed_vec<T, 3>() const device { return packed_vec<T, 3>(x, y, z); }\n"_s,
+                m_indent, "operator packed_vec<T, 3>() const constant { return packed_vec<T, 3>(x, y, z); }\n"_s,
+                m_indent, "operator packed_vec<T, 3>() const threadgroup { return packed_vec<T, 3>(x, y, z); }\n"_s,
                 m_indent, "\n"_s,
                 m_indent, "T operator[](int i) const { return i ? i == 2 ? z : y : x; }\n"_s,
+                m_indent, "T operator[](int i) const device { return i ? i == 2 ? z : y : x; }\n"_s,
                 m_indent, "device T& operator[](int i) device { return i ? i == 2 ? z : y : x; }\n"_s,
                 m_indent, "constant T& operator[](int i) constant { return i ? i == 2 ? z : y : x; }\n"_s,
                 m_indent, "thread T& operator[](int i) thread { return i ? i == 2 ? z : y : x; }\n"_s,
                 m_indent, "threadgroup T& operator[](int i) threadgroup { return i ? i == 2 ? z : y : x; }\n"_s
+            );
+        }
+        m_output.append(m_indent, "};\n\n"_s);
+
+        m_output.append(
+            m_indent, "template<typename T, int C>\n"_s,
+            m_indent, "struct PackedMatrix {\n"_s
+        );
+        {
+            IndentationScope scope(m_indent);
+            m_output.append(
+                m_indent, "PackedVec3<T> columns[C];\n"_s
             );
         }
         m_output.append(m_indent, "};\n\n"_s);
@@ -340,6 +376,55 @@ void FunctionDefinitionWriter::emitNecessaryHelpers()
         m_output.append("};\n\n"_s);
     }
 
+    if (m_shaderModule.usesPackVector()) {
+        m_shaderModule.clearUsesPackVector();
+        m_output.append(m_indent, "template<typename T>\n"_s,
+            m_indent, "static __attribute__((always_inline)) packed_vec<T, 3> __pack(vec<T, 3> unpacked) { return unpacked; }\n\n"_s);
+
+        if (m_shaderModule.usesPackedVec3()) {
+            m_output.append(m_indent, "template<typename T, int C>\n"_s,
+                m_indent, "static __attribute__((always_inline)) PackedMatrix<T, C> __pack(matrix<T, C, 3> unpacked)\n"_s,
+                m_indent, "{\n"_s);
+            {
+                IndentationScope scope(m_indent);
+                m_output.append(m_indent, "PackedMatrix<T, C> packed;\n"_s,
+                    m_indent, "for (int i = 0; i < C; i++)\n"_s);
+                {
+                    IndentationScope scope(m_indent);
+                    m_output.append(m_indent, "packed.columns[i] = PackedVec3<T>(packed_vec<T, 3>(unpacked[i]));\n"_s);
+                }
+                m_output.append(m_indent, "return packed;\n"_s);
+            }
+            m_output.append(m_indent, "}\n\n"_s);
+        }
+    }
+
+    if (m_shaderModule.usesUnpackVector()) {
+        m_shaderModule.clearUsesUnpackVector();
+        m_output.append(m_indent, "template<typename T>\n"_s,
+            m_indent, "static __attribute__((always_inline)) vec<T, 3> __unpack(packed_vec<T, 3> packed) { return packed; }\n\n"_s);
+
+        if (m_shaderModule.usesPackedVec3()) {
+            m_output.append(m_indent, "template<typename T>\n"_s,
+                m_indent, "static vec<T, 3> __unpack(PackedVec3<T> packed) { return packed; }\n\n"_s);
+
+            m_output.append(m_indent, "template<typename T, int C>\n"_s,
+                m_indent, "static __attribute__((always_inline)) matrix<T, C, 3> __unpack(PackedMatrix<T, C> packed)\n"_s,
+                m_indent, "{\n"_s);
+            {
+                IndentationScope scope(m_indent);
+                m_output.append(m_indent, "matrix<T, C, 3> unpacked;\n"_s,
+                    m_indent, "for (int i = 0; i < C; i++)\n"_s);
+                {
+                    IndentationScope scope(m_indent);
+                    m_output.append(m_indent, "unpacked[i] = vec<T, 3>(packed.columns[i]);\n"_s);
+                }
+                m_output.append(m_indent, "return unpacked;\n"_s);
+            }
+            m_output.append(m_indent, "}\n\n"_s);
+        }
+    }
+
     if (m_shaderModule.usesPackArray()) {
         m_shaderModule.clearUsesPackArray();
 
@@ -352,6 +437,11 @@ void FunctionDefinitionWriter::emitNecessaryHelpers()
             m_output.append(m_indent, "template<typename T, size_t N>\n"_s,
                 m_indent, "struct __PackedTypeImpl<array<vec<T, 3>, N>> {"_s,
                 m_indent, "using Type = array<PackedVec3<T>, N>;"_s,
+                m_indent, "};\n\n"_s);
+
+            m_output.append(m_indent, "template<typename T, int C>\n"_s,
+                m_indent, "struct __PackedTypeImpl<matrix<T, C, 3>> {"_s,
+                m_indent, "using Type = PackedMatrix<T, C>;"_s,
                 m_indent, "};\n\n"_s);
 
             m_output.append(m_indent, "template<typename T, size_t N>\n"_s,
@@ -401,6 +491,11 @@ void FunctionDefinitionWriter::emitNecessaryHelpers()
                 m_indent, "using Type = array<vec<T, 3>, N>;"_s,
                 m_indent, "};\n\n"_s);
 
+            m_output.append(m_indent, "template<typename T, int C>\n"_s,
+                m_indent, "struct __UnpackedTypeImpl<PackedMatrix<T, C>> {"_s,
+                m_indent, "using Type = matrix<T, C, 3>;"_s,
+                m_indent, "};\n\n"_s);
+
             m_output.append(m_indent, "template<typename T, size_t N>\n"_s,
                 m_indent, "static __attribute__((always_inline)) array<vec<T, 3>, N> __unpack(array<PackedVec3<T>, N> packed)\n"_s,
                 m_indent, "{\n"_s);
@@ -433,23 +528,6 @@ void FunctionDefinitionWriter::emitNecessaryHelpers()
         m_output.append(m_indent, "}\n\n"_s);
     }
 
-    if (m_shaderModule.usesPackVector()) {
-        m_shaderModule.clearUsesPackVector();
-        m_output.append(m_indent, "template<typename T>\n"_s,
-            m_indent, "static __attribute__((always_inline)) packed_vec<T, 3> __pack(vec<T, 3> unpacked) { return unpacked; }\n\n"_s);
-    }
-
-    if (m_shaderModule.usesUnpackVector()) {
-        m_shaderModule.clearUsesUnpackVector();
-        m_output.append(m_indent, "template<typename T>\n"_s,
-            m_indent, "static __attribute__((always_inline)) vec<T, 3> __unpack(packed_vec<T, 3> packed) { return packed; }\n\n"_s);
-
-        if (m_shaderModule.usesPackedVec3()) {
-            m_output.append(m_indent, "template<typename T>\n"_s,
-                m_indent, "static vec<T, 3> __unpack(PackedVec3<T> packed) { return packed; }\n\n"_s);
-        }
-    }
-
     if (m_shaderModule.usesWorkgroupUniformLoad()) {
         m_output.append(m_indent, "template<typename T>\n"_s,
             m_indent, (shaderValidationEnabled() ? "[[clang::optnone]] "_s : ""_s), "static T __workgroup_uniform_load(threadgroup T* const ptr)\n"_s,
@@ -458,6 +536,20 @@ void FunctionDefinitionWriter::emitNecessaryHelpers()
             IndentationScope scope(m_indent);
             m_output.append(m_indent, "threadgroup_barrier(mem_flags::mem_threadgroup);\n"_s,
                 m_indent, "auto result = *ptr;\n"_s,
+                m_indent, "threadgroup_barrier(mem_flags::mem_threadgroup);\n"_s,
+                m_indent, "return result;\n"_s);
+        }
+        m_output.append(m_indent, "}\n\n"_s);
+    }
+
+    if (m_shaderModule.usesWorkgroupUniformLoadAtomic()) {
+        m_output.append(m_indent, "template<typename T>\n"_s,
+            m_indent, (shaderValidationEnabled() ? "[[clang::optnone]] "_s : ""_s), "static T __workgroup_uniform_load(threadgroup atomic<T>* const ptr)\n"_s,
+            m_indent, "{\n"_s);
+        {
+            IndentationScope scope(m_indent);
+            m_output.append(m_indent, "threadgroup_barrier(mem_flags::mem_threadgroup);\n"_s,
+                m_indent, "auto result = atomic_load_explicit(ptr, memory_order_relaxed);\n"_s,
                 m_indent, "threadgroup_barrier(mem_flags::mem_threadgroup);\n"_s,
                 m_indent, "return result;\n"_s);
         }
@@ -685,6 +777,22 @@ void FunctionDefinitionWriter::emitNecessaryHelpers()
         m_output.append(m_indent, "}\n\n"_s);
     }
 
+    if (m_shaderModule.usesZeroWorkgroupVar()) {
+        m_output.append(m_indent, "template<typename T>\n"_s,
+            m_indent, "static void __wgslZeroWorkgroupVar(threadgroup T& v)\n"_s,
+            m_indent, "{\n"_s);
+        {
+            IndentationScope scope(m_indent);
+            m_output.append(m_indent, "threadgroup char* p = (threadgroup char*)(&v);\n"_s);
+            m_output.append(m_indent, "for (uint i = 0u; i < sizeof(T); i++)\n"_s);
+            {
+                IndentationScope scope(m_indent);
+                m_output.append(m_indent, "p[i] = 0;\n"_s);
+            }
+        }
+        m_output.append(m_indent, "}\n\n"_s);
+    }
+
     m_shaderModule.clearUsesPackedVec3();
 }
 
@@ -773,11 +881,45 @@ void FunctionDefinitionWriter::visit(AST::Structure& structDecl)
             }
 
             m_body.append(m_indent);
-            visit(member.type().inferredType());
-            m_body.append(' ', name);
-            for (auto &attribute : member.attributes()) {
-                m_body.append(' ');
-                visit(attribute);
+
+            // Check if this member has @builtin(clip_distances) attribute
+            // Metal requires: float name [[clip_distance]] [N];
+            bool isClipDistances = false;
+            for (auto& attribute : member.attributes()) {
+                if (auto* builtinAttr = dynamicDowncast<AST::BuiltinAttribute>(attribute)) {
+                    if (builtinAttr->builtin() == Builtin::ClipDistances) {
+                        isClipDistances = true;
+                        break;
+                    }
+                }
+            }
+
+            if (isClipDistances) {
+                // For clip_distances, generate: float name [[clip_distance]] [N];
+                auto* arrayType = std::get_if<Types::Array>(member.type().inferredType());
+                ASSERT(arrayType);
+                visit(arrayType->element); // Generate float
+                m_body.append(' ', name);
+
+                // Generate attributes (e.g., [[clip_distance]])
+                for (auto &attribute : member.attributes()) {
+                    m_body.append(' ');
+                    visit(attribute);
+                }
+
+                // Generate array subscript [N]
+                m_body.append(" ["_s);
+                if (auto* size = std::get_if<unsigned>(&arrayType->size))
+                    m_body.append(*size);
+                m_body.append(']');
+            } else {
+                visit(member.type().inferredType());
+                m_body.append(' ', name);
+
+                for (auto &attribute : member.attributes()) {
+                    m_body.append(' ');
+                    visit(attribute);
+                }
             }
             m_body.append(";\n"_s);
 
@@ -791,13 +933,58 @@ void FunctionDefinitionWriter::visit(AST::Structure& structDecl)
             {
                 IndentationScope scope(m_indent);
                 char prefix = ':';
+
+                // First pass: initialize non-clip_distances members in initializer list
                 for (auto& member : structDecl.members()) {
+                    // Check if this is a clip_distances member
+                    bool isClipDistances = false;
+                    for (auto& attribute : member.attributes()) {
+                        if (auto* builtinAttr = dynamicDowncast<AST::BuiltinAttribute>(attribute)) {
+                            if (builtinAttr->builtin() == Builtin::ClipDistances) {
+                                isClipDistances = true;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (isClipDistances)
+                        continue; // Skip C-style arrays in member initializer list
+
                     auto& name = member.name();
                     m_body.append(m_indent, prefix, ' ', name, "(other."_s, name, ")\n"_s);
                     prefix = ',';
                 }
             }
-            m_body.append(m_indent, "{ }\n"_s);
+            m_body.append(m_indent, "{\n"_s);
+            {
+                IndentationScope scope(m_indent);
+
+                // Second pass: copy clip_distances arrays in constructor body
+                for (auto& member : structDecl.members()) {
+                    bool isClipDistances = false;
+                    for (auto& attribute : member.attributes()) {
+                        if (auto* builtinAttr = dynamicDowncast<AST::BuiltinAttribute>(attribute)) {
+                            if (builtinAttr->builtin() == Builtin::ClipDistances) {
+                                isClipDistances = true;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (isClipDistances) {
+                        auto& name = member.name();
+                        auto* arrayType = std::get_if<Types::Array>(member.type().inferredType());
+                        ASSERT(arrayType);
+
+                        // Generate: for (unsigned i = 0; i < N; ++i) field5[i] = other.field5[i];
+                        m_body.append(m_indent, "for (unsigned __i = 0; __i < "_s);
+                        if (auto* size = std::get_if<unsigned>(&arrayType->size))
+                            m_body.append(*size);
+                        m_body.append("; ++__i) "_s, name, "[__i] = other."_s, name, "[__i];\n"_s);
+                    }
+                }
+            }
+            m_body.append(m_indent, "}\n"_s);
         } else if (structDecl.role() == AST::StructureRole::FragmentOutputWrapper || structDecl.role() == AST::StructureRole::VertexOutputWrapper) {
             ASSERT(structDecl.members().size() == 1);
             auto& member = structDecl.members()[0];
@@ -847,7 +1034,13 @@ void FunctionDefinitionWriter::generatePackingHelpers(AST::Structure& structure)
         m_body.append(m_indent, packedName, " packed;\n"_s);
         for (auto& member : structure.members()) {
             auto& name = member.name();
-            if (member.type().inferredType()->packing() & (Packing::PStruct | Packing::PArray))
+            auto* memberType = member.type().inferredType();
+            bool needsPack = memberType->packing() & (Packing::PStruct | Packing::PArray);
+            if (!needsPack) {
+                if (auto* matrix = std::get_if<Types::Matrix>(memberType))
+                    needsPack = matrix->rows == 3;
+            }
+            if (needsPack)
                 m_body.append(m_indent, "packed."_s, name, " = __pack(unpacked."_s, name, ");\n"_s);
             else
                 m_body.append(m_indent, "packed."_s, name, " = unpacked."_s, name, ";\n"_s);
@@ -862,7 +1055,13 @@ void FunctionDefinitionWriter::generatePackingHelpers(AST::Structure& structure)
         m_body.append(m_indent, unpackedName, " unpacked;\n"_s);
         for (auto& member : structure.members()) {
             auto& name = member.name();
-            if (member.type().inferredType()->packing() & (Packing::PStruct | Packing::PArray))
+            auto* memberType = member.type().inferredType();
+            bool needsUnpack = memberType->packing() & (Packing::PStruct | Packing::PArray);
+            if (!needsUnpack) {
+                if (auto* matrix = std::get_if<Types::Matrix>(memberType))
+                    needsUnpack = matrix->rows == 3;
+            }
+            if (needsUnpack)
                 m_body.append(m_indent, "unpacked."_s, name, " = __unpack(packed."_s, name, ");\n"_s);
             else
                 m_body.append(m_indent, "unpacked."_s, name, " = packed."_s, name, ";\n"_s);
@@ -996,6 +1195,9 @@ void FunctionDefinitionWriter::visit(AST::BuiltinAttribute& builtin)
         return;
 
     switch (builtin.builtin()) {
+    case Builtin::ClipDistances:
+        m_body.append("[[clip_distance]]"_s);
+        break;
     case Builtin::FragDepth:
         m_body.append("[[depth(any)]]"_s);
         break;
@@ -1021,11 +1223,26 @@ void FunctionDefinitionWriter::visit(AST::BuiltinAttribute& builtin)
     case Builtin::Position:
         m_body.append("[[position]]"_s);
         break;
+    case Builtin::PrimitiveIndex:
+        m_body.append("[[primitive_id]]"_s);
+        break;
     case Builtin::SampleIndex:
         m_body.append("[[sample_id]]"_s);
         break;
     case Builtin::SampleMask:
         m_body.append("[[sample_mask]]"_s);
+        break;
+    case Builtin::SubgroupInvocationId:
+        m_body.append("[[thread_index_in_simdgroup]]"_s);
+        break;
+    case Builtin::SubgroupSize:
+        m_body.append("[[threads_per_simdgroup]]"_s);
+        break;
+    case Builtin::SubgroupId:
+        m_body.append("[[simdgroup_index_in_threadgroup]]"_s);
+        break;
+    case Builtin::NumSubgroups:
+        m_body.append("[[simdgroups_per_threadgroup]]"_s);
         break;
     case Builtin::VertexIndex:
         m_body.append("[[vertex_id]]"_s);
@@ -1122,6 +1339,7 @@ static ASCIILiteral convertToSampleMode(InterpolationType type, InterpolationSam
         switch (sampleType) {
         case InterpolationSampling::First:
         case InterpolationSampling::Either:
+            RELEASE_ASSERT_NOT_REACHED();
         case InterpolationSampling::Center:
             return "center_no_perspective"_s;
         case InterpolationSampling::Centroid:
@@ -1133,6 +1351,7 @@ static ASCIILiteral convertToSampleMode(InterpolationType type, InterpolationSam
         switch (sampleType) {
         case InterpolationSampling::First:
         case InterpolationSampling::Either:
+            RELEASE_ASSERT_NOT_REACHED();
         case InterpolationSampling::Center:
             return "center_perspective"_s;
         case InterpolationSampling::Centroid:
@@ -1208,9 +1427,15 @@ void FunctionDefinitionWriter::visit(const Type* type, bool shouldPack)
             m_body.append(", "_s, vector.size, '>');
         },
         [&](const Matrix& matrix) {
-            m_body.append("matrix<"_s);
-            visit(matrix.element, shouldPack);
-            m_body.append(", "_s, matrix.columns, ", "_s, matrix.rows, '>');
+            if (shouldPack && matrix.rows == 3) {
+                m_body.append("PackedMatrix<"_s);
+                visit(matrix.element, shouldPack);
+                m_body.append(", "_s, matrix.columns, '>');
+            } else {
+                m_body.append("matrix<"_s);
+                visit(matrix.element, shouldPack);
+                m_body.append(", "_s, matrix.columns, ", "_s, matrix.rows, '>');
+            }
         },
         [&](const Array& array) {
             m_body.append("array<"_s);
@@ -1705,6 +1930,7 @@ static void emitTextureSampleGrad(FunctionDefinitionWriter* writer, AST::CallExp
 static void emitTextureSampleLevel(FunctionDefinitionWriter* writer, AST::CallExpression& call)
 {
     bool isArray = false;
+    bool is1d = false;
     auto& texture = call.arguments()[0];
     if (auto* textureType = std::get_if<Types::Texture>(texture.inferredType())) {
         switch (textureType->kind) {
@@ -1713,6 +1939,8 @@ static void emitTextureSampleLevel(FunctionDefinitionWriter* writer, AST::CallEx
             isArray = true;
             break;
         case Types::Texture::Kind::Texture1d:
+            is1d = true;
+            break;
         case Types::Texture::Kind::Texture2d:
         case Types::Texture::Kind::Texture3d:
         case Types::Texture::Kind::TextureCube:
@@ -1725,6 +1953,8 @@ static void emitTextureSampleLevel(FunctionDefinitionWriter* writer, AST::CallEx
             isArray = true;
             break;
         case Types::TextureStorage::Kind::TextureStorage1d:
+            is1d = true;
+            break;
         case Types::TextureStorage::Kind::TextureStorage2d:
         case Types::TextureStorage::Kind::TextureStorage3d:
             break;
@@ -1751,63 +1981,16 @@ static void emitTextureSampleLevel(FunctionDefinitionWriter* writer, AST::CallEx
             writer->stringBuilder().append(',');
         writer->visit(call.arguments()[i]);
     }
-    writer->stringBuilder().append(", level("_s);
-    writer->visit(call.arguments()[levelIndex]);
-    writer->stringBuilder().append(')');
+    if (!is1d) {
+        writer->stringBuilder().append(", level("_s);
+        writer->visit(call.arguments()[levelIndex]);
+        writer->stringBuilder().append(')');
+    }
     for (unsigned i = levelIndex + 1; i < call.arguments().size(); ++i) {
         writer->stringBuilder().append(',');
         writer->visit(call.arguments()[i]);
     }
     writer->stringBuilder().append(')');
-}
-
-static void emitTextureSampleBaseClampToEdge(FunctionDefinitionWriter* writer, AST::CallExpression& call)
-{
-    auto& texture = call.arguments()[0];
-    auto* textureType = std::get_if<Types::Texture>(texture.inferredType());
-
-    if (textureType) {
-        // FIXME: <rdar://150364488> this needs to clamp the coordinates
-        writer->visit(texture);
-        writer->stringBuilder().append(".sample"_s);
-        visitArguments(writer, call, 1);
-        return;
-    }
-
-    auto& sampler = call.arguments()[1];
-    auto& coordinates = call.arguments()[2];
-    writer->stringBuilder().append("({\n"_s);
-    {
-        IndentationScope scope(writer->indent());
-        {
-            writer->stringBuilder().append(writer->indent(), "auto __coords = ("_s);
-            writer->visit(texture);
-            writer->stringBuilder().append(".UVRemapMatrix * float3("_s);
-            writer->visit(coordinates);
-            writer->stringBuilder().append(", 1)).xy;\n"_s);
-        }
-        {
-            writer->stringBuilder().append(writer->indent(), "auto __y = float("_s);
-            writer->visit(texture);
-            writer->stringBuilder().append(".FirstPlane.sample("_s);
-            writer->visit(sampler);
-            writer->stringBuilder().append(", __coords).r);\n"_s);
-        }
-        {
-            writer->stringBuilder().append(writer->indent(), "auto __cbcr = float2("_s);
-            writer->visit(texture);
-            writer->stringBuilder().append(".SecondPlane.sample("_s);
-            writer->visit(sampler);
-            writer->stringBuilder().append(", __coords).rg);\n"_s);
-        }
-        writer->stringBuilder().append(writer->indent(), "auto __ycbcr = float3(__y, __cbcr);\n"_s);
-        {
-            writer->stringBuilder().append(writer->indent(), "float4("_s);
-            writer->visit(texture);
-            writer->stringBuilder().append(".ColorSpaceConversionMatrix * float4(__ycbcr, 1), 1);\n"_s);
-        }
-    }
-    writer->stringBuilder().append(writer->indent(), "})"_s);
 }
 
 static void emitTextureSampleBias(FunctionDefinitionWriter* writer, AST::CallExpression& call)
@@ -1933,6 +2116,38 @@ static void emitWorkgroupUniformLoad(FunctionDefinitionWriter* writer, AST::Call
     writer->stringBuilder().append(')');
 }
 
+static void emitSubgroupBallot(FunctionDefinitionWriter* writer, AST::CallExpression& call)
+{
+    // WGSL's subgroupBallot returns a vec4<u32> bitmask (x: lanes 0-31, y: 32-63, ...).
+    // Metal's simd_ballot returns a simd_vote; reinterpret its bits into the vec4 layout.
+    writer->stringBuilder().append("uint4(as_type<uint2>((uint64_t)(simd_vote::vote_t)simd_ballot("_s);
+    writer->visit(call.arguments()[0]);
+    writer->stringBuilder().append(")), 0u, 0u)"_s);
+}
+
+static void emitQuadSwap(FunctionDefinitionWriter* writer, AST::CallExpression& call, unsigned mask)
+{
+    // WGSL's quadSwap* map to Metal's quad_shuffle_xor with a fixed mask.
+    writer->stringBuilder().append("quad_shuffle_xor("_s);
+    writer->visit(call.arguments()[0]);
+    writer->stringBuilder().append(", "_s, mask, ')');
+}
+
+static void emitQuadSwapDiagonal(FunctionDefinitionWriter* writer, AST::CallExpression& call)
+{
+    emitQuadSwap(writer, call, 3);
+}
+
+static void emitQuadSwapX(FunctionDefinitionWriter* writer, AST::CallExpression& call)
+{
+    emitQuadSwap(writer, call, 1);
+}
+
+static void emitQuadSwapY(FunctionDefinitionWriter* writer, AST::CallExpression& call)
+{
+    emitQuadSwap(writer, call, 2);
+}
+
 static void atomicFunction(ASCIILiteral name, FunctionDefinitionWriter* writer, AST::CallExpression& call)
 {
     writer->stringBuilder().append(name, '(');
@@ -2000,7 +2215,7 @@ static void emitAtomicExchange(FunctionDefinitionWriter* writer, AST::CallExpres
     atomicFunction("atomic_exchange_explicit"_s, writer, call);
 }
 
-[[noreturn]] static void emitArrayLength(FunctionDefinitionWriter*, AST::CallExpression&)
+[[noreturn]] static void NODELETE emitArrayLength(FunctionDefinitionWriter*, AST::CallExpression&)
 {
     RELEASE_ASSERT_NOT_REACHED();
 }
@@ -2174,7 +2389,7 @@ void FunctionDefinitionWriter::visit(const Type* type, AST::CallExpression& call
     }
 
     if (auto* target = dynamicDowncast<AST::IdentifierExpression>(call.target())) {
-        static constexpr SortedArrayMap builtins { std::to_array<std::pair<ComparableASCIILiteral, void(*)(FunctionDefinitionWriter*, AST::CallExpression&)>>({
+        static constexpr SortedArrayMap builtins { WTF::toArray<std::pair<ComparableASCIILiteral, void(*)(FunctionDefinitionWriter*, AST::CallExpression&)>>({
             { "__dynamicOffset"_s, emitDynamicOffset },
             { "arrayLength"_s, emitArrayLength },
             { "atomicAdd"_s, emitAtomicAdd },
@@ -2195,9 +2410,13 @@ void FunctionDefinitionWriter::visit(const Type* type, AST::CallExpression& call
             { "pack4xI8Clamp"_s, emitPack4xI8Clamp },
             { "pack4xU8"_s, emitPack4xU8 },
             { "pack4xU8Clamp"_s, emitPack4xU8Clamp },
+            { "quadSwapDiagonal"_s, emitQuadSwapDiagonal },
+            { "quadSwapX"_s, emitQuadSwapX },
+            { "quadSwapY"_s, emitQuadSwapY },
             { "quantizeToF16"_s, emitQuantizeToF16 },
             { "radians"_s, emitRadians },
             { "storageBarrier"_s, emitStorageBarrier },
+            { "subgroupBallot"_s, emitSubgroupBallot },
             { "textureBarrier"_s, emitTextureBarrier },
             { "textureDimensions"_s, emitTextureDimensions },
             { "textureGather"_s, emitTextureGather },
@@ -2207,7 +2426,6 @@ void FunctionDefinitionWriter::visit(const Type* type, AST::CallExpression& call
             { "textureNumLevels"_s, emitTextureNumLevels },
             { "textureNumSamples"_s, emitTextureNumSamples },
             { "textureSample"_s, emitTextureSample },
-            { "textureSampleBaseClampToEdge"_s, emitTextureSampleBaseClampToEdge },
             { "textureSampleBias"_s, emitTextureSampleBias },
             { "textureSampleCompare"_s, emitTextureSampleCompare },
             { "textureSampleCompareLevel"_s, emitTextureSampleCompare },
@@ -2227,16 +2445,16 @@ void FunctionDefinitionWriter::visit(const Type* type, AST::CallExpression& call
         }
 
 #define EMIT_HELPER(name) \
-    [](HelperGenerator& helperGenerator) { \
+    [](HelperGenerator& helperGenerator, AST::CallExpression&) { \
         if (!std::exchange(helperGenerator.didEmit##name, true)) \
             helperGenerator.emit##name(); \
         return "__wgsl"#name##_s;\
     }
 
 #define NOOP_HELPER(name) \
-    [](HelperGenerator&) { return #name##_s; }
+    [](HelperGenerator&, AST::CallExpression&) { return #name##_s; }
 
-        static constexpr SortedArrayMap mappedNames { std::to_array<std::pair<ComparableASCIILiteral, ASCIILiteral(*)(HelperGenerator&)>>({
+        static constexpr SortedArrayMap mappedNames { WTF::toArray<std::pair<ComparableASCIILiteral, ASCIILiteral(*)(HelperGenerator&, AST::CallExpression&)>>({
             { "acos"_s, EMIT_HELPER(Acos) },
             { "acosh"_s, EMIT_HELPER(Acosh) },
             { "asin"_s, EMIT_HELPER(Asin) },
@@ -2270,10 +2488,42 @@ void FunctionDefinitionWriter::visit(const Type* type, AST::CallExpression& call
             { "pack2x16unorm"_s, EMIT_HELPER(PackFloatToUnorm2x16) },
             { "pack4x8snorm"_s, EMIT_HELPER(PackFloatToSnorm4x8) },
             { "pack4x8unorm"_s, EMIT_HELPER(PackFloatToUnorm4x8) },
+            { "quadBroadcast"_s, NOOP_HELPER(quad_broadcast) },
             { "reverseBits"_s, NOOP_HELPER(reverse_bits) },
             { "round"_s, NOOP_HELPER(rint) },
             { "sign"_s, NOOP_HELPER(__wgslSign) },
             { "sqrt"_s, EMIT_HELPER(Sqrt) },
+            { "subgroupAdd"_s, NOOP_HELPER(simd_sum) },
+            { "subgroupAll"_s, NOOP_HELPER(simd_all) },
+            { "subgroupAnd"_s, NOOP_HELPER(simd_and) },
+            { "subgroupAny"_s, NOOP_HELPER(simd_any) },
+            { "subgroupBroadcast"_s, NOOP_HELPER(simd_broadcast) },
+            { "subgroupBroadcastFirst"_s, NOOP_HELPER(simd_broadcast_first) },
+            { "subgroupElect"_s, NOOP_HELPER(simd_is_first) },
+            { "subgroupExclusiveAdd"_s, NOOP_HELPER(simd_prefix_exclusive_sum) },
+            { "subgroupExclusiveMul"_s, NOOP_HELPER(simd_prefix_exclusive_product) },
+            { "subgroupInclusiveAdd"_s, NOOP_HELPER(simd_prefix_inclusive_sum) },
+            { "subgroupInclusiveMul"_s, NOOP_HELPER(simd_prefix_inclusive_product) },
+            { "subgroupMax"_s, NOOP_HELPER(simd_max) },
+            { "subgroupMin"_s, NOOP_HELPER(simd_min) },
+            { "subgroupMul"_s, NOOP_HELPER(simd_product) },
+            { "subgroupOr"_s, NOOP_HELPER(simd_or) },
+            { "subgroupShuffle"_s, NOOP_HELPER(simd_shuffle) },
+            { "subgroupShuffleDown"_s, NOOP_HELPER(simd_shuffle_down) },
+            { "subgroupShuffleUp"_s, NOOP_HELPER(simd_shuffle_up) },
+            { "subgroupShuffleXor"_s, NOOP_HELPER(simd_shuffle_xor) },
+            { "subgroupXor"_s, NOOP_HELPER(simd_xor) },
+            { "textureSampleBaseClampToEdge"_s, [](HelperGenerator& helperGenerator, AST::CallExpression& call) {
+                auto& texture = call.arguments()[0];
+                if (std::holds_alternative<Types::Texture>(*texture.inferredType())) {
+                    if (!std::exchange(helperGenerator.didEmitTextureSampleBaseClampToEdge, true))
+                        helperGenerator.emitTextureSampleBaseClampToEdge();
+                } else {
+                    if (!std::exchange(helperGenerator.didEmitTextureExternalSampleBaseClampToEdge, true))
+                        helperGenerator.emitTextureExternalSampleBaseClampToEdge();
+                }
+                return "__wgslTextureSampleBaseClampToEdge"_s;
+            } },
             { "unpack2x16snorm"_s, NOOP_HELPER(unpack_snorm2x16_to_float) },
             { "unpack2x16unorm"_s, NOOP_HELPER(unpack_unorm2x16_to_float) },
             { "unpack4x8snorm"_s, NOOP_HELPER(unpack_snorm4x8_to_float) },
@@ -2290,14 +2540,19 @@ void FunctionDefinitionWriter::visit(const Type* type, AST::CallExpression& call
             } else
                 visit(type);
         } else if (auto mappedName = mappedNames.get(targetName))
-            m_body.append(mappedName(m_helperGenerator));
+            m_body.append(mappedName(m_helperGenerator, call));
         else
             m_body.append(targetName);
         visitArguments(this, call);
         return;
     }
 
-    visit(type);
+    if (call.isFloatToIntConversion()) {
+        m_body.append("__wgslFtoi<"_s);
+        visit(type);
+        m_body.append(">"_s);
+    } else
+        visit(type);
     visitArguments(this, call);
 }
 
@@ -2432,12 +2687,32 @@ void FunctionDefinitionWriter::visit(AST::PointerDereferenceExpression& pointerD
 }
 void FunctionDefinitionWriter::visit(AST::IndexAccessExpression& access)
 {
-    bool isPointer = std::holds_alternative<Types::Pointer>(*access.base().inferredType());
+    auto* baseType = access.base().inferredType();
+    bool isPointer = std::holds_alternative<Types::Pointer>(*baseType);
+
+    bool isPackedMatrix = false;
+    {
+        const Type* elementType = nullptr;
+        if (auto* ref = std::get_if<Types::Reference>(baseType)) {
+            if (ref->addressSpace == AddressSpace::Storage || ref->addressSpace == AddressSpace::Uniform)
+                elementType = ref->element;
+        } else if (auto* ptr = std::get_if<Types::Pointer>(baseType)) {
+            if (ptr->addressSpace == AddressSpace::Storage || ptr->addressSpace == AddressSpace::Uniform)
+                elementType = ptr->element;
+        }
+        if (elementType) {
+            if (auto* matrix = std::get_if<Types::Matrix>(elementType))
+                isPackedMatrix = matrix->rows == 3;
+        }
+    }
+
     if (isPointer)
         m_body.append("(*("_s);
     visit(access.base());
     if (isPointer)
         m_body.append("))"_s);
+    if (isPackedMatrix)
+        m_body.append(".columns"_s);
     m_body.append('[');
     visit(access.index());
     m_body.append(']');
@@ -2518,8 +2793,6 @@ void FunctionDefinitionWriter::visit(AST::AssignmentStatement& assignment)
     m_body.append(" = "_s);
     const auto* assignmentType = assignment.lhs().inferredType();
     if (!assignmentType) {
-        // In theory this should never happen, but the assignments generated by
-        // the EntryPointRewriter do not have inferred types
         visit(assignment.rhs());
         return;
     }
@@ -2536,6 +2809,7 @@ void FunctionDefinitionWriter::visit(AST::CallStatement& statement)
 void FunctionDefinitionWriter::visit(AST::CompoundAssignmentStatement& statement)
 {
     bool serialized = false;
+    bool needsPack = false;
     auto* leftExpression = &statement.leftExpression();
     if (auto* identity = dynamicDowncast<AST::IdentityExpression>(*leftExpression))
         leftExpression = &identity->expression();
@@ -2544,7 +2818,13 @@ void FunctionDefinitionWriter::visit(AST::CompoundAssignmentStatement& statement
         if (auto* identifier = dynamicDowncast<AST::IdentifierExpression>(target)) {
             if (identifier->identifier() == "__unpack"_s) {
                 serialized = true;
-                visit(call->arguments()[0]);
+                auto& rawExpr = call->arguments()[0];
+                visit(rawExpr);
+                auto* rawType = rawExpr.inferredType();
+                if (auto* ref = std::get_if<Types::Reference>(rawType))
+                    rawType = ref->element;
+                if (auto* matrix = std::get_if<Types::Matrix>(rawType))
+                    needsPack = matrix->rows == 3;
             }
         }
     }
@@ -2552,7 +2832,11 @@ void FunctionDefinitionWriter::visit(AST::CompoundAssignmentStatement& statement
         visit(statement.leftExpression());
 
     m_body.append(" = "_s);
+    if (needsPack)
+        m_body.append("__pack("_s);
     serializeBinaryExpression(statement.leftExpression(), statement.operation(), statement.rightExpression());
+    if (needsPack)
+        m_body.append(')');
 }
 
 void FunctionDefinitionWriter::visit(AST::CompoundStatement& statement)

@@ -44,7 +44,6 @@ private:
     void endDrawSourceImage(GraphicsContext& destinationContext, const DestinationColorSpace&) override;
 
     FilterStyleVector m_filterStyles;
-    bool m_beganOuterClipLayer { false };
 };
 
 } // namespace WebCore

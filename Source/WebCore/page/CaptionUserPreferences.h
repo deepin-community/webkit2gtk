@@ -105,21 +105,26 @@ public:
     void setPrimaryAudioTrackLanguageOverride(const String& language) { m_primaryAudioTrackLanguageOverride = language;  }
     String primaryAudioTrackLanguageOverride() const;
 
+    void setPreferredAudioCharacteristicsForTesting(const Vector<String>& characteristics) { m_preferredAudioCharacteristicsForTesting = characteristics; }
+    const Vector<String>& preferredAudioCharacteristicsForTesting() const LIFETIME_BOUND { return m_preferredAudioCharacteristicsForTesting; }
+
     virtual bool testingMode() const { return m_testingModeCount; }
 
     friend class CaptionUserPreferencesTestingModeToken;
-    WEBCORE_EXPORT UniqueRef<CaptionUserPreferencesTestingModeToken> createTestingModeToken();
+    WEBCORE_EXPORT UniqueRef<CaptionUserPreferencesTestingModeToken> NODELETE createTestingModeToken();
 
     virtual String captionPreviewTitle() const;
+    virtual String captionPreviewProfileID() const { return emptyString(); }
+    virtual void setCaptionPreviewProfileID(const String&) { }
 
-    PageGroup& pageGroup() const;
+    PageGroup& NODELETE pageGroup() const;
 
 protected:
     explicit CaptionUserPreferences(PageGroup&);
 
     void updateCaptionStyleSheetOverride();
-    void beginBlockingNotifications();
-    void endBlockingNotifications();
+    void NODELETE beginBlockingNotifications();
+    void NODELETE endBlockingNotifications();
 
 private:
     void incrementTestingModeCount() { ++m_testingModeCount; }
@@ -132,7 +137,7 @@ private:
 
     void timerFired();
     void notify();
-    RefPtr<Page> currentPage() const;
+    RefPtr<Page> NODELETE currentPage() const;
 
     WeakRef<PageGroup> m_pageGroup;
     mutable CaptionDisplayMode m_displayMode;
@@ -141,6 +146,7 @@ private:
     String m_userPreferredAudioCharacteristic;
     String m_captionsStyleSheetOverride;
     String m_primaryAudioTrackLanguageOverride;
+    Vector<String> m_preferredAudioCharacteristicsForTesting;
     unsigned m_blockNotificationsCounter { 0 };
     bool m_havePreferences { false };
     unsigned m_testingModeCount { 0 };

@@ -30,7 +30,7 @@ class RenderSVGResourceContainer : public RenderSVGHiddenContainer {
 public:
     virtual ~RenderSVGResourceContainer();
 
-    void styleDidChange(Style::Difference, const RenderStyle* oldStyle) override;
+    void styleDidChange(Style::Difference, const Style::ComputedStyle* oldStyle) override;
 
     void idChanged();
     void repaintAllClients() const;
@@ -39,9 +39,12 @@ public:
     virtual void removeReferencingCSSClient(const RenderElement&) { }
 
 protected:
-    RenderSVGResourceContainer(Type, SVGElement&, RenderStyle&&);
+    RenderSVGResourceContainer(Type, SVGElement&, Style::ComputedStyle&&);
+
+    virtual void clearCacheBeforeLayout() { }
 
 private:
+    void layout() override;
     void willBeDestroyed() final;
     void registerResource();
 

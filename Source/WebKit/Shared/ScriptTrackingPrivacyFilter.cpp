@@ -30,6 +30,10 @@
 #include <WebCore/ScriptTrackingPrivacyCategory.h>
 #include <WebCore/SecurityOrigin.h>
 
+#if PLATFORM(COCOA)
+#include "WebPrivacyHelpers.h"
+#endif
+
 namespace WebKit {
 
 static void initializeFilterRules(Vector<ScriptTrackingPrivacyHost>&& source, HostToAllowedCategoriesMap& target, WebCore::ScriptTrackingPrivacyFlags& categoriesWithAllowedHosts)

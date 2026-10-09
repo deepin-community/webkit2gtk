@@ -27,7 +27,7 @@
 
 #if ENABLE(WEBGL)
 
-#include "GraphicsTypesGL.h"
+#include <WebCore/GraphicsTypesGL.h>
 #include <wtf/Forward.h>
 #include <wtf/Noncopyable.h>
 #include <wtf/RefCounted.h>
@@ -58,14 +58,14 @@ public:
         if (m_object == object)
             return *this;
         m_object = WTF::move(object);
-        if (RefPtr object = m_object)
+        if (auto* object = m_object.get())
             didBind(*object);
         return *this;
     }
     bool operator==(const T* a) const { return a == m_object; }
     bool operator==(const RefPtr<T>& a) const { return a == m_object; }
     explicit operator bool() const { return m_object; }
-    T* get() const { return m_object.get(); }
+    T* get() const LIFETIME_BOUND { return m_object.get(); }
     T* operator->() const { return m_object.get(); }
     T& operator*() const { return *m_object; }
     operator RefPtr<T>() const { return m_object; }
@@ -83,12 +83,26 @@ private:
     RefPtr<T> m_object;
 };
 
+} // namespace WebCore
+
+namespace WTF {
+
+template<typename T, unsigned target>
+ALWAYS_INLINE RefPtr<T> protect(const WebCore::WebGLBindingPoint<T, target>& bindingPoint)
+{
+    return bindingPoint.get();
+}
+
+} // namespace WTF
+
+namespace WebCore {
+
 class WebGLObject : public RefCounted<WebGLObject> {
 public:
     virtual ~WebGLObject();
 
-    RefPtr<WebGLRenderingContextBase> context() const;
-    RefPtr<GraphicsContextGL> graphicsContextGL() const;
+    WebGLRenderingContextBase* NODELETE context() const;
+    GraphicsContextGL* NODELETE graphicsContextGL() const;
 
     PlatformGLObject object() const { return m_object; }
 
@@ -108,9 +122,9 @@ public:
     bool isDeleted() const { return m_deleted; }
 
     // True if this object belongs to the context.
-    bool validate(const WebGLRenderingContextBase&) const;
+    bool NODELETE validate(const WebGLRenderingContextBase&) const;
 
-    Lock& objectGraphLockForContext();
+    Lock& NODELETE objectGraphLockForContext();
 
 protected:
     WebGLObject(WebGLRenderingContextBase&, PlatformGLObject);
@@ -134,7 +148,7 @@ PlatformGLObject objectOrZero(const T& object)
     return object ? object->object() : 0;
 }
 
-WebCoreOpaqueRoot root(WebGLObject*);
+WebCoreOpaqueRoot NODELETE root(WebGLObject*);
 
 } // namespace WebCore
 

@@ -25,7 +25,7 @@
 
 #include "StyleComputedStyle+DifferenceLogging.h"
 #include "StyleComputedStyle+InitialInlines.h"
-#include "StylePrimitiveKeyword+Logging.h"
+#include "StyleKeyword+Logging.h"
 #include "StylePrimitiveNumericTypes+Logging.h"
 
 namespace WebCore {
@@ -35,7 +35,7 @@ DEFINE_ALLOCATOR_WITH_HEAP_IDENTIFIER(InheritedRareData);
 
 InheritedRareData::InheritedRareData()
     : usedZoom(1.0f)
-    , deviceScaleFactor(1.0f)
+    , deviceScaleFactor(2.0f)
     , textStrokeWidth(ComputedStyle::initialTextStrokeWidth())
     , textStrokeColor(ComputedStyle::initialTextStrokeColor())
     , textFillColor(ComputedStyle::initialTextFillColor())
@@ -55,7 +55,7 @@ InheritedRareData::InheritedRareData()
     , colorScheme(ComputedStyle::initialColorScheme())
 #endif
     , cursorImages(ComputedStyle::initialCursor().images)
-#if ENABLE(TOUCH_EVENTS)
+#if ENABLE(CSS_TAP_HIGHLIGHT_COLOR)
     , tapHighlightColor(ComputedStyle::initialTapHighlightColor())
 #endif
     , listStyleType(ComputedStyle::initialListStyleType())
@@ -125,13 +125,14 @@ InheritedRareData::InheritedRareData()
     , hasExplicitlySetStrokeColor(false)
     , effectiveInert(false)
     , effectivelyTransparent(false)
+    , effectiveWrapInsideAvoid(false)
     , isInSubtreeWithBlendMode(false)
     , isForceHidden(false)
     , usedContentVisibility(static_cast<unsigned>(ContentVisibility::Visible))
     , autoRevealsWhenFound(false)
     , insideDefaultButton(false)
     , insideSubmitButton(false)
-    , evaluationTimeZoomEnabled(false)
+    , evaluationTimeZoomEnabled(true)
 #if HAVE(CORE_MATERIAL)
     , usedAppleVisualEffectForSubtree(static_cast<unsigned>(AppleVisualEffect::None))
 #endif
@@ -161,7 +162,7 @@ inline InheritedRareData::InheritedRareData(const InheritedRareData& o)
     , colorScheme(o.colorScheme)
 #endif
     , cursorImages(o.cursorImages)
-#if ENABLE(TOUCH_EVENTS)
+#if ENABLE(CSS_TAP_HIGHLIGHT_COLOR)
     , tapHighlightColor(o.tapHighlightColor)
 #endif
     , listStyleType(o.listStyleType)
@@ -231,6 +232,7 @@ inline InheritedRareData::InheritedRareData(const InheritedRareData& o)
     , hasExplicitlySetStrokeColor(o.hasExplicitlySetStrokeColor)
     , effectiveInert(o.effectiveInert)
     , effectivelyTransparent(o.effectivelyTransparent)
+    , effectiveWrapInsideAvoid(o.effectiveWrapInsideAvoid)
     , isInSubtreeWithBlendMode(o.isInSubtreeWithBlendMode)
     , isForceHidden(o.isForceHidden)
     , usedContentVisibility(o.usedContentVisibility)
@@ -255,6 +257,7 @@ InheritedRareData::~InheritedRareData() = default;
 bool InheritedRareData::operator==(const InheritedRareData& o) const
 {
     return usedZoom == o.usedZoom
+        && deviceScaleFactor == o.deviceScaleFactor
         && textStrokeWidth == o.textStrokeWidth
         && textStrokeColor == o.textStrokeColor
         && textFillColor == o.textFillColor
@@ -267,7 +270,7 @@ bool InheritedRareData::operator==(const InheritedRareData& o) const
         && accentColor == o.accentColor
         && scrollbarColor == o.scrollbarColor
         && dynamicRangeLimit == o.dynamicRangeLimit
-#if ENABLE(TOUCH_EVENTS)
+#if ENABLE(CSS_TAP_HIGHLIGHT_COLOR)
         && tapHighlightColor == o.tapHighlightColor
 #endif
         && textShadow == o.textShadow
@@ -339,6 +342,7 @@ bool InheritedRareData::operator==(const InheritedRareData& o) const
         && eventListenerRegionTypes == o.eventListenerRegionTypes
         && effectiveInert == o.effectiveInert
         && effectivelyTransparent == o.effectivelyTransparent
+        && effectiveWrapInsideAvoid == o.effectiveWrapInsideAvoid
         && usedContentVisibility == o.usedContentVisibility
         && insideDefaultButton == o.insideDefaultButton
         && insideSubmitButton == o.insideSubmitButton
@@ -353,7 +357,6 @@ bool InheritedRareData::operator==(const InheritedRareData& o) const
         && listStyleType == o.listStyleType
         && blockEllipsis == o.blockEllipsis
         && evaluationTimeZoomEnabled == o.evaluationTimeZoomEnabled
-        && deviceScaleFactor == o.deviceScaleFactor
         && mathDepth == o.mathDepth;
 }
 
@@ -410,7 +413,6 @@ void InheritedRareData::dumpDifferences(TextStream& ts, const InheritedRareData&
     LOG_IF_DIFFERENT_WITH_CAST(NBSPMode, nbspMode);
     LOG_IF_DIFFERENT_WITH_CAST(LineBreak, lineBreak);
     LOG_IF_DIFFERENT_WITH_CAST(UserSelect, userSelect);
-    LOG_IF_DIFFERENT_WITH_CAST(ColorSpace, colorSpace);
 
     LOG_IF_DIFFERENT_WITH_FROM_RAW(SpeakAs, speakAs);
 
@@ -458,6 +460,7 @@ void InheritedRareData::dumpDifferences(TextStream& ts, const InheritedRareData&
 
     LOG_IF_DIFFERENT_WITH_CAST(bool, effectiveInert);
     LOG_IF_DIFFERENT_WITH_CAST(bool, effectivelyTransparent);
+    LOG_IF_DIFFERENT_WITH_CAST(bool, effectiveWrapInsideAvoid);
 
     LOG_IF_DIFFERENT_WITH_CAST(bool, isInSubtreeWithBlendMode);
     LOG_IF_DIFFERENT_WITH_CAST(bool, isForceHidden);
@@ -498,7 +501,7 @@ void InheritedRareData::dumpDifferences(TextStream& ts, const InheritedRareData&
 #if ENABLE(TEXT_AUTOSIZING)
     LOG_IF_DIFFERENT(textSizeAdjust);
 #endif
-#if ENABLE(TOUCH_EVENTS)
+#if ENABLE(CSS_TAP_HIGHLIGHT_COLOR)
     LOG_IF_DIFFERENT(tapHighlightColor);
 #endif
 

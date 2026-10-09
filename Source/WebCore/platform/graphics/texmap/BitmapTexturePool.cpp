@@ -80,7 +80,9 @@ Ref<BitmapTexture> BitmapTexturePool::acquireTexture(const IntSize& size, Option
             && entry.texture->flags().contains(BitmapTexture::Flags::ForceLinearBuffer) == flags.contains(BitmapTexture::Flags::ForceLinearBuffer)
             && entry.texture->flags().contains(BitmapTexture::Flags::ForceVivanteSuperTiledBuffer) == flags.contains(BitmapTexture::Flags::ForceVivanteSuperTiledBuffer)
 #endif
-            && entry.texture->flags().contains(BitmapTexture::Flags::DepthBuffer) == flags.contains(BitmapTexture::Flags::DepthBuffer);
+            && entry.texture->flags().contains(BitmapTexture::Flags::UseBGRALayout) == flags.contains(BitmapTexture::Flags::UseBGRALayout)
+            && entry.texture->flags().contains(BitmapTexture::Flags::DepthBuffer) == flags.contains(BitmapTexture::Flags::DepthBuffer)
+            && entry.texture->flags().contains(BitmapTexture::Flags::NearestFiltering) == flags.contains(BitmapTexture::Flags::NearestFiltering);
     });
 
     if (selectedEntry == m_textures.end()) {
@@ -101,11 +103,11 @@ Ref<BitmapTexture> BitmapTexturePool::acquireTexture(const IntSize& size, Option
 }
 
 #if USE(GBM)
-Ref<BitmapTexture> BitmapTexturePool::createTextureForImage(EGLImage image, OptionSet<BitmapTexture::Flags> flags)
+Ref<BitmapTexture> BitmapTexturePool::createTextureForImage(EGLImage image, const IntSize& size, OptionSet<BitmapTexture::Flags> flags)
 {
     ASSERT(GLContextWrapper::currentContext());
     Locker locker { m_lock };
-    auto texture = BitmapTexture::create(image, flags);
+    auto texture = BitmapTexture::create(image, size, flags);
     m_imageTextures.append(texture.copyRef());
     scheduleReleaseUnusedTextures();
     return texture;
@@ -114,7 +116,7 @@ Ref<BitmapTexture> BitmapTexturePool::createTextureForImage(EGLImage image, Opti
 
 void BitmapTexturePool::scheduleReleaseUnusedTextures()
 {
-    ASSERT(m_lock.isHeld());
+    assertIsHeld(m_lock);
     if (m_releaseUnusedTexturesTimer.isActive())
         return;
 
@@ -126,6 +128,7 @@ void BitmapTexturePool::releaseUnusedTexturesTimerFired()
     Locker locker { m_lock };
 
     auto hasTextures = [this] -> bool {
+        assertIsHeld(m_lock);
         if (!m_textures.isEmpty())
             return true;
 #if USE(GBM)
@@ -139,11 +142,13 @@ void BitmapTexturePool::releaseUnusedTexturesTimerFired()
         return;
 
     auto releaseTexturesIfNeeded = [&] {
+        assertIsHeld(m_lock);
         if (!m_textures.isEmpty()) {
             // Delete entries, which have been unused in releaseUnusedSecondsTolerance.
             MonotonicTime minUsedTime = MonotonicTime::now() - m_releaseUnusedSecondsTolerance;
 
             auto matchCount = m_textures.removeAllMatching([this, &minUsedTime](const Entry& entry) {
+                assertIsHeld(m_lock);
                 if (entry.canBeReleased(minUsedTime)) {
                     m_poolSizeInBytes -= entry.texture->sizeInBytes();
                     return true;
@@ -179,7 +184,7 @@ void BitmapTexturePool::releaseUnusedTexturesTimerFired()
 
 void BitmapTexturePool::enterLimitExceededModeIfNeeded()
 {
-    ASSERT(m_lock.isHeld());
+    assertIsHeld(m_lock);
     if (m_onLimitExceededMode)
         return;
 
@@ -197,7 +202,7 @@ void BitmapTexturePool::enterLimitExceededModeIfNeeded()
 
 void BitmapTexturePool::exitLimitExceededModeIfNeeded()
 {
-    ASSERT(m_lock.isHeld());
+    assertIsHeld(m_lock);
     if (!m_onLimitExceededMode)
         return;
 

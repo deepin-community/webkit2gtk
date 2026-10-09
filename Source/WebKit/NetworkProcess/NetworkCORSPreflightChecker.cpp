@@ -92,12 +92,13 @@ void NetworkCORSPreflightChecker::startPreflight()
 
 void NetworkCORSPreflightChecker::willPerformHTTPRedirection(WebCore::ResourceResponse&& response, WebCore::ResourceRequest&&, RedirectCompletionHandler&& completionHandler)
 {
+    auto httpStatusCode = response.httpStatusCode();
     if (m_shouldCaptureExtraNetworkLoadMetrics)
         m_loadInformation.response = WTF::move(response);
 
     CORS_CHECKER_RELEASE_LOG("willPerformHTTPRedirection");
     completionHandler({ });
-    m_completionCallback(ResourceError { errorDomainWebKitInternal, 0, m_parameters.originalRequest.url(), makeString("Preflight response is not successful. Status code: "_s, response.httpStatusCode()), ResourceError::Type::AccessControl });
+    m_completionCallback(ResourceError { errorDomainWebKitInternal, 0, m_parameters.originalRequest.url(), makeString("Preflight response is not successful. Status code: "_s, httpStatusCode), ResourceError::Type::AccessControl });
 }
 
 void NetworkCORSPreflightChecker::didReceiveChallenge(WebCore::AuthenticationChallenge&& challenge, NegotiatedLegacyTLS negotiatedLegacyTLS, ChallengeCompletionHandler&& completionHandler)
@@ -118,7 +119,7 @@ void NetworkCORSPreflightChecker::didReceiveChallenge(WebCore::AuthenticationCha
         return;
     }
 
-    m_networkProcess->protectedAuthenticationManager()->didReceiveAuthenticationChallenge(m_parameters.sessionID, m_parameters.webPageProxyID, &m_parameters.topOrigin->data(), challenge, negotiatedLegacyTLS, WTF::move(completionHandler));
+    protect(m_networkProcess->authenticationManager())->didReceiveAuthenticationChallenge(m_parameters.sessionID, m_parameters.webPageProxyID, &m_parameters.topOrigin->data(), challenge, negotiatedLegacyTLS, WTF::move(completionHandler));
 }
 
 void NetworkCORSPreflightChecker::didReceiveResponse(WebCore::ResourceResponse&& response, NegotiatedLegacyTLS, PrivateRelayed, ResponseCompletionHandler&& completionHandler)

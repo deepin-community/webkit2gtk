@@ -34,12 +34,13 @@
 #include "ScriptWrappable.h"
 #include <JavaScriptCore/Forward.h>
 #include <JavaScriptCore/TypedArrayAdaptersForwardDeclarations.h>
+#include <wtf/FixedVector.h>
 #include <wtf/Lock.h>
-#include <wtf/Vector.h>
 
 namespace WebCore {
 
 class AudioBus;
+class JSDOMGlobalObject;
 class WebCoreOpaqueRoot;
 template<typename> class ExceptionOr;
 
@@ -83,7 +84,7 @@ public:
 
     size_t memoryCost() const;
 
-    template<typename Visitor> void visitChannelWrappers(Visitor&);
+    template<typename Visitor> void visitChannelWrappersInGCThread(Visitor&);
 
     bool copyTo(AudioBuffer&) const;
 
@@ -119,6 +120,6 @@ private:
     float m_noiseInjectionMultiplier { 0 };
 };
 
-WebCoreOpaqueRoot root(AudioBuffer*);
+WebCoreOpaqueRoot NODELETE root(AudioBuffer*);
 
 } // namespace WebCore

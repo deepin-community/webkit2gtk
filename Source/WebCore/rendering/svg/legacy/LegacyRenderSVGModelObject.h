@@ -53,6 +53,7 @@ public:
     RepaintRects rectsForRepaintingAfterLayout(const RenderLayerModelObject* repaintContainer, RepaintOutlineBounds) const override;
 
     std::optional<FloatRect> computeFloatVisibleRectInContainer(const FloatRect&, const RenderLayerModelObject* container, VisibleRectContext) const final;
+    std::optional<RepaintRects> computeVisibleRectsInContainer(const RepaintRects&, const RenderLayerModelObject* container, VisibleRectContext) const override;
     LayoutRect outlineBoundsForRepaint(const RenderLayerModelObject* repaintContainer, const RenderGeometryMap* = nullptr) const final;
 
     void boundingRects(Vector<LayoutRect>&, const LayoutPoint& accumulatedOffset) const final;
@@ -60,25 +61,30 @@ public:
 
     void mapLocalToContainer(const RenderLayerModelObject* ancestorContainer, TransformState&, OptionSet<MapCoordinatesMode>, bool* wasFixed) const final;
     const RenderElement* pushMappingToContainer(const RenderLayerModelObject* ancestorToStopAt, RenderGeometryMap&) const final;
-    void styleDidChange(Style::Difference, const RenderStyle* oldStyle) override;
+    void styleDidChange(Style::Difference, const Style::ComputedStyle* oldStyle) override;
 
     static bool checkIntersection(RenderElement*, const FloatRect&);
     static bool checkEnclosure(RenderElement*, const FloatRect&);
 
-    SVGElement& element() const { return downcast<SVGElement>(nodeForNonAnonymous()); }
-    Ref<SVGElement> protectedElement() const;
+    inline SVGElement& element() const; // Defined in LegacyRenderSVGModelObjectInlines.h
 
     virtual void addFocusRingRects(Vector<LayoutRect>&, const LayoutPoint& additionalOffset, const RenderLayerModelObject* paintContainer = nullptr) const;
 
+    bool hasScalingAncestor() const { return m_hasScalingAncestor; }
+    void setHasScalingAncestor(bool value) { m_hasScalingAncestor = value; }
+
 protected:
-    LegacyRenderSVGModelObject(Type, SVGElement&, RenderStyle&&, OptionSet<SVGModelObjectFlag> = { });
+    LegacyRenderSVGModelObject(Type, SVGElement&, Style::ComputedStyle&&, OptionSet<SVGModelObjectFlag> = { });
 
     void willBeDestroyed() override;
+    void insertedIntoTree() override;
 
 private:
     // This method should never be called, SVG uses a different nodeAtPoint method
     bool nodeAtPoint(const HitTestRequest&, HitTestResult&, const HitTestLocation& locationInContainer, const LayoutPoint& accumulatedOffset, HitTestAction) override;
     void absoluteFocusRingQuads(Vector<FloatQuad>&) final;
+
+    bool m_hasScalingAncestor : 1 { false };
 };
 
 } // namespace WebCore

@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include <WebCore/BrowsingContextGroupIdentifier.h>
 #include <WebCore/ContentSecurityPolicy.h>
 #include <WebCore/FrameIdentifier.h>
 #include <WebCore/PageIdentifier.h>
@@ -120,6 +121,7 @@ public:
 
     WEBCORE_EXPORT PageConfiguration(
         std::optional<PageIdentifier>,
+        std::optional<BrowsingContextGroupIdentifier>,
         PAL::SessionID,
         UniqueRef<EditorClient>&&,
         Ref<SocketProvider>&&,
@@ -147,7 +149,7 @@ public:
         UniqueRef<ChromeClient>&&,
         UniqueRef<CryptoClient>&&,
         UniqueRef<DocumentSyncClient>&&
-#if HAVE(DIGITAL_CREDENTIALS_UI)
+#if ENABLE(WEB_AUTHN)
         , Ref<CredentialRequestCoordinatorClient>&&
 #endif
     );
@@ -155,6 +157,7 @@ public:
     PageConfiguration(PageConfiguration&&);
 
     std::optional<PageIdentifier> identifier;
+    std::optional<BrowsingContextGroupIdentifier> browsingContextGroupIdentifier;
     PAL::SessionID sessionID;
     std::unique_ptr<AlternativeTextClient> alternativeTextClient;
     UniqueRef<ChromeClient> chromeClient;
@@ -248,14 +251,14 @@ public:
     String presentingApplicationBundleIdentifier;
 #endif
 
-#if HAVE(DIGITAL_CREDENTIALS_UI)
-    Ref<CredentialRequestCoordinatorClient> credentialRequestCoordinatorClient;
-#endif
-
     std::optional<MediaSessionManagerFactory> mediaSessionManagerFactory;
 
 #if ENABLE(IMAGE_ANALYSIS)
     std::optional<ImageTranslationLanguageIdentifiers> imageTranslationLanguageIdentifiers;
+#endif
+
+#if ENABLE(WEB_AUTHN)
+    Ref<CredentialRequestCoordinatorClient> credentialRequestCoordinatorClient;
 #endif
 };
 

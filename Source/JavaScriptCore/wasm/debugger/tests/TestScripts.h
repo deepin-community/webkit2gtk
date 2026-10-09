@@ -25,7 +25,7 @@
 
 #pragma once
 
-#if ENABLE(WEBASSEMBLY)
+#if ENABLE(WEBASSEMBLY_DEBUGGER)
 
 #include <span>
 #include <wtf/Forward.h>
@@ -48,8 +48,8 @@ String multiVMSameModuleDifferentFunction();
 String multiVMSameModuleSameFunction();
 
 // Get all registered test scripts
-std::span<const TestScript> getTestScripts();
+std::span<const TestScript> NODELETE getTestScripts();
 
 } // namespace TestScripts
 
-#endif // ENABLE(WEBASSEMBLY)
+#endif // ENABLE(WEBASSEMBLY_DEBUGGER)

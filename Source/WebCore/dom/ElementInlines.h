@@ -28,11 +28,12 @@
 #include <WebCore/CustomElementDefaultARIA.h>
 #include <WebCore/Element.h>
 #include <WebCore/ElementData.h>
+#include <WebCore/ElementInlinesLight.h>
 #include <WebCore/HTMLNames.h>
 #include <WebCore/NodeDocument.h>
 #include <WebCore/NodeInlines.h>
-#include <WebCore/RenderStyle.h>
 #include <WebCore/StyleChange.h>
+#include <WebCore/StyleComputedStyle.h>
 
 namespace WebCore {
 
@@ -83,7 +84,7 @@ inline const AtomString& Element::attributeWithDefaultARIA(const QualifiedName& 
     if (!value.isNull())
         return value;
 
-    auto* defaultARIA = customElementDefaultARIAIfExists();
+    CheckedPtr defaultARIA = customElementDefaultARIAIfExists();
     return defaultARIA ? defaultARIA->valueForAttribute(*this, name) : nullAtom();
 }
 
@@ -113,7 +114,7 @@ inline const URL& Document::maskedURLForBindingsIfNeeded(const URL& url) const
 
 inline URL Element::getURLAttributeForBindings(const QualifiedName& name) const
 {
-    return protectedDocument()->maskedURLForBindingsIfNeeded(getURLAttribute(name));
+    return protect(document())->maskedURLForBindingsIfNeeded(getURLAttribute(name));
 }
 
 inline bool Element::hasAttributesWithoutUpdate() const
@@ -234,9 +235,9 @@ inline const AtomString& Element::getAttribute(const QualifiedName& name, const 
     return getAttribute(names...);
 }
 
-inline bool isInTopLayerOrBackdrop(const RenderStyle& style, const Element* element)
+inline bool isInTopLayerOrBackdrop(const Style::ComputedStyle& style, const Element* element)
 {
-    return (element && element->isInTopLayer()) || style.pseudoElementType() == PseudoElementType::Backdrop;
+    return (element && element->isInTopLayer()) || pseudoElementType(style) == PseudoElementType::Backdrop;
 }
 
 inline void Element::hideNonce()

@@ -77,7 +77,7 @@ public:
     }
 
     void withDisplayBufferAsNativeImage(uint32_t bufferIndex, Function<void(WebCore::NativeImage*)>) final;
-    void paintCompositedResultsToCanvas(WebCore::ImageBuffer&, uint32_t) final;
+    void NODELETE paintCompositedResultsToCanvas(WebCore::ImageBuffer&, uint32_t) final;
 
 private:
     friend class DowncastConvertToBackingContext;
@@ -98,6 +98,7 @@ private:
     Vector<MachSendRight> recreateRenderBuffers(int width, int height, WebCore::DestinationColorSpace&&, WebCore::AlphaPremultiplication, WebCore::WebGPU::TextureFormat, unsigned bufferCount, Device&) override;
 
     Vector<UniqueRef<WebCore::IOSurface>> m_renderBuffers;
+    WebCore::AlphaPremultiplication m_alphaMode { WebCore::AlphaPremultiplication::Premultiplied };
     WTF::Function<void(CFArrayRef)> m_renderBuffersWereRecreatedCallback;
 #endif
 

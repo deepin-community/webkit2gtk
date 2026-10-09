@@ -39,9 +39,12 @@
 #include "CommonVM.h"
 #include "JSAudioWorkletProcessor.h"
 #include "JSAudioWorkletProcessorConstructor.h"
-#include "JSDOMConvert.h"
+#include "JSDOMConvertDictionary.h"
+#include "JSDOMConvertSequences.h"
+#include "SerializedScriptValue.h"
 #include "WebCoreOpaqueRootInlines.h"
 #include <JavaScriptCore/JSLock.h>
+#include <JavaScriptCore/JSObjectInlines.h>
 #include <wtf/CrossThreadCopier.h>
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/MakeString.h>
@@ -82,13 +85,13 @@ ExceptionOr<void> AudioWorkletGlobalScope::registerProcessor(String&& name, Ref<
         return Exception { ExceptionCode::NotSupportedError, "A processor was already registered with this name"_s };
 
     JSC::JSObject* jsConstructor = processorConstructor->callbackData()->callback();
-    auto* globalObject = jsConstructor->globalObject();
-    auto& vm = globalObject->vm();
+    auto& vm = jsConstructor->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
 
     if (!jsConstructor->isConstructor())
         return Exception { ExceptionCode::TypeError, "Class definition passed to registerProcessor() is not a constructor"_s };
 
+    auto* globalObject = jsConstructor->realm();
     auto prototype = jsConstructor->getPrototype(globalObject);
     RETURN_IF_EXCEPTION(scope, Exception { ExceptionCode::ExistingExceptionError });
 
@@ -124,7 +127,7 @@ ExceptionOr<void> AudioWorkletGlobalScope::registerProcessor(String&& name, Ref<
     if (!addResult.isNewEntry)
         return Exception { ExceptionCode::NotSupportedError, "A processor was already registered with this name"_s };
 
-    auto* messagingProxy = thread()->messagingProxy();
+    RefPtr messagingProxy = thread()->messagingProxy();
     if (!messagingProxy)
         return Exception { ExceptionCode::InvalidStateError };
 
@@ -169,7 +172,7 @@ RefPtr<AudioWorkletProcessor> AudioWorkletGlobalScope::createProcessor(const Str
     ASSERT(!!scope.exception() == !object);
     RETURN_IF_EXCEPTION(scope, nullptr);
 
-    auto* jsProcessor = JSC::jsDynamicCast<JSAudioWorkletProcessor*>(object);
+    auto* jsProcessor = dynamicDowncast<JSAudioWorkletProcessor>(object);
     if (!jsProcessor)
         return nullptr;
 
@@ -220,7 +223,7 @@ void AudioWorkletGlobalScope::processorIsNoLongerNeeded(AudioWorkletProcessor& p
     m_processors.remove(processor);
 }
 
-void AudioWorkletGlobalScope::visitProcessors(JSC::AbstractSlotVisitor& visitor)
+void AudioWorkletGlobalScope::visitProcessorsInGCThread(JSC::AbstractSlotVisitor& visitor)
 {
     m_processors.forEach([&](auto& processor) {
         addWebCoreOpaqueRoot(visitor, processor);

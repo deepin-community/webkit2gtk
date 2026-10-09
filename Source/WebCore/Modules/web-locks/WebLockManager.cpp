@@ -29,8 +29,11 @@
 #include "Document.h"
 #include "ExceptionCode.h"
 #include "ExceptionOr.h"
+#include "JSDOMConvertAny.h"
+#include "JSDOMConvertDictionary.h"
 #include "JSDOMPromise.h"
 #include "JSDOMPromiseDeferred.h"
+#include "JSValueInWrappedObjectInlines.h"
 #include "JSWebLockManagerSnapshot.h"
 #include "NavigatorBase.h"
 #include "Page.h"
@@ -42,6 +45,7 @@
 #include "WorkerGlobalScope.h"
 #include "WorkerLoaderProxy.h"
 #include "WorkerThread.h"
+#include <JavaScriptCore/HeapCellInlines.h>
 #include <wtf/CompletionHandler.h>
 #include <wtf/RunLoop.h>
 #include <wtf/text/MakeString.h>
@@ -64,8 +68,15 @@ struct WebLockManager::LockRequest {
     WebLockMode mode { WebLockMode::Exclusive };
     RefPtr<WebLockGrantedCallback> grantedCallback;
     RefPtr<AbortSignal> signal;
+    std::optional<uint32_t> signalAlgorithmIdentifier;
 
-    bool isValid() const { return !!lockIdentifier; }
+    bool NODELETE isValid() const { return !!lockIdentifier; }
+
+    void removeSignalAlgorithm()
+    {
+        if (signal && signalAlgorithmIdentifier)
+            protect(signal)->removeAlgorithm(*signalAlgorithmIdentifier);
+    }
 };
 
 class WebLockManager::MainThreadBridge : public ThreadSafeRefCounted<MainThreadBridge, WTF::DestructionThread::Main> {
@@ -164,7 +175,7 @@ Ref<WebLockManager> WebLockManager::create(NavigatorBase& navigator)
 
 WebLockManager::WebLockManager(NavigatorBase& navigator)
     : ActiveDOMObject(navigator.scriptExecutionContext())
-    , m_mainThreadBridge(MainThreadBridge::create(navigator.protectedScriptExecutionContext().get()))
+    , m_mainThreadBridge(MainThreadBridge::create(protect(navigator.scriptExecutionContext()).get()))
 {
 }
 
@@ -223,21 +234,22 @@ void WebLockManager::request(const String& name, Options&& options, Ref<WebLockG
     }
 
     if (options.signal && options.signal->aborted()) {
-        releasePromise->reject(ExceptionCode::AbortError, "WebLockOptions's signal is aborted"_s);
+        releasePromise->reject<IDLAny>(options.signal->reason().getValue());
         return;
     }
 
     WebLockIdentifier lockIdentifier = WebLockIdentifier::generate();
     m_releasePromises.add(lockIdentifier, WTF::move(releasePromise));
 
+    std::optional<uint32_t> signalAlgorithmIdentifier;
     if (RefPtr signal = options.signal) {
-        signal->addAlgorithm([weakThis = WeakPtr { *this }, lockIdentifier](JSC::JSValue reason) mutable {
+        signalAlgorithmIdentifier = signal->addAlgorithm([weakThis = WeakPtr { *this }, lockIdentifier](JSC::JSValue reason) mutable {
             if (weakThis)
                 weakThis->signalToAbortTheRequest(lockIdentifier, reason);
         });
     }
 
-    m_pendingRequests.add(lockIdentifier, LockRequest { lockIdentifier, name, options.mode, WTF::move(grantedCallback), WTF::move(options.signal) });
+    m_pendingRequests.add(lockIdentifier, LockRequest { lockIdentifier, name, options.mode, WTF::move(grantedCallback), WTF::move(options.signal), signalAlgorithmIdentifier });
 
     m_mainThreadBridge->requestLock(lockIdentifier, name, options, [weakThis = WeakPtr { *this }, lockIdentifier](bool success) mutable {
         if (weakThis)
@@ -255,6 +267,8 @@ void WebLockManager::didCompleteLockRequest(WebLockIdentifier lockIdentifier, bo
         if (!request.isValid())
             return;
 
+        request.removeSignalAlgorithm();
+
         if (success) {
             if (request.signal && request.signal->aborted()) {
                 manager.m_mainThreadBridge->releaseLock(*request.lockIdentifier, request.name);
@@ -263,13 +277,13 @@ void WebLockManager::didCompleteLockRequest(WebLockIdentifier lockIdentifier, bo
 
             Ref lock = WebLock::create(*request.lockIdentifier, request.name, request.mode);
             auto result = request.grantedCallback->invoke(lock.ptr());
-            RefPtr<DOMPromise> waitingPromise = result.type() == CallbackResultType::Success ? result.releaseReturnValue() : nullptr;
-            if (!waitingPromise || waitingPromise->isSuspended()) {
+            if (result.type() != CallbackResultType::Success || result.returnValue()->isSuspended()) {
                 manager.m_mainThreadBridge->releaseLock(*request.lockIdentifier, request.name);
                 manager.settleReleasePromise(*request.lockIdentifier, Exception { ExceptionCode::ExistingExceptionError });
                 return;
             }
 
+            Ref waitingPromise = result.releaseReturnValue();
             waitingPromise->whenSettled([weakThis = WeakPtr { manager }, lockIdentifier = *request.lockIdentifier, name = request.name, waitingPromise] {
                 RefPtr protectedThis = weakThis.get();
                 if (!protectedThis || waitingPromise->isSuspended())
@@ -279,11 +293,12 @@ void WebLockManager::didCompleteLockRequest(WebLockIdentifier lockIdentifier, bo
             });
         } else {
             auto result = request.grantedCallback->invoke(nullptr);
-            RefPtr<DOMPromise> waitingPromise = result.type() == CallbackResultType::Success ? result.releaseReturnValue() : nullptr;
-            if (!waitingPromise || waitingPromise->isSuspended()) {
+            if (result.type() != CallbackResultType::Success || result.returnValue()->isSuspended()) {
                 manager.settleReleasePromise(*request.lockIdentifier, Exception { ExceptionCode::ExistingExceptionError });
                 return;
             }
+
+            Ref waitingPromise = result.releaseReturnValue();
             manager.settleReleasePromise(*request.lockIdentifier, static_cast<JSC::JSValue>(waitingPromise->promise()));
         }
     });
@@ -336,8 +351,10 @@ void WebLockManager::signalToAbortTheRequest(WebLockIdentifier lockIdentifier, J
     auto& request = requestsIterator->value;
 
     m_mainThreadBridge->abortLockRequest(*request.lockIdentifier, request.name, [weakThis = WeakPtr { *this }, lockIdentifier](bool wasAborted) {
-        if (wasAborted && weakThis)
-            weakThis->m_pendingRequests.remove(lockIdentifier);
+        if (wasAborted && weakThis) {
+            if (auto request = weakThis->m_pendingRequests.take(lockIdentifier); request.isValid())
+                request.removeSignalAlgorithm();
+        }
     });
     if (RefPtr releasePromise = m_releasePromises.take(lockIdentifier))
         releasePromise->reject<IDLAny>(reason);
@@ -362,13 +379,16 @@ void WebLockManager::stop()
 
 void WebLockManager::clientIsGoingAway()
 {
-    // Reject all pending promises before clearing
+    for (auto& request : m_pendingRequests.values())
+        request.removeSignalAlgorithm();
+
+    // Reject all pending promises before clearing.
     auto releasePromises = std::exchange(m_releasePromises, { });
-    for (Ref promise : releasePromises.values())
-        promise->reject(ExceptionCode::AbortError, "Promise was rejected because the browsing context is going away"_s);
+    for (auto& promise : releasePromises.values())
+        protect(promise)->reject(ExceptionCode::AbortError, "Promise was rejected because the browsing context is going away"_s);
     auto queryPromises = std::exchange(m_queryPromises, { });
-    for (Ref promise : queryPromises.values())
-        promise->reject(ExceptionCode::AbortError, "Promise was rejected because the browsing context is going away"_s);
+    for (auto& promise : queryPromises.values())
+        protect(promise)->reject(ExceptionCode::AbortError, "Promise was rejected because the browsing context is going away"_s);
     m_pendingRequests.clear();
     m_releasePromises.clear();
 

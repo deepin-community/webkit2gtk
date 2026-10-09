@@ -35,7 +35,7 @@ using namespace CSS::Literals;
 // <'contain-intrinsic-*'> = auto? [ none | <length [0,inf]> ]
 // https://drafts.csswg.org/css-sizing-4/#intrinsic-size-override
 struct ContainIntrinsicSize {
-    using Length = Style::Length<CSS::Nonnegative, float>;
+    using Length = Style::Length<CSS::NonnegativeUnzoomed, float>;
 
     ContainIntrinsicSize(CSS::Keyword::None)
         : type { ContainIntrinsicSizeType::None }
@@ -155,7 +155,7 @@ template<> struct CSSValueConversion<ContainIntrinsicSize> { auto operator()(Bui
 // MARK: - Blending
 
 template<> struct Blending<ContainIntrinsicSize> {
-    auto canBlend(const ContainIntrinsicSize&, const ContainIntrinsicSize&) -> bool;
+    bool NODELETE canBlend(const ContainIntrinsicSize&, const ContainIntrinsicSize&);
     auto blend(const ContainIntrinsicSize&, const ContainIntrinsicSize&, const BlendingContext&) -> ContainIntrinsicSize;
 };
 

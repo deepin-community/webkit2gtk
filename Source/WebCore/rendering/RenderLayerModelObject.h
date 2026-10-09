@@ -22,6 +22,7 @@
 
 #pragma once
 
+#include <WebCore/FloatPoint3D.h>
 #include <WebCore/PaintPhase.h>
 #include <WebCore/RenderElement.h>
 #include <wtf/OptionSet.h>
@@ -42,8 +43,23 @@ class SVGGraphicsElement;
 
 namespace Style {
 struct SVGMarkerResource;
+struct SVGPaint;
 enum class TransformResolverOption : uint8_t;
 }
+
+enum class ContentChangeType : uint8_t {
+    Image,
+    HDRImage,
+    MaskImage,
+    BackgroundImage,
+    Canvas,
+    CanvasPixels,
+    Video,
+    FullScreen,
+    Model
+};
+
+enum class SVGPaintType : bool { Fill, Stroke };
 
 class RenderLayerModelObject : public RenderElement {
     WTF_MAKE_TZONE_ALLOCATED(RenderLayerModelObject);
@@ -53,18 +69,14 @@ public:
 
     void destroyLayer();
 
-    bool hasSelfPaintingLayer() const;
-    RenderLayer* layer() const { return m_layer.get(); }
-    CheckedPtr<RenderLayer> checkedLayer() const;
+    bool NODELETE hasSelfPaintingLayer() const;
+    RenderLayer* layer() const LIFETIME_BOUND { return m_layer.get(); }
 
-    void styleWillChange(Style::Difference, const RenderStyle& newStyle) override;
-    void styleDidChange(Style::Difference, const RenderStyle* oldStyle) override;
+    void styleWillChange(Style::Difference, const Style::ComputedStyle& newStyle) override;
+    void styleDidChange(Style::Difference, const Style::ComputedStyle* oldStyle) override;
 
     virtual bool requiresLayer() const = 0;
-
-    // Returns true if the background is painted opaque in the given rect.
-    // The query rect is given in local coordinate system.
-    virtual bool backgroundIsKnownToBeOpaqueInRect(const LayoutRect&) const { return false; }
+    bool requiresLayerForSVGIntrinsicReasons() const;
 
     // Returns false if the rect has no intersection with the applied clip rect. When the context specifies edge-inclusive
     // intersection, this return value allows distinguishing between no intersection and zero-area intersection.
@@ -72,9 +84,9 @@ public:
 
     virtual bool isScrollableOrRubberbandableBox() const { return false; }
 
-    bool shouldPlaceVerticalScrollbarOnLeft() const;
+    bool NODELETE shouldPlaceVerticalScrollbarOnLeft() const;
 
-    std::optional<LayoutRect> cachedLayerClippedOverflowRect() const;
+    std::optional<LayoutRect> NODELETE cachedLayerClippedOverflowRect() const;
 
     bool startAnimation(double timeOffset, const GraphicsLayerAnimation&, const BlendingKeyframes&) override;
     void animationPaused(double timeOffset, const BlendingKeyframes&) override;
@@ -95,18 +107,31 @@ public:
     // This lives in RenderLayerModelObject, which is the common base-class for all SVG renderers.
     void mapLocalToSVGContainer(const RenderLayerModelObject* ancestorContainer, TransformState&, OptionSet<MapCoordinatesMode>, bool* wasFixed) const;
 
-    void applySVGTransform(TransformationMatrix&, const SVGGraphicsElement&, const RenderStyle&, const FloatRect& boundingBox, const std::optional<AffineTransform>& preApplySVGTransformMatrix, const std::optional<AffineTransform>& postApplySVGTransformMatrix, OptionSet<Style::TransformResolverOption>) const;
+    void applySVGTransform(TransformationMatrix&, const SVGGraphicsElement&, const Style::ComputedStyle&, const FloatRect& boundingBox, const std::optional<AffineTransform>& preApplySVGTransformMatrix, const std::optional<AffineTransform>& postApplySVGTransformMatrix, OptionSet<Style::TransformResolverOption>) const;
     void updateHasSVGTransformFlags();
     virtual bool needsHasSVGTransformFlags() const { ASSERT_NOT_REACHED(); return false; }
 
-    void repaintOrRelayoutAfterSVGTransformChange();
+    virtual std::optional<FloatPoint3D> cachedTransformOriginForReferenceBox(const Style::ComputedStyle&, const FloatRect&) const { return std::nullopt; }
+
+    enum class SVGAttributeChangeRepaintMode : bool {
+        // Issue a full repaint at the new position from inside the function.
+        Issue,
+        // Skip the post-mutation repaint - the caller will emit a delta repaint
+        // (via repaintAfterLayoutIfNeeded()) using a pre-mutation rect snapshot.
+        Defer
+    };
+    void updateTransformAndRepaintForSVGAfterAttributeChange(SVGAttributeChangeRepaintMode = SVGAttributeChangeRepaintMode::Issue);
+    bool svgTransformAttributeChangeInducesLayerComposition();
 
     LayoutPoint nominalSVGLayoutLocation() const { return flooredLayoutPoint(objectBoundingBoxWithoutTransformations().minXMinYCorner()); }
+    LayoutPoint objectBoundingBoxLocation() const { return flooredLayoutPoint(objectBoundingBox().minXMinYCorner()); }
     virtual LayoutPoint currentSVGLayoutLocation() const { ASSERT_NOT_REACHED(); return { }; }
     virtual void setCurrentSVGLayoutLocation(const LayoutPoint&) { ASSERT_NOT_REACHED(); }
 
-    RenderSVGResourcePaintServer* svgFillPaintServerResourceFromStyle(const RenderStyle&) const;
-    RenderSVGResourcePaintServer* svgStrokePaintServerResourceFromStyle(const RenderStyle&) const;
+    RenderSVGResourcePaintServer* svgFillPaintServerResourceFromStyle(const Style::ComputedStyle&) const;
+    RenderSVGResourcePaintServer* svgStrokePaintServerResourceFromStyle(const Style::ComputedStyle&) const;
+
+    void invalidateSVGPaintServerCache() const;
 
     RenderSVGResourceClipper* svgClipperResourceFromStyle() const;
     RenderSVGResourceFilter* svgFilterResourceFromStyle() const;
@@ -121,18 +146,37 @@ public:
 
     void paintSVGClippingMask(PaintInfo&, const FloatRect& objectBoundingBox) const;
     void paintSVGMask(PaintInfo&, const LayoutPoint& adjustedPaintOffset) const;
+    void paintSVGEventRegion(PaintInfo&, const LayoutPoint& paintOffset);
 
-    TransformationMatrix* layerTransform() const;
+    TransformationMatrix* NODELETE layerTransform() const;
 
     virtual void updateLayerTransform();
-    virtual void applyTransform(TransformationMatrix&, const RenderStyle&, const FloatRect& boundingBox, OptionSet<Style::TransformResolverOption>) const = 0;
-    void applyTransform(TransformationMatrix&, const RenderStyle&, const FloatRect& boundingBox) const;
+    virtual void applyTransform(TransformationMatrix&, const Style::ComputedStyle&, const FloatRect& boundingBox, OptionSet<Style::TransformResolverOption>) const = 0;
+    void applyTransform(TransformationMatrix&, const Style::ComputedStyle&, const FloatRect& boundingBox) const;
+
+    virtual void invalidateCachedVisualOverflowRect() { }
+
+    // LBSE: flag the transform-dependent bounding boxes (objectBoundingBox / strokeBoundingBox)
+    // for lazy recomputation. Overridden by RenderSVGContainer / RenderSVGRoot, which cache them.
+    // The deferred SVG transform-attribute flush uses it to dirty the container ancestor chain of
+    // a renderer whose transform changed without a layout. No-op otherwise.
+    virtual void invalidateCachedSVGTransformDependentBoundingBoxes() { }
 
     inline bool shouldUsePositionedClipping() const;
 
+#if ASSERT_ENABLED
+    bool layerAccessPreventedSlow() const;
+#endif
+
+    AffineTransform computeRendererTransform() const;
+
+    void contentChanged(ContentChangeType, const std::optional<FloatRect>& = std::nullopt);
+
+    bool hasAcceleratedCompositing() const;
+
 protected:
-    RenderLayerModelObject(Type, Element&, RenderStyle&&, OptionSet<TypeFlag>, TypeSpecificFlags);
-    RenderLayerModelObject(Type, Document&, RenderStyle&&, OptionSet<TypeFlag>, TypeSpecificFlags);
+    RenderLayerModelObject(Type, Element&, Style::ComputedStyle&&, OptionSet<TypeFlag>, TypeSpecificFlags);
+    RenderLayerModelObject(Type, Document&, Style::ComputedStyle&&, OptionSet<TypeFlag>, TypeSpecificFlags);
 
     void createLayer();
     void willBeDestroyed() override;
@@ -140,7 +184,12 @@ protected:
     virtual void updateFromStyle() { }
 
 private:
+    bool createLayerIfAllowed();
+    void removeOnlyThisLayerWithRepaint();
+
     RenderSVGResourceMarker* svgMarkerResourceFromStyle(const Style::SVGMarkerResource&) const;
+
+    RenderSVGResourcePaintServer* svgPaintServerResourceFromStyle(const Style::SVGPaint&, const Style::ComputedStyle&, SVGPaintType) const;
 
     UniquelyOwnedPtr<RenderLayer> m_layer;
 
@@ -152,7 +201,7 @@ private:
 };
 
 // Pixel-snapping (== 'device pixel alignment') helpers.
-bool rendererNeedsPixelSnapping(const RenderLayerModelObject&);
+bool NODELETE rendererNeedsPixelSnapping(const RenderLayerModelObject&);
 FloatRect snapRectToDevicePixelsIfNeeded(const LayoutRect&, const RenderLayerModelObject&);
 FloatRect snapRectToDevicePixelsIfNeeded(const FloatRect&, const RenderLayerModelObject&);
 

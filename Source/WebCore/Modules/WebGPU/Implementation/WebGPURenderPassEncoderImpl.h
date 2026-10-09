@@ -61,15 +61,15 @@ private:
 
     void setPipeline(const RenderPipeline&) final;
 
-    void setIndexBuffer(const Buffer&, IndexFormat, std::optional<Size64> offset, std::optional<Size64>) final;
-    void setVertexBuffer(Index32 slot, const Buffer*, std::optional<Size64> offset, std::optional<Size64>) final;
+    void setIndexBuffer(const Buffer&, IndexFormat, Size64 offset, std::optional<Size64>) final;
+    void setVertexBuffer(Index32 slot, const Buffer*, Size64 offset, std::optional<Size64>) final;
 
-    void draw(Size32 vertexCount, std::optional<Size32> instanceCount,
-        std::optional<Size32> firstVertex, std::optional<Size32> firstInstance) final;
-    void drawIndexed(Size32 indexCount, std::optional<Size32> instanceCount,
-        std::optional<Size32> firstIndex,
-        std::optional<SignedOffset32> baseVertex,
-        std::optional<Size32> firstInstance) final;
+    void draw(Size32 vertexCount, Size32 instanceCount,
+        Size32 firstVertex, Size32 firstInstance) final;
+    void drawIndexed(Size32 indexCount, Size32 instanceCount,
+        Size32 firstIndex,
+        SignedOffset32 baseVertex,
+        Size32 firstInstance) final;
 
     void drawIndirect(const Buffer& indirectBuffer, Size64 indirectOffset) final;
     void drawIndexedIndirect(const Buffer& indirectBuffer, Size64 indirectOffset) final;
@@ -77,7 +77,7 @@ private:
     void setBindGroup(Index32, const BindGroup*,
         std::optional<Vector<BufferDynamicOffset>>&& dynamicOffsets) final;
 
-    void setBindGroup(Index32, const BindGroup*,
+    void NODELETE setBindGroup(Index32, const BindGroup*,
         std::span<const uint32_t> dynamicOffsetsArrayBuffer,
         Size64 dynamicOffsetsDataStart,
         Size32 dynamicOffsetsDataLength) final;

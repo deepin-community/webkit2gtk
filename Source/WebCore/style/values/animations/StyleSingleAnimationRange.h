@@ -24,7 +24,7 @@
 
 #pragma once
 
-#include <WebCore/StyleLengthWrapper.h>
+#include <WebCore/StylePrimitiveNumeric.h>
 #include <WebCore/StyleSingleAnimationRangeName.h>
 #include <WebCore/StyleValueTypes.h>
 #include <WebCore/TimelineRangeValue.h>
@@ -38,18 +38,13 @@ namespace Style {
 
 enum class SingleAnimationRangeType : bool { Start, End };
 
-struct SingleAnimationRangeLength : LengthWrapperBase<LengthPercentage<>> {
-    using Base::Base;
-
-    static SingleAnimationRangeLength defaultValue(SingleAnimationRangeType);
-    bool isDefault(SingleAnimationRangeType) const;
-};
+using SingleAnimationRangeEdgeOffset = LengthPercentage<CSS::AllUnzoomed>;
 
 template<SingleAnimationRangeType type>
 struct SingleAnimationRangeEdge {
     using Base = SingleAnimationRangeEdge<type>;
     using Name = SingleAnimationRangeName;
-    using Offset = SingleAnimationRangeLength;
+    using Offset = SingleAnimationRangeEdgeOffset;
 
     SingleAnimationRangeEdge(Offset&& offset)
         : SingleAnimationRangeEdge { Name::Omitted, WTF::move(offset) }
@@ -83,6 +78,10 @@ struct SingleAnimationRangeEdge {
         : SingleAnimationRangeEdge { Name::ExitCrossing, WTF::move(offset) }
     {
     }
+    SingleAnimationRangeEdge(CSS::Keyword::Scroll, std::optional<Offset>&& offset = std::nullopt)
+        : SingleAnimationRangeEdge { Name::Scroll, WTF::move(offset) }
+    {
+    }
 
     bool isNormal() const { return m_name == Name::Normal; }
 
@@ -91,7 +90,7 @@ struct SingleAnimationRangeEdge {
         auto visitor = WTF::makeVisitor(std::forward<F>(f)...);
 
         auto visitPredefinedNamedRange = [&](auto keyword) {
-            if (m_offset.isDefault(type))
+            if (m_offset == defaultOffset())
                 return visitor(keyword);
             return visitor(SpaceSeparatedTuple { keyword, m_offset });
         };
@@ -113,14 +112,17 @@ struct SingleAnimationRangeEdge {
             return visitPredefinedNamedRange(CSS::Keyword::EntryCrossing { });
         case Name::ExitCrossing:
             return visitPredefinedNamedRange(CSS::Keyword::ExitCrossing { });
+        case Name::Scroll:
+            return visitPredefinedNamedRange(CSS::Keyword::Scroll { });
         }
         RELEASE_ASSERT_NOT_REACHED();
     }
 
     Name name() const { return m_name; }
-    const Offset& offset() const { return m_offset; }
+    const Offset& offset() const LIFETIME_BOUND { return m_offset; }
 
-    bool hasDefaultOffset() const { return m_offset.isDefault(type); }
+    static Offset NODELETE defaultOffset();
+    bool hasDefaultOffset() const { return m_offset == defaultOffset(); }
 
     bool operator==(const SingleAnimationRangeEdge<type>&) const = default;
 
@@ -133,7 +135,7 @@ protected:
 
     SingleAnimationRangeEdge(Name name, std::optional<Offset>&& offset)
         : m_name { name }
-        , m_offset { offset ? *offset : Offset::defaultValue(type) }
+        , m_offset { offset ? *offset : defaultOffset() }
     {
     }
 
@@ -141,16 +143,27 @@ protected:
     Offset m_offset;
 };
 
+template<SingleAnimationRangeType type>
+auto SingleAnimationRangeEdge<type>::defaultOffset() -> Offset
+{
+    using namespace CSS::Literals;
+
+    if constexpr (type == SingleAnimationRangeType::Start)
+        return 0_css_percentage;
+    else
+        return 100_css_percentage;
+}
+
 struct SingleAnimationRangeStart : SingleAnimationRangeEdge<SingleAnimationRangeType::Start> {
     using Base::Base;
 
-    TimelineRangeValue toTimelineRangeValue() const;
+    TimelineRangeValue toTimelineRangeValue(ZoomFactor) const;
 };
 
 struct SingleAnimationRangeEnd : SingleAnimationRangeEdge<SingleAnimationRangeType::End> {
     using Base::Base;
 
-    TimelineRangeValue toTimelineRangeValue() const;
+    TimelineRangeValue toTimelineRangeValue(ZoomFactor) const;
 };
 
 struct SingleAnimationRange {
@@ -159,23 +172,32 @@ struct SingleAnimationRange {
 
     bool operator==(const SingleAnimationRange&) const = default;
 
-    static SingleAnimationRange defaultForScrollTimeline();
-    static SingleAnimationRange defaultForViewTimeline();
+    static SingleAnimationRange NODELETE defaultForScrollTimeline();
+    static SingleAnimationRange NODELETE defaultForViewTimeline();
 
     bool isDefault() const { return start.isNormal() && end.isNormal(); }
 };
 
 // MARK: - Conversion
 
-template<> struct CSSValueConversion<SingleAnimationRangeStart> { auto operator()(BuilderState&, const CSSValue&) -> SingleAnimationRangeStart; };
-template<> struct CSSValueConversion<SingleAnimationRangeEnd> { auto operator()(BuilderState&, const CSSValue&) -> SingleAnimationRangeEnd; };
+template<> struct CSSValueConversion<SingleAnimationRangeStart> {
+    auto operator()(BuilderState&, const CSSValue&) -> SingleAnimationRangeStart;
+    auto operator()(const CSSToLengthConversionData&, const CSSValue&) -> SingleAnimationRangeStart;
+};
+template<> struct CSSValueConversion<SingleAnimationRangeEnd> {
+    auto operator()(BuilderState&, const CSSValue&) -> SingleAnimationRangeEnd;
+    auto operator()(const CSSToLengthConversionData&, const CSSValue&) -> SingleAnimationRangeEnd;
+};
 
-template<> struct DeprecatedCSSValueConversion<SingleAnimationRangeStart> { auto operator()(const RefPtr<Element>&, const CSSValue&) -> std::optional<SingleAnimationRangeStart>; };
-template<> struct DeprecatedCSSValueConversion<SingleAnimationRangeEnd> { auto operator()(const RefPtr<Element>&, const CSSValue&) -> std::optional<SingleAnimationRangeEnd>; };
+template<> struct DeprecatedCSSValueConversion<SingleAnimationRangeStart> {
+    auto operator()(const CSSValue&) -> std::optional<SingleAnimationRangeStart>;
+};
+template<> struct DeprecatedCSSValueConversion<SingleAnimationRangeEnd> {
+    auto operator()(const CSSValue&) -> std::optional<SingleAnimationRangeEnd>;
+};
 
 } // namespace Style
 } // namespace WebCore
 
-DEFINE_VARIANT_LIKE_CONFORMANCE(WebCore::Style::SingleAnimationRangeLength)
 DEFINE_VARIANT_LIKE_CONFORMANCE(WebCore::Style::SingleAnimationRangeStart)
 DEFINE_VARIANT_LIKE_CONFORMANCE(WebCore::Style::SingleAnimationRangeEnd)

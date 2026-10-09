@@ -95,7 +95,7 @@ void ModelProcessModelPlayer::didCreateLayer(WebCore::LayerHostingContextIdentif
     RELEASE_ASSERT(modelProcessEnabled());
 
     m_layerHostingContextIdentifier = identifier;
-    protectedClient()->didUpdate(*this);
+    protect(client())->didUpdate(*this);
 }
 
 void ModelProcessModelPlayer::didFinishLoading(const WebCore::FloatPoint3D& boundingBoxCenter, const WebCore::FloatPoint3D& boundingBoxExtents)
@@ -111,12 +111,20 @@ void ModelProcessModelPlayer::didFinishLoading(const WebCore::FloatPoint3D& boun
     client->didUpdateBoundingBox(*this, boundingBoxCenter, boundingBoxExtents);
 }
 
+void ModelProcessModelPlayer::didConvertModelData(Ref<WebCore::SharedBuffer>&& convertedData, const String& convertedMIMEType)
+{
+    RELEASE_LOG(ModelElement, "%p - ModelProcessModelPlayer didConvertModelData mimeType=%s id=%" PRIu64, this, convertedMIMEType.utf8().data(), m_id.toUInt64());
+    RELEASE_ASSERT(modelProcessEnabled());
+
+    protect(client())->didConvertModelData(*this, WTF::move(convertedData), convertedMIMEType);
+}
+
 void ModelProcessModelPlayer::didFailLoading()
 {
     RELEASE_LOG(ModelElement, "%p - ModelProcessModelPlayer didFailLoading id=%" PRIu64, this, m_id.toUInt64());
     RELEASE_ASSERT(modelProcessEnabled());
 
-    protectedClient()->didFailLoading(*this, WebCore::ResourceError { WebCore::errorDomainWebKitInternal, 0, { }, "Failed to load model data"_s });
+    protect(client())->didFailLoading(*this, WebCore::ResourceError { WebCore::errorDomainWebKitInternal, 0, { }, "Failed to load model data"_s });
 }
 
 /// This comes from Model Process side, so that Web Process has the most up-to-date knowledge about the transform actually applied to the entity.
@@ -126,7 +134,7 @@ void ModelProcessModelPlayer::didUpdateEntityTransform(const WebCore::Transforma
     RELEASE_ASSERT(modelProcessEnabled());
 
     m_entityTransform = transform;
-    protectedClient()->didUpdateEntityTransform(*this, transform);
+    protect(client())->didUpdateEntityTransform(*this, transform);
 }
 
 void ModelProcessModelPlayer::didUpdateAnimationPlaybackState(bool isPaused, double playbackRate, Seconds duration, Seconds currentTime, MonotonicTime clockTimestamp)
@@ -143,7 +151,7 @@ void ModelProcessModelPlayer::didFinishEnvironmentMapLoading(bool succeeded)
 {
     RELEASE_ASSERT(modelProcessEnabled());
 
-    protectedClient()->didFinishEnvironmentMapLoading(*this, succeeded);
+    protect(client())->didFinishEnvironmentMapLoading(*this, succeeded);
 }
 
 // MARK: - WebCore::ModelPlayer
@@ -166,7 +174,7 @@ std::optional<std::unique_ptr<WebCore::ModelPlayerTransformState>> ModelProcessM
     return ModelProcessModelPlayerTransformState::create(m_entityTransform, m_boundingBoxCenter, m_boundingBoxExtents, m_hasPortal, m_stageModeOperation);
 }
 
-void ModelProcessModelPlayer::load(WebCore::Model& model, WebCore::LayoutSize size)
+void ModelProcessModelPlayer::load(WebCore::Model& model, WebCore::LayoutSize size, bool isForImmersive)
 {
     RELEASE_LOG(ModelElement, "%p - ModelProcessModelPlayer load model id=%" PRIu64, this, m_id.toUInt64());
 
@@ -176,7 +184,7 @@ void ModelProcessModelPlayer::load(WebCore::Model& model, WebCore::LayoutSize si
             client->logWarning(*this, makeString("Unexpected USDZ MIME type \""_s, model.mimeType(), "\" in <model> element. Expected \"model/vnd.usdz+zip\". Some features of <model> may not work properly. The model may fail to render in a future release."_s));
     }
 
-    send(Messages::ModelProcessModelPlayerProxy::LoadModel(model, size));
+    send(Messages::ModelProcessModelPlayerProxy::LoadModel(model, size, isForImmersive));
 }
 
 void ModelProcessModelPlayer::didUnload()
@@ -337,21 +345,6 @@ void ModelProcessModelPlayer::setAnimationCurrentTime(Seconds currentTime, Compl
     completionHandler(false);
 }
 
-void ModelProcessModelPlayer::hasAudio(CompletionHandler<void(std::optional<bool>&&)>&& completionHandler)
-{
-    completionHandler(std::nullopt);
-}
-
-void ModelProcessModelPlayer::isMuted(CompletionHandler<void(std::optional<bool>&&)>&& completionHandler)
-{
-    completionHandler(std::nullopt);
-}
-
-void ModelProcessModelPlayer::setIsMuted(bool isMuted, CompletionHandler<void(bool success)>&& completionHandler)
-{
-    completionHandler(false);
-}
-
 WebCore::ModelPlayerAccessibilityChildren ModelProcessModelPlayer::accessibilityChildren()
 {
     return { };
@@ -377,8 +370,7 @@ void ModelProcessModelPlayer::setLoop(bool loop)
 
 void ModelProcessModelPlayer::setPlaybackRate(double playbackRate, CompletionHandler<void(double effectivePlaybackRate)>&& completionHandler)
 {
-    // FIXME (280081): Support negative playback rate
-    m_requestedPlaybackRate = fmax(playbackRate, 0);
+    m_requestedPlaybackRate = playbackRate;
     sendWithAsyncReply(Messages::ModelProcessModelPlayerProxy::SetPlaybackRate(m_requestedPlaybackRate), WTF::move(completionHandler));
 }
 

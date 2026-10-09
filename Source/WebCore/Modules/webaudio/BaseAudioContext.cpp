@@ -67,6 +67,7 @@
 #include "IIRFilterNode.h"
 #include "IIRFilterOptions.h"
 #include "JSAudioBuffer.h"
+#include "JSDOMConvertInterface.h"
 #include "JSDOMPromiseDeferred.h"
 #include "LocalFrame.h"
 #include "Logging.h"
@@ -112,14 +113,14 @@ bool BaseAudioContext::isSupportedSampleRate(float sampleRate)
     return sampleRate >= 3000 && sampleRate <= 384000;
 }
 
-static uint64_t generateContextID()
+static uint64_t NODELETE generateContextID()
 {
     ASSERT(isMainThread());
     static uint64_t contextIDSeed = 0;
     return ++contextIDSeed;
 }
 
-static HashSet<uint64_t>& liveAudioContexts()
+static HashSet<uint64_t>& NODELETE liveAudioContexts()
 {
     ASSERT(isMainThread());
     static NeverDestroyed<HashSet<uint64_t>> contexts;
@@ -186,7 +187,7 @@ void BaseAudioContext::lazyInitialize()
     if (m_isAudioThreadFinished)
         return;
 
-    protectedDestination()->initialize();
+    protect(destination())->initialize();
 
     m_isInitialized = true;
 }
@@ -197,9 +198,9 @@ void BaseAudioContext::clear()
 
     // Audio thread is dead. Nobody will schedule node deletion action. Let's do it ourselves.
     do {
-        m_nodesToDelete = std::exchange(m_nodesMarkedForDeletion, { });
+        m_nodesToDelete.appendVector(std::exchange(m_nodesMarkedForDeletion, { }));
         deleteMarkedNodes();
-    } while (!m_nodesToDelete.isEmpty());
+    } while (!m_nodesMarkedForDeletion.isEmpty());
 }
 
 void BaseAudioContext::uninitialize()
@@ -212,7 +213,7 @@ void BaseAudioContext::uninitialize()
         return;
 
     // This stops the audio thread and all audio rendering.
-    protectedDestination()->uninitialize();
+    protect(destination())->uninitialize();
 
     // Don't allow the context to initialize a second time after it's already been explicitly uninitialized.
     m_isAudioThreadFinished = true;
@@ -221,6 +222,10 @@ void BaseAudioContext::uninitialize()
 
     {
         Locker locker { graphLock() };
+        // Process any deferred operations from the last render quantum that couldn't be
+        // processed in handlePostRenderTasks() due to lock contention.
+        handleDeferredDecrementConnectionCounts();
+        handleDeferredDerefs();
         // This should have been called from handlePostRenderTasks() at the end of rendering.
         // However, in case of lock contention, the tryLock() call could have failed in handlePostRenderTasks(),
         // leaving nodes in m_referencedSourceNodes. Now that the audio thread is gone, make sure we deref those nodes
@@ -278,7 +283,7 @@ void BaseAudioContext::stop()
     m_isStopScheduled = true;
 
     ASSERT(document());
-    protectedDocument()->updateIsPlayingMedia();
+    protect(document())->updateIsPlayingMedia();
 
     uninitialize();
     clear();
@@ -289,18 +294,13 @@ Document* BaseAudioContext::document() const
     return downcast<Document>(scriptExecutionContext());
 }
 
-RefPtr<Document> BaseAudioContext::protectedDocument() const
-{
-    return document();
-}
-
 bool BaseAudioContext::wouldTaintOrigin(const URL& url) const
 {
     if (url.protocolIsData())
         return false;
 
     if (RefPtr document = this->document())
-        return !document->protectedSecurityOrigin()->canRequest(url, OriginAccessPatternsForWebProcess::singleton());
+        return !protect(document->securityOrigin())->canRequest(url, OriginAccessPatternsForWebProcess::singleton());
 
     return false;
 }
@@ -570,6 +570,15 @@ void BaseAudioContext::addDeferredDecrementConnectionCount(AudioNode* node)
     m_deferredBreakConnectionList.append(node);
 }
 
+void BaseAudioContext::addDeferredDeref(const AudioNode* node)
+{
+    ASSERT(isAudioThread());
+    // Heap allocations are forbidden on the audio thread for performance reasons so we need to
+    // explicitly allow the following allocation(s).
+    DisableMallocRestrictionsForCurrentThreadScope disableMallocRestrictions;
+    m_deferredDerefList.append(const_cast<AudioNode*>(node));
+}
+
 void BaseAudioContext::handlePreRenderTasks(const AudioIOPosition& outputPosition)
 {
     ASSERT(isAudioThread());
@@ -608,6 +617,7 @@ void BaseAudioContext::handlePostRenderTasks()
 
     // Take care of finishing any derefs where the tryLock() failed previously.
     handleDeferredDecrementConnectionCounts();
+    handleDeferredDerefs();
 
     // Dynamically clean up nodes which are no longer needed.
     derefFinishedSourceNodes();
@@ -626,11 +636,19 @@ void BaseAudioContext::handlePostRenderTasks()
 
 void BaseAudioContext::handleDeferredDecrementConnectionCounts()
 {
-    ASSERT(isAudioThread() && isGraphOwner());
+    ASSERT(isGraphOwner());
     for (auto& node : m_deferredBreakConnectionList)
         node->decrementConnectionCountWithLock();
-    
+
     m_deferredBreakConnectionList.clear();
+}
+
+void BaseAudioContext::handleDeferredDerefs()
+{
+    ASSERT(isGraphOwner());
+    for (auto& node : m_deferredDerefList)
+        node->derefWithLock();
+    m_deferredDerefList.clear();
 }
 
 void BaseAudioContext::addTailProcessingNode(AudioNode& node)
@@ -669,7 +687,7 @@ void BaseAudioContext::updateTailProcessingNodes()
     // We are on the audio thread so we want to avoid allocations as much as possible.
     for (auto i = m_tailProcessingNodes.size(); i > 0; --i) {
         auto& node = m_tailProcessingNodes[i - 1];
-        if (!node.checkedNode()->propagatesSilence())
+        if (!protect(node.node())->propagatesSilence())
             continue; // Node is not done processing its tail.
 
         // Ideally we'd find a way to avoid this vector append since we try to avoid potential heap allocations
@@ -703,7 +721,7 @@ void BaseAudioContext::disableOutputsForFinishedTailProcessingNodes()
     ASSERT(isMainThread());
     ASSERT(isGraphOwner());
     for (auto& finishedTailProcessingNode : std::exchange(m_finishedTailProcessingNodes, { }))
-        finishedTailProcessingNode.checkedNode()->disableOutputs();
+        protect(finishedTailProcessingNode.node())->disableOutputs();
 }
 
 void BaseAudioContext::finishTailProcessing()
@@ -714,7 +732,7 @@ void BaseAudioContext::finishTailProcessing()
     // disableOutputs() can cause new nodes to start tail processing so we need to loop until both vectors are empty.
     while (!m_tailProcessingNodes.isEmpty() || !m_finishedTailProcessingNodes.isEmpty()) {
         for (auto& tailProcessingNode : std::exchange(m_tailProcessingNodes, { }))
-            tailProcessingNode.checkedNode()->disableOutputs();
+            protect(tailProcessingNode.node())->disableOutputs();
         disableOutputsForFinishedTailProcessingNodes();
     }
 }
@@ -784,15 +802,23 @@ void BaseAudioContext::deleteMarkedNodes()
     while (m_nodesToDelete.size()) {
         CheckedPtr node = m_nodesToDelete.takeLast();
 
+        // A node may have been re-referenced (via ref() or incrementConnectionCount()) after being
+        // marked for deletion. This can happen when ref() on the audio thread couldn't acquire the
+        // graph lock to unmark the node. Re-check before deleting.
+        if (node->hasReferences()) {
+            node->clearIsMarkedForDeletion();
+            continue;
+        }
+
         // Before deleting the node, clear out any AudioNodeInputs from m_dirtySummingJunctions.
         unsigned numberOfInputs = node->numberOfInputs();
         for (unsigned i = 0; i < numberOfInputs; ++i)
-            m_dirtySummingJunctions.remove(node->checkedInput(i).get());
+            m_dirtySummingJunctions.remove(protect(node->input(i)).get());
 
         // Before deleting the node, clear out any AudioNodeOutputs from m_dirtyAudioNodeOutputs.
         unsigned numberOfOutputs = node->numberOfOutputs();
         for (unsigned i = 0; i < numberOfOutputs; ++i)
-            m_dirtyAudioNodeOutputs.remove(node->checkedOutput(i).get());
+            m_dirtyAudioNodeOutputs.remove(protect(node->output(i)).get());
 
         ASSERT_WITH_MESSAGE(node->nodeType() != AudioNode::NodeTypeDestination, "Destination node is owned by the BaseAudioContext");
 
@@ -989,7 +1015,7 @@ void BaseAudioContext::workletIsReady()
 
     // If we're already rendering when the worklet becomes ready, we need to restart
     // rendering in order to switch to the audio worklet thread.
-    protectedDestination()->restartRendering();
+    protect(destination())->restartRendering();
 }
 
 #if !RELEASE_LOG_DISABLED
@@ -1014,11 +1040,11 @@ RefPtr<MediaSessionManagerInterface> BaseAudioContext::mediaSessionManager() con
 
 RefPtr<MediaSessionManagerInterface> BaseAudioContext::mediaSessionManagerIfExists() const
 {
-    RefPtr document = this->document();
+    auto* document = this->document();
     if (!document)
         return nullptr;
 
-    RefPtr page = document->page();
+    auto* page = document->page();
     if (!page)
         return nullptr;
 

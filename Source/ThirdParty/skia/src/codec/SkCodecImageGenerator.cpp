@@ -14,6 +14,7 @@
 #include "include/core/SkPixmap.h"
 #include "include/core/SkStream.h"
 #include "include/core/SkTypes.h"
+#include "src/codec/SkCodecPriv.h"
 #include "src/codec/SkPixmapUtilsPriv.h"
 #include "src/core/SkStreamPriv.h"
 
@@ -56,26 +57,12 @@ SkCodecImageGenerator::SkCodecImageGenerator(std::unique_ptr<SkCodec> codec,
                                              std::optional<SkAlphaType> at)
         : SkImageGenerator(adjust_info(codec.get(), at)), fCodec(std::move(codec)) {}
 
-#if defined(SK_DISABLE_LEGACY_NONCONST_ENCODED_IMAGE_DATA)
-sk_sp<const SkData> SkCodecImageGenerator::onRefEncodedData()
-#else
-sk_sp<SkData> SkCodecImageGenerator::onRefEncodedData()
-#endif
-{
+sk_sp<const SkData> SkCodecImageGenerator::onRefEncodedData() {
     SkASSERT(fCodec);
     if (!fCachedData) {
-        std::unique_ptr<SkStream> stream = fCodec->getEncodedData();
-        fCachedData = stream->getData();
-        if (!fCachedData) {
-            // stream should already be a copy of the underlying stream.
-            fCachedData = SkData::MakeFromStream(stream.get(), stream->getLength());
-        }
+        fCachedData = SkCodecPriv::GetEncodedData(fCodec.get());
     }
-#if defined(SK_DISABLE_LEGACY_NONCONST_ENCODED_IMAGE_DATA)
     return fCachedData;
-#else
-    return sk_ref_sp<SkData>(const_cast<SkData*>(fCachedData.get()));
-#endif
 }
 
 bool SkCodecImageGenerator::getPixels(const SkImageInfo& info, void* pixels, size_t rowBytes, const SkCodec::Options* options) {

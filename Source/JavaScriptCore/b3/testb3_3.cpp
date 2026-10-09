@@ -86,6 +86,142 @@ void testCSEStoreWithLoop()
     CHECK_EQ(num, 5);
 }
 
+void testCSELoadAfterStoreDiamond(bool flag)
+{
+    // Two predecessors each store a distinct value to the same address, then a
+    // load at the merge point reads it. CSE has more than one reaching store, so
+    // it must build a Phi of the stored values and forward the load to it (rather
+    // than re-reading memory). This exercises the multi-match Phi/Upsilon path.
+    Procedure proc;
+    BasicBlock* root = proc.addBlock();
+    BasicBlock* thenCase = proc.addBlock();
+    BasicBlock* elseCase = proc.addBlock();
+    BasicBlock* done = proc.addBlock();
+
+    Value* address = root->appendNew<ArgumentRegValue>(proc, Origin(), GPRInfo::argumentGPR0);
+    Value* condition = root->appendNew<ArgumentRegValue>(proc, Origin(), GPRInfo::argumentGPR1);
+    root->appendNewControlValue(proc, Branch, Origin(), condition, FrequentedBlock(thenCase), FrequentedBlock(elseCase));
+
+    Value* fortyTwo = thenCase->appendIntConstant(proc, Origin(), Int64, 42);
+    thenCase->appendNew<MemoryValue>(proc, Store, Origin(), fortyTwo, address);
+    thenCase->appendNewControlValue(proc, Jump, Origin(), FrequentedBlock(done));
+
+    Value* seven = elseCase->appendIntConstant(proc, Origin(), Int64, 7);
+    elseCase->appendNew<MemoryValue>(proc, Store, Origin(), seven, address);
+    elseCase->appendNewControlValue(proc, Jump, Origin(), FrequentedBlock(done));
+
+    Value* loaded = done->appendNew<MemoryValue>(proc, Load, Int64, Origin(), address);
+    done->appendNewControlValue(proc, Return, Origin(), loaded);
+
+    auto code = compileProc(proc);
+    int64_t storage = -1;
+    int64_t result = invoke<int64_t>(*code, std::bit_cast<intptr_t>(&storage), flag ? 1 : 0);
+    CHECK_EQ(result, flag ? 42 : 7);
+    // The store still wrote through to memory regardless of forwarding.
+    CHECK_EQ(storage, flag ? 42 : 7);
+}
+
+void testCSELoadAcrossLoopBackEdge(unsigned count)
+{
+    // The load and one of its reaching stores live in the same block (the loop
+    // body), but the store is logically *after* the load on the next iteration,
+    // reached via the back edge. So the load's def-block equals its use-block,
+    // yet the in-block store must not be forwarded directly: it has to flow
+    // through a loop-header Phi. This is the loop analogue of the old Get/Set
+    // interleaving in one block.
+    //
+    //   *p = 1
+    //   for (i = 0; i < count; ++i) {
+    //       acc = load(p)   // reaches: header store (1) and body store below
+    //       store(acc + 1, p)
+    //   }
+    //   return load(p)
+    Procedure proc;
+    BasicBlock* root = proc.addBlock();
+    BasicBlock* loop = proc.addBlock();
+    BasicBlock* done = proc.addBlock();
+
+    Value* address = root->appendNew<ArgumentRegValue>(proc, Origin(), GPRInfo::argumentGPR0);
+    Value* tripCount = root->appendNew<ArgumentRegValue>(proc, Origin(), GPRInfo::argumentGPR1);
+    Value* one = root->appendIntConstant(proc, Origin(), Int64, 1);
+    Value* zero = root->appendIntConstant(proc, Origin(), Int64, 0);
+    root->appendNew<MemoryValue>(proc, Store, Origin(), one, address);
+    UpsilonValue* initialCounter = root->appendNew<UpsilonValue>(proc, Origin(), zero);
+    root->appendNewControlValue(proc, Jump, Origin(), FrequentedBlock(loop));
+
+    Value* counter = loop->appendNew<Value>(proc, Phi, Int64, Origin());
+    initialCounter->setPhi(counter);
+    Value* loaded = loop->appendNew<MemoryValue>(proc, Load, Int64, Origin(), address);
+    Value* incremented = loop->appendNew<Value>(proc, Add, Origin(), loaded, one);
+    loop->appendNew<MemoryValue>(proc, Store, Origin(), incremented, address);
+    Value* nextCounter = loop->appendNew<Value>(proc, Add, Origin(), counter, one);
+    loop->appendNew<UpsilonValue>(proc, Origin(), nextCounter)->setPhi(counter);
+    loop->appendNewControlValue(proc, Branch, Origin(),
+        loop->appendNew<Value>(proc, LessThan, Origin(), nextCounter, tripCount),
+        FrequentedBlock(loop), FrequentedBlock(done));
+
+    Value* result = done->appendNew<MemoryValue>(proc, Load, Int64, Origin(), address);
+    done->appendNewControlValue(proc, Return, Origin(), result);
+
+    auto code = compileProc(proc);
+    int64_t storage = -1;
+    int64_t value = invoke<int64_t>(*code, std::bit_cast<intptr_t>(&storage), static_cast<int64_t>(count));
+    int64_t expected = 1 + std::max(1u, count);
+    CHECK_EQ(value, expected);
+    CHECK_EQ(storage, expected);
+}
+
+void testCSELoopHeaderLoadFromBackEdgeStore(unsigned count)
+{
+    // The redundant load sits in the loop *header*, but one of its reaching
+    // stores lives in a separate *body* block reached via the back edge. In
+    // reverse-post-order the header is processed before the body, so on the
+    // first sweep the header's backward query can't yet see the post-edit body
+    // summary. This is exactly the case the loop re-sweep exists to catch; the
+    // test pins down that it stays correct regardless of which sweep fires.
+    //
+    //   *p = 1
+    //   for (i = 0; i < count; ++i)   // header: acc = load(p)
+    //       *p = acc + 1              // body (separate block)
+    //   return load(p)
+    Procedure proc;
+    BasicBlock* root = proc.addBlock();
+    BasicBlock* header = proc.addBlock();
+    BasicBlock* body = proc.addBlock();
+    BasicBlock* done = proc.addBlock();
+
+    Value* address = root->appendNew<ArgumentRegValue>(proc, Origin(), GPRInfo::argumentGPR0);
+    Value* tripCount = root->appendNew<ArgumentRegValue>(proc, Origin(), GPRInfo::argumentGPR1);
+    Value* one = root->appendIntConstant(proc, Origin(), Int64, 1);
+    Value* zero = root->appendIntConstant(proc, Origin(), Int64, 0);
+    root->appendNew<MemoryValue>(proc, Store, Origin(), one, address);
+    UpsilonValue* initialCounter = root->appendNew<UpsilonValue>(proc, Origin(), zero);
+    root->appendNewControlValue(proc, Jump, Origin(), FrequentedBlock(header));
+
+    Value* counter = header->appendNew<Value>(proc, Phi, Int64, Origin());
+    initialCounter->setPhi(counter);
+    Value* loaded = header->appendNew<MemoryValue>(proc, Load, Int64, Origin(), address);
+    header->appendNewControlValue(proc, Branch, Origin(),
+        header->appendNew<Value>(proc, LessThan, Origin(), counter, tripCount),
+        FrequentedBlock(body), FrequentedBlock(done));
+
+    Value* incremented = body->appendNew<Value>(proc, Add, Origin(), loaded, one);
+    body->appendNew<MemoryValue>(proc, Store, Origin(), incremented, address);
+    Value* nextCounter = body->appendNew<Value>(proc, Add, Origin(), counter, one);
+    body->appendNew<UpsilonValue>(proc, Origin(), nextCounter)->setPhi(counter);
+    body->appendNewControlValue(proc, Jump, Origin(), FrequentedBlock(header));
+
+    Value* result = done->appendNew<MemoryValue>(proc, Load, Int64, Origin(), address);
+    done->appendNewControlValue(proc, Return, Origin(), result);
+
+    auto code = compileProc(proc);
+    int64_t storage = -1;
+    int64_t value = invoke<int64_t>(*code, std::bit_cast<intptr_t>(&storage), static_cast<int64_t>(count));
+    int64_t expected = static_cast<int64_t>(count) + 1;
+    CHECK_EQ(value, expected);
+    CHECK_EQ(storage, expected);
+}
+
 void testLoadPreIndex32()
 {
     if (Options::defaultB3OptLevel() < 2)
@@ -148,7 +284,7 @@ void testLoadPreIndex32()
 
     auto code = compileProc(proc);
     if (isARM64() && Options::useB3CanonicalizePrePostIncrements())
-        checkUsesInstruction(*code, "#4]!");
+        checkUsesInstruction(*code, "#0x4]!");
 
     auto expected = [&] () -> int32_t {
         int32_t r = 0;
@@ -222,7 +358,7 @@ void testLoadPreIndex64()
 
     auto code = compileProc(proc);
     if (isARM64() && Options::useB3CanonicalizePrePostIncrements())
-        checkUsesInstruction(*code, "#8]!");
+        checkUsesInstruction(*code, "#0x8]!");
 
     auto expected = [&] () -> int64_t {
         int64_t r = 0;
@@ -296,7 +432,7 @@ void testLoadPostIndex32()
 
     auto code = compileProc(proc);
     if (isARM64() && Options::useB3CanonicalizePrePostIncrements())
-        checkUsesInstruction(*code, "], #4");
+        checkUsesInstruction(*code, "], #0x4");
 
     auto expected = [&] () -> int32_t {
         int32_t r = 0;
@@ -370,7 +506,7 @@ void testLoadPostIndex64()
 
     auto code = compileProc(proc);
     if (isARM64() && Options::useB3CanonicalizePrePostIncrements())
-        checkUsesInstruction(*code, "], #8");
+        checkUsesInstruction(*code, "], #0x8");
 
     auto expected = [&] () -> int64_t {
         int64_t r = 0;
@@ -481,7 +617,7 @@ void testStorePreIndex32()
 
     auto code = compileProc(proc);
     if (isARM64() && Options::useB3CanonicalizePrePostIncrements())
-        checkUsesInstruction(*code, "#4]!");
+        checkUsesInstruction(*code, "#0x4]!");
     intptr_t res = invoke<intptr_t>(*code, std::bit_cast<intptr_t>(ptr), 4);
     ptr = std::bit_cast<int32_t*>(res);
     CHECK_EQ(nums[2], *ptr);
@@ -508,7 +644,7 @@ void testStorePreIndex64()
 
     auto code = compileProc(proc);
     if (isARM64() && Options::useB3CanonicalizePrePostIncrements())
-        checkUsesInstruction(*code, "#8]!");
+        checkUsesInstruction(*code, "#0x8]!");
     intptr_t res = invoke<intptr_t>(*code, std::bit_cast<intptr_t>(ptr), 4);
     ptr = std::bit_cast<int64_t*>(res);
     CHECK_EQ(nums[2], *ptr);
@@ -535,7 +671,7 @@ void testStorePostIndex32()
 
     auto code = compileProc(proc);
     if (isARM64() && Options::useB3CanonicalizePrePostIncrements())
-        checkUsesInstruction(*code, "], #4");
+        checkUsesInstruction(*code, "], #0x4");
     intptr_t res = invoke<intptr_t>(*code, std::bit_cast<intptr_t>(ptr), 4);
     ptr = std::bit_cast<int32_t*>(res);
     CHECK_EQ(nums[1], 4);
@@ -563,7 +699,7 @@ void testStorePostIndex64()
 
     auto code = compileProc(proc);
     if (isARM64() && Options::useB3CanonicalizePrePostIncrements())
-        checkUsesInstruction(*code, "], #8");
+        checkUsesInstruction(*code, "], #0x8");
     intptr_t res = invoke<intptr_t>(*code, std::bit_cast<intptr_t>(ptr), 4ULL);
     ptr = std::bit_cast<int64_t*>(res);
     CHECK_EQ(nums[1], 4);
@@ -742,6 +878,84 @@ void testExtractSignedBitfield64()
     }
 }
 
+void testExtractSignedBitfieldNonCanonical32()
+{
+    if (JSC::Options::defaultB3OptLevel() < 2)
+        return;
+
+    Vector<int32_t> srcs = {
+        0x12345678,
+        static_cast<int32_t>(0xffffffff),
+        static_cast<int32_t>(0x80000000),
+        0x00abcdef,
+    };
+    Vector<int32_t> leftAmts = { 4, 8, 16 };
+    Vector<int32_t> lsbs = { 2, 3, 4 };
+
+    for (int32_t src : srcs) {
+        for (size_t i = 0; i < leftAmts.size(); ++i) {
+            int32_t leftAmt = leftAmts.at(i);
+            int32_t lsb = lsbs.at(i);
+            int32_t rightAmt = leftAmt + lsb;
+
+            Procedure proc;
+            BasicBlock* root = proc.addBlock();
+            auto arguments = cCallArgumentValues<int32_t>(proc, root);
+
+            Value* srcValue = arguments[0];
+            Value* leftShiftValue = root->appendNew<Value>(proc, Shl, Origin(), srcValue,
+                root->appendNew<Const32Value>(proc, Origin(), leftAmt));
+            root->appendNewControlValue(proc, Return, Origin(),
+                root->appendNew<Value>(proc, SShr, Origin(), leftShiftValue,
+                    root->appendNew<Const32Value>(proc, Origin(), rightAmt)));
+
+            auto code = compileProc(proc);
+            if (isARM64())
+                checkUsesInstruction(*code, "sbfx");
+            CHECK_EQ(invoke<int32_t>(*code, src), (src << leftAmt) >> rightAmt);
+        }
+    }
+}
+
+void testExtractSignedBitfieldNonCanonical64()
+{
+    if (JSC::Options::defaultB3OptLevel() < 2)
+        return;
+
+    Vector<int64_t> srcs = {
+        0x123456789abcdef0ll,
+        static_cast<int64_t>(0xffffffffffffffffull),
+        static_cast<int64_t>(0x8000000000000000ull),
+        0x0000ffffffffffffll,
+    };
+    Vector<int32_t> leftAmts = { 4, 16, 32 };
+    Vector<int32_t> lsbs = { 2, 8, 4 };
+
+    for (int64_t src : srcs) {
+        for (size_t i = 0; i < leftAmts.size(); ++i) {
+            int32_t leftAmt = leftAmts.at(i);
+            int32_t lsb = lsbs.at(i);
+            int32_t rightAmt = leftAmt + lsb;
+
+            Procedure proc;
+            BasicBlock* root = proc.addBlock();
+            auto arguments = cCallArgumentValues<int64_t>(proc, root);
+
+            Value* srcValue = arguments[0];
+            Value* leftShiftValue = root->appendNew<Value>(proc, Shl, Origin(), srcValue,
+                root->appendNew<Const32Value>(proc, Origin(), leftAmt));
+            root->appendNewControlValue(proc, Return, Origin(),
+                root->appendNew<Value>(proc, SShr, Origin(), leftShiftValue,
+                    root->appendNew<Const32Value>(proc, Origin(), rightAmt)));
+
+            auto code = compileProc(proc);
+            if (isARM64())
+                checkUsesInstruction(*code, "sbfx");
+            CHECK_EQ(invoke<int64_t>(*code, src), (src << leftAmt) >> rightAmt);
+        }
+    }
+}
+
 void testBitOrBitOrArgImmImm32(int32_t a, int32_t b, int32_t c)
 {
     Procedure proc;
@@ -780,7 +994,7 @@ void testBitOrImmBitOrArgImm32(int32_t a, int32_t b, int32_t c)
     CHECK_EQ(compileAndRun<int>(proc, b), (a | (b | c)));
 }
 
-double bitOrDouble(double a, double b)
+double NODELETE bitOrDouble(double a, double b)
 {
     return std::bit_cast<double>(std::bit_cast<uint64_t>(a) | std::bit_cast<uint64_t>(b));
 }
@@ -835,7 +1049,7 @@ void testBitOrImmsDouble(double a, double b)
     CHECK(isIdentical(compileAndRun<double>(proc), bitOrDouble(a, b)));
 }
 
-float bitOrFloat(float a, float b)
+float NODELETE bitOrFloat(float a, float b)
 {
     return std::bit_cast<float>(std::bit_cast<uint32_t>(a) | std::bit_cast<uint32_t>(b));
 }
@@ -1740,7 +1954,7 @@ static void testZShrArgImm32(uint32_t a, uint32_t b)
 }
 
 template<typename IntegerType>
-static unsigned countLeadingZero(IntegerType value)
+static unsigned NODELETE countLeadingZero(IntegerType value)
 {
     unsigned bitCount = sizeof(IntegerType) * 8;
     if (!value)
@@ -3816,9 +4030,9 @@ void testStorePartial8BitRegisterOnX86()
     patchpoint->resultConstraints = { ValueRep::reg(GPRInfo::regT6) };
 
     // Give the allocator a good reason not to use any other register.
-    RegisterSetBuilder clobberSet = RegisterSetBuilder::allGPRs();
-    clobberSet.exclude(RegisterSetBuilder::stackRegisters());
-    clobberSet.exclude(RegisterSetBuilder::reservedHardwareRegisters());
+    RegisterSet clobberSet = RegisterSet::allGPRs();
+    clobberSet.exclude(RegisterSet::stackRegisters());
+    clobberSet.exclude(RegisterSet::reservedHardwareRegisters());
     clobberSet.remove(GPRInfo::regT3);
     clobberSet.remove(GPRInfo::regT2);
     clobberSet.remove(GPRInfo::regT6);
@@ -4022,12 +4236,12 @@ void testStoreAddLoad32(int32_t amount)
 }
 
 // Make sure the compiler does not try to optimize anything out.
-static NEVER_INLINE double zero()
+static NEVER_INLINE double NODELETE zero()
 {
     return 0.;
 }
 
-static double negativeZero()
+static double NODELETE negativeZero()
 {
     return -zero();
 }
@@ -4180,7 +4394,18 @@ void addArgTests(const TestConfig* config, Deque<RefPtr<SharedTask<void()>>>& ta
     RUN_UNARY(testMulArgFloatWithUselessDoubleConversion, floatingPointOperands<float>());
     RUN_BINARY(testMulArgsFloatWithUselessDoubleConversion, floatingPointOperands<float>(), floatingPointOperands<float>());
     RUN_BINARY(testMulArgsFloatWithEffectfulDoubleConversion, floatingPointOperands<float>(), floatingPointOperands<float>());
-    
+
+    RUN_UNARY(testMulDoubleByTwo, floatingPointOperands<double>());
+    RUN_UNARY(testMulFloatByTwo, floatingPointOperands<float>());
+    RUN_UNARY(testMulDoubleByNegOne, floatingPointOperands<double>());
+    RUN_UNARY(testMulFloatByNegOne, floatingPointOperands<float>());
+    RUN_UNARY(testMulDoubleByNegTwo, floatingPointOperands<double>());
+    RUN_UNARY(testMulFloatByNegTwo, floatingPointOperands<float>());
+    RUN_UNARY(testDivDoubleByNegOne, floatingPointOperands<double>());
+    RUN_UNARY(testDivFloatByNegOne, floatingPointOperands<float>());
+    RUN_UNARY(testDivDoubleByPowerOfTwo, floatingPointOperands<double>());
+    RUN_UNARY(testDivFloatByPowerOfTwo, floatingPointOperands<float>());
+
     RUN(testDivArgDouble(std::numbers::pi));
     RUN(testDivArgsDouble(std::numbers::pi, 1));
     RUN(testDivArgsDouble(std::numbers::pi, -std::numbers::pi));
@@ -4220,6 +4445,7 @@ void addArgTests(const TestConfig* config, Deque<RefPtr<SharedTask<void()>>>& ta
     RUN_UNARY(testUDivByConstantInt32NonPowerOf2, int32Operands());
     RUN_UNARY(testUDivByConstantInt32EvenDivisors, int32Operands());
     RUN_UNARY(testUDivByConstantInt32EdgeCases, int32Operands());
+    RUN_UNARY(testUDivByConstantInt32With33BitMagic, int32Operands());
 
     RUN_UNARY(testModArgDouble, floatingPointOperands<double>());
     RUN_BINARY(testModArgsDouble, floatingPointOperands<double>(), floatingPointOperands<double>());
@@ -4424,6 +4650,14 @@ void addShrTests(const TestConfig* config, Deque<RefPtr<SharedTask<void()>>>& ta
 #if !CPU(ARM)
     RUN(testCSEStoreWithLoop());
 #endif
+    RUN(testCSELoadAfterStoreDiamond(true));
+    RUN(testCSELoadAfterStoreDiamond(false));
+    RUN(testCSELoadAcrossLoopBackEdge(0));
+    RUN(testCSELoadAcrossLoopBackEdge(1));
+    RUN(testCSELoadAcrossLoopBackEdge(5));
+    RUN(testCSELoopHeaderLoadFromBackEdgeStore(0));
+    RUN(testCSELoopHeaderLoadFromBackEdgeStore(1));
+    RUN(testCSELoopHeaderLoadFromBackEdgeStore(5));
 
     RUN(testLoadPreIndex32());
     RUN(testLoadPreIndex64());

@@ -27,12 +27,14 @@
 #include "WebTransportSendStream.h"
 
 #include "InternalWritableStream.h"
+#include "JSDOMConvertDictionary.h"
 #include "JSDOMPromiseDeferred.h"
 #include "JSWebTransportSendStreamStats.h"
 #include "ScriptExecutionContextInlines.h"
 #include "TaskSource.h"
 #include "WebTransport.h"
 #include "WebTransportSendGroup.h"
+#include "WebTransportSendStreamOptions.h"
 #include "WebTransportSendStreamSink.h"
 #include "WebTransportSendStreamStats.h"
 #include "WebTransportSession.h"
@@ -42,14 +44,18 @@ namespace WebCore {
 
 // FIXME: use this to implement the check in the setter of https://www.w3.org/TR/webtransport/#dom-webtransportsendstream-sendgroup
 
-ExceptionOr<Ref<WebTransportSendStream>> WebTransportSendStream::create(WebTransport& transport, JSDOMGlobalObject& globalObject, Ref<WebTransportSendStreamSink>&& sink)
+ExceptionOr<Ref<WebTransportSendStream>> WebTransportSendStream::create(WebTransport& transport, JSDOMGlobalObject& globalObject, Ref<WebTransportSendStreamSink>&& sink, const WebTransportSendStreamOptions& options)
 {
     auto identifier = sink->identifier();
     auto result = createInternalWritableStream(globalObject, WTF::move(sink));
     if (result.hasException())
         return result.releaseException();
 
-    return adoptRef(*new WebTransportSendStream(identifier, transport, result.releaseReturnValue()));
+    Ref sendStream = adoptRef(*new WebTransportSendStream(identifier, transport, result.releaseReturnValue()));
+    if (auto sendGroupResult = sendStream->setSendGroup(options.sendGroup.get()); sendGroupResult.hasException())
+        return sendGroupResult.releaseException();
+    sendStream->setSendOrder(options.sendOrder);
+    return sendStream;
 }
 
 WebTransportSendStream::WebTransportSendStream(WebTransportStreamIdentifier identifier, WebTransport& transport, Ref<InternalWritableStream>&& stream)

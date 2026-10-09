@@ -80,19 +80,21 @@ void InspectorNodeFinder::performSearch(Node* parentNode)
 void InspectorNodeFinder::searchUsingDOMTreeTraversal(Node& parentNode)
 {
     // Manual plain text search.
-    for (auto* node = &parentNode; node; node = NodeTraversal::next(*node, &parentNode)) {
+    for (RefPtr node = &parentNode; node; node = NodeTraversal::next(*node, &parentNode)) {
         switch (node->nodeType()) {
-        case Node::TEXT_NODE:
-        case Node::COMMENT_NODE:
-        case Node::CDATA_SECTION_NODE:
+        case NodeType::Text:
+        case NodeType::Comment:
+        case NodeType::CDATASection:
             if (checkContains(node->nodeValue(), m_query))
                 m_results.add(node);
             break;
-        case Node::ELEMENT_NODE:
+        case NodeType::Element:
             if (matchesElement(downcast<Element>(*node)))
                 m_results.add(node);
-            if (auto* frameOwner = dynamicDowncast<HTMLFrameOwnerElement>(*node))
-                performSearch(frameOwner->protectedContentDocument().get());
+            if (RefPtr frameOwner = dynamicDowncast<HTMLFrameOwnerElement>(*node))
+                performSearch(protect(frameOwner->contentDocument()).get());
+            if (RefPtr shadowRoot = downcast<Element>(*node).shadowRoot())
+                performSearch(shadowRoot.get());
             break;
         default:
             break;
@@ -159,7 +161,7 @@ bool InspectorNodeFinder::matchesElement(const Element& element)
 
 void InspectorNodeFinder::searchUsingXPath(Node& parentNode)
 {
-    auto evaluateResult = parentNode.document().evaluate(m_query, parentNode, nullptr, XPathResult::ORDERED_NODE_SNAPSHOT_TYPE, nullptr);
+    auto evaluateResult = protect(parentNode.document())->evaluate(m_query, parentNode, nullptr, XPathResult::ORDERED_NODE_SNAPSHOT_TYPE, nullptr);
     if (evaluateResult.hasException())
         return;
     auto result = evaluateResult.releaseReturnValue();
@@ -173,9 +175,9 @@ void InspectorNodeFinder::searchUsingXPath(Node& parentNode)
         auto snapshotItemResult = result->snapshotItem(i);
         if (snapshotItemResult.hasException())
             return;
-        Node* node = snapshotItemResult.releaseReturnValue();
+        RefPtr node = snapshotItemResult.releaseReturnValue();
 
-        if (auto* attr = dynamicDowncast<Attr>(*node))
+        if (RefPtr attr = dynamicDowncast<Attr>(*node))
             node = attr->ownerElement();
 
         // XPath can get out of the context node that we pass as the starting point to evaluate, so we need to filter for just the nodes we care about.

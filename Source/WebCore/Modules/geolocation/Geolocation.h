@@ -41,6 +41,7 @@
 #include <wtf/CheckedRef.h>
 #include <wtf/HashMap.h>
 #include <wtf/HashSet.h>
+#include <wtf/OrderedHashMap.h>
 #include <wtf/RefCountedAndCanMakeWeakPtr.h>
 
 namespace WebCore {
@@ -65,14 +66,14 @@ public:
     WEBCORE_EXPORT ~Geolocation();
 
     WEBCORE_EXPORT void resetAllGeolocationPermission();
-    Document* document() const;
+    Document* NODELETE document() const;
 
     void getCurrentPosition(Ref<PositionCallback>&&, RefPtr<PositionErrorCallback>&&, PositionOptions&&);
     int watchPosition(Ref<PositionCallback>&&, RefPtr<PositionErrorCallback>&&, PositionOptions&&);
     void clearWatch(int watchID);
 
     WEBCORE_EXPORT void setIsAllowed(bool, const String& authorizationToken);
-    const String& authorizationToken() const { return m_authorizationToken; }
+    const String& authorizationToken() const LIFETIME_BOUND { return m_authorizationToken; }
     WEBCORE_EXPORT void resetIsAllowed();
     bool isAllowed() const { return m_allowGeolocation == AllowGeolocation::Yes; }
 
@@ -82,8 +83,8 @@ public:
     void setError(GeolocationError&);
     bool shouldBlockGeolocationRequests();
 
-    Navigator* navigator();
-    WEBCORE_EXPORT LocalFrame* frame() const;
+    Navigator* NODELETE navigator();
+    WEBCORE_EXPORT LocalFrame* NODELETE frame() const;
 
 private:
     explicit Geolocation(Navigator&);
@@ -97,9 +98,8 @@ private:
 
     bool isDenied() const { return m_allowGeolocation == AllowGeolocation::No; }
 
-    Page* page() const;
+    Page* NODELETE page() const;
     SecurityOrigin* securityOrigin() const;
-    RefPtr<SecurityOrigin> protectedSecurityOrigin() const;
 
     typedef Vector<Ref<GeoNotifier>> GeoNotifierVector;
     typedef HashSet<Ref<GeoNotifier>> GeoNotifierSet;
@@ -110,12 +110,12 @@ private:
         GeoNotifier* find(int id);
         void remove(int id);
         void remove(GeoNotifier*);
-        bool contains(GeoNotifier*) const;
+        bool NODELETE contains(GeoNotifier*) const;
         void clear();
-        bool isEmpty() const;
+        bool NODELETE isEmpty() const;
         void getNotifiersVector(GeoNotifierVector&) const;
     private:
-        typedef HashMap<int, Ref<GeoNotifier>> IdToNotifierMap;
+        typedef OrderedHashMap<int, Ref<GeoNotifier>> IdToNotifierMap;
         typedef HashMap<Ref<GeoNotifier>, int> NotifierToIdMap;
         IdToNotifierMap m_idToNotifierMap;
         NotifierToIdMap m_notifierToIdMap;

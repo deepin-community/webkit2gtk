@@ -49,6 +49,7 @@ class MachSendRight;
 namespace IPC {
 class Connection;
 class Decoder;
+enum class Critical : bool;
 }
 
 namespace WebCore {
@@ -87,7 +88,7 @@ public:
     DrawingAreaIdentifier identifier() const { return m_identifier; }
 
 #if ENABLE(TILED_CA_DRAWING_AREA)
-    static bool supportsGPUProcessRendering(DrawingAreaType);
+    static bool NODELETE supportsGPUProcessRendering(DrawingAreaType);
 #else
     static bool supportsGPUProcessRendering();
 #endif
@@ -171,7 +172,11 @@ public:
 #if USE(COORDINATED_GRAPHICS) || USE(TEXTURE_MAPPER)
     virtual void updateGeometry(const WebCore::IntSize&, CompletionHandler<void()>&&) = 0;
     virtual bool enterAcceleratedCompositingModeIfNeeded() = 0;
-    virtual void backgroundColorDidChange() { };
+    virtual void backgroundColorDidChange() { }
+#endif
+
+#if USE(COORDINATED_GRAPHICS)
+    virtual void releaseMemory(WTF::Critical) { }
 #endif
 
 #if PLATFORM(WPE) && ENABLE(WPE_PLATFORM) && (USE(GBM) || OS(ANDROID))
@@ -207,8 +212,6 @@ protected:
         Ref webPage = m_webPage;
         return webPage->send(std::forward<T>(message), m_identifier.toUInt64(), { });
     }
-
-    Ref<WebPage> protectedWebPage() const { return m_webPage; }
 
     DrawingAreaIdentifier m_identifier;
     WeakRef<WebPage> m_webPage;

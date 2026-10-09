@@ -24,13 +24,14 @@
  */
 
 #include "config.h"
-#include "Subspace.h"
+#include "CompleteSubspace.h"
 
 #include "AlignedMemoryAllocator.h"
 #include "AllocatorInlines.h"
 #include "JSCellInlines.h"
 #include "LocalAllocatorInlines.h"
 #include "MarkedSpaceInlines.h"
+#include "ResourceExhaustion.h"
 #include "SubspaceInlines.h"
 #include <wtf/RAMSize.h>
 

@@ -25,7 +25,8 @@
     ControlKey,
     AltKey,
     MetaKey,
-    CapsLockKey
+    CapsLockKey,
+    AltGraphKey
 };
 
 class WebKit::WebEvent {
@@ -127,6 +128,7 @@ class WebKit::WebTouchEvent : WebKit::WebEvent {
 #if PLATFORM(IOS_FAMILY)
     unsigned identifier()
     WebCore::DoublePoint locationInRootView()
+    WebCore::DoublePoint previousLocationInRootView()
     WebCore::DoublePoint locationInViewport()
     WebKit::WebPlatformTouchPoint::State phase()
 #endif
@@ -167,7 +169,15 @@ class WebKit::WebTouchEvent : WebKit::WebEvent {
     TwoFingerTap
 };
 
+[CustomHeader] enum class WebKit::WebEventInputSource : uint8_t {
+    UserDriven,
+    Automation,
+};
+
 enum class WebKit::GestureWasCancelled : bool;
+enum class WebCore::MouseEventCanInitiateDrag : bool;
+
+using WebCore::PointerID = uint32_t;
 
 class WebKit::WebMouseEvent : WebKit::WebEvent {
     WebKit::WebMouseEventButton button();
@@ -179,6 +189,8 @@ class WebKit::WebMouseEvent : WebKit::WebEvent {
     float deltaZ();
     int32_t clickCount();
     double force();
+    WebKit::WebEventInputSource inputSource();
+    WebCore::MouseEventCanInitiateDrag canInitiateDrag();
     WebKit::WebMouseEventSyntheticClickType syntheticClickType();
 #if PLATFORM(MAC)
     int32_t eventNumber();
@@ -250,6 +262,7 @@ class WebKit::WebWheelEvent : WebKit::WebEvent {
     MonotonicTime ioHIDEventTimestamp();
     std::optional<WebCore::FloatSize> rawPlatformDelta();
     WebKit::WebWheelEvent::MomentumEndType momentumEndType();
+    WebKit::WebEventInputSource inputSource();
 #endif
 };
 

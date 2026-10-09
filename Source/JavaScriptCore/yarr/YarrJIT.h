@@ -37,7 +37,6 @@
 #include <JavaScriptCore/YarrPattern.h>
 #include <wtf/Atomics.h>
 #include <wtf/BitSet.h>
-#include <wtf/FixedVector.h>
 #include <wtf/StackCheck.h>
 #include <wtf/TZoneMalloc.h>
 #include <wtf/UniqueRef.h>
@@ -59,11 +58,8 @@ class YarrCodeBlock;
 enum class JITFailureReason : uint8_t {
     DecodeSurrogatePair,
     BackReference,
-    ForwardReference,
     Lookbehind,
-    VariableCountedParenthesisWithNonZeroMinimum,
     ParenthesizedSubpattern,
-    FixedCountParenthesizedSubpattern,
     ParenthesisNestedTooDeep,
     ExecutableMemoryAllocationFailure,
     OffsetTooLarge,
@@ -85,7 +81,7 @@ public:
         m_isValid = false;
     }
 
-    bool isEmpty() const { return m_characters.isEmpty(); }
+    bool NODELETE isEmpty() const { return m_characters.isEmpty(); }
     unsigned size() const { return m_characters.size(); }
     char32_t at(unsigned index) const { return m_characters.at(index); }
 
@@ -131,8 +127,8 @@ public:
     BoyerMooreBitmap() = default;
 
     unsigned count() const { return m_count; }
-    const Map& map() const { return m_map; }
-    const BoyerMooreFastCandidates& charactersFastPath() const { return m_charactersFastPath; }
+    const Map& map() const LIFETIME_BOUND { return m_map; }
+    const BoyerMooreFastCandidates& charactersFastPath() const LIFETIME_BOUND { return m_charactersFastPath; }
 
     bool add(CharSize charSize, char32_t character)
     {
@@ -191,7 +187,7 @@ public:
         }
     }
 
-    void setAll()
+    void NODELETE setAll()
     {
         m_count = mapSize;
     }
@@ -226,6 +222,7 @@ public:
     void clearMaps()
     {
         m_maps.clear();
+        m_latin1Tables.clear();
     }
 
     const std::span<BoyerMooreBitmap::Map::WordType> tryReuseBoyerMooreBitmap(const BoyerMooreBitmap::Map& map) const
@@ -237,8 +234,15 @@ public:
         return { };
     }
 
+    const uint8_t* addLatin1Table(const CharacterClass::ByteTable& table)
+    {
+        m_latin1Tables.append(makeUniqueRef<CharacterClass::ByteTable>(table));
+        return m_latin1Tables.last()->data.data();
+    }
+
 private:
     Vector<UniqueRef<BoyerMooreBitmap::Map>> m_maps;
+    Vector<UniqueRef<CharacterClass::ByteTable>> m_latin1Tables;
 };
 
 class YarrCodeBlock final : public YarrBoyerMooreData {
@@ -327,7 +331,7 @@ public:
         m_matchOnly16Stats.set(insnCount, stackSize, canInline, needsT2);
     }
 
-    InlineStats& get8BitInlineStats() { return m_matchOnly8Stats; }
+    InlineStats& get8BitInlineStats() LIFETIME_BOUND { return m_matchOnly8Stats; }
     InlineStats& get16BitInlineStats() { return  m_matchOnly16Stats; }
 
     MatchResult execute(std::span<const Latin1Character> input, unsigned start, int* output, MatchingContextHolder* matchingContext)
@@ -433,12 +437,7 @@ private:
     std::optional<JITFailureReason> m_failureReason;
 };
 
-enum class JITCompileMode : uint8_t {
-    MatchOnly,
-    IncludeSubpatterns,
-    InlineTest
-};
-void jitCompile(YarrPattern&, StringView patternString, CharSize, std::optional<StringView> sampleString, VM*, YarrCodeBlock& jitObject, JITCompileMode);
+void jitCompile(YarrPattern&, StringView patternString, CharSize, std::optional<StringView> sampleString, VM*, YarrCodeBlock& jitObject, ExecutionMode);
 
 #if ENABLE(YARR_JIT_REGEXP_TEST_INLINE)
 

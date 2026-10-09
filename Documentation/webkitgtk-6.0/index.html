@@ -62,7 +62,7 @@ SPDX-License-Identifier: BSD, LGPL-2.1
         <h3><a href="index.html">WebKit</a></h3>
         <p>API Version: 6.0</p>
         
-        <p>Library Version: 2.52.5</p>
+        <p>Library Version: 2.54.0</p>
         
       </div>
       
@@ -173,7 +173,7 @@ SPDX-License-Identifier: BSD, LGPL-2.1
 
     <div class="meta info">
       <table>
-        <tr><td><em>Version</em></td><td>2.52.5</td></tr>
+        <tr><td><em>Version</em></td><td>2.54.0</td></tr>
         <tr><td><em>Authors</em></td><td>The WebKit GTK and WPE teams</td></tr>
         <tr><td><em>License</em></td><td>BSD, LGPL-2.1</td></tr>
         <tr><td><em>Website</em></td><td><a href="https://webkit.org" class="external">https://webkit.org</a></td></tr>
@@ -522,6 +522,16 @@ SPDX-License-Identifier: BSD, LGPL-2.1
           </tr>
           
           <tr class="section-item">
+            <td><a title="Image" class="symbol" href="class.Image.html">Image</a></td>
+            
+            <td class="docblock-summary">
+            
+            <p></p>
+            </td>
+            
+          </tr>
+          
+          <tr class="section-item">
             <td><a title="InputMethodContext" class="symbol" href="class.InputMethodContext.html">InputMethodContext</a></td>
             
             <td class="docblock-summary">
@@ -645,7 +655,7 @@ SPDX-License-Identifier: BSD, LGPL-2.1
             <td><a title="Settings" class="symbol" href="class.Settings.html">Settings</a></td>
             
             <td class="docblock-summary">
-            <p>Control the behaviour of a <code>WebKitWebView</code>.</p>
+            <p>Control the behavior of a <code>WebKitWebView</code>.</p>
             <p></p>
             </td>
             
@@ -735,7 +745,7 @@ SPDX-License-Identifier: BSD, LGPL-2.1
             <td><a title="WebContext" class="symbol" href="class.WebContext.html">WebContext</a></td>
             
             <td class="docblock-summary">
-            <p>Manages aspects common to all <code>WebKitWebView</code><!-- -->s.</p>
+            <p>Manages aspects common to all <code>WebKitWebView</code> objects.</p>
             <p></p>
             </td>
             
@@ -939,10 +949,20 @@ augmented reality (<span class="caps">AR</span>) devices, including sensors and 
           </tr>
           
           <tr class="section-item">
+            <td><a title="ImageList" class="symbol" href="struct.ImageList.html">ImageList</a></td>
+            
+            <td class="docblock-summary">
+            <p>Represents a set of related&nbsp;images.</p>
+            <p><span class="emblem available">since: 2.54</span></p>
+            </td>
+            
+          </tr>
+          
+          <tr class="section-item">
             <td><a title="InputMethodUnderline" class="symbol" href="struct.InputMethodUnderline.html">InputMethodUnderline</a></td>
             
             <td class="docblock-summary">
-            <p>Range of text in an preedit string to be shown&nbsp;underlined.</p>
+            <p>Range of text in a preedit string to be shown&nbsp;underlined.</p>
             <p><span class="emblem available">since: 2.28</span></p>
             </td>
             
@@ -1036,7 +1056,7 @@ Specification</a>.</p>
             <td class="docblock-summary">
             <p>A reply for a script message received.
 If no reply has been sent by the user, an automatically generated reply with
-undefined value with be&nbsp;sent.</p>
+undefined value will be&nbsp;sent.</p>
             <p><span class="emblem available">since: 2.40</span></p>
             </td>
             
@@ -1056,7 +1076,7 @@ undefined value with be&nbsp;sent.</p>
             <td><a title="UserContentFilter" class="symbol" href="struct.UserContentFilter.html">UserContentFilter</a></td>
             
             <td class="docblock-summary">
-            <p>A compiled set of rules which applied to resource&nbsp;loads.</p>
+            <p>A compiled set of rules which are applied to resource&nbsp;loads.</p>
             <p><span class="emblem available">since: 2.24</span></p>
             </td>
             
@@ -1177,7 +1197,7 @@ undefined value with be&nbsp;sent.</p>
             
             <td class="docblock-summary">
             <p>Enum values used to denote the stock actions for
-<code>WebKitContextMenuItem</code><!-- -->s.</p>
+<code>WebKitContextMenuItem</code> objects.</p>
             <p></p>
             </td>
             
@@ -1373,7 +1393,7 @@ snapshot.</p>
             <td><a title="UserContentInjectedFrames" class="symbol" href="enum.UserContentInjectedFrames.html">UserContentInjectedFrames</a></td>
             
             <td class="docblock-summary">
-            <p>Specifies in which frames user style sheets are to be inserted&nbsp;in.</p>
+            <p>Specifies in which frames user style sheets are to be&nbsp;inserted.</p>
             <p><span class="emblem available">since: 2.6</span></p>
             </td>
             
@@ -1383,7 +1403,7 @@ snapshot.</p>
             <td><a title="UserScriptInjectionTime" class="symbol" href="enum.UserScriptInjectionTime.html">UserScriptInjectionTime</a></td>
             
             <td class="docblock-summary">
-            <p>Specifies at which place of documents an user script will be&nbsp;inserted.</p>
+            <p>Specifies at which place of documents a user script will be&nbsp;inserted.</p>
             <p><span class="emblem available">since: 2.6</span></p>
             </td>
             
@@ -1393,7 +1413,7 @@ snapshot.</p>
             <td><a title="UserStyleLevel" class="symbol" href="enum.UserStyleLevel.html">UserStyleLevel</a></td>
             
             <td class="docblock-summary">
-            <p>Specifies how to treat an user style&nbsp;sheet.</p>
+            <p>Specifies how to treat a user style&nbsp;sheet.</p>
             <p><span class="emblem available">since: 2.6</span></p>
             </td>
             
@@ -1688,7 +1708,7 @@ from a <code>WebKitWebView</code>.</p>
             <td><a title="URISchemeRequestCallback" class="symbol" href="callback.URISchemeRequestCallback.html">URISchemeRequestCallback</a></td>
             
             <td class="docblock-summary">
-            <p>Type definition for a function that will be called back when an <span class="caps">URI</span> request is
+            <p>Type definition for a function that will be called back when a <span class="caps">URI</span> request is
 made for a user registered <span class="caps">URI</span>&nbsp;scheme.</p>
             <p></p>
             </td>
@@ -1902,7 +1922,7 @@ inside the <code>WebKitWebView</code>.</p>
 the current cursor position. If there&#8217;s a selection, the selected text
 will be used as the link text, otherwise the <span class="caps">URL</span> itself will be used.
 It receives the link <span class="caps">URL</span> as argument. This command should be executed
-with <code>webkit_web_view_execute_editing_command_with_argument()</code></p>
+with&nbsp;webkit_web_view_execute_editing_command_with_argument().</p>
             <p></p>
             </td>
             
@@ -1928,7 +1948,7 @@ editable and there is an active&nbsp;selection.</p>
             
             <td class="docblock-summary">
             <p>The insert image command. Creates an image element that is inserted at
-the current cursor position. It receives an <span class="caps">URI</span> as argument,
+the current cursor position. It receives a <span class="caps">URI</span> as argument,
 that is used as the image source. This command should be executed with&nbsp;webkit_web_view_execute_editing_command_with_argument().</p>
             <p></p>
             </td>

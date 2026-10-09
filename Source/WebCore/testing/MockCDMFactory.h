@@ -45,22 +45,19 @@ namespace WebCore {
 class MockCDMFactory : public RefCounted<MockCDMFactory>, public CDMFactory {
 public:
     static Ref<MockCDMFactory> create() { return adoptRef(*new MockCDMFactory); }
+    static void unregisterAllMockFactories();
     ~MockCDMFactory();
 
     void ref() const final { RefCounted::ref(); }
     void deref() const final { RefCounted::deref(); }
 
     const Vector<String>& supportedDataTypes() const LIFETIME_BOUND { return m_supportedDataTypes; }
+    void setSupportedDataTypes(Vector<String>&&);
 
     const Vector<MediaKeySessionType>& supportedSessionTypes() const LIFETIME_BOUND { return m_supportedSessionTypes; }
+    void setSupportedSessionTypes(Vector<MediaKeySessionType>&& types) { m_supportedSessionTypes = WTF::move(types); }
 
     const Vector<String>& supportedRobustness() const LIFETIME_BOUND { return m_supportedRobustness; }
-
-    const Vector<MediaKeyEncryptionScheme>& supportedEncryptionSchemes() const LIFETIME_BOUND { return m_supportedEncryptionSchemes; }
-
-    const Vector<String>& unsupportedVideoCodecs() const LIFETIME_BOUND { return m_unsupportedVideoCodecs; }
-    void setSupportedDataTypes(Vector<String>&&);
-    void setSupportedSessionTypes(Vector<MediaKeySessionType>&& types) { m_supportedSessionTypes = WTF::move(types); }
     void setSupportedRobustness(Vector<String>&& supportedRobustness) { m_supportedRobustness = WTF::move(supportedRobustness); }
 
     MediaKeysRequirement distinctiveIdentifiersRequirement() const { return m_distinctiveIdentifiersRequirement; }
@@ -77,7 +74,11 @@ public:
 
     bool supportsSessions() const { return m_supportsSessions; }
     void setSupportsSessions(bool flag) { m_supportsSessions = flag; }
+
+    const Vector<MediaKeyEncryptionScheme>& supportedEncryptionSchemes() const LIFETIME_BOUND { return m_supportedEncryptionSchemes; }
     void setSupportedEncryptionSchemes(Vector<MediaKeyEncryptionScheme>&& schemes) { m_supportedEncryptionSchemes = WTF::move(schemes); }
+
+    const Vector<String>& unsupportedVideoCodecs() const LIFETIME_BOUND { return m_unsupportedVideoCodecs; }
     void setUnsupportedVideoCodecs(Vector<String>&& codecs) { m_unsupportedVideoCodecs = WTF::move(codecs); }
 
     void unregister();
@@ -114,7 +115,7 @@ public:
     MockCDM(WeakPtr<MockCDMFactory>, const String&);
 
     MockCDMFactory* factory() { return m_factory.get(); }
-    const String& mediaKeysHashSalt() const { return m_mediaKeysHashSalt; }
+    const String& mediaKeysHashSalt() const LIFETIME_BOUND { return m_mediaKeysHashSalt; }
 
 private:
     friend class MockCDMInstance;

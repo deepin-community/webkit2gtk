@@ -83,7 +83,7 @@ public:
     ~CompactRefPtrTuple()
     {
         WTF::DefaultRefDerefTraits<T>::derefIfNotNull(m_data.pointer());
-        secureZeroSpan(singleElementSpan(m_data));
+        secureZeroBytes(m_data);
     }
 
     T* pointer() const LIFETIME_BOUND

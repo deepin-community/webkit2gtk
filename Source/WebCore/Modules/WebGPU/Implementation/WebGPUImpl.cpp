@@ -28,10 +28,6 @@
 
 #if HAVE(WEBGPU_IMPLEMENTATION)
 
-#include "DDMesh.h"
-#include "DDMeshDescriptor.h"
-#include "DDMeshImpl.h"
-#include "DDVertexAttributeFormat.h"
 #include "WebGPUAdapterImpl.h"
 #include "WebGPUCompositorIntegrationImpl.h"
 #include "WebGPUDowncastConvertToBackingContext.h"
@@ -48,10 +44,9 @@ namespace WebCore::WebGPU {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(GPUImpl);
 
-GPUImpl::GPUImpl(WebGPUPtr<WGPUInstance>&& instance, ConvertToBackingContext& convertToBackingContext, DDModel::ConvertToBackingContext& modelConvertToBackingContext)
+GPUImpl::GPUImpl(WebGPUPtr<WGPUInstance>&& instance, ConvertToBackingContext& convertToBackingContext)
     : m_backing(WTF::move(instance))
     , m_convertToBackingContext(convertToBackingContext)
-    , m_modelConvertToBackingContext(modelConvertToBackingContext)
 {
 }
 
@@ -98,7 +93,7 @@ static WTF::Function<void(CompletionHandler<void()>&&)> convert(WGPUOnSubmittedW
 
 RefPtr<PresentationContext> GPUImpl::createPresentationContext(const PresentationContextDescriptor& presentationContextDescriptor)
 {
-    Ref compositorIntegration = m_convertToBackingContext->convertToBacking(Ref { presentationContextDescriptor.compositorIntegration }.get());
+    Ref compositorIntegration { m_convertToBackingContext->convertToBacking(protect(presentationContextDescriptor.compositorIntegration)) };
 
     auto registerCallbacksBlock = makeBlockPtr([&](WGPURenderBuffersWereRecreatedBlockCallback renderBuffersWereRecreatedCallback, WGPUOnSubmittedWorkScheduledCallback onSubmittedWorkScheduledCallback) {
         compositorIntegration->registerCallbacks(makeBlockPtr(WTF::move(renderBuffersWereRecreatedCallback)), convert(WTF::move(onSubmittedWorkScheduledCallback)));

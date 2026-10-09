@@ -103,8 +103,8 @@ public:
     unsigned numSuccessors() const { return m_successors.size(); }
     const FrequentedBlock& successor(unsigned index) const { return m_successors[index]; }
     FrequentedBlock& successor(unsigned index) { return m_successors[index]; }
-    const SuccessorList& successors() const { return m_successors; }
-    SuccessorList& successors() { return m_successors; }
+    const SuccessorList& successors() const LIFETIME_BOUND { return m_successors; }
+    SuccessorList& successors() LIFETIME_BOUND { return m_successors; }
     
     void clearSuccessors();
     JS_EXPORT_PRIVATE void appendSuccessor(FrequentedBlock);
@@ -122,7 +122,7 @@ public:
         return SuccessorCollection<const BasicBlock, const SuccessorList>(successors());
     }
 
-    bool replaceSuccessor(BasicBlock* from, BasicBlock* to);
+    bool NODELETE replaceSuccessor(BasicBlock* from, BasicBlock* to);
     
     // This is only valid for Jump and Branch.
     const FrequentedBlock& taken() const;
@@ -137,12 +137,12 @@ public:
     unsigned numPredecessors() const { return m_predecessors.size(); }
     BasicBlock* predecessor(unsigned index) const { return m_predecessors[index]; }
     BasicBlock*& predecessor(unsigned index) { return m_predecessors[index]; }
-    const PredecessorList& predecessors() const { return m_predecessors; }
-    PredecessorList& predecessors() { return m_predecessors; }
+    const PredecessorList& predecessors() const LIFETIME_BOUND { return m_predecessors; }
+    PredecessorList& predecessors() LIFETIME_BOUND { return m_predecessors; }
     bool containsPredecessor(BasicBlock* block) { return m_predecessors.contains(block); }
 
     bool addPredecessor(BasicBlock*);
-    bool removePredecessor(BasicBlock*);
+    bool NODELETE removePredecessor(BasicBlock*);
     bool replacePredecessor(BasicBlock* from, BasicBlock* to);
 
     // Update predecessors starting with the successors of this block.

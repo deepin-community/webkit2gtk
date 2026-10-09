@@ -42,13 +42,12 @@ class RenderImage : public RenderReplaced {
     WTF_MAKE_TZONE_ALLOCATED(RenderImage);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderImage);
 public:
-    RenderImage(Type, Element&, RenderStyle&&, StyleImage* = nullptr, const float imageDevicePixelRatio = 1.0f);
-    RenderImage(Type, Document&, RenderStyle&&, StyleImage* = nullptr);
+    RenderImage(Type, Element&, Style::ComputedStyle&&, Style::Image* = nullptr, const float imageDevicePixelRatio = 1.0f);
+    RenderImage(Type, Document&, Style::ComputedStyle&&, Style::Image* = nullptr);
     virtual ~RenderImage();
 
     RenderImageResource& imageResource() { return *m_imageResource; }
     const RenderImageResource& imageResource() const { return *m_imageResource; }
-    CheckedRef<RenderImageResource> checkedImageResource() const;
     CachedImage* cachedImage() const { return imageResource().cachedImage(); }
 
     ImageSizeChangeType setImageSizeForAltText(CachedImage* newImage = nullptr);
@@ -58,15 +57,13 @@ public:
     RefPtr<HTMLMapElement> imageMap() const;
     void areaElementFocusChanged(HTMLAreaElement*);
     
-#if PLATFORM(IOS_FAMILY)
     void collectSelectionGeometries(Vector<SelectionGeometry>&, unsigned, unsigned) override;
-#endif
 
     void setIsGeneratedContent(bool generated = true) { m_isGeneratedContent = generated; }
 
     bool isGeneratedContent() const { return m_isGeneratedContent; }
 
-    const String& altText() const { return m_altText; }
+    const String& altText() const LIFETIME_BOUND { return m_altText; }
     void setAltText(const String& altText) { m_altText = altText; }
 
     void setImageDevicePixelRatio(float factor);
@@ -87,18 +84,18 @@ public:
     bool isMultiRepresentationHEIC() const;
 #endif
 
+    FloatSize preferredAspectRatioAsSize() const final;
+
 protected:
-    RenderImage(Type, Element&, RenderStyle&&, OptionSet<ReplacedFlag>, StyleImage* = nullptr, const float imageDevicePixelRatio = 1.0f);
+    RenderImage(Type, Element&, Style::ComputedStyle&&, OptionSet<ReplacedFlag>, Style::Image* = nullptr, const float imageDevicePixelRatio = 1.0f);
     void willBeDestroyed() override;
 
-    bool shouldInvalidatePreferredWidths() const final;
-    RenderBox* embeddedContentBox() const final;
-    FloatSize computeIntrinsicSize() const final;
-    FloatSize preferredAspectRatio() const final;
+    bool shouldInvalidateContentWidths() const final;
+    RenderReplaced* embeddedSVGRoot() const final;
     bool foregroundIsKnownToBeOpaqueInRect(const LayoutRect& localRect, unsigned maxDepthToTest) const override;
 
-    void styleWillChange(Style::Difference, const RenderStyle& newStyle) override;
-    void styleDidChange(Style::Difference, const RenderStyle*) override;
+    void styleWillChange(Style::Difference, const Style::ComputedStyle& newStyle) override;
+    void styleDidChange(Style::Difference, const Style::ComputedStyle*) override;
 
     void imageChanged(WrappedImagePtr, const IntRect* = nullptr) override;
 
@@ -120,6 +117,7 @@ private:
 
     void paintReplaced(PaintInfo&, const LayoutPoint&) override;
     void paintIncompleteImageOutline(PaintInfo&, LayoutPoint, LayoutUnit) const;
+    void paintMissingImageState(PaintInfo&, const LayoutPoint&) const;
 
     bool computeBackgroundIsKnownToBeObscured(const LayoutPoint& paintOffset) final;
 
@@ -140,7 +138,7 @@ private:
 
     bool hasShadowContent() const { return m_hasShadowControls || m_hasImageOverlay; }
 
-    LayoutUnit computeReplacedLogicalWidth(ShouldComputePreferred = ShouldComputePreferred::ComputeActual) const override;
+    LayoutUnit computeReplacedLogicalWidth(IsComputingIntrinsicSize = IsComputingIntrinsicSize::No) const override;
     LayoutUnit computeReplacedLogicalHeight(std::optional<LayoutUnit> estimatedUsedWidth = std::nullopt) const override;
 
     bool shouldCollapseToEmpty() const;

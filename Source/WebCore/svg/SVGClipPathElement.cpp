@@ -27,17 +27,17 @@
 #include "Document.h"
 #include "ImageBuffer.h"
 #include "LegacyRenderSVGResourceClipper.h"
-#include "RenderElementInlines.h"
+#include "RenderElementStyleInlines.h"
 #include "RenderObjectInlines.h"
 #include "RenderSVGResourceClipper.h"
 #include "RenderSVGText.h"
-#include "RenderStyle+GettersInlines.h"
 #include "SVGElementInlines.h"
 #include "SVGElementTypeHelpers.h"
-#include "SVGLayerTransformComputation.h"
 #include "SVGNames.h"
+#include "SVGTransformComputation.h"
 #include "SVGUseElement.h"
 #include "Settings.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include "StyleResolver.h"
 #include <wtf/NeverDestroyed.h>
 #include <wtf/TZoneMallocInlines.h>
@@ -108,7 +108,7 @@ void SVGClipPathElement::childrenChanged(const ChildChange& change)
     updateSVGRendererForElementChange();
 }
 
-RenderPtr<RenderElement> SVGClipPathElement::createElementRenderer(RenderStyle&& style, const RenderTreePosition&)
+RenderPtr<RenderElement> SVGClipPathElement::createElementRenderer(Style::ComputedStyle&& style, const RenderTreePosition&)
 {
     if (document().settings().layerBasedSVGEngineEnabled())
         return createRenderer<RenderSVGResourceClipper>(*this, WTF::move(style));
@@ -118,7 +118,7 @@ RenderPtr<RenderElement> SVGClipPathElement::createElementRenderer(RenderStyle&&
 RefPtr<SVGGraphicsElement> SVGClipPathElement::shouldApplyPathClipping() const
 {
     // If the current clip-path gets clipped itself, we have to fall back to masking.
-    if (renderer() && renderer()->style().hasClipPath())
+    if (renderer() && renderer()->hasClipPath())
         return nullptr;
 
     auto rendererRequiresMaskClipping = [](auto& renderer) -> bool {
@@ -126,10 +126,10 @@ RefPtr<SVGGraphicsElement> SVGClipPathElement::shouldApplyPathClipping() const
         if (is<RenderSVGText>(renderer))
             return true;
         auto& style = renderer.style();
-        if (style.display() == DisplayType::None || style.usedVisibility() != Visibility::Visible)
+        if (style.display() == Style::DisplayType::None || style.usedVisibility() != Visibility::Visible)
             return false;
         // Current shape in clip-path gets clipped too. Fall back to masking.
-        return style.hasClipPath();
+        return renderer.hasClipPath();
     };
 
     RefPtr<SVGGraphicsElement> useGraphicsElement;
@@ -148,7 +148,7 @@ RefPtr<SVGGraphicsElement> SVGClipPathElement::shouldApplyPathClipping() const
             continue;
 
         // For <use> elements, check visibility of the target element and skip if no visible target.
-        if (auto* useElement = dynamicDowncast<SVGUseElement>(*graphicsElement)) {
+        if (RefPtr useElement = dynamicDowncast<SVGUseElement>(*graphicsElement)) {
             CheckedPtr clipChildRenderer = useElement->rendererClipChild();
             if (!clipChildRenderer)
                 continue;
@@ -177,13 +177,13 @@ FloatRect SVGClipPathElement::calculateClipContentRepaintRect(RepaintRectCalcula
         if (!document().settings().layerBasedSVGEngineEnabled())
             return std::nullopt;
 
-        if (!(renderer()->isTransformed() || child.isTransformed()) || !child.hasLayer())
+        if (!child.isTransformed())
             return std::nullopt;
 
         ASSERT(child.isSVGLayerAwareRenderer());
         ASSERT(!child.isRenderSVGRoot());
 
-        auto transform = SVGLayerTransformComputation(child).computeAccumulatedTransform(downcast<RenderLayerModelObject>(renderer()), TransformState::TrackSVGCTMMatrix);
+        auto transform = SVGTransformComputation(child).computeAccumulatedTransform(downcast<RenderLayerModelObject>(renderer()), TransformState::TrackSVGCTMMatrix);
         return transform.isIdentity() ? std::nullopt : std::make_optional(WTF::move(transform));
     };
 
@@ -195,9 +195,9 @@ FloatRect SVGClipPathElement::calculateClipContentRepaintRect(RepaintRectCalcula
             continue;
         if (!renderer->isRenderSVGShape() && !renderer->isRenderSVGText() && !childNode->hasTagName(SVGNames::useTag))
             continue;
-        auto& style = renderer->style();
+        CheckedRef style = renderer->style();
         // For <use> elements, skip visibility check on the <use> itself, check target instead.
-        if (style.display() == DisplayType::None || (style.usedVisibility() != Visibility::Visible && !childNode->hasTagName(SVGNames::useTag)))
+        if (style->display() == Style::DisplayType::None || (style->usedVisibility() != Visibility::Visible && !childNode->hasTagName(SVGNames::useTag)))
             continue;
 
         // For <use> elements, verify the target is visible and valid

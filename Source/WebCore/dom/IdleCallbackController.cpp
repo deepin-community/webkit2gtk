@@ -68,7 +68,7 @@ int IdleCallbackController::queueIdleCallback(Ref<IdleRequestCallback>&& callbac
     }
 
     if (RefPtr document = m_document.get())
-        document->protectedWindowEventLoop()->scheduleIdlePeriod();
+        protect(document->windowEventLoop())->scheduleIdlePeriod();
 
     return handle;
 }
@@ -130,7 +130,7 @@ bool IdleCallbackController::invokeIdleCallbacks()
 
     auto request = m_runnableIdleCallbacks.takeFirst();
     auto idleDeadline = IdleDeadline::create(request.timeout && *request.timeout < now ? IdleDeadline::DidTimeout::Yes : IdleDeadline::DidTimeout::No);
-    request.callback->invoke(idleDeadline.get());
+    protect(request.callback)->invoke(idleDeadline.get());
 
     return !m_runnableIdleCallbacks.isEmpty();
 }

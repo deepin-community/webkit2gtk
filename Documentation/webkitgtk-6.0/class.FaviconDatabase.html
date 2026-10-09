@@ -62,7 +62,7 @@ SPDX-License-Identifier: BSD, LGPL-2.1
         <h3><a href="index.html">WebKit</a></h3>
         <p>API Version: 6.0</p>
         
-        <p>Library Version: 2.52.5</p>
+        <p>Library Version: 2.54.0</p>
         
       </div>
       
@@ -92,6 +92,10 @@ SPDX-License-Identifier: BSD, LGPL-2.1
     <a class="method" href="method.FaviconDatabase.get_favicon_finish.html">get_favicon_finish</a>
   
     <a class="method" href="method.FaviconDatabase.get_favicon_uri.html">get_favicon_uri</a>
+  
+    <a class="method" href="method.FaviconDatabase.get_page_icons.html">get_page_icons</a>
+  
+    <a class="method" href="method.FaviconDatabase.get_page_icons_finish.html">get_page_icons_finish</a>
   
   </div>
 </div>
@@ -145,7 +149,7 @@ SPDX-License-Identifier: BSD, LGPL-2.1
           Description
           <a href="#description" class="anchor"></a>
           
-          <a class="srclink" title="go to source location" href="https://github.com/WebKit/WebKit/tree/main/Source/WebKit/UIProcess/API/glib/WebKitFaviconDatabase.cpp#L45">[src]</a>
+          <a class="srclink" title="go to source location" href="https://github.com/WebKit/WebKit/tree/main/Source/WebKit/UIProcess/API/glib/WebKitFaviconDatabase.cpp#L53">[src]</a>
           
         </h4>
 
@@ -156,11 +160,11 @@ SPDX-License-Identifier: BSD, LGPL-2.1
 
         <div class="docblock">
           <p>Provides access to the icons associated with web&nbsp;sites.</p>
-<p>WebKit will automatically look for available icons in <link>
+<p>WebKit will automatically look for available icons in <code>&lt;link&gt;</code>
 elements on opened pages as well as an existing favicon.ico and
 load the images found into a memory cache if possible. That cache
 is frozen to an on-disk database for&nbsp;persistence.</p>
-<p>If <code>WebKitSettings:enable-private-browsing</code> is <code>TRUE</code>, new icons
+<p>If <a href="property.WebsiteDataManager.is-ephemeral.html"><code>WebKitWebsiteDataManager:is-ephemeral</code></a> is <code>TRUE</code>, new icons
 won&#8217;t be added to the on-disk database and no existing icons will
 be deleted from it. Nevertheless, WebKit will still store them in
 the in-memory cache during the current&nbsp;execution.</p>
@@ -269,33 +273,53 @@ the in-memory cache during the current&nbsp;execution.</p>
           </div>
         </div>
       
-        <div class="">
+        <div class="deprecated">
           <h6><a href="method.FaviconDatabase.get_favicon.html">webkit_favicon_database_get_favicon</a></h6>
           <div class="docblock">
             <p>Asynchronously obtains a favicon&nbsp;image.</p>
           </div>
           <div class="docblock">
-            <p></p>
+            <p><span class="emblem deprecated">deprecated: 2.54</span>&nbsp;</p>
           </div>
         </div>
       
-        <div class="">
+        <div class="deprecated">
           <h6><a href="method.FaviconDatabase.get_favicon_finish.html">webkit_favicon_database_get_favicon_finish</a></h6>
           <div class="docblock">
             <p>Finishes an operation started with&nbsp;webkit_favicon_database_get_favicon().</p>
           </div>
           <div class="docblock">
-            <p></p>
+            <p><span class="emblem deprecated">deprecated: 2.54</span>&nbsp;</p>
           </div>
         </div>
       
-        <div class="">
+        <div class="deprecated">
           <h6><a href="method.FaviconDatabase.get_favicon_uri.html">webkit_favicon_database_get_favicon_uri</a></h6>
           <div class="docblock">
             <p>Obtains the <span class="caps">URI</span> of the favicon for the given <code>page_uri</code>.</p>
           </div>
           <div class="docblock">
-            <p></p>
+            <p><span class="emblem deprecated">deprecated: 2.54</span>&nbsp;</p>
+          </div>
+        </div>
+      
+        <div class="">
+          <h6><a href="method.FaviconDatabase.get_page_icons.html">webkit_favicon_database_get_page_icons</a></h6>
+          <div class="docblock">
+            <p>Obtains the set of icons for a&nbsp;page.</p>
+          </div>
+          <div class="docblock">
+            <p><span class="emblem available">since: 2.54</span></p>
+          </div>
+        </div>
+      
+        <div class="">
+          <h6><a href="method.FaviconDatabase.get_page_icons_finish.html">webkit_favicon_database_get_page_icons_finish</a></h6>
+          <div class="docblock">
+            <p>Finishes an operation started with <code>webkit_favicon_database_get_page_icons()</code>.</p>
+          </div>
+          <div class="docblock">
+            <p><span class="emblem available">since: 2.54</span></p>
           </div>
         </div>
       
@@ -331,7 +355,7 @@ the in-memory cache during the current&nbsp;execution.</p>
       
       <div class="docblock">
       
-        <div class="">
+        <div class="deprecated">
           <h6><a href="signal.FaviconDatabase.favicon-changed.html">WebKit.FaviconDatabase::favicon-changed</a></h6>
           <div class="docblock">
             <p>This signal is emitted when the favicon <span class="caps">URI</span> of <code>page_uri</code> has
@@ -342,7 +366,7 @@ to get the favicon. If you are interested in the favicon of a
 property. See <code>webkit_web_view_get_favicon()</code> for more&nbsp;details.</p>
           </div>
           <div class="docblock">
-            <p></p>
+            <p><span class="emblem deprecated">deprecated: 2.54</span>&nbsp;</p>
           </div>
         </div>
       

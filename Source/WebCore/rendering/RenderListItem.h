@@ -22,7 +22,7 @@
 
 #pragma once
 
-#include <WebCore/RenderBlockFlow.h>
+#include "RenderBlockFlow.h"
 #include "RenderListMarker.h"
 
 namespace WebCore {
@@ -33,21 +33,22 @@ class RenderListItem final : public RenderBlockFlow {
     WTF_MAKE_TZONE_ALLOCATED(RenderListItem);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderListItem);
 public:
-    RenderListItem(Element&, RenderStyle&&);
+    RenderListItem(Element&, Style::ComputedStyle&&);
     virtual ~RenderListItem();
 
     int value() const;
     void updateValue();
 
     WEBCORE_EXPORT String markerTextWithoutSuffix() const;
-    String markerTextWithSuffix() const;
+    String NODELETE markerTextWithSuffix() const;
 
     void updateListMarkerNumbers();
 
     static void updateItemValuesForOrderedList(const HTMLOListElement&);
     static unsigned itemCountForOrderedList(const HTMLOListElement&);
+    static int startForReversedOrderedList(const HTMLOListElement&);
 
-    RenderStyle computeMarkerStyle() const;
+    Style::ComputedStyle computeMarkerStyle() const;
 
     RenderListMarker* markerRenderer() const { return m_marker.get(); }
     void setMarkerRenderer(RenderListMarker& marker) { m_marker = marker; }
@@ -59,9 +60,9 @@ private:
     
     void paint(PaintInfo&, const LayoutPoint&) final;
 
-    void styleDidChange(Style::Difference, const RenderStyle* oldStyle) final;
+    void styleDidChange(Style::Difference, const Style::ComputedStyle* oldStyle) final;
 
-    void computePreferredLogicalWidths() final;
+    void computeIntrinsicLogicalWidthContributions() final;
 
     void updateValueNow() const;
     void usedCounterDirectivesChanged();
@@ -70,7 +71,7 @@ private:
     mutable std::optional<int> m_value;
 };
 
-bool isHTMLListElement(const Node&);
+bool NODELETE isHTMLListElement(const Node&);
 
 inline int RenderListItem::value() const
 {

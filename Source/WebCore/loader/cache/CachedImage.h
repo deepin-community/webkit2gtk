@@ -30,16 +30,6 @@
 #include <WebCore/SVGImageCache.h>
 #include <wtf/HashMap.h>
 #include <wtf/HashSet.h>
-#include <wtf/WeakRef.h>
-
-namespace WebCore {
-class CachedImage;
-}
-
-namespace WTF {
-template<typename T> struct IsDeprecatedWeakRefSmartPointerException;
-template<> struct IsDeprecatedWeakRefSmartPointerException<WebCore::CachedImage> : std::true_type { };
-}
 
 namespace WebCore {
 
@@ -58,19 +48,16 @@ class CachedImage final : public CachedResource {
 public:
     CachedImage(CachedResourceRequest&&, PAL::SessionID, const CookieJar*);
     CachedImage(Image*, PAL::SessionID, const CookieJar*);
-    // Constructor to use for manually cached images.
-    CachedImage(const URL&, Image*, PAL::SessionID, const CookieJar*, const String& domainForCachePartition);
     virtual ~CachedImage();
 
     WEBCORE_EXPORT Image* image() const; // Returns the nullImage() if the image is not available yet.
-    WEBCORE_EXPORT RefPtr<Image> protectedImage() const;
     WEBCORE_EXPORT Image* imageForRenderer(const RenderObject*); // Returns the nullImage() if the image is not available yet.
     bool hasImage() const { return m_image.get(); }
     bool currentFrameKnownToBeOpaque(const RenderElement*);
     bool currentFrameIsComplete(const RenderElement*);
 
     std::pair<WeakPtr<Image>, float> brokenImage(float deviceScaleFactor) const; // Returns an image and the image's resolution scale factor.
-    bool willPaintBrokenImage() const;
+    bool NODELETE willPaintBrokenImage() const;
 
     bool canRender(const RenderElement* renderer, float multiplier) { return !errorOccurred() && !imageSizeForRenderer(renderer, multiplier).isEmpty(); }
 
@@ -79,6 +66,7 @@ public:
 
     void setContainerContextForClient(const CachedImageClient&, const LayoutSize&, float, const URL&);
     bool usesImageContainerSize() const { return m_image && m_image->usesContainerSize(); }
+    bool imageHasNaturalAspectRatio() const { return m_image && m_image->hasNaturalAspectRatio(); }
     bool imageHasRelativeWidth() const { return m_image && m_image->hasRelativeWidth(); }
     bool imageHasRelativeHeight() const { return m_image && m_image->hasRelativeHeight(); }
 
@@ -89,10 +77,10 @@ public:
         UsedSize,
         IntrinsicSize
     };
-    WEBCORE_EXPORT FloatSize imageSizeForRenderer(const RenderElement* renderer, SizeType = UsedSize) const;
+    WEBCORE_EXPORT FloatSize imageSizeForRenderer(const RenderElement*) const;
     // This method takes a zoom multiplier that can be used to increase the natural size of the image by the zoom.
-    LayoutSize imageSizeForRenderer(const RenderElement*, float multiplier, SizeType = UsedSize) const; // returns the size of the complete image.
-    LayoutSize unclampedImageSizeForRenderer(const RenderElement* renderer, float multiplier, SizeType = UsedSize) const;
+    LayoutSize imageSizeForRenderer(const RenderElement*, float multiplier, SizeType = UsedSize, float density = 1.0f) const;
+    LayoutSize unclampedImageSizeForRenderer(const RenderElement*, float multiplier, SizeType = UsedSize, float density = 1.0f) const;
     void computeIntrinsicDimensions(float& intrinsicWidth, float& intrinsicHeight, FloatSize& intrinsicRatio);
 
     bool hasHDRContent() const;
@@ -101,11 +89,13 @@ public:
     RevalidationDecision makeRevalidationDecision(CachePolicy) const override;
     void load(CachedResourceLoader&) override;
 
-    bool isOriginClean(SecurityOrigin*);
+    bool NODELETE isOriginClean(SecurityOrigin*);
 
-    bool isClientWaitingForAsyncDecoding(const CachedImageClient&) const;
+    bool NODELETE isClientWaitingForAsyncDecoding(const CachedImageClient&) const;
     void addClientWaitingForAsyncDecoding(CachedImageClient&);
     void removeAllClientsWaitingForAsyncDecoding();
+
+    bool hasRendererClients() const;
 
     void setForceUpdateImageDataEnabledForTesting(bool enabled) { m_forceUpdateImageDataEnabledForTesting =  enabled; }
 
@@ -116,6 +106,8 @@ public:
     bool allowsAnimation(const Image&) const;
 
 private:
+    FloatSize internalImageSizeForRenderer(const RenderElement*, float multiplier, SizeType, float density) const;
+
     void clear();
 
     void setBodyDataFrom(const CachedResource&) final;
@@ -149,8 +141,8 @@ private:
     class CachedImageObserver final : public ImageObserver {
     public:
         static Ref<CachedImageObserver> create(CachedImage& image) { return adoptRef(*new CachedImageObserver(image)); }
-        WeakHashSet<CachedImage>& cachedImages() { return m_cachedImages; }
-        const WeakHashSet<CachedImage>& cachedImages() const { return m_cachedImages; }
+        WeakHashSet<CachedImage>& cachedImages() LIFETIME_BOUND { return m_cachedImages; }
+        const WeakHashSet<CachedImage>& cachedImages() const LIFETIME_BOUND { return m_cachedImages; }
 
     private:
         explicit CachedImageObserver(CachedImage&);

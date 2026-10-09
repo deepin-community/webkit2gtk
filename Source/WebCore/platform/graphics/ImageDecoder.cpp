@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2024 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -158,8 +158,8 @@ bool ImageDecoder::supportsMediaType(MediaType type)
 bool ImageDecoder::fetchFrameMetaDataAtIndex(size_t index, SubsamplingLevel subsamplingLevel, const DecodingOptions& options, ImageFrame& frame) const
 {
     if (options.hasSizeForDrawing()) {
-        ASSERT(frame.hasNativeImage(options.shouldDecodeToHDR()));
-        frame.m_size = frame.nativeImage(options.shouldDecodeToHDR())->size();
+        ASSERT(frame.hasNativeImage(options.decodingDestination()));
+        frame.m_size = frame.nativeImage(options.decodingDestination())->size();
     } else
         frame.m_size = frameSizeAtIndex(index, subsamplingLevel);
 
@@ -169,6 +169,23 @@ bool ImageDecoder::fetchFrameMetaDataAtIndex(size_t index, SubsamplingLevel subs
     frame.m_orientation = frameOrientationAtIndex(index);
     frame.m_decodingStatus = frameIsCompleteAtIndex(index) ? DecodingStatus::Complete : DecodingStatus::Partial;
     return true;
+}
+
+std::optional<std::tuple<Ref<NativeImage>, DecodingDestination>> ImageDecoder::createNativeImageAtIndex(size_t index, SubsamplingLevel subsamplingLevel, const DecodingOptions& options)
+{
+    DecodingOptions decodingOptions = options;
+
+    auto gainMap = frameGainMapAtIndex(index, decodingOptions);
+    if (!gainMap && decodingOptions.decodingDestination() == DecodingDestination::BaseAndGainMap)
+        decodingOptions = { decodingOptions.decodingMode(), DecodingDestination::ShouldDecodeToHDR, decodingOptions.sizeForDrawing() };
+
+    PlatformImagePtr platformImage = createFrameImageAtIndex(index, subsamplingLevel, decodingOptions);
+    if (!platformImage)
+        return std::nullopt;
+
+    RefPtr nativeImage = NativeImage::create(WTF::move(platformImage), WTF::move(gainMap));
+
+    return { { nativeImage.releaseNonNull(), decodingOptions.decodingDestination() } };
 }
 
 } // namespace WebCore

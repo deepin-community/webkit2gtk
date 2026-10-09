@@ -27,10 +27,12 @@
 
 #if ENABLE(WEB_AUTHN)
 
-#include <WebCore/ActiveDOMObject.h>
-#include <WebCore/DigitalCredentialsProtocols.h>
-#include <WebCore/JSDOMPromiseDeferred.h>
-#include <WebCore/UnvalidatedDigitalCredentialRequest.h>
+#include "ActiveDOMObject.h"
+#include "DigitalCredentialsProtocols.h"
+#include "ExceptionOr.h"
+#include "JSDOMPromiseDeferredForward.h"
+#include "UnvalidatedDigitalCredentialRequest.h"
+#include <JavaScriptCore/JSCJSValue.h>
 #include <optional>
 #include <wtf/CanMakeWeakPtr.h>
 #include <wtf/Noncopyable.h>
@@ -44,7 +46,6 @@ class CredentialRequestCoordinatorClient;
 class Document;
 class LocalFrame;
 class Page;
-struct DigitalCredentialsRequestData;
 struct DigitalCredentialsResponseData;
 struct ExceptionData;
 
@@ -56,8 +57,8 @@ class CredentialRequestCoordinator final : public RefCounted<CredentialRequestCo
 
 public:
     static Ref<CredentialRequestCoordinator> create(Ref<CredentialRequestCoordinatorClient>&&, Page&);
-    WEBCORE_EXPORT void prepareCredentialRequest(const Document&, CredentialPromise&&, Vector<UnvalidatedDigitalCredentialRequest>&&, RefPtr<AbortSignal>);
-    WEBCORE_EXPORT void abortPicker(ExceptionOr<JSC::JSValue>&&);
+    WEBCORE_EXPORT void prepareCredentialRequests(const Document&, CredentialPromise&&, Vector<UnvalidatedDigitalCredentialRequest>&&, RefPtr<AbortSignal>);
+    WEBCORE_EXPORT void abortTheCredentialRequest(ExceptionOr<JSC::JSValue>&&);
     ~CredentialRequestCoordinator();
 
     void ref() const final { RefCounted::ref(); }
@@ -66,53 +67,50 @@ public:
     void contextDestroyed() final;
 
 private:
-    void dismissPickerAndSettle(ExceptionOr<RefPtr<BasicCredential>>&&);
+    void settleTheCredentialRequest(ExceptionOr<RefPtr<BasicCredential>>&&);
+    void rejectTheCredentialRequestWith(Exception&&);
+    void clearAbortAlgorithm();
 
-    static constexpr bool canPresentDigitalCredentialsUI()
-    {
-#if HAVE(DIGITAL_CREDENTIALS_UI)
-        return true;
-#else
-        return false;
-#endif
-    }
-    class PickerStateGuard final {
+    class InteractionStateGuard final {
     public:
-        explicit PickerStateGuard(CredentialRequestCoordinator&);
-        PickerStateGuard(const PickerStateGuard&) = delete;
-        PickerStateGuard& operator=(const PickerStateGuard&) = delete;
+        explicit InteractionStateGuard(CredentialRequestCoordinator&);
+        InteractionStateGuard(const InteractionStateGuard&) = delete;
+        InteractionStateGuard& operator=(const InteractionStateGuard&) = delete;
         void deactivate() { m_active = false; }
 
-        PickerStateGuard(PickerStateGuard&&) noexcept = delete;
-        PickerStateGuard& operator=(PickerStateGuard&&) noexcept = delete;
+        InteractionStateGuard(InteractionStateGuard&&) noexcept = delete;
+        InteractionStateGuard& operator=(InteractionStateGuard&&) noexcept = delete;
 
-        ~PickerStateGuard();
+        ~InteractionStateGuard();
 
     private:
         WeakRef<CredentialRequestCoordinator> m_coordinator;
         bool m_active { true };
-    }; // class PickerStateGuard
+    }; // class InteractionStateGuard
 
-    enum class PickerState : uint8_t {
+    enum class InteractionState : uint8_t {
         Idle,
-        Presenting,
+        Requesting,
         Aborting
-    }; // enum class PickerState
+    }; // enum class InteractionState
 
-    bool canTransitionTo(PickerState) const;
-    PickerState currentState() const;
-    void setState(PickerState);
-    bool hasCurrentPromise() const { return m_currentPromise.has_value(); }
+    bool NODELETE canTransitionTo(InteractionState) const;
+    InteractionState NODELETE interactionState() const;
+    void NODELETE setInteractionState(InteractionState);
+    bool hasCurrentPromise() const { return !!m_currentPromise; }
     void setCurrentPromise(CredentialPromise&&);
-    CredentialPromise* currentPromise();
+    CredentialPromise* NODELETE currentPromise();
 
     ExceptionOr<JSC::JSObject*> parseDigitalCredentialsResponseData(const String&) const;
-    void handleDigitalCredentialsPickerResult(Expected<DigitalCredentialsResponseData, ExceptionData>&& responseOrException, RefPtr<AbortSignal>);
+    void initiateTheCredentialRequest(const Document&, Vector<ValidatedDigitalCredentialRequest>&&, Vector<UnvalidatedDigitalCredentialRequest>&&, RefPtr<AbortSignal>);
+    void processCredentialChooserResponse(Expected<DigitalCredentialsResponseData, ExceptionData>&& responseOrException, RefPtr<AbortSignal>);
 
     explicit CredentialRequestCoordinator(Ref<CredentialRequestCoordinatorClient>&&, Page&);
     const Ref<CredentialRequestCoordinatorClient> m_client;
-    PickerState m_state { PickerState::Idle };
-    std::optional<CredentialPromise> m_currentPromise;
+    InteractionState m_interactionState { InteractionState::Idle };
+    RefPtr<AbortSignal> m_abortSignal;
+    std::unique_ptr<CredentialPromise> m_currentPromise;
+    std::optional<uint32_t> m_abortAlgorithmIdentifier;
     WeakPtr<Page> m_page;
 };
 

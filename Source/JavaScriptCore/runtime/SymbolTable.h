@@ -32,18 +32,21 @@
 #include <JavaScriptCore/ConstantMode.h>
 #include <JavaScriptCore/InferredValue.h>
 #include <JavaScriptCore/JSObject.h>
+#include <JavaScriptCore/LineColumn.h>
 #include <JavaScriptCore/ScopedArgumentsTable.h>
+#include <JavaScriptCore/SourceID.h>
 #include <JavaScriptCore/TypeLocation.h>
 #include <JavaScriptCore/VarOffset.h>
 #include <JavaScriptCore/VariableEnvironment.h>
 #include <JavaScriptCore/Watchpoint.h>
 #include <memory>
 #include <wtf/HashTraits.h>
-#include <wtf/text/SymbolImpl.h>
 
 namespace JSC {
 
+class CodeBlock;
 class SymbolTable;
+struct DebuggerLocation;
 
 DECLARE_ALLOCATOR_WITH_HEAP_IDENTIFIER(SymbolTableEntryFatEntry);
 
@@ -188,21 +191,11 @@ public:
         freeFatEntry();
     }
     
-    SymbolTableEntry(const SymbolTableEntry& other)
-        : m_bits(SlimFlag)
-    {
-        *this = other;
-    }
-    
-    SymbolTableEntry& operator=(const SymbolTableEntry& other)
-    {
-        if (other.isFat()) [[unlikely]]
-            return copySlow(other);
-        freeFatEntry();
-        m_bits = other.m_bits;
-        return *this;
-    }
-    
+    SymbolTableEntry(const SymbolTableEntry& other);
+
+    SymbolTableEntry& operator=(const SymbolTableEntry& other);
+
+
     SymbolTableEntry(SymbolTableEntry&& other)
         : m_bits(SlimFlag)
     {
@@ -366,14 +359,9 @@ private:
         return std::bit_cast<FatEntry*>(m_bits);
     }
     
-    FatEntry* inflate()
-    {
-        if (isFat()) [[likely]]
-            return fatEntry();
-        return inflateSlow();
-    }
+    FatEntry* inflate();
     
-    FatEntry* inflateSlow();
+    FatEntry* NODELETE inflateSlow();
     
     ALWAYS_INLINE intptr_t bits() const
     {
@@ -482,27 +470,13 @@ public:
         return m_map.find(key);
     }
     
-    SymbolTableEntry get(const ConcurrentJSLocker&, UniquedStringImpl* key)
-    {
-        return m_map.get(key);
-    }
-    
-    SymbolTableEntry get(UniquedStringImpl* key)
-    {
-        ConcurrentJSLocker locker(m_lock);
-        return get(locker, key);
-    }
-    
-    SymbolTableEntry inlineGet(const ConcurrentJSLocker&, UniquedStringImpl* key)
-    {
-        return m_map.inlineGet(key);
-    }
-    
-    SymbolTableEntry inlineGet(UniquedStringImpl* key)
-    {
-        ConcurrentJSLocker locker(m_lock);
-        return inlineGet(locker, key);
-    }
+    SymbolTableEntry get(const ConcurrentJSLocker&, UniquedStringImpl* key);
+
+    SymbolTableEntry get(UniquedStringImpl* key);
+
+    SymbolTableEntry inlineGet(const ConcurrentJSLocker&, UniquedStringImpl* key);
+
+    SymbolTableEntry inlineGet(UniquedStringImpl* key);
     
     Map::iterator begin(const ConcurrentJSLocker&)
     {
@@ -664,22 +638,7 @@ public:
         return m_arguments->length();
     }
     
-    bool trySetArgumentsLength(VM& vm, uint32_t length)
-    {
-        if (!m_arguments) [[unlikely]] {
-            ScopedArgumentsTable* table = ScopedArgumentsTable::tryCreate(vm, length);
-            if (!table) [[unlikely]]
-                return false;
-            m_arguments.set(vm, this, table);
-        } else {
-            ScopedArgumentsTable* table = m_arguments->trySetLength(vm, length);
-            if (!table) [[unlikely]]
-                return false;
-            m_arguments.set(vm, this, table);
-        }
-
-        return true;
-    }
+    bool trySetArgumentsLength(VM& vm, uint32_t length);
 
     ScopeOffset argumentOffset(uint32_t i) const
     {
@@ -687,25 +646,9 @@ public:
         return m_arguments->get(i);
     }
     
-    bool trySetArgumentOffset(VM& vm, uint32_t i, ScopeOffset offset)
-    {
-        ASSERT_WITH_SECURITY_IMPLICATION(m_arguments);
-        auto* maybeCloned = m_arguments->trySet(vm, i, offset);
-        if (!maybeCloned)
-            return false;
-        m_arguments.set(vm, this, maybeCloned);
-        return true;
-    }
+    bool trySetArgumentOffset(VM& vm, uint32_t i, ScopeOffset offset);
     
-    void prepareToWatchScopedArgument(SymbolTableEntry& entry, uint32_t i)
-    {
-        entry.prepareToWatch();
-        if (!m_arguments)
-            return;
-
-        WatchpointSet* watchpoints = entry.watchpointSet();
-        m_arguments->trySetWatchpointSet(i, watchpoints);
-    }
+    void prepareToWatchScopedArgument(SymbolTableEntry& entry, uint32_t i);
 
     ScopedArgumentsTable* arguments() const
     {
@@ -740,19 +683,18 @@ public:
     void setScopeType(ScopeType type) { m_scopeType = type; }
     ScopeType scopeType() const { return static_cast<ScopeType>(m_scopeType); }
 
-    SymbolTable* cloneScopePart(VM&);
+    enum class PropagateCloneInvalidationToOriginal : bool { No, Yes };
+    SymbolTable* cloneScopePart(VM&, PropagateCloneInvalidationToOriginal);
 
     void prepareForTypeProfiling(const ConcurrentJSLocker&);
 
-    CodeBlock* rareDataCodeBlock();
-    void setRareDataCodeBlock(CodeBlock*);
-    
-    InferredValue<JSScope>& singleton() { return m_singleton; }
+    String NODELETE inferredName();
+    DebuggerLocation NODELETE debuggerLocation();
+    void collectDebuggerInfo(CodeBlock*);
 
-    void notifyCreation(VM& vm, JSScope* scope, const char* reason)
-    {
-        m_singleton.notifyWrite(vm, this, scope, reason);
-    }
+    InferredValue<JSScope>& singleton() LIFETIME_BOUND { return m_singleton; }
+
+    void notifyCreation(VM&, JSScope*, const char* reason);
 
     DECLARE_VISIT_CHILDREN;
 
@@ -770,7 +712,9 @@ public:
         UniqueIDMap m_uniqueIDMap;
         OffsetToVariableMap m_offsetToVariableMap;
         UniqueTypeSetMap m_uniqueTypeSetMap;
-        WriteBarrier<CodeBlock> m_codeBlock;
+        String m_inferredName;
+        SourceID m_debuggerSourceID { 0 };
+        LineColumn m_debuggerLineColumn;
         PrivateNameEnvironment m_privateNames;
     };
 
@@ -796,10 +740,12 @@ private:
     unsigned m_usesSloppyEval : 1;
     unsigned m_nestedLexicalScope : 1; // Non-function LexicalScope.
     unsigned m_scopeType : 3; // ScopeType
+    PropagateCloneInvalidationToOriginal m_propagateCloneInvalidationToOriginal : 1 { PropagateCloneInvalidationToOriginal::No };
 
     std::unique_ptr<SymbolTableRareData> m_rareData;
 
     WriteBarrier<ScopedArgumentsTable> m_arguments;
+    WriteBarrier<SymbolTable> m_clonedFrom;
     InferredValue<JSScope> m_singleton;
     
     std::unique_ptr<LocalToEntryVec> m_localToEntry;

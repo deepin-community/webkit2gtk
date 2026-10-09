@@ -28,23 +28,29 @@
 
 #include "GridAreaLines.h"
 #include "LayoutBoxGeometry.h"
-#include "RenderStyle+GettersInlines.h"
 #include "StyleAlignSelf.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include "StyleJustifySelf.h"
 #include "UnplacedGridItem.h"
 
 namespace WebCore {
 namespace Layout {
 
-PlacedGridItem::PlacedGridItem(const UnplacedGridItem& unplacedGridItem, GridAreaLines gridAreaLines,
-    const ComputedSizes& inlineAxisSizes, const ComputedSizes& blockAxisSizes, const StyleSelfAlignmentData& inlineAxisAlignment,
-    const StyleSelfAlignmentData& blockAxisAlignment, const Style::ZoomFactor& usedZoom)
-    : m_layoutBox(unplacedGridItem.m_layoutBox)
-    , m_inlineAxisSizes(inlineAxisSizes)
-    , m_blockAxisSizes(blockAxisSizes)
-    , m_inlineAxisAlignment(inlineAxisAlignment)
-    , m_blockAxisAlignment(blockAxisAlignment)
-    , m_usedZoom(usedZoom)
+PlacedGridItem::PlacedGridItem(const ElementBox& gridItem, const GridAreaLines& gridAreaLines, const BoxGeometry& gridItemGeometry, const Style::ComputedStyle& gridContainerStyle)
+    : PlacedGridItem(gridItem, gridAreaLines, gridItemGeometry, gridContainerStyle, gridItem.style())
+{
+}
+
+PlacedGridItem::PlacedGridItem(const ElementBox& gridItem, const GridAreaLines& gridAreaLines, const BoxGeometry& gridItemGeometry, const Style::ComputedStyle& gridContainerStyle, const Style::ComputedStyle& gridItemStyle)
+    : m_layoutBox(gridItem)
+    , m_inlineAxisSizes({ gridItemStyle.width(), gridItemStyle.minWidth(), gridItemStyle.maxWidth(), gridItemStyle.marginLeft(), gridItemStyle.marginRight() })
+    , m_blockAxisSizes({ gridItemStyle.height(), gridItemStyle.minHeight(), gridItemStyle.maxHeight(), gridItemStyle.marginTop(), gridItemStyle.marginBottom() })
+    , m_usedInlineBorderAndPadding(gridItemGeometry.horizontalBorderAndPadding())
+    , m_usedBlockBorderAndPadding(gridItemGeometry.verticalBorderAndPadding())
+    , m_inlineAxisAlignment(gridItemStyle.justifySelf().resolve(&gridContainerStyle))
+    , m_blockAxisAlignment(gridItemStyle.alignSelf().resolve(&gridContainerStyle))
+    , m_writingMode(gridItemStyle.writingMode())
+    , m_usedZoom(gridItemStyle.usedZoomForLength())
     , m_gridAreaLines(gridAreaLines)
 {
 }

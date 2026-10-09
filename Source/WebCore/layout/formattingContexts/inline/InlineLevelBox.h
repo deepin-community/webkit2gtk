@@ -27,7 +27,6 @@
 #pragma once
 
 #include <WebCore/FontBaseline.h>
-#include <WebCore/FontCascade.h>
 #include <WebCore/FontMetrics.h>
 #include <WebCore/InlineRect.h>
 #include <WebCore/LayoutBox.h>
@@ -49,11 +48,11 @@ class LineBoxVerticalAligner;
 class InlineLevelBox {
 public:
     enum class LineSpanningInlineBox : bool { No, Yes };
-    static inline InlineLevelBox createInlineBox(const Box&, const RenderStyle&, InlineLayoutUnit logicalLeft, InlineLayoutUnit logicalWidth, LineSpanningInlineBox = LineSpanningInlineBox::No);
-    static inline InlineLevelBox createRootInlineBox(const Box&, const RenderStyle&, InlineLayoutUnit logicalLeft, InlineLayoutUnit logicalWidth);
-    static inline InlineLevelBox createAtomicInlineBox(const Box&, const RenderStyle&, InlineLayoutUnit logicalLeft, InlineLayoutUnit logicalWidth);
-    static inline InlineLevelBox createLineBreakBox(const Box&, const RenderStyle&, InlineLayoutUnit logicalLeft);
-    static inline InlineLevelBox createGenericInlineLevelBox(const Box&, const RenderStyle&, InlineLayoutUnit logicalLeft);
+    static inline InlineLevelBox createInlineBox(const Box&, const Style::ComputedStyle&, InlineLayoutUnit logicalLeft, InlineLayoutUnit logicalWidth, LineSpanningInlineBox = LineSpanningInlineBox::No);
+    static inline InlineLevelBox createRootInlineBox(const Box&, const Style::ComputedStyle&, InlineLayoutUnit logicalLeft, InlineLayoutUnit logicalWidth);
+    static inline InlineLevelBox createAtomicInlineBox(const Box&, const Style::ComputedStyle&, InlineLayoutUnit logicalLeft, InlineLayoutUnit logicalWidth);
+    static inline InlineLevelBox createLineBreakBox(const Box&, const Style::ComputedStyle&, InlineLayoutUnit logicalLeft);
+    static inline InlineLevelBox createGenericInlineLevelBox(const Box&, const Style::ComputedStyle&, InlineLayoutUnit logicalLeft);
 
     struct AscentAndDescent {
         InlineLayoutUnit ascent { 0 };
@@ -71,7 +70,7 @@ public:
     void setHasContent();
 
     using VerticalAlignment = Variant<CSS::Keyword::Baseline, CSS::Keyword::Sub, CSS::Keyword::Super, CSS::Keyword::Top, CSS::Keyword::TextTop, CSS::Keyword::Middle, CSS::Keyword::Bottom, CSS::Keyword::TextBottom, CSS::Keyword::WebkitBaselineMiddle, InlineLayoutUnit>;
-    const VerticalAlignment& verticalAlign() const { return m_style.verticalAlignment; }
+    const VerticalAlignment& verticalAlign() const LIFETIME_BOUND { return m_style.verticalAlignment; }
     bool hasLineBoxRelativeAlignment() const;
 
     InlineLayoutUnit preferredLineHeight() const;
@@ -79,7 +78,7 @@ public:
 
     inline bool mayStretchLineBox() const;
 
-    const FontMetrics& primarymetricsOfPrimaryFont() const { return m_style.primaryFontMetrics; }
+    const FontMetrics& primarymetricsOfPrimaryFont() const LIFETIME_BOUND { return m_style.primaryFontMetrics; }
     InlineLayoutUnit fontSize() const { return m_style.primaryFontSize; }
 
     TextBoxTrim textBoxTrim() const { return m_style.textBoxTrim; }
@@ -118,7 +117,7 @@ private:
         First,
         Last
     };
-    InlineLevelBox(const Box&, const RenderStyle&, InlineLayoutUnit logicalLeft, InlineLayoutSize, Type, EnumSet<PositionWithinLayoutBox> = { PositionWithinLayoutBox::First, PositionWithinLayoutBox::Last });
+    InlineLevelBox(const Box&, const Style::ComputedStyle&, InlineLayoutUnit logicalLeft, InlineLayoutSize, Type, EnumSet<PositionWithinLayoutBox> = { PositionWithinLayoutBox::First, PositionWithinLayoutBox::Last });
 
     friend class InlineDisplayLineBuilder;
     friend class LineBox;
@@ -127,7 +126,7 @@ private:
     friend class InlineFormattingUtils;
     friend class RubyFormattingContext;
 
-    const InlineRect& logicalRect() const { return m_logicalRect; }
+    const InlineRect& logicalRect() const LIFETIME_BOUND { return m_logicalRect; }
     InlineLayoutUnit logicalTop() const { return m_logicalRect.top(); }
     InlineLayoutUnit logicalBottom() const { return m_logicalRect.bottom(); }
     InlineLayoutUnit logicalLeft() const { return m_logicalRect.left(); }

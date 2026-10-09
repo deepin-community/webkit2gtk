@@ -30,7 +30,10 @@
 #include "CallbackResult.h"
 #include "ContextDestructionObserverInlines.h"
 #include "InternalObserver.h"
+#include "JSDOMConvertAny.h"
+#include "JSDOMConvertBoolean.h"
 #include "JSDOMPromiseDeferred.h"
+#include "JSValueInWrappedObjectInlines.h"
 #include "Observable.h"
 #include "PredicateCallback.h"
 #include "ScriptExecutionContext.h"
@@ -53,7 +56,7 @@ public:
 private:
     void next(JSC::JSValue value) final
     {
-        auto* globalObject = protectedScriptExecutionContext()->globalObject();
+        auto* globalObject = protect(scriptExecutionContext())->globalObject();
         ASSERT(globalObject);
 
         Ref vm = globalObject->vm();
@@ -65,16 +68,16 @@ private:
 
             // The exception is not reported, instead it is forwarded to the
             // abort signal and promise rejection.
-            auto scope = DECLARE_CATCH_SCOPE(vm);
+            auto scope = DECLARE_TOP_EXCEPTION_SCOPE(vm);
 
-            auto result = protectedCallback()->invokeRethrowingException(value, m_idx++);
+            auto result = protect(m_callback)->invokeRethrowingException(value, m_idx++);
 
             JSC::Exception* exception = scope.exception();
             if (exception) [[unlikely]] {
                 scope.clearException();
                 auto value = exception->value();
-                protectedPromise()->reject<IDLAny>(value);
-                protectedSignal()->signalAbort(value);
+                protect(m_promise)->reject<IDLAny>(value);
+                protect(m_signal)->signalAbort(value);
                 return;
             }
 
@@ -83,30 +86,26 @@ private:
         }
 
         if (hasPassed) {
-            protectedPromise()->resolve<IDLBoolean>(true);
-            protectedSignal()->signalAbort(JSC::jsUndefined());
+            protect(m_promise)->resolve<IDLBoolean>(true);
+            protect(m_signal)->signalAbort(JSC::jsUndefined());
         }
     }
 
     void error(JSC::JSValue value) final
     {
-        protectedPromise()->reject<IDLAny>(value);
+        protect(m_promise)->reject<IDLAny>(value);
     }
 
     void complete() final
     {
         InternalObserver::complete();
-        protectedPromise()->resolve<IDLBoolean>(false);
+        protect(m_promise)->resolve<IDLBoolean>(false);
     }
 
-    void visitAdditionalChildren(JSC::AbstractSlotVisitor& visitor) const final
+    void visitAdditionalChildrenInGCThread(JSC::AbstractSlotVisitor& visitor) const final
     {
-        m_callback->visitJSFunction(visitor);
+        m_callback->visitJSFunctionInGCThread(visitor);
     }
-
-    Ref<DeferredPromise> protectedPromise() const { return m_promise; }
-    Ref<PredicateCallback> protectedCallback() const { return m_callback; }
-    Ref<AbortSignal> protectedSignal() const { return m_signal; }
 
     InternalObserverSome(ScriptExecutionContext& context, Ref<PredicateCallback>&& callback, Ref<AbortSignal>&& signal, Ref<DeferredPromise>&& promise)
         : InternalObserver(context)
@@ -122,13 +121,13 @@ private:
     const Ref<DeferredPromise> m_promise;
 };
 
-void createInternalObserverOperatorSome(ScriptExecutionContext& context, Observable& observable, Ref<PredicateCallback>&& callback, const SubscribeOptions& options, Ref<DeferredPromise>&& promise)
+void createInternalObserverOperatorSome(ScriptExecutionContext& context, Observable& observable, Ref<PredicateCallback>&& callback, SubscribeOptions&& options, Ref<DeferredPromise>&& promise)
 {
     Ref signal = AbortSignal::create(&context);
 
     Vector<Ref<AbortSignal>> dependentSignals = { signal };
     if (options.signal)
-        dependentSignals.append(Ref { *options.signal });
+        dependentSignals.append(options.signal.releaseNonNull());
     Ref dependentSignal = AbortSignal::any(context, dependentSignals);
 
     if (dependentSignal->aborted())

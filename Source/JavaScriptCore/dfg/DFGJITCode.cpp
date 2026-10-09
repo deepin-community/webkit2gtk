@@ -35,8 +35,8 @@
 
 namespace JSC { namespace DFG {
 
-JITData::JITData(unsigned stubInfoSize, unsigned poolSize, const JITCode& jitCode, ExitVector&& exits)
-    : Base(stubInfoSize, poolSize)
+JITData::JITData(unsigned propertyCacheSize, unsigned poolSize, const JITCode& jitCode, ExitVector&& exits)
+    : Base(propertyCacheSize, poolSize)
     , m_callLinkInfos(jitCode.m_unlinkedCallLinkInfos.size())
     , m_exits(WTF::move(exits))
 {
@@ -53,9 +53,13 @@ JITData::JITData(unsigned stubInfoSize, unsigned poolSize, const JITCode& jitCod
         case LinkerIR::Type::StructureCacheClearedWatchpointSet:
         case LinkerIR::Type::StringToStringWatchpointSet:
         case LinkerIR::Type::StringValueOfWatchpointSet:
+        case LinkerIR::Type::StringSymbolMatchWatchpointSet:
+        case LinkerIR::Type::StringSymbolSearchWatchpointSet:
         case LinkerIR::Type::StringSymbolReplaceWatchpointSet:
+        case LinkerIR::Type::StringSymbolSplitWatchpointSet:
         case LinkerIR::Type::StringSymbolToPrimitiveWatchpointSet:
         case LinkerIR::Type::RegExpPrimordialPropertiesWatchpointSet:
+        case LinkerIR::Type::RegExpSpeciesWatchpointSet:
         case LinkerIR::Type::PromiseThenWatchpointSet:
         case LinkerIR::Type::ArraySpeciesWatchpointSet:
         case LinkerIR::Type::ArrayPrototypeChainIsSaneWatchpointSet:
@@ -94,9 +98,9 @@ bool JITData::tryInitialize(VM& vm, CodeBlock* codeBlock, const JITCode& jitCode
     m_globalObject = codeBlock->globalObject();
     m_stackOffset = codeBlock->stackPointerOffset() * sizeof(Register);
 
-    for (unsigned index = 0; index < jitCode.m_unlinkedStubInfos.size(); ++index) {
-        const UnlinkedStructureStubInfo& unlinkedStubInfo = jitCode.m_unlinkedStubInfos[index];
-        stubInfo(index).initializeFromDFGUnlinkedStructureStubInfo(codeBlock, unlinkedStubInfo);
+    for (unsigned index = 0; index < jitCode.m_unlinkedPropertyInlineCaches.size(); ++index) {
+        const UnlinkedPropertyInlineCache& unlinkedPropertyCache = jitCode.m_unlinkedPropertyInlineCaches[index];
+        propertyCache(index).initializeFromDFGUnlinkedPropertyInlineCache(codeBlock, unlinkedPropertyCache);
     }
 
     unsigned indexOfWatchpoints = 0;
@@ -173,9 +177,24 @@ bool JITData::tryInitialize(VM& vm, CodeBlock* codeBlock, const JITCode& jitCode
             success &= attemptToWatch(codeBlock, m_globalObject->stringValueOfWatchpointSet(), watchpoint);
             break;
         }
+        case LinkerIR::Type::StringSymbolMatchWatchpointSet: {
+            auto& watchpoint = m_watchpoints[indexOfWatchpoints++];
+            success &= attemptToWatch(codeBlock, m_globalObject->stringSymbolMatchWatchpointSet(), watchpoint);
+            break;
+        }
+        case LinkerIR::Type::StringSymbolSearchWatchpointSet: {
+            auto& watchpoint = m_watchpoints[indexOfWatchpoints++];
+            success &= attemptToWatch(codeBlock, m_globalObject->stringSymbolSearchWatchpointSet(), watchpoint);
+            break;
+        }
         case LinkerIR::Type::StringSymbolReplaceWatchpointSet: {
             auto& watchpoint = m_watchpoints[indexOfWatchpoints++];
             success &= attemptToWatch(codeBlock, m_globalObject->stringSymbolReplaceWatchpointSet(), watchpoint);
+            break;
+        }
+        case LinkerIR::Type::StringSymbolSplitWatchpointSet: {
+            auto& watchpoint = m_watchpoints[indexOfWatchpoints++];
+            success &= attemptToWatch(codeBlock, m_globalObject->stringSymbolSplitWatchpointSet(), watchpoint);
             break;
         }
         case LinkerIR::Type::StringSymbolToPrimitiveWatchpointSet: {
@@ -186,6 +205,11 @@ bool JITData::tryInitialize(VM& vm, CodeBlock* codeBlock, const JITCode& jitCode
         case LinkerIR::Type::RegExpPrimordialPropertiesWatchpointSet: {
             auto& watchpoint = m_watchpoints[indexOfWatchpoints++];
             success &= attemptToWatch(codeBlock, m_globalObject->regExpPrimordialPropertiesWatchpointSet(), watchpoint);
+            break;
+        }
+        case LinkerIR::Type::RegExpSpeciesWatchpointSet: {
+            auto& watchpoint = m_watchpoints[indexOfWatchpoints++];
+            success &= attemptToWatch(codeBlock, m_globalObject->regExpSpeciesWatchpointSet(), watchpoint);
             break;
         }
         case LinkerIR::Type::PromiseThenWatchpointSet: {
@@ -269,13 +293,13 @@ void JITCode::reconstruct(CallFrame* callFrame, CodeBlock* codeBlock, CodeOrigin
         result[i] = recoveries[i].recover(callFrame);
 }
 
-RegisterSetBuilder JITCode::liveRegistersToPreserveAtExceptionHandlingCallSite(CodeBlock* codeBlock, CallSiteIndex callSiteIndex)
+RegisterSet JITCode::liveRegistersToPreserveAtExceptionHandlingCallSite(CodeBlock* codeBlock, CallSiteIndex callSiteIndex)
 {
     for (OSRExit& exit : m_osrExit) {
         if (exit.isExceptionHandler() && exit.m_exceptionHandlerCallSiteIndex.bits() == callSiteIndex.bits()) {
             Operands<ValueRecovery> valueRecoveries;
             reconstruct(codeBlock, exit.m_codeOrigin, exit.m_streamIndex, valueRecoveries);
-            RegisterSetBuilder liveAtOSRExit;
+            RegisterSet liveAtOSRExit;
             for (size_t index = 0; index < valueRecoveries.size(); ++index) {
                 const ValueRecovery& recovery = valueRecoveries[index];
                 if (recovery.isInRegisters()) {
@@ -327,7 +351,12 @@ void JITCode::optimizeAfterWarmUp(CodeBlock* codeBlock)
     ASSERT(codeBlock->jitType() == JITType::DFGJIT);
     dataLogLnIf(Options::verboseOSR(), *codeBlock, ": FTL-optimizing after warm-up.");
     CodeBlock* baseline = codeBlock->baselineVersion();
-    codeBlock->dfgJITData()->tierUpCounter().setNewThreshold(baseline->adjustedCounterValue(Options::thresholdForFTLOptimizeAfterWarmUp()), baseline);
+    int32_t threshold = Options::thresholdForFTLOptimizeAfterWarmUp();
+    if (baseline->unlinkedCodeBlock()->isQuickFTLTierUp()) {
+        threshold = static_cast<int32_t>(threshold * Options::quickFTLTierUpThresholdFactor());
+        dataLogLnIf(Options::verboseOSR(), *codeBlock, ": Quick FTL tier-up enabled and code is stable, adjustedThreshold=", threshold, ", finalThreshold=", baseline->adjustedCounterValue(threshold));
+    }
+    codeBlock->dfgJITData()->tierUpCounter().setNewThreshold(baseline->adjustedCounterValue(threshold), baseline);
 }
 
 void JITCode::optimizeSoon(CodeBlock* codeBlock)
@@ -357,6 +386,7 @@ void JITCode::setOptimizationThresholdBasedOnCompilationResult(
     case CompilationResult::CompilationFailed:
         dontOptimizeAnytimeSoon(codeBlock);
         codeBlock->baselineVersion()->m_didFailFTLCompilation = true;
+        codeBlock->didFailFTLCompilation();
         return;
     case CompilationResult::CompilationDeferred:
         optimizeAfterWarmUp(codeBlock);

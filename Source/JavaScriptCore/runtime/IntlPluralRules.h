@@ -80,7 +80,7 @@ private:
     IntlPluralRules(VM&, Structure*);
     DECLARE_DEFAULT_FINISH_CREATION;
 
-    static Vector<String> localeData(const String&, RelevantExtensionKey);
+    static Vector<String> NODELETE localeData(const String&, RelevantExtensionKey);
 
     enum class Type : bool { Cardinal, Ordinal };
 
@@ -100,6 +100,7 @@ private:
     IntlRoundingType m_roundingType { IntlRoundingType::FractionDigits };
     Type m_type { Type::Cardinal };
     IntlNotation m_notation { IntlNotation::Standard };
+    CompactDisplay m_compactDisplay { CompactDisplay::Short };
 };
 
 } // namespace JSC

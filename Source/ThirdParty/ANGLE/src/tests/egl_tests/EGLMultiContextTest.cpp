@@ -6,11 +6,10 @@
 // EGLMultiContextTest.cpp:
 //   Tests relating to multiple non-shared Contexts.
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
-
 #include <gtest/gtest.h>
+#include "common/unsafe_buffers.h"
+
+#include <array>
 
 #include "test_utils/ANGLETest.h"
 #include "test_utils/MultiThreadSteps.h"
@@ -38,7 +37,10 @@ EGLBoolean SafeDestroyContext(EGLDisplay display, EGLContext &context)
 class EGLMultiContextTest : public ANGLETest<>
 {
   public:
-    EGLMultiContextTest() : mContexts{EGL_NO_CONTEXT, EGL_NO_CONTEXT}, mTexture(0) {}
+    EGLMultiContextTest() : mContexts{EGL_NO_CONTEXT, EGL_NO_CONTEXT}, mTexture(0)
+    {
+        setPbuffer(true);
+    }
 
     void testTearDown() override
     {
@@ -119,6 +121,12 @@ class EGLMultiContextTest : public ANGLETest<>
         Flush,
         Finish,
     };
+
+    bool hasFenceSyncExtension() const
+    {
+        return IsEGLDisplayExtensionEnabled(getEGLWindow()->getDisplay(), "EGL_KHR_fence_sync");
+    }
+
     void testFenceWithOpenRenderPass(FenceTest test, FlushMethod flushMethod);
 
     EGLContext mContexts[2];
@@ -200,8 +208,8 @@ TEST_P(EGLMultiContextTest, ComputeShaderOkayWithRendering)
     EGLConfig config  = window->getConfig();
 
     constexpr size_t kThreadCount    = 2;
-    EGLSurface surface[kThreadCount] = {EGL_NO_SURFACE, EGL_NO_SURFACE};
-    EGLContext ctx[kThreadCount]     = {EGL_NO_CONTEXT, EGL_NO_CONTEXT};
+    std::array<EGLSurface, kThreadCount> surface = {EGL_NO_SURFACE, EGL_NO_SURFACE};
+    std::array<EGLContext, kThreadCount> ctx     = {EGL_NO_CONTEXT, EGL_NO_CONTEXT};
 
     EGLint pbufferAttributes[] = {EGL_WIDTH, 1, EGL_HEIGHT, 1, EGL_NONE, EGL_NONE};
 
@@ -362,8 +370,12 @@ TEST_P(EGLMultiContextTest, RepeatedEglInitAndTerminate)
     EGLDisplay dpy;
     EGLSurface srf;
     EGLContext ctx;
-    EGLAttrib dispattrs[] = {EGL_PLATFORM_ANGLE_TYPE_ANGLE, GetParam().getRenderer(),
-                             EGL_PLATFORM_ANGLE_DEVICE_TYPE_ANGLE, GetParam().getDeviceType(),
+    EGLAttrib dispattrs[] = {EGL_PLATFORM_ANGLE_TYPE_ANGLE,
+                             GetParam().getRenderer(),
+                             EGL_PLATFORM_ANGLE_DEVICE_TYPE_ANGLE,
+                             GetParam().getDeviceType(),
+                             EGL_PLATFORM_ANGLE_NATIVE_PLATFORM_TYPE_ANGLE,
+                             static_cast<EGLAttrib>(GetPbufferOnlyDefaultPlatformType()),
                              EGL_NONE};
 
     for (int i = 0; i < 50; i++)  // Note: this test is fairly slow b/303089709
@@ -409,8 +421,12 @@ TEST_P(EGLMultiContextTest, ReuseUnterminatedDisplay)
     getEGLWindow()->destroyGL();
 
     EGLDisplay dpy;
-    EGLAttrib dispattrs[] = {EGL_PLATFORM_ANGLE_TYPE_ANGLE, GetParam().getRenderer(),
-                             EGL_PLATFORM_ANGLE_DEVICE_TYPE_ANGLE, GetParam().getDeviceType(),
+    EGLAttrib dispattrs[] = {EGL_PLATFORM_ANGLE_TYPE_ANGLE,
+                             GetParam().getRenderer(),
+                             EGL_PLATFORM_ANGLE_DEVICE_TYPE_ANGLE,
+                             GetParam().getDeviceType(),
+                             EGL_PLATFORM_ANGLE_NATIVE_PLATFORM_TYPE_ANGLE,
+                             static_cast<EGLAttrib>(GetPbufferOnlyDefaultPlatformType()),
                              EGL_NONE};
 
     std::thread threadA = std::thread([&]() {
@@ -459,6 +475,7 @@ TEST_P(EGLMultiContextTest, ReuseUnterminatedDisplay)
 void EGLMultiContextTest::testFenceWithOpenRenderPass(FenceTest test, FlushMethod flushMethod)
 {
     ANGLE_SKIP_TEST_IF(!platformSupportsMultithreading());
+    ANGLE_SKIP_TEST_IF(!hasFenceSyncExtension());
 
     constexpr uint32_t kWidth  = 100;
     constexpr uint32_t kHeight = 200;

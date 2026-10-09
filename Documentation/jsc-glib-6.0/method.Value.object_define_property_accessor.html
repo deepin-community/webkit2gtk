@@ -62,7 +62,7 @@ SPDX-License-Identifier: BSD, LGPL-2.1
         <h3><a href="index.html">JavaScriptCore</a></h3>
         <p>API Version: 6.0</p>
         
-        <p>Library Version: 2.52.5</p>
+        <p>Library Version: 2.54.0</p>
         
       </div>
       
@@ -215,7 +215,7 @@ SPDX-License-Identifier: BSD, LGPL-2.1
         Description
         <a class="anchor" href="#description"></a>
         
-        <a class="srclink" title="go to source location" href="https://github.com/WebKit/WebKit/tree/Source/JavaScriptCore/API/glib/JSCValue.cpp#L1131">[src]</a>
+        <a class="srclink" title="go to source location" href="https://github.com/WebKit/WebKit/tree/Source/JavaScriptCore/API/glib/JSCValue.cpp#L1132">[src]</a>
         
       </h4>
 
@@ -223,7 +223,7 @@ SPDX-License-Identifier: BSD, LGPL-2.1
         <p>Define or modify a property with <code>property_name</code> in object referenced by <code>value</code>. When the
 property value is read or set, <code>getter</code> and <code>setter</code> callbacks will be called.
 When the property is cleared in the <code>JSCClass</code> context, <code>destroy_notify</code> is called with
-<code>user_data</code> as parameter. This is equivalent to JavaScript <function>Object.defineProperty()</function>
+<code>user_data</code> as parameter. This is equivalent to JavaScript <code>Object.defineProperty()</code>
 when used with an accessor&nbsp;descriptor.</p>
 <p>Note that the value returned by <code>getter</code> must be fully transferred. In case of boxed types, you could use
 <code>G_TYPE_POINTER</code> instead of the actual boxed <code>GType</code> to ensure that the instance owned by <code>JSCClass</code> is used.

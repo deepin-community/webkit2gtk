@@ -182,24 +182,6 @@ template<typename CharacterType> inline Ref<StringImpl> StringImpl::createUninit
     return createUninitializedInternalNonEmpty(length, data);
 }
 
-template<typename CharacterType> inline Ref<StringImpl> StringImpl::createUninitializedInternalNonEmpty(size_t length, std::span<CharacterType>& data)
-{
-    ASSERT(length);
-
-    // Allocate a single buffer large enough to contain the StringImpl
-    // struct as well as the data which it contains. This removes one
-    // heap allocation from this call.
-    if (!isValidLength<CharacterType>(length))
-        CRASH();
-
-    SUPPRESS_UNCOUNTED_LOCAL StringImpl* string = static_cast<StringImpl*>(StringImplMalloc::malloc(allocationSize<CharacterType>(length)));
-    data = unsafeMakeSpan(string->tailPointer<CharacterType>(), length);
-    return constructInternal<CharacterType>(*string, length);
-}
-
-template Ref<StringImpl> StringImpl::createUninitializedInternalNonEmpty(size_t length, std::span<Latin1Character>& data);
-template Ref<StringImpl> StringImpl::createUninitializedInternalNonEmpty(size_t length, std::span<char16_t>& data);
-
 Ref<StringImpl> StringImpl::createUninitialized(size_t length, std::span<Latin1Character>& data)
 {
     return createUninitializedInternal(length, data);
@@ -294,25 +276,18 @@ RefPtr<StringImpl> StringImpl::create(std::span<const char8_t> codeUnits)
     if (charactersAreAllASCII(codeUnits))
         return create(byteCast<Latin1Character>(codeUnits));
 
-    auto input = reinterpret_cast<const char*>(codeUnits.data());
     auto inputLength = codeUnits.size();
 
-    if (!simdutf::validate_utf8(input, inputLength))
+    // We are observing some clients changing the string content while converting!
+    // This makes it impossible to use utf16_length_from_utf8 & convert_valid_utf8_to_utf16le
+    // because of TOCTOU issue. For now, we use pre-allocated Vector (with maximally possible length)
+    // and use convert_utf8_to_utf16 instead.
+    Vector<char16_t, 1024> buffer(inputLength);
+    size_t written = simdutf::convert_utf8_to_utf16(codeUnits, buffer.mutableSpan());
+    if (!written)
         return nullptr;
-
-    size_t utf16Length = simdutf::utf16_length_from_utf8(input, inputLength);
-
-    std::span<char16_t> data;
-    auto string = createUninitializedInternalNonEmpty(utf16Length, data);
-
-#if CPU(BIG_ENDIAN)
-    size_t written = simdutf::convert_valid_utf8_to_utf16be(input, inputLength, data.data());
-#else
-    size_t written = simdutf::convert_valid_utf8_to_utf16le(input, inputLength, data.data());
-#endif
-    RELEASE_ASSERT_WITH_SECURITY_IMPLICATION(written == utf16Length);
-
-    return string;
+    RELEASE_ASSERT_WITH_SECURITY_IMPLICATION(written <= inputLength);
+    return create(buffer.span().first(written));
 }
 
 Ref<StringImpl> StringImpl::createStaticStringImpl(std::span<const Latin1Character> characters)
@@ -377,7 +352,7 @@ Ref<StringImpl> StringImpl::substring(unsigned start, unsigned length)
     return create(span16().subspan(start, length));
 }
 
-char32_t StringImpl::characterStartingAt(unsigned i)
+char32_t NODELETE StringImpl::codePointAt(unsigned i)
 {
     if (is8Bit())
         return span8()[i];
@@ -386,7 +361,7 @@ char32_t StringImpl::characterStartingAt(unsigned i)
         return span[i];
     if (i + 1 < m_length && U16_IS_LEAD(span[i]) && U16_IS_TRAIL(span[i + 1]))
         return U16_GET_SUPPLEMENTARY(span[i], span[i + 1]);
-    return 0;
+    return span[i];
 }
 
 Ref<StringImpl> StringImpl::convertToLowercaseWithoutLocale()
@@ -593,7 +568,7 @@ Ref<StringImpl> StringImpl::convertToUppercaseWithoutLocaleUpconvert()
     return newImpl;
 }
 
-static inline bool needsTurkishCasingRules(const AtomString& locale)
+static inline bool NODELETE needsTurkishCasingRules(const AtomString& locale)
 {
     // Either "tr" or "az" locale, with ASCII case insensitive comparison and allowing for an ignored subtag.
     char16_t first = locale[0];
@@ -603,14 +578,14 @@ static inline bool needsTurkishCasingRules(const AtomString& locale)
         && (locale.length() == 2 || locale[2] == '-');
 }
 
-static inline bool needsGreekUppercasingRules(const AtomString& locale)
+static inline bool NODELETE needsGreekUppercasingRules(const AtomString& locale)
 {
     // The "el" locale, with ASCII case insensitive comparison and allowing for an ignored subtag.
     return isASCIIAlphaCaselessEqual(locale[0], 'e') && isASCIIAlphaCaselessEqual(locale[1], 'l')
         && (locale.length() == 2 || locale[2] == '-');
 }
 
-static inline bool needsLithuanianCasingRules(const AtomString& locale)
+static inline bool NODELETE needsLithuanianCasingRules(const AtomString& locale)
 {
     // The "lt" locale, with ASCII case insensitive comparison and allowing for an ignored subtag.
     return isASCIIAlphaCaselessEqual(locale[0], 'l') && isASCIIAlphaCaselessEqual(locale[1], 't')
@@ -904,7 +879,7 @@ float StringImpl::toFloat(bool* ok)
     return charactersToFloat(span16(), ok);
 }
 
-size_t StringImpl::find(std::span<const Latin1Character> matchString, size_t start)
+SUPPRESS_NODELETE size_t StringImpl::find(std::span<const Latin1Character> matchString, size_t start)
 {
     ASSERT(!matchString.empty());
     ASSERT(isValidLength<Latin1Character>(matchString.size()));
@@ -922,19 +897,24 @@ size_t StringImpl::find(std::span<const Latin1Character> matchString, size_t sta
     // only call equal if the hashes match.
 
     auto findWithHash = [&](auto searchCharacters) -> size_t {
+        // Rabin-Karp style rolling hash with base 31.
+        constexpr unsigned base = 31;
         unsigned searchHash = 0;
         unsigned matchHash = 0;
+        unsigned basePower = 1; // base^(matchString.size()-1)
         for (size_t i = 0; i < matchString.size(); ++i) {
-            searchHash += searchCharacters[i];
-            matchHash += matchString[i];
+            searchHash = searchHash * base + searchCharacters[i];
+            matchHash = matchHash * base + matchString[i];
+            if (i)
+                basePower *= base;
         }
 
         for (size_t i = 0; i <= delta; ++i) {
             if (searchHash == matchHash && equal(searchCharacters.subspan(i, matchString.size()), matchString))
                 return start + i;
             if (i < delta) {
-                searchHash += searchCharacters[i + matchString.size()];
-                searchHash -= searchCharacters[i];
+                searchHash -= searchCharacters[i] * basePower;
+                searchHash = searchHash * base + searchCharacters[i + matchString.size()];
             }
         }
         return notFound;
@@ -1024,7 +1004,7 @@ size_t StringImpl::reverseFind(char16_t character, size_t start)
     return WTF::reverseFind(span16(), character, start);
 }
 
-size_t StringImpl::reverseFind(StringView matchString, size_t start)
+SUPPRESS_NODELETE size_t StringImpl::reverseFind(StringView matchString, size_t start)
 {
     // Check for null or empty string to match against
     if (!matchString)
@@ -1094,7 +1074,7 @@ bool StringImpl::startsWithIgnoringASCIICase(StringView prefix) const
     return prefix && ::WTF::startsWithIgnoringASCIICase(*this, prefix);
 }
 
-bool StringImpl::startsWith(char16_t character) const
+bool NODELETE StringImpl::startsWith(char16_t character) const
 {
     return m_length && (*this)[0] == character;
 }
@@ -1119,7 +1099,7 @@ bool StringImpl::endsWithIgnoringASCIICase(StringView suffix) const
     return suffix && ::WTF::endsWithIgnoringASCIICase(*this, suffix);
 }
 
-bool StringImpl::endsWith(char16_t character) const
+bool NODELETE StringImpl::endsWith(char16_t character) const
 {
     return m_length && (*this)[m_length - 1] == character;
 }
@@ -1477,7 +1457,7 @@ bool equal(const StringImpl* a, const StringImpl* b)
     return equalCommon(a, b);
 }
 
-template<typename CharacterType> inline bool equalInternal(const StringImpl* a, std::span<const CharacterType> b)
+template<typename CharacterType> inline bool NODELETE equalInternal(const StringImpl* a, std::span<const CharacterType> b)
 {
     if (!a)
         return !b.data();
@@ -1526,7 +1506,7 @@ bool equalIgnoringASCIICase(const StringImpl* a, const StringImpl* b)
     return a == b || (a && b && equalIgnoringASCIICase(*a, *b));
 }
 
-bool equalIgnoringASCIICaseNonNull(const StringImpl* a, const StringImpl* b)
+bool NODELETE equalIgnoringASCIICaseNonNull(const StringImpl* a, const StringImpl* b)
 {
     ASSERT(a);
     ASSERT(b);
@@ -1560,7 +1540,7 @@ Ref<StringImpl> StringImpl::adopt(StringBuffer<char16_t>&& buffer)
     return adoptRef(*new StringImpl(buffer.release()));
 }
 
-size_t StringImpl::sizeInBytes() const
+size_t NODELETE StringImpl::sizeInBytes() const
 {
     // FIXME: support substrings
     size_t size = length();
@@ -1587,11 +1567,10 @@ Expected<size_t, UTF8ConversionError> StringImpl::utf8ForCharactersIntoBuffer(st
 {
     ASSERT(bufferVector.size() == span.size() * 3);
 
-    auto bufferData = bufferVector.mutableSpan().data();
 #if CPU(BIG_ENDIAN)
-    auto conversionResult = simdutf::convert_utf16be_to_utf8_with_errors(span.data(), span.size(), reinterpret_cast<char*>(bufferData));
+    auto conversionResult = simdutf::convert_utf16be_to_utf8_with_errors(span, bufferVector.mutableSpan());
 #else
-    auto conversionResult = simdutf::convert_utf16le_to_utf8_with_errors(span.data(), span.size(), reinterpret_cast<char*>(bufferData));
+    auto conversionResult = simdutf::convert_utf16le_to_utf8_with_errors(span, bufferVector.mutableSpan());
 #endif
 
     if (conversionResult.error == simdutf::error_code::SUCCESS)
@@ -1616,18 +1595,18 @@ Expected<size_t, UTF8ConversionError> StringImpl::utf8ForCharactersIntoBuffer(st
 size_t StringImpl::utf8LengthFromUTF16(std::span<const char16_t> characters)
 {
 #if CPU(BIG_ENDIAN)
-    return simdutf::utf8_length_from_utf16be(characters.data(), characters.size());
+    return simdutf::utf8_length_from_utf16be(characters);
 #else
-    return simdutf::utf8_length_from_utf16le(characters.data(), characters.size());
+    return simdutf::utf8_length_from_utf16le(characters);
 #endif
 }
 
 size_t StringImpl::tryConvertUTF16ToUTF8(std::span<const char16_t> source, std::span<char8_t> destination)
 {
 #if CPU(BIG_ENDIAN)
-    auto result = simdutf::convert_utf16be_to_utf8_with_errors(source.data(), source.size(), reinterpret_cast<char*>(destination.data()));
+    auto result = simdutf::convert_utf16be_to_utf8_with_errors(source, destination);
 #else
-    auto result = simdutf::convert_utf16le_to_utf8_with_errors(source.data(), source.size(), reinterpret_cast<char*>(destination.data()));
+    auto result = simdutf::convert_utf16le_to_utf8_with_errors(source, destination);
 #endif
     if (result.error == simdutf::error_code::SUCCESS)
         return result.count;
@@ -1668,7 +1647,7 @@ unsigned StringImpl::concurrentHash() const
     return hash;
 }
 
-bool equalIgnoringNullity(std::span<const char16_t> a, StringImpl* b)
+SUPPRESS_NODELETE bool equalIgnoringNullity(std::span<const char16_t> a, StringImpl* b)
 {
     if (!b)
         return a.empty();

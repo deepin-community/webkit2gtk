@@ -85,16 +85,16 @@ public:
     WEBCORE_EXPORT std::optional<RealtimeMediaSourceCapabilities> getCapabilities(const CaptureDevice&);
 
     WEBCORE_EXPORT AudioCaptureFactory& audioCaptureFactory();
-    WEBCORE_EXPORT void setAudioCaptureFactory(AudioCaptureFactory&);
-    WEBCORE_EXPORT void unsetAudioCaptureFactory(AudioCaptureFactory&);
+    WEBCORE_EXPORT void NODELETE setAudioCaptureFactory(AudioCaptureFactory&);
+    WEBCORE_EXPORT void NODELETE unsetAudioCaptureFactory(AudioCaptureFactory&);
 
-    WEBCORE_EXPORT VideoCaptureFactory& videoCaptureFactory();
-    WEBCORE_EXPORT void setVideoCaptureFactory(VideoCaptureFactory&);
-    WEBCORE_EXPORT void unsetVideoCaptureFactory(VideoCaptureFactory&);
+    WEBCORE_EXPORT VideoCaptureFactory& NODELETE videoCaptureFactory();
+    WEBCORE_EXPORT void NODELETE setVideoCaptureFactory(VideoCaptureFactory&);
+    WEBCORE_EXPORT void NODELETE unsetVideoCaptureFactory(VideoCaptureFactory&);
 
-    WEBCORE_EXPORT DisplayCaptureFactory& displayCaptureFactory();
-    WEBCORE_EXPORT void setDisplayCaptureFactory(DisplayCaptureFactory&);
-    WEBCORE_EXPORT void unsetDisplayCaptureFactory(DisplayCaptureFactory&);
+    WEBCORE_EXPORT DisplayCaptureFactory& NODELETE displayCaptureFactory();
+    WEBCORE_EXPORT void NODELETE setDisplayCaptureFactory(DisplayCaptureFactory&);
+    WEBCORE_EXPORT void NODELETE unsetDisplayCaptureFactory(DisplayCaptureFactory&);
 
     WEBCORE_EXPORT static String hashStringWithSalt(const String& id, const String& hashSalt);
 
@@ -124,8 +124,8 @@ private:
     friend class NeverDestroyed<RealtimeMediaSourceCenter>;
 
     AudioCaptureFactory& defaultAudioCaptureFactory();
-    VideoCaptureFactory& defaultVideoCaptureFactory();
-    DisplayCaptureFactory& defaultDisplayCaptureFactory();
+    VideoCaptureFactory& NODELETE defaultVideoCaptureFactory();
+    DisplayCaptureFactory& NODELETE defaultDisplayCaptureFactory();
 
     struct DeviceInfo {
         double fitnessScore;
@@ -145,7 +145,6 @@ private:
     VideoCaptureFactory* m_videoCaptureFactoryOverride { nullptr };
     DisplayCaptureFactory* m_displayCaptureFactoryOverride { nullptr };
 
-    bool m_shouldInterruptAudioOnPageVisibilityChange { false };
 
 #if ENABLE(APP_PRIVACY_REPORT)
     OSObjectPtr<tcc_identity_t> m_identity;

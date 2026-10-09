@@ -38,7 +38,8 @@
 #include <WebCore/MediaPlayer.h>
 #include <WebCore/NowPlayingManager.h>
 #include <WebCore/SharedAudioDestination.h>
-
+#include <wtf/NeverDestroyed.h>
+#include <wtf/threads/BinarySemaphore.h>
 #if PLATFORM(COCOA)
 #include <WebCore/MediaSessionManagerCocoa.h>
 #endif
@@ -74,7 +75,43 @@ Ref<WebCore::AudioDestination> WebMediaStrategy::createAudioDestination(const We
 #if ENABLE(VIDEO) && ENABLE(GPU_PROCESS)
 RefPtr<AudioVideoRenderer> WebMediaStrategy::createAudioVideoRenderer(LoggerHelper* loggerHelper, WebCore::HTMLMediaElementIdentifier mediaElementIdentifier, WebCore::MediaPlayerIdentifier playerIdentifier) const
 {
-    return AudioVideoRendererRemote::create(loggerHelper, mediaElementIdentifier, playerIdentifier, WebProcess::singleton().ensureProtectedGPUProcessConnection());
+    return AudioVideoRendererRemote::create(loggerHelper, mediaElementIdentifier, playerIdentifier, protect(WebProcess::singleton().ensureGPUProcessConnection()));
+}
+
+static WorkQueue& webMediaStrategyQueueSingleton()
+{
+    static const NeverDestroyed<Ref<WorkQueue>> workQueue = WorkQueue::create("WebMediaStrategy"_s);
+    return workQueue.get();
+}
+
+void WebMediaStrategy::ensureCodecsSupportChecksInitialized()
+{
+    callOnMainRunLoopAndWait([] {
+        protect(WebProcess::singleton().ensureGPUProcessConnection())->waitForDidInitialize();
+    });
+}
+
+bool WebMediaStrategy::canDecodeExtendedType(PlatformMediaDecodingType platformType, const ContentType& contentType)
+{
+    Ref connection = [&] {
+        RefPtr connection = WebProcess::singleton().existingGPUProcessConnection();
+        if (connection)
+            return connection.releaseNonNull();
+        callOnMainRunLoopAndWait([&] {
+            connection = &WebProcess::singleton().ensureGPUProcessConnection();
+        });
+        return connection.releaseNonNull();
+    }();
+    std::atomic<bool> isSupported = false;
+    BinarySemaphore semaphore;
+    webMediaStrategyQueueSingleton().dispatch([&, connection = WTF::move(connection)] {
+        connection->connection().sendWithAsyncReplyOnDispatcher(Messages::GPUConnectionToWebProcess::CanDecodeExtendedType(platformType, contentType), webMediaStrategyQueueSingleton(), [&semaphore, &isSupported](bool supported) {
+            isSupported = supported;
+            semaphore.signal();
+        });
+    });
+    semaphore.wait();
+    return isSupported;
 }
 #endif
 
@@ -104,8 +141,8 @@ std::unique_ptr<WebCore::NowPlayingManager> WebMediaStrategy::createNowPlayingMa
 
 bool WebMediaStrategy::hasThreadSafeMediaSourceSupport() const
 {
-#if ENABLE(GPU_PROCESS)
-    return m_useGPUProcess;
+#if USE(AVFOUNDATION)
+    return true;
 #else
     return false;
 #endif
@@ -123,20 +160,6 @@ void WebMediaStrategy::enableMockMediaSource()
 #endif
     m_mockMediaSourceEnabled = true;
 
-#if USE(AVFOUNDATION)
-    if (hasRemoteRendererFor(MediaPlayerMediaEngineIdentifier::AVFoundationMSE)) {
-        WebCore::MediaStrategy::addMockMediaSourceEngine();
-        return;
-    }
-#endif
-
-#if ENABLE(GPU_PROCESS)
-    if (m_useGPUProcess) {
-        Ref connection = WebProcess::singleton().ensureGPUProcessConnection().connection();
-        connection->send(Messages::GPUConnectionToWebProcess::EnableMockMediaSource { }, 0);
-        return;
-    }
-#endif
     WebCore::MediaStrategy::addMockMediaSourceEngine();
 }
 #endif
@@ -144,8 +167,8 @@ void WebMediaStrategy::enableMockMediaSource()
 #if PLATFORM(COCOA) && ENABLE(VIDEO)
 void WebMediaStrategy::nativeImageFromVideoFrame(const WebCore::VideoFrame& frame, CompletionHandler<void(std::optional<RefPtr<WebCore::NativeImage>>&&)>&& completionHandler)
 {
-    // FIMXE: Move out of sync IPC.
-    completionHandler(WebProcess::singleton().ensureProtectedGPUProcessConnection()->protectedVideoFrameObjectHeapProxy()->getNativeImage(frame));
+    // FIXME: Move out of sync IPC.
+    completionHandler(protect(protect(WebProcess::singleton().ensureGPUProcessConnection())->videoFrameObjectHeapProxy())->getNativeImage(frame));
 }
 #endif
 

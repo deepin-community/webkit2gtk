@@ -27,9 +27,9 @@
 #include "InlineIteratorInlineBox.h"
 
 #include "LayoutIntegrationLineLayout.h"
-#include "RenderBlockFlow.h"
+#include "RenderBlockFlowInlines.h"
 #include "RenderInline.h"
-#include "RenderStyle+GettersInlines.h"
+#include "StyleComputedStyle+GettersInlines.h"
 
 namespace WebCore {
 namespace InlineIterator {
@@ -43,11 +43,11 @@ RectEdges<bool> InlineBox::closedEdges() const
 {
     // FIXME: Layout knows the answer to this question so we should consult it.
     RectEdges<bool> closedEdges { true };
-    if (style().boxDecorationBreak() == BoxDecorationBreak::Clone)
+    if (style()->boxDecorationBreak() == BoxDecorationBreak::Clone)
         return closedEdges;
-    auto writingMode = style().writingMode();
-    bool isFirst = !nextInlineBoxLineLeftward() && !renderer().isContinuation();
-    bool isLast = !nextInlineBoxLineRightward() && !renderer().continuation();
+    auto writingMode = style()->writingMode();
+    bool isFirst = !nextInlineBoxLineLeftward();
+    bool isLast = !nextInlineBoxLineRightward();
     closedEdges.setStart(isFirst, writingMode);
     closedEdges.setEnd(isLast, writingMode);
     return closedEdges;
@@ -123,14 +123,14 @@ InlineBoxIterator& InlineBoxIterator::traverseInlineBoxLineLeftward()
 
 InlineBoxIterator lineLeftmostInlineBoxFor(const RenderInline& renderInline)
 {
-    if (auto* lineLayout = LayoutIntegration::LineLayout::containing(renderInline))
+    if (CheckedPtr lineLayout = LayoutIntegration::LineLayout::containing(renderInline))
         return lineLayout->firstInlineBoxFor(renderInline);
     return { BoxLegacyPath { renderInline.firstLegacyInlineBox() } };
 }
 
 InlineBoxIterator firstRootInlineBoxFor(const RenderBlockFlow& block)
 {
-    if (auto* lineLayout = block.inlineLayout())
+    if (CheckedPtr lineLayout = block.inlineLayout())
         return lineLayout->firstRootInlineBox();
     return { BoxLegacyPath { block.legacyRootBox() } };
 }

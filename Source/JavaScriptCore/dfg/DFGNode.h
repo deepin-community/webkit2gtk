@@ -54,6 +54,7 @@
 #include "GetByVariant.h"
 #include "InlineCacheCompiler.h"
 #include "JSCJSValue.h"
+#include "JSPromise.h"
 #include "JSPropertyNameEnumerator.h"
 #include "Operands.h"
 #include "PrivateFieldPutKind.h"
@@ -62,6 +63,7 @@
 #include "SpeculatedType.h"
 #include "TypeLocation.h"
 #include "ValueProfile.h"
+#include "YarrFlags.h"
 #include <type_traits>
 #include <wtf/FastMalloc.h>
 #include <wtf/ListDump.h>
@@ -105,7 +107,7 @@ struct MultiDeleteByOffsetData {
     Vector<DeleteByVariant, 2> variants;
 
     bool writesStructures() const;
-    bool allVariantsStoreEmpty() const;
+    bool NODELETE allVariantsStoreEmpty() const;
 };
 
 struct MultiGetByValData {
@@ -140,13 +142,18 @@ static_assert(sizeof(IndexingType) <= sizeof(unsigned));
 static_assert(sizeof(NewArrayBufferData) == sizeof(uint64_t));
 
 struct NewArrayWithSpeciesData {
-    unsigned arrayMode { 0 };
-    unsigned indexingMode { 0 };
-
-    uint64_t asQuadWord() const { return std::bit_cast<uint64_t>(*this); }
+    union {
+        struct {
+            unsigned arrayMode;
+            uint8_t indexingMode;
+            uint8_t vectorLengthHint;
+        };
+        uint64_t asQuadWord;
+    };
 };
-static_assert(sizeof(IndexingType) <= sizeof(unsigned));
+static_assert(sizeof(IndexingType) <= sizeof(uint8_t));
 static_assert(sizeof(ArrayMode) <= sizeof(unsigned));
+static_assert(sizeof(NewArrayWithSpeciesData) == sizeof(uint64_t));
 
 struct DataViewData {
     union {
@@ -495,7 +502,7 @@ public:
     }
 
     void remove(Graph&);
-    void removeWithoutChecks();
+    void NODELETE removeWithoutChecks();
 
     void convertToCheckStructure(RegisteredStructureSet* set)
     {
@@ -532,14 +539,14 @@ public:
     }
     
     void replaceWith(Graph&, Node* other);
-    void replaceWithWithoutChecks(Node* other);
+    void NODELETE replaceWithWithoutChecks(Node* other);
 
-    void convertToIdentity();
-    void convertToIdentityOn(Node*);
+    void NODELETE convertToIdentity();
+    void NODELETE convertToIdentityOn(Node*);
 
     void convertToGetByIdMaybeMegamorphic(Graph&, CacheableIdentifier);
-    void convertToPutByIdMaybeMegamorphic(Graph&, CacheableIdentifier);
-    void convertToInByIdMaybeMegamorphic(Graph&, CacheableIdentifier);
+    void NODELETE convertToPutByIdMaybeMegamorphic(Graph&, CacheableIdentifier);
+    void NODELETE convertToInByIdMaybeMegamorphic(Graph&, CacheableIdentifier);
 
     bool mustGenerate() const
     {
@@ -905,38 +912,86 @@ public:
 
     void convertToNewInternalFieldObject(RegisteredStructure structure)
     {
-        ASSERT(m_op == CreatePromise);
+        ASSERT(m_op == CreatePromise || m_op == CreateAsyncGenerator || m_op == CreateGenerator);
         setOpAndDefaultFlags(NewInternalFieldObject);
         children.reset();
         m_opInfo = structure;
         m_opInfo2 = OpInfoWrapper();
     }
 
-    void convertToNewInternalFieldObjectWithInlineFields(NodeType newOp, RegisteredStructure structure)
+    void convertToNewPromise(RegisteredStructure structure)
     {
-        ASSERT(m_op == CreateAsyncGenerator || m_op == CreateGenerator);
-        setOpAndDefaultFlags(newOp);
+        ASSERT(m_op == CreatePromise);
+        setOpAndDefaultFlags(NewPromise);
         children.reset();
         m_opInfo = structure;
         m_opInfo2 = OpInfoWrapper();
     }
 
-    void convertToNewArrayBuffer(FrozenValue* immutableButterfly);
-    void convertToNewArrayWithSize();
-    void convertToNewArrayWithButterfly(Graph&, Node* butterfly);
-    void convertToNewArrayWithSizeAndStructure(Graph&, RegisteredStructure);
+    void convertToPhantomNewPromise()
+    {
+        ASSERT(m_op == NewPromise);
+        setOpAndDefaultFlags(PhantomNewPromise);
+        m_opInfo = OpInfoWrapper();
+        m_opInfo2 = OpInfoWrapper();
+        children = AdjacencyList();
+    }
 
-    void convertToNewBoundFunction(FrozenValue*);
+    void convertToNewResolvedPromise(Edge argument, bool isResolvedValueKnownNonThenable)
+    {
+        ASSERT(m_op == PromiseResolve);
+        setOpAndDefaultFlags(NewResolvedPromise);
+        children = AdjacencyList(AdjacencyList::Fixed, argument);
+        m_opInfo = static_cast<uint32_t>(isResolvedValueKnownNonThenable);
+        m_opInfo2 = OpInfoWrapper();
+    }
 
-    void convertToDirectCall(FrozenValue*);
+    bool isResolvedValueKnownNonThenable()
+    {
+        ASSERT(op() == NewResolvedPromise);
+        return m_opInfo.as<bool>();
+    }
 
-    void convertToCallWasm(FrozenValue*);
+    void setResolvedValueKnownNonThenable()
+    {
+        ASSERT(op() == NewResolvedPromise);
+        m_opInfo = static_cast<uint32_t>(true);
+    }
 
-    void convertToCallDOM(Graph&);
+    void NODELETE convertToNewArrayBuffer(FrozenValue* immutableButterfly);
+    void NODELETE convertToNewArrayWithSize();
+    void NODELETE convertToNewArrayWithButterfly(Graph&, Node* butterfly);
+    void NODELETE convertToNewArrayWithSizeAndStructure(Graph&, RegisteredStructure);
 
-    void convertToRegExpExecNonGlobalOrStickyWithoutChecks(FrozenValue* regExp);
-    void convertToRegExpMatchFastGlobalWithoutChecks(FrozenValue* regExp);
-    void convertToRegExpTestInline(FrozenValue* globalObject, FrozenValue* regExp);
+    void NODELETE convertToNewBoundFunction(FrozenValue*);
+
+    void NODELETE convertToDirectCall(FrozenValue*);
+
+    void NODELETE convertToCallWasm(FrozenValue*);
+
+    void NODELETE convertToCallDOM(Graph&);
+
+    void NODELETE convertToRegExpExecNonGlobalOrStickyWithoutChecks(FrozenValue* regExp);
+    void NODELETE convertToRegExpExecStickyWithoutChecks(FrozenValue* regExp);
+    void NODELETE convertToRegExpMatchFastGlobalWithoutChecks(FrozenValue* regExp);
+    void NODELETE convertToRegExpMatchFast(Node* globalObjectNode);
+    void NODELETE convertToRegExpSearch(Node* globalObjectNode);
+    void NODELETE convertToRegExpTestInline(FrozenValue* globalObject, FrozenValue* regExp);
+
+    enum DescriptorSlot : unsigned {
+        EnumerableSlot = 0,
+        ConfigurableSlot,
+        ValueSlot,
+        WritableSlot,
+        GetSlot,
+        SetSlot,
+    };
+    static constexpr unsigned numberOfDescriptorSlots = 6;
+    void convertToDefineDataProperty(Graph&, Edge base, Edge property, Edge value, Edge attributes);
+    void convertToDefineAccessorProperty(Graph&, Edge base, Edge property, Edge getter, Edge setter, Edge attributes);
+    void convertToObjectDefinePropertyFromFields(Graph&, Edge target, Edge key, Edge enumerable, Edge configurable, Edge value, Edge writable, Edge getter, Edge setter);
+    void convertToPutByIdDirect(Graph&, Edge base, Edge value, CacheableIdentifier, ECMAMode);
+    void convertToEnumeratorHasOwnProperty(Graph&, Edge base, Edge propertyName, Edge index, Edge mode, Edge enumerator, ArrayMode, unsigned enumeratorMetadata);
 
     void convertToSetRegExpObjectLastIndex()
     {
@@ -1026,7 +1081,7 @@ public:
     {
         if (!isCellConstant())
             return nullptr;
-        return jsDynamicCast<T>(asCell());
+        return dynamicDowncast<std::remove_pointer_t<T>>(asCell());
     }
     
     bool hasLazyJSValue()
@@ -1106,7 +1161,7 @@ public:
         }
     }
     
-    bool hasVariableAccessData(Graph&);
+    bool NODELETE hasVariableAccessData(Graph&);
     bool accessesStack(Graph& graph)
     {
         return hasVariableAccessData(graph);
@@ -1198,7 +1253,6 @@ public:
     bool hasCacheableIdentifier()
     {
         switch (op()) {
-        case TryGetById:
         case GetById:
         case GetByIdFlush:
         case GetByIdMegamorphic:
@@ -1228,7 +1282,6 @@ public:
     {
         ASSERT(hasCacheableIdentifier());
         switch (op()) {
-        case TryGetById:
         case GetById:
         case GetByIdFlush:
         case GetByIdWithThis:
@@ -1277,7 +1330,6 @@ public:
     bool hasGetByIdData() const
     {
         switch (op()) {
-        case TryGetById:
         case GetById:
         case GetByIdFlush:
         case GetByIdWithThis:
@@ -1368,7 +1420,7 @@ public:
         return op() == PutHint;
     }
     
-    PromotedLocationDescriptor promotedLocationDescriptor();
+    PromotedLocationDescriptor NODELETE promotedLocationDescriptor();
     
     // This corrects the arithmetic node flags, so that irrelevant bits are
     // ignored. In particular, anything other than ArithMul or ValueMul does not need
@@ -1447,18 +1499,30 @@ public:
         case NewArray:
         case NewArrayBuffer:
         case PhantomNewArrayBuffer:
+        case NewArrayWithSize:
+        case NewButterflyWithSize:
+        case PhantomNewButterflyWithSize:
+        case NewArrayWithSpecies:
             return true;
         default:
             return false;
         }
     }
-    
+
     unsigned vectorLengthHint()
     {
         ASSERT(hasVectorLengthHint());
-        if (op() == NewArray)
+        switch (op()) {
+        case NewArray:
+        case NewArrayWithSize:
+        case NewButterflyWithSize:
+        case PhantomNewButterflyWithSize:
             return m_opInfo2.as<unsigned>();
-        return newArrayBufferData().vectorLengthHint;
+        case NewArrayWithSpecies:
+            return newArrayWithSpeciesData().vectorLengthHint;
+        default:
+            return newArrayBufferData().vectorLengthHint;
+        }
     }
 
     bool hasIndexingType()
@@ -1554,17 +1618,6 @@ public:
         return m_opInfo.as<unsigned>();
     }
 
-    bool hasIsInternalPromise()
-    {
-        return op() == CreatePromise;
-    }
-
-    bool isInternalPromise()
-    {
-        ASSERT(hasIsInternalPromise());
-        return m_opInfo2.as<bool>();
-    }
-
     void setIndexingType(IndexingType indexingType)
     {
         ASSERT(hasIndexingType());
@@ -1591,6 +1644,12 @@ public:
     {
         ASSERT(hasInternalFieldIndex());
         return m_opInfo.as<uint32_t>();
+    }
+
+    JSPromise::InlineReactionKind performPromiseThenInlineReactionKind()
+    {
+        ASSERT(op() == PerformPromiseThenOneHandler);
+        return static_cast<JSPromise::InlineReactionKind>(m_opInfo.as<uint32_t>());
     }
     
     bool hasDirectArgumentsOffset()
@@ -1659,10 +1718,11 @@ public:
         return op() == IsCellWithType;
     }
 
-    JSType queriedType()
+    JSTypeRange queriedType()
     {
+        ASSERT(hasQueriedType());
         static_assert(std::same_as<uint8_t, std::underlying_type_t<JSType>>);
-        return static_cast<JSType>(m_opInfo.as<uint32_t>());
+        return JSTypeRange::fromRawValue(m_opInfo.as<uint32_t>());
     }
 
     bool hasSpeculatedTypeForQuery()
@@ -1672,7 +1732,7 @@ public:
 
     std::optional<SpeculatedType> speculatedTypeForQuery()
     {
-        return speculationFromJSType(queriedType());
+        return speculationFromJSTypeRange(queriedType());
     }
 
     bool hasStructureFlags()
@@ -1762,7 +1822,15 @@ public:
 
     bool isTuple() const
     {
-        return op() == EnumeratorNextUpdateIndexAndMode;
+        switch (op()) {
+        case EnumeratorNextUpdateIndexAndMode:
+        case StringIteratorNext:
+        case StringIteratorNextWithUndefined:
+        case MapIteratorNext:
+            return true;
+        default:
+            return false;
+        }
     }
 
     void setTupleOffset(unsigned tupleOffset)
@@ -1799,6 +1867,9 @@ public:
         ASSERT(isTuple());
         switch (op()) {
         case EnumeratorNextUpdateIndexAndMode:
+        case StringIteratorNext:
+        case StringIteratorNextWithUndefined:
+        case MapIteratorNext:
             return 2;
         default:
             break;
@@ -1901,12 +1972,25 @@ public:
         return m_opInfo.as<EntrySwitchData*>();
     }
 
+    bool hasRegExpFlag()
+    {
+        return op() == GetRegExpFlag;
+    }
+
+    Yarr::Flags regExpFlag()
+    {
+        ASSERT(hasRegExpFlag());
+        return m_opInfo.as<Yarr::Flags>();
+    }
+
     bool hasIntrinsic()
     {
         switch (op()) {
         case CPUIntrinsic:
         case DateGetTime:
         case DateGetInt32OrNaN:
+        case StringTrim:
+        case StrCat:
             return true;
         default:
             return false;
@@ -2048,7 +2132,6 @@ public:
         case GetByIdDirect:
         case GetByIdDirectFlush:
         case GetPrototypeOf:
-        case TryGetById:
         case EnumeratorGetByVal:
         case GetByVal:
         case GetByValMegamorphic:
@@ -2080,14 +2163,19 @@ public:
         case GetArgument:
         case ArrayPop:
         case ArrayPush:
+        case ArrayShift:
+        case ArrayUnshift:
         case ArraySplice:
         case RegExpExec:
         case RegExpExecNonGlobalOrSticky:
+        case RegExpExecSticky:
         case RegExpTest:
         case RegExpTestInline:
         case RegExpMatchFast:
         case RegExpMatchFastGlobal:
         case RegExpSearch:
+        case RegExpSplitFast:
+        case RegExpStringIteratorNext:
         case GetGlobalVar:
         case GetGlobalLexicalVariable:
         case StringReplace:
@@ -2185,6 +2273,7 @@ public:
         case CallWasm:
         case TailCallInlinedCallerWasm:
         case RegExpExecNonGlobalOrSticky:
+        case RegExpExecSticky:
         case RegExpMatchFastGlobal:
         case RegExpTestInline:
             return true;
@@ -2272,6 +2361,8 @@ public:
         case AtomicsXor:
         case ArrayPush:
         case ArrayPop:
+        case ArrayShift:
+        case ArrayUnshift:
         case GetArrayLength:
         case GetUndetachedTypeArrayLength:
         case GetTypedArrayLengthAsInt52:
@@ -2279,6 +2370,7 @@ public:
         case EnumeratorNextUpdateIndexAndMode:
         case ArrayIncludes:
         case ArrayIndexOf:
+        case ArrayJoin:
             return true;
         default:
             break;
@@ -2311,9 +2403,11 @@ public:
         case AtomicsXor:
             return 2 + numExtraAtomicsArgs(op());
         case ArrayPush:
+        case ArrayUnshift:
             return 0;
 
         case ArrayPop:
+        case ArrayShift:
         case GetArrayLength:
         case GetUndetachedTypeArrayLength:
         case GetTypedArrayLengthAsInt52:
@@ -2396,15 +2490,17 @@ public:
         case ArrayifyToStructure:
         case MaterializeNewInternalFieldObject:
         case NewObject:
-        case NewGenerator:
-        case NewAsyncGenerator:
         case NewInternalFieldObject:
+        case NewPromise:
         case NewStringObject:
         case NewRegExpUntyped:
         case NewMap:
         case NewSet:
+        case NewWeakMap:
+        case NewWeakSet:
         case NewArrayWithSizeAndStructure:
         case NewTypedArrayBuffer:
+        case RegExpStringIteratorNext:
             return true;
         default:
             return false;
@@ -2607,8 +2703,21 @@ public:
         case PhantomNewAsyncFunction:
         case PhantomNewAsyncGeneratorFunction:
         case PhantomNewInternalFieldObject:
+        case PhantomNewPromise:
         case PhantomCreateActivation:
         case PhantomNewRegExp:
+            return true;
+        default:
+            return false;
+        }
+    }
+
+    bool isPhantomArgumentsAllocation()
+    {
+        switch (op()) {
+        case PhantomDirectArguments:
+        case PhantomCreateRest:
+        case PhantomClonedArguments:
             return true;
         default:
             return false;
@@ -2674,8 +2783,11 @@ public:
         case ArrayifyToStructure:
         case ArrayPush:
         case ArrayPop:
+        case ArrayShift:
+        case ArrayUnshift:
         case ArrayIncludes:
         case ArrayIndexOf:
+        case ArrayJoin:
         case HasIndexedProperty:
         case AtomicsAdd:
         case AtomicsAnd:
@@ -2687,6 +2799,9 @@ public:
         case AtomicsSub:
         case AtomicsXor:
         case NewArrayWithSpecies:
+        case ArraySortCompact:
+        case ArraySortCommit:
+        case GetCellButterflySlot:
             return true;
         default:
             return false;
@@ -2723,7 +2838,7 @@ public:
         case NewArrayWithSpecies: {
             auto data = newArrayWithSpeciesData();
             data.arrayMode = arrayMode.asWord();
-            m_opInfo = data.asQuadWord();
+            m_opInfo = data.asQuadWord;
             return true;
         }
         case MultiGetByVal:
@@ -3620,7 +3735,7 @@ public:
     
     bool hasNumberOfArgumentsToSkip()
     {
-        return op() == CreateRest || op() == PhantomCreateRest || op() == GetRestLength || op() == GetMyArgumentByVal || op() == GetMyArgumentByValOutOfBounds;
+        return op() == CreateRest || op() == PhantomCreateRest || op() == GetMyArgumentByVal || op() == GetMyArgumentByValOutOfBounds;
     }
 
     GetByStatus::LookupMode propertyLookupMode()
@@ -3658,7 +3773,7 @@ public:
 
     bool hasBucketOwnerType()
     {
-        return op() == MapIterationNext || op() == MapIterationEntry || op() == MapIterationEntryKey || op() == MapIterationEntryValue || op() == MapStorage || op() == MapStorageOrSentinel;
+        return op() == MapIterationNext || op() == MapIterationEntry || op() == MapIterationEntryKey || op() == MapIterationEntryValue || op() == MapStorage || op() == MapStorageOrSentinel || op() == MapIteratorKey || op() == MapIteratorValue;
     }
 
     unsigned numberOfBoundArguments()
@@ -3958,13 +4073,13 @@ private:
             return static_cast<T>(u.constPointer);
         }
         template<typename T>
-            requires ((std::integral<T> || std::is_enum_v<T>) && sizeof(T) <= 4)
+            requires (IntegralOrEnum<T> && sizeof(T) <= 4)
         ALWAYS_INLINE T as() const
         {
             return static_cast<T>(u.int32);
         }
         template<typename T>
-            requires ((std::integral<T> || std::is_enum_v<T>) && sizeof(T) == 8)
+            requires (IntegralOrEnum<T> && sizeof(T) == 8)
         ALWAYS_INLINE T as() const
         {
             return static_cast<T>(u.int64);

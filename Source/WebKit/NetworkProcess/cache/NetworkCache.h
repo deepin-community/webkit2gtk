@@ -129,11 +129,12 @@ enum class StoreDecision {
     NoDueToProtocol,
     NoDueToHTTPMethod,
     NoDueToNoStoreResponse,
-    NoDueToHTTPStatusCode,
+    NoDueToMissingExpirationHeaders,
     NoDueToNoStoreRequest,
     NoDueToUnlikelyToReuse,
     NoDueToStreamingMedia,
-    NoDueToRequestContainingFragments
+    NoDueToRequestContainingFragments,
+    NoDueToHTTPStatusCode
 };
 
 enum class UseDecision {
@@ -159,7 +160,7 @@ public:
     ~Cache();
     static RefPtr<Cache> open(NetworkProcess&, const String& cachePath, OptionSet<CacheOption>, PAL::SessionID);
 
-    size_t capacity() const;
+    size_t NODELETE capacity() const;
     void updateCapacity();
 
     // Completion handler may get called back synchronously on failure.
@@ -231,8 +232,9 @@ public:
 
     NetworkProcess& networkProcess() { return m_networkProcess.get(); }
     PAL::SessionID sessionID() const { return m_sessionID; }
-    const String& storageDirectory() const { return m_storageDirectory; }
+    const String& storageDirectory() const LIFETIME_BOUND { return m_storageDirectory; }
     void fetchData(bool shouldComputeSize, CompletionHandler<void(Vector<WebsiteData::Entry>&&)>&&);
+    void fetchOriginAccessTimes(CompletionHandler<void(HashMap<WebCore::RegistrableDomain, WallTime>&&)>&&);
     void deleteData(const Vector<WebCore::SecurityOriginData>&, CompletionHandler<void()>&&);
     void deleteDataForRegistrableDomains(const Vector<WebCore::RegistrableDomain>&, CompletionHandler<void(HashSet<WebCore::RegistrableDomain>&&)>&&);
 
@@ -248,8 +250,6 @@ private:
 
     std::optional<Seconds> maxAgeCap(Entry&, const WebCore::ResourceRequest&, PAL::SessionID);
 
-    Ref<Storage> protectedStorage() const { return m_storage; }
-
     const Ref<Storage> m_storage;
     const Ref<NetworkProcess> m_networkProcess;
 
@@ -257,7 +257,7 @@ private:
     void updateSpeculativeLoadManagerEnabledState();
 
     std::unique_ptr<WebCore::LowPowerModeNotifier> m_lowPowerModeNotifier;
-    std::unique_ptr<WebCore::ThermalMitigationNotifier> m_thermalMitigationNotifier;
+    RefPtr<WebCore::ThermalMitigationNotifier> m_thermalMitigationNotifier;
     std::unique_ptr<SpeculativeLoadManager> m_speculativeLoadManager;
 
     HashMap<Key, Ref<AsyncRevalidation>> m_pendingAsyncRevalidations;

@@ -20,6 +20,7 @@
 
 #pragma once
 
+#include "Path.h"
 #include "RenderSVGResourceContainer.h"
 #include "SVGUnitTypes.h"
 
@@ -33,10 +34,8 @@ class RenderSVGResourceClipper final : public RenderSVGResourceContainer {
     WTF_MAKE_TZONE_ALLOCATED(RenderSVGResourceClipper);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderSVGResourceClipper);
 public:
-    RenderSVGResourceClipper(SVGClipPathElement&, RenderStyle&&);
+    RenderSVGResourceClipper(SVGClipPathElement&, Style::ComputedStyle&&);
     virtual ~RenderSVGResourceClipper();
-
-    inline Ref<SVGClipPathElement> protectedClipPathElement() const;
 
     RefPtr<SVGGraphicsElement> shouldApplyPathClipping() const;
     void applyPathClipping(GraphicsContext&, const RenderLayerModelObject& targetRenderer, const FloatRect& objectBoundingBox, SVGGraphicsElement&);
@@ -47,8 +46,9 @@ public:
     bool hitTestClipContent(const FloatRect&, const LayoutPoint&);
 
     inline SVGUnitTypes::SVGUnitType clipPathUnits() const;
+    inline SVGClipPathElement& clipPathElement() const;
 
-    void applyTransform(TransformationMatrix&, const RenderStyle&, const FloatRect& boundingBox, OptionSet<Style::TransformResolverOption>) const final;
+    void applyTransform(TransformationMatrix&, const Style::ComputedStyle&, const FloatRect& boundingBox, OptionSet<Style::TransformResolverOption>) const final;
 
 private:
     void element() const = delete;
@@ -57,9 +57,15 @@ private:
 
     void updateFromStyle() final;
 
+    bool requiresLayer() const final { return true; }
     ASCIILiteral renderName() const final { return "RenderSVGResourceClipper"_s; }
 
-    void styleDidChange(Style::Difference, const RenderStyle* oldStyle) final;
+    void styleDidChange(Style::Difference, const Style::ComputedStyle* oldStyle) final;
+
+    void clearCacheBeforeLayout() final;
+
+    mutable std::optional<Path> m_cachedPathClip;
+    mutable SingleThreadWeakPtr<RenderSVGModelObject> m_cachedPathClipRenderer;
 };
 
 }

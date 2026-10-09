@@ -33,7 +33,6 @@
 #include "Interpreter.h"
 #include "IntlDateTimeFormat.h"
 #include "JSCInlines.h"
-#include "JSInternalPromise.h"
 #include "JSModuleLoader.h"
 #include "JSPromise.h"
 #include "JSSet.h"
@@ -55,9 +54,6 @@ WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace JSC {
 
-const ASCIILiteral ObjectProtoCalledOnNullOrUndefinedError { "Object.prototype.__proto__ called on null or undefined"_s };
-const ASCIILiteral RestrictedPropertyAccessError { "'arguments', 'callee', and 'caller' cannot be accessed in this context."_s };
-
 template<typename CharacterType>
 static JSValue encode(JSGlobalObject* globalObject, const WTF::BitSet<256>& doNotEscape, std::span<const CharacterType> characters)
 {
@@ -75,7 +71,7 @@ static JSValue encode(JSGlobalObject* globalObject, const WTF::BitSet<256>& doNo
     builder.reserveCapacity(characters.size());
 
     // 4. Repeat
-    auto* end = characters.data() + characters.size();
+    auto* end = std::to_address(characters.end());
     for (auto* cursor = characters.data(); cursor != end; ++cursor) {
         auto character = *cursor;
 
@@ -130,8 +126,9 @@ static JSValue encode(JSGlobalObject* globalObject, const WTF::BitSet<256>& doNo
             // 4-d-vi-1. Let jOctet be the value at index j within Octets.
             // 4-d-vi-2. Let S be a String containing three code units "%XY" where XY are two uppercase hexadecimal digits encoding the value of jOctet.
             // 4-d-vi-3. Let R be a new String value computed by concatenating the previous value of R and S.
-            builder.append('%');
-            builder.append(hex(utf8OctetsBuffer[index], 2));
+            auto octet = utf8OctetsBuffer[index];
+            std::array<Latin1Character, 3> escaped { '%', static_cast<Latin1Character>(upperNibbleToASCIIHexDigit(octet)), static_cast<Latin1Character>(lowerNibbleToASCIIHexDigit(octet)) };
+            builder.append(std::span<const Latin1Character> { escaped });
         }
     }
 
@@ -236,7 +233,7 @@ static JSValue decode(JSGlobalObject* globalObject, JSValue argument, const WTF:
 static const int SizeOfInfinity = 8;
 
 template <typename CharType>
-static bool isInfinity(std::span<const CharType> data)
+static bool NODELETE isInfinity(std::span<const CharType> data)
 {
     return data.size() >= SizeOfInfinity
         && data[0] == 'I'
@@ -251,7 +248,7 @@ static bool isInfinity(std::span<const CharType> data)
 
 // See ecma-262 6th 11.8.3
 template <typename CharType>
-static double jsBinaryIntegerLiteral(std::span<const CharType>& data)
+static double NODELETE jsBinaryIntegerLiteral(std::span<const CharType>& data)
 {
     // Binary number.
     skip(data, 2);
@@ -272,7 +269,7 @@ static double jsBinaryIntegerLiteral(std::span<const CharType>& data)
 
 // See ecma-262 6th 11.8.3
 template <typename CharType>
-static double jsOctalIntegerLiteral(std::span<const CharType>& data)
+static double NODELETE jsOctalIntegerLiteral(std::span<const CharType>& data)
 {
     // Octal number.
     skip(data, 2);
@@ -293,7 +290,7 @@ static double jsOctalIntegerLiteral(std::span<const CharType>& data)
 
 // See ecma-262 6th 11.8.3
 template <typename CharType>
-static double jsHexIntegerLiteral(std::span<const CharType>& data)
+static double NODELETE jsHexIntegerLiteral(std::span<const CharType>& data)
 {
     // Hex number.
     skip(data, 2);
@@ -744,7 +741,7 @@ JSC_DEFINE_HOST_FUNCTION(globalFuncProtoSetter, (JSGlobalObject* globalObject, C
 
     JSValue value = callFrame->argument(0);
 
-    JSObject* thisObject = jsDynamicCast<JSObject*>(thisValue);
+    JSObject* thisObject = dynamicDowncast<JSObject>(thisValue);
 
     // Setting __proto__ of a primitive should have no effect.
     if (!thisObject)
@@ -803,27 +800,32 @@ JSC_DEFINE_HOST_FUNCTION(globalFuncImportModule, (JSGlobalObject* globalObject, 
 {
     VM& vm = globalObject->vm();
 
-    auto* promise = JSPromise::create(vm, globalObject->promiseStructure());
-
     auto scope = DECLARE_THROW_SCOPE(vm);
+
+    auto rejectWithCaughtException = [&]() -> EncodedJSValue {
+        auto* promise = JSPromise::create(vm, globalObject->promiseStructure());
+        return JSValue::encode(promise->rejectWithCaughtException(vm, scope));
+    };
 
     auto sourceOrigin = callFrame->callerSourceOrigin(vm);
     RELEASE_ASSERT(callFrame->argumentCount() >= 1);
+
     auto* specifier = callFrame->uncheckedArgument(0).toString(globalObject);
-    RETURN_IF_EXCEPTION(scope, JSValue::encode(promise->rejectWithCaughtException(globalObject, scope)));
+    if (scope.exception()) [[unlikely]]
+        return rejectWithCaughtException();
 
     // We always specify parameters as undefined. Once dynamic import() starts accepting fetching parameters,
     // we should retrieve this from the arguments.
     JSValue parameters = callFrame->argument(1);
-    auto* internalPromise = globalObject->moduleLoader()->importModule(globalObject, specifier, parameters, sourceOrigin);
-    RETURN_IF_EXCEPTION(scope, JSValue::encode(promise->rejectWithCaughtException(globalObject, scope)));
+    bool deferred = callFrame->argument(2).isTrue();
+    auto* importPromise = globalObject->moduleLoader()->importModule(globalObject, specifier, parameters, sourceOrigin, deferred);
+    if (scope.exception()) [[unlikely]]
+        return rejectWithCaughtException();
 
-    scope.release();
-    promise->resolve(globalObject, internalPromise);
-    return JSValue::encode(promise);
+    return JSValue::encode(importPromise);
 }
 
-static bool canPerformFastPropertyEnumerationForCopyDataProperties(Structure* structure)
+static bool NODELETE canPerformFastPropertyEnumerationForCopyDataProperties(Structure* structure)
 {
     if (!structure->canPerformFastPropertyEnumerationCommon())
         return false;
@@ -851,7 +853,7 @@ JSC_DEFINE_HOST_FUNCTION(globalFuncCopyDataProperties, (JSGlobalObject* globalOb
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
 
-    JSFinalObject* target = jsCast<JSFinalObject*>(callFrame->thisValue());
+    JSFinalObject* target = uncheckedDowncast<JSFinalObject>(callFrame->thisValue());
     ASSERT(target->isStructureExtensible());
 
     JSValue sourceValue = callFrame->uncheckedArgument(0);

@@ -31,6 +31,7 @@
 #include "Document.h"
 #include "DocumentLoader.h"
 #include "EventNames.h"
+#include "FrameDestructionObserverInlines.h"
 #include "FrameLoader.h"
 #include "HTMLBodyElement.h"
 #include "HTMLHeadElement.h"
@@ -78,14 +79,14 @@ private:
 
 void ModelDocumentParser::createDocumentStructure()
 {
-    auto& document = *this->document();
+    Ref document = *this->document();
 
     auto rootElement = HTMLHtmlElement::create(document);
-    document.appendChild(rootElement);
-    document.setCSSTarget(rootElement.ptr());
+    document->appendChild(rootElement);
+    document->setCSSTarget(rootElement.ptr());
 
-    if (document.frame())
-        document.frame()->injectUserScripts(UserScriptInjectionTime::DocumentStart);
+    if (document->frame())
+        protect(document->frame())->injectUserScripts(UserScriptInjectionTime::DocumentStart);
 
     auto headElement = HTMLHeadElement::create(document);
     rootElement->appendChild(headElement);
@@ -110,21 +111,21 @@ void ModelDocumentParser::createDocumentStructure()
     modelElement->setAttributeWithoutSynchronization(interactiveAttr, emptyAtom());
 
     auto sourceElement = HTMLSourceElement::create(HTMLNames::sourceTag, document);
-    sourceElement->setAttributeWithoutSynchronization(srcAttr, AtomString { document.url().string() });
-    if (RefPtr loader = document.loader())
+    sourceElement->setAttributeWithoutSynchronization(srcAttr, AtomString { document->url().string() });
+    if (RefPtr loader = document->loader())
         sourceElement->setAttributeWithoutSynchronization(typeAttr, AtomString { loader->responseMIMEType() });
 
     modelElement->appendChild(sourceElement);
 
     body->appendChild(modelElement);
-    document.setHasVisuallyNonEmptyCustomContent();
+    document->setHasVisuallyNonEmptyCustomContent();
 
-    auto frame = document.frame();
+    RefPtr frame = document->frame();
     if (!frame)
         return;
 
     frame->loader().activeDocumentLoader()->setMainResourceDataBufferingPolicy(DataBufferingPolicy::DoNotBufferData);
-    frame->loader().setOutgoingReferrer(document.completeURL(m_outgoingReferrer));
+    frame->loader().setOutgoingReferrer(document->encodingParseURL(m_outgoingReferrer));
 }
 
 void ModelDocumentParser::appendBytes(DocumentWriter&, std::span<const uint8_t>)
@@ -135,7 +136,7 @@ void ModelDocumentParser::appendBytes(DocumentWriter&, std::span<const uint8_t>)
 
 void ModelDocumentParser::finish()
 {
-    document()->finishedParsing();
+    protect(document())->finishedParsing();
 }
 
 ModelDocument::ModelDocument(LocalFrame* frame, const Settings& settings, const URL& url)

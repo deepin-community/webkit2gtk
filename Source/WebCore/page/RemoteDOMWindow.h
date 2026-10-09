@@ -25,7 +25,6 @@
 
 #pragma once
 
-#include <JavaScriptCore/Strong.h>
 #include <WebCore/DOMWindow.h>
 #include <WebCore/RemoteFrame.h>
 #include <WebCore/WindowPostMessageOptions.h>
@@ -55,15 +54,15 @@ public:
 
     ~RemoteDOMWindow() final;
 
-    RemoteFrame* frame() const final { return m_frame.get(); }
-    ScriptExecutionContext* scriptExecutionContext() const final { return nullptr; }
+    RemoteFrame* NODELETE frame() const final { return m_frame; }
+    ScriptExecutionContext* NODELETE scriptExecutionContext() const final { return nullptr; }
 
     // DOM API exposed cross-origin.
-    WindowProxy* self() const;
+    WindowProxy* NODELETE self() const;
     void focus(LocalDOMWindow& incumbentWindow);
     void blur();
-    unsigned length() const;
-    void frameDetached();
+    unsigned NODELETE length() const;
+    void NODELETE frameDetached();
     ExceptionOr<void> postMessage(JSC::JSGlobalObject&, LocalDOMWindow& incumbentWindow, JSC::JSValue message, WindowPostMessageOptions&&);
 
 private:

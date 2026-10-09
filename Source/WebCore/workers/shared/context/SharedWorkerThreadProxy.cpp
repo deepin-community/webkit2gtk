@@ -33,6 +33,7 @@
 #include "ErrorEvent.h"
 #include "EventLoop.h"
 #include "EventNames.h"
+#include "FileSystemStorageConnection.h"
 #include "FrameLoader.h"
 #include "IDBConnectionProxy.h"
 #include "LoaderStrategy.h"
@@ -41,12 +42,14 @@
 #include "MessagePort.h"
 #include "Page.h"
 #include "PlatformStrategies.h"
+#include "ProcessIdentifier.h"
 #include "RTCDataChannelRemoteHandlerConnection.h"
 #include "SharedWorker.h"
 #include "SharedWorkerContextManager.h"
 #include "SharedWorkerGlobalScope.h"
 #include "SharedWorkerThread.h"
 #include "SocketProvider.h"
+#include "StorageConnection.h"
 #include "WebRTCProvider.h"
 #include "WorkerClient.h"
 #include "WorkerFetchResult.h"
@@ -57,7 +60,7 @@
 
 namespace WebCore {
 
-static HashMap<ScriptExecutionContextIdentifier, ThreadSafeWeakPtr<SharedWorkerThreadProxy>>& allSharedWorkerThreadProxies()
+static HashMap<ScriptExecutionContextIdentifier, ThreadSafeWeakPtr<SharedWorkerThreadProxy>>& NODELETE allSharedWorkerThreadProxies()
 {
     static MainThreadNeverDestroyed<HashMap<ScriptExecutionContextIdentifier, ThreadSafeWeakPtr<SharedWorkerThreadProxy>>> map;
     return map;
@@ -86,7 +89,8 @@ static WorkerParameters generateWorkerParameters(const WorkerFetchResult& worker
         WTF::move(initializationData.serviceWorkerData),
         *initializationData.clientIdentifier,
         document.advancedPrivacyProtections(),
-        document.noiseInjectionHashSalt()
+        document.noiseInjectionHashSalt(),
+        makeString(Process::identifier().toUInt64(), "-sharedworker-"_s, initializationData.clientIdentifier->toString())
     };
 }
 
@@ -104,7 +108,7 @@ SharedWorkerThreadProxy::SharedWorkerThreadProxy(Ref<Page>&& page, SharedWorkerI
     : m_page(WTF::move(page))
     , m_document(*m_page->localTopDocument())
     , m_contextIdentifier(*initializationData.clientIdentifier)
-    , m_workerThread(SharedWorkerThread::create(sharedWorkerIdentifier, generateWorkerParameters(workerFetchResult, WTF::move(workerOptions), WTF::move(initializationData), m_document), WTF::move(workerFetchResult.script), *this, *this, *this, *this, WorkerThreadStartMode::Normal, clientOrigin.topOrigin.securityOrigin(), m_document->protectedIDBConnectionProxy().get(), m_document->protectedSocketProvider().get(), JSC::RuntimeFlags::createAllEnabled()))
+    , m_workerThread(SharedWorkerThread::create(sharedWorkerIdentifier, generateWorkerParameters(workerFetchResult, WTF::move(workerOptions), WTF::move(initializationData), m_document), WTF::move(workerFetchResult.script), *this, *this, *this, *this, WorkerThreadStartMode::Normal, clientOrigin.topOrigin.securityOrigin(), protect(m_document->idbConnectionProxy()).get(), protect(m_document->socketProvider()).get(), JSC::RuntimeFlags::createAllEnabled()))
     , m_cacheStorageProvider(cacheStorageProvider)
     , m_clientOrigin(clientOrigin)
 {
@@ -154,6 +158,9 @@ void SharedWorkerThreadProxy::postExceptionToWorkerObject(const String& errorMes
     if (!m_workerThread->isInStaticScriptEvaluation())
         return;
 
+    if (protect(m_workerThread->WorkerOrWorkletThread::globalScope())->settingsValues().workerParseErrorReportingEnabled)
+        return;
+
     callOnMainThread([sharedWorkerIdentifier = m_workerThread->identifier(), errorMessage = errorMessage.isolatedCopy(), lineNumber, columnNumber, sourceURL = sourceURL.isolatedCopy()] {
         bool isErrorEvent = true;
         if (RefPtr connection = SharedWorkerContextManager::singleton().connection())
@@ -178,6 +185,14 @@ RefPtr<CacheStorageConnection> SharedWorkerThreadProxy::createCacheStorageConnec
     if (!m_cacheStorageConnection)
         m_cacheStorageConnection = Ref { m_cacheStorageProvider.get() }->createCacheStorageConnection();
     return m_cacheStorageConnection;
+}
+
+RefPtr<IDBClient::IDBConnectionProxy> SharedWorkerThreadProxy::createIDBConnectionProxy()
+{
+    // Unlike dedicated workers, whether shared workers remain usable after a
+    // network process crash is not yet well-defined; skip IDB recovery here
+    // until that is settled.
+    return nullptr;
 }
 
 RefPtr<RTCDataChannelRemoteHandlerConnection> SharedWorkerThreadProxy::createRTCDataChannelRemoteHandlerConnection()
@@ -243,6 +258,14 @@ void SharedWorkerThreadProxy::setAppBadge(std::optional<uint64_t> badge)
     callOnMainRunLoop([badge = WTF::move(badge), this, protectedThis = Ref { *this }] {
         m_page->badgeClient().setAppBadge(nullptr, m_clientOrigin.clientOrigin, badge);
     });
+}
+
+RefPtr<FileSystemStorageConnection> SharedWorkerThreadProxy::createFileSystemStorageConnection()
+{
+    ASSERT(isMainThread());
+    if (RefPtr storageConnection = m_document->storageConnection())
+        return storageConnection->fileSystemStorageConnection();
+    return nullptr;
 }
 
 } // namespace WebCore

@@ -20,10 +20,10 @@ Index: webkitgtk/Source/ThirdParty/skia/modules/skcms/src/skcms_internals.h
 -    #elif defined(__GNUC__) && !defined(SKCMS_HAS_MUSTTAIL)
 +    #elif defined(__GNUC__) && !defined(SKCMS_HAS_MUSTTAIL) && !defined(__alpha__) && \
 +          !defined(__hppa__) && !defined(__m68k__) && !defined(__sh__)
-         // GCC on riscv64 does not support our tail call functions
-         // cf. https://gcc.gnu.org/bugzilla/show_bug.cgi?id=121784
-         #if __has_cpp_attribute(clang::musttail) && !defined(__riscv)
-@@ -64,7 +69,8 @@ extern "C" {
+         // GCC on RISCV, MIPS, PowerPC, LoongArch, and Windows (MinGW)
+         // does not support our tail call functions
+         // (https://gcc.gnu.org/bugzilla/show_bug.cgi?id=121784).
+@@ -69,7 +74,8 @@ extern "C" {
          #else
              #define SKCMS_HAS_MUSTTAIL 0
          #endif
@@ -37,7 +37,7 @@ Index: webkitgtk/Source/ThirdParty/skia/src/core/SkRasterPipeline.h
 ===================================================================
 --- webkitgtk.orig/Source/ThirdParty/skia/src/core/SkRasterPipeline.h
 +++ webkitgtk/Source/ThirdParty/skia/src/core/SkRasterPipeline.h
-@@ -26,8 +26,8 @@ enum SkColorType : int;
+@@ -27,8 +27,8 @@ enum SkColorType : int;
  struct SkImageInfo;
  struct skcms_TransferFunction;
  

@@ -33,8 +33,8 @@
 #include "DocumentPage.h"
 #include "Event.h"
 #include "EventNames.h"
-#include "EventTargetInlines.h"
 #include "EventTargetInterfaces.h"
+#include "EventTargetInlines.h"
 #include "ExceptionOr.h"
 #include "PermissionsPolicy.h"
 #include "PlatformMediaSessionManager.h"
@@ -119,7 +119,7 @@ DOMAudioSession::Type DOMAudioSession::type() const
     if (!document)
         return DOMAudioSession::Type::Auto;
 
-    if (RefPtr page = document->page())
+    if (auto* page = document->page())
         return page->audioSessionType();
 
     return DOMAudioSession::Type::Auto;

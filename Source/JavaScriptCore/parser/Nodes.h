@@ -99,10 +99,12 @@ namespace JSC {
         SwitchType switchType;
     };
 
-    enum class AssignmentContext : uint8_t { 
-        DeclarationStatement, 
-        ConstDeclarationStatement, 
-        AssignmentExpression 
+    enum class AssignmentContext : uint8_t {
+        DeclarationStatement,
+        ConstDeclarationStatement,
+        UsingDeclarationStatement,
+        AwaitUsingDeclarationStatement,
+        AssignmentExpression
     };
 
     class ParserArenaFreeable {
@@ -140,7 +142,7 @@ namespace JSC {
         ParserArenaRoot(ParserArena&);
 
     public:
-        ParserArena& parserArena() { return m_arena; }
+        ParserArena& parserArena() LIFETIME_BOUND { return m_arena; }
         virtual ~ParserArenaRoot() { }
 
     protected:
@@ -158,7 +160,7 @@ namespace JSC {
         int startOffset() const { return m_position.offset; }
         int endOffset() const { return m_endOffset; }
         int lineStartOffset() const { return m_position.lineStartOffset; }
-        const JSTextPosition& position() const { return m_position; }
+        const JSTextPosition& position() const LIFETIME_BOUND { return m_position; }
         void setEndOffset(int offset) { m_endOffset = offset; }
         void setStartOffset(int offset) { m_position.offset = offset; }
 
@@ -241,7 +243,7 @@ namespace JSC {
     public:
         virtual void emitBytecode(BytecodeGenerator&, RegisterID* destination = nullptr) = 0;
 
-        void setLoc(unsigned firstLine, unsigned lastLine, int startOffset, int lineStartOffset);
+        void NODELETE setLoc(unsigned firstLine, unsigned lastLine, int startOffset, int lineStartOffset);
         unsigned lastLine() const { return m_lastLine; }
 
         StatementNode* next() const { return m_next; }
@@ -278,8 +280,12 @@ namespace JSC {
         VariableEnvironmentNode(VariableEnvironment&& lexicalDeclaredVariables);
         VariableEnvironmentNode(VariableEnvironment&& lexicalDeclaredVariables, FunctionStack&&);
 
-        VariableEnvironment& lexicalVariables() { return m_lexicalVariables; }
-        FunctionStack& functionStack() { return m_functionStack; }
+        VariableEnvironment& lexicalVariables() LIFETIME_BOUND { return m_lexicalVariables; }
+        FunctionStack& functionStack() LIFETIME_BOUND { return m_functionStack; }
+
+        bool hasUsingDeclaration() const { return m_lexicalVariables.hasUsingDeclaration(); }
+        bool hasAwaitUsingDeclaration() const { return m_lexicalVariables.hasAwaitUsingDeclaration(); }
+        unsigned usingDeclarationCount() const { return m_lexicalVariables.usingDeclarationCount(); }
 
     protected:
         VariableEnvironment m_lexicalVariables;
@@ -327,7 +333,7 @@ namespace JSC {
 
     private:
         bool isNumber() const final { return true; }
-        JSValue jsValue(BytecodeGenerator&) const override { return jsNumber(m_value); }
+        JSValue jsValue(BytecodeGenerator&) const override;
 
         double m_value;
     };
@@ -398,9 +404,9 @@ namespace JSC {
             checkConsistency();
         }
 
-        const JSTextPosition& divot() const { return m_divot; }
-        const JSTextPosition& divotStart() const { return m_divotStart; }
-        const JSTextPosition& divotEnd() const { return m_divotEnd; }
+        const JSTextPosition& divot() const LIFETIME_BOUND { return m_divot; }
+        const JSTextPosition& divotStart() const LIFETIME_BOUND { return m_divotStart; }
+        const JSTextPosition& divotEnd() const LIFETIME_BOUND { return m_divotEnd; }
 
         void checkConsistency() const
         {
@@ -628,7 +634,7 @@ namespace JSC {
 
     class ImportNode final : public ExpressionNode, public ThrowableExpressionData {
     public:
-        ImportNode(const JSTokenLocation&, ExpressionNode*, ExpressionNode*);
+        ImportNode(const JSTokenLocation&, ExpressionNode*, ExpressionNode*, bool deferred);
 
     private:
         bool isImportNode() const final { return true; }
@@ -636,6 +642,7 @@ namespace JSC {
 
         ExpressionNode* m_expr;
         ExpressionNode* m_option;
+        bool m_deferred;
     };
 
     class MetaPropertyNode : public ExpressionNode {
@@ -723,7 +730,7 @@ namespace JSC {
 
         bool isArrayLiteral() const final { return true; }
 
-        ArgumentListNode* toArgumentList(ParserArena&, int, int) const;
+        ArgumentListNode* NODELETE toArgumentList(ParserArena&, int, int) const;
 
         ElementNode* elements() const { return m_element; }
     private:
@@ -796,7 +803,7 @@ namespace JSC {
         PropertyListNode(const JSTokenLocation&, PropertyNode*);
         PropertyListNode(const JSTokenLocation&, PropertyNode*, PropertyListNode*);
 
-        bool hasStaticallyNamedProperty(const Identifier& propName);
+        bool NODELETE hasStaticallyNamedProperty(const Identifier& propName);
         bool isComputedClassField() const
         {
             return m_node->isComputedClassField();
@@ -805,7 +812,7 @@ namespace JSC {
         {
             return m_node->isInstanceClassField();
         }
-        bool hasInstanceFields() const;
+        bool NODELETE hasInstanceFields() const;
 
         bool isStaticClassField() const
         {
@@ -832,7 +839,7 @@ namespace JSC {
             return m_hasPrivateAccessors;
         }
 
-        static bool shouldCreateLexicalScopeForClass(PropertyListNode*);
+        static bool NODELETE shouldCreateLexicalScopeForClass(PropertyListNode*);
 
         RegisterID* emitBytecode(BytecodeGenerator&, RegisterID*, RegisterID*, Vector<UnlinkedFunctionExecutable::ClassElementDefinition>*, Vector<UnlinkedFunctionExecutable::ClassElementDefinition>*);
 
@@ -1461,6 +1468,7 @@ namespace JSC {
 
     private:
         RegisterID* emitBytecode(BytecodeGenerator&, RegisterID* = nullptr) final;
+        void emitBytecodeInConditionContext(BytecodeGenerator&, Label& trueTarget, Label& falseTarget, FallThroughMode) final;
 
         ExpressionNode* m_expr1;
         ExpressionNode* m_expr2;
@@ -1476,6 +1484,7 @@ namespace JSC {
 
     private:
         RegisterID* emitBytecode(BytecodeGenerator&, RegisterID* = nullptr) final;
+        void emitBytecodeInConditionContext(BytecodeGenerator&, Label& trueTarget, Label& falseTarget, FallThroughMode) final;
 
         bool isOptionalChain() const final { return true; }
 
@@ -1490,6 +1499,7 @@ namespace JSC {
 
     private:
         RegisterID* emitBytecode(BytecodeGenerator&, RegisterID* = nullptr) final;
+        void emitBytecodeInConditionContext(BytecodeGenerator&, Label& trueTarget, Label& falseTarget, FallThroughMode) final;
 
         ExpressionNode* m_logical;
         ExpressionNode* m_expr1;
@@ -1637,6 +1647,7 @@ namespace JSC {
     private:
         bool isCommaNode() const final { return true; }
         RegisterID* emitBytecode(BytecodeGenerator&, RegisterID* = nullptr) final;
+        void emitBytecodeInConditionContext(BytecodeGenerator&, Label& trueTarget, Label& falseTarget, FallThroughMode) final;
 
         ExpressionNode* m_expr;
         CommaNode* m_next { nullptr };
@@ -1648,8 +1659,8 @@ namespace JSC {
 
         void append(StatementNode*);
 
-        StatementNode* singleStatement() const;
-        StatementNode* lastStatement() const;
+        StatementNode* NODELETE singleStatement() const;
+        StatementNode* NODELETE lastStatement() const;
 
         bool hasCompletionValue() const;
         bool hasEarlyBreakOrContinue() const;
@@ -1843,10 +1854,11 @@ namespace JSC {
     class ContinueNode final : public StatementNode, public ThrowableExpressionData {
     public:
         ContinueNode(const JSTokenLocation&, const Identifier&);
-        Label* trivialTarget(BytecodeGenerator&);
-        
+        Label* NODELETE trivialTarget(BytecodeGenerator&);
+
     private:
         bool hasCompletionValue() const final { return false; }
+        bool hasEarlyBreakOrContinue() const final { return true; }
         bool isContinue() const final { return true; }
         void emitBytecode(BytecodeGenerator&, RegisterID* = nullptr) final;
 
@@ -1856,10 +1868,11 @@ namespace JSC {
     class BreakNode final : public StatementNode, public ThrowableExpressionData {
     public:
         BreakNode(const JSTokenLocation&, const Identifier&);
-        Label* trivialTarget(BytecodeGenerator&);
-        
+        Label* NODELETE trivialTarget(BytecodeGenerator&);
+
     private:
         bool hasCompletionValue() const final { return false; }
+        bool hasEarlyBreakOrContinue() const final { return true; }
         bool isBreak() const final { return true; }
         void emitBytecode(BytecodeGenerator&, RegisterID* = nullptr) final;
 
@@ -1901,6 +1914,7 @@ namespace JSC {
 
     private:
         bool hasCompletionValue() const final { return m_statement->hasCompletionValue(); }
+        bool hasEarlyBreakOrContinue() const final { return m_statement->hasEarlyBreakOrContinue(); }
         void emitBytecode(BytecodeGenerator&, RegisterID* = nullptr) final;
 
         const Identifier& m_name;
@@ -1942,7 +1956,7 @@ namespace JSC {
         ScopeNode(ParserArena&, const JSTokenLocation& start, const JSTokenLocation& end, LexicallyScopedFeatures);
         ScopeNode(ParserArena&, const JSTokenLocation& start, const JSTokenLocation& end, const SourceCode&, SourceElements*, VariableEnvironment&&, FunctionStack&&, VariableEnvironment&&, CodeFeatures, LexicallyScopedFeatures, InnerArrowFunctionCodeFeatures, int numConstants);
 
-        const SourceCode& source() const { return m_source; }
+        const SourceCode& source() const LIFETIME_BOUND { return m_source; }
         SourceID sourceID() const { return m_source.providerID(); }
 
         int startLine() const { return m_startLineNumber; }
@@ -1981,7 +1995,7 @@ namespace JSC {
             return usesSuperCall() || usesNewTarget();
         }
 
-        VariableEnvironment& varDeclarations() { return m_varDeclarations; }
+        VariableEnvironment& varDeclarations() LIFETIME_BOUND { return m_varDeclarations; }
 
         int neededConstants()
         {
@@ -1991,6 +2005,8 @@ namespace JSC {
         }
 
         StatementNode* singleStatement() const;
+
+        bool isEmptyBody() const { return !m_statements; }
 
         bool hasCompletionValue() const override;
         bool hasEarlyBreakOrContinue() const override;
@@ -2094,7 +2110,7 @@ namespace JSC {
     public:
         typedef Vector<ImportSpecifierNode*, 3> Specifiers;
 
-        const Specifiers& specifiers() const { return m_specifiers; }
+        const Specifiers& specifiers() const LIFETIME_BOUND { return m_specifiers; }
         void append(ImportSpecifierNode* specifier)
         {
             m_specifiers.append(specifier);
@@ -2109,7 +2125,7 @@ namespace JSC {
     public:
         using Attributes = Vector<std::tuple<const Identifier*, const Identifier*>, 3>;
 
-        const Attributes& attributes() const { return m_attributes; }
+        const Attributes& attributes() const LIFETIME_BOUND { return m_attributes; }
         void append(const Identifier& key, const Identifier& value)
         {
             m_attributes.append(std::tuple { &key, &value });
@@ -2209,7 +2225,7 @@ namespace JSC {
     public:
         typedef Vector<ExportSpecifierNode*, 3> Specifiers;
 
-        const Specifiers& specifiers() const { return m_specifiers; }
+        const Specifiers& specifiers() const LIFETIME_BOUND { return m_specifiers; }
         void append(ExportSpecifierNode* specifier)
         {
             m_specifiers.append(specifier);
@@ -2273,10 +2289,10 @@ namespace JSC {
         unsigned parameterCount() const { return m_parameterCount; }
         SourceParseMode parseMode() const { return m_parseMode; }
 
-        void setEndPosition(JSTextPosition);
+        void NODELETE setEndPosition(JSTextPosition);
 
-        const SourceCode& source() const { return m_source; }
-        const SourceCode& classSource() const { return m_classSource; }
+        const SourceCode& source() const LIFETIME_BOUND { return m_source; }
+        const SourceCode& classSource() const LIFETIME_BOUND { return m_classSource; }
         void setClassSource(const SourceCode& source) { m_classSource = source; }
 
         int startStartOffset() const { return m_startStartOffset; }
@@ -2456,8 +2472,8 @@ namespace JSC {
         const Identifier& ecmaName() { return m_ecmaName ? *m_ecmaName : m_name; }
         void setEcmaName(const Identifier& name) { m_ecmaName = m_name.isNull() ? &name : &m_name; }
 
-        bool hasStaticProperty(const Identifier& propName) { return m_classElements ? m_classElements->hasStaticallyNamedProperty(propName) : false; }
-        bool hasInstanceFields() const { return m_classElements ? m_classElements->hasInstanceFields() : false; }
+        bool hasStaticProperty(const Identifier& propName) { return m_classElements && m_classElements->hasStaticallyNamedProperty(propName); }
+        bool hasInstanceFields() const { return m_classElements && m_classElements->hasInstanceFields(); }
 
     private:
         RegisterID* emitBytecode(BytecodeGenerator&, RegisterID* = nullptr) final;
@@ -2573,8 +2589,8 @@ namespace JSC {
         BindingNode(const Identifier& boundProperty, const JSTextPosition& start, const JSTextPosition& end, AssignmentContext);
         const Identifier& boundProperty() const { return m_boundProperty; }
 
-        const JSTextPosition& divotStart() const { return m_divotStart; }
-        const JSTextPosition& divotEnd() const { return m_divotEnd; }
+        const JSTextPosition& divotStart() const LIFETIME_BOUND { return m_divotStart; }
+        const JSTextPosition& divotEnd() const LIFETIME_BOUND { return m_divotEnd; }
 
         bool bindValueCanThrow(BytecodeGenerator&) const final;
         RegisterID* writableDirectBindingIfPossible(BytecodeGenerator&) const final;
@@ -2615,8 +2631,8 @@ namespace JSC {
         AssignmentElementNode(ExpressionNode* assignmentTarget, const JSTextPosition& start, const JSTextPosition& end);
         const ExpressionNode* assignmentTarget() { return m_assignmentTarget; }
 
-        const JSTextPosition& divotStart() const { return m_divotStart; }
-        const JSTextPosition& divotEnd() const { return m_divotEnd; }
+        const JSTextPosition& divotStart() const LIFETIME_BOUND { return m_divotStart; }
+        const JSTextPosition& divotEnd() const LIFETIME_BOUND { return m_divotEnd; }
 
         bool bindValueCanThrow(BytecodeGenerator&) const final;
         RegisterID* writableDirectBindingIfPossible(BytecodeGenerator&) const final;

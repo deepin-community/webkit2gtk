@@ -26,7 +26,9 @@
 #pragma once
 
 #include "HandleBlock.h"
+#include "HandleSet.h"
 #include <wtf/FastMalloc.h>
+#include <wtf/MathExtras.h>
 
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
@@ -40,7 +42,7 @@ inline HandleBlock* HandleBlock::create(HandleSet* handleSet)
 inline void HandleBlock::destroy(HandleBlock* block)
 {
     block->~HandleBlock();
-    fastAlignedFree(block);
+    fastFree(block);
 }
 
 inline HandleBlock::HandleBlock(HandleSet* handleSet)

@@ -73,7 +73,7 @@ public:
 
     CodeBlock* codeBlock() { return m_codeBlock; }
     VM& vm() { return m_codeBlock->vm(); }
-    AssemblerType_T& assembler() { return m_assembler; }
+    AssemblerType_T& assembler() LIFETIME_BOUND { return m_assembler; }
 
     void prepareCallOperation(VM& vm)
     {
@@ -111,7 +111,7 @@ public:
 #endif
 
 #if ENABLE(WEBASSEMBLY)
-    void prepareWasmCallOperation(GPRReg instanceGPR);
+    void NODELETE prepareWasmCallOperation(GPRReg instanceGPR);
 #endif
 
     void checkStackPointerAlignment()
@@ -316,8 +316,12 @@ public:
     void storeProperty(JSValueRegs value, GPRReg object, GPRReg offset, GPRReg scratch);
 
     JumpList loadMegamorphicProperty(VM&, GPRReg baseGPR, GPRReg uidGPR, UniquedStringImpl*, GPRReg resultGPR, GPRReg scratch1GPR, GPRReg scratch2GPR, GPRReg scratch3GPR);
+    JumpList loadMegamorphicGetterSetter(VM&, GPRReg baseGPR, GPRReg uidGPR, UniquedStringImpl*, GPRReg resultGPR, GPRReg scratch1GPR, GPRReg scratch2GPR, GPRReg scratch3GPR);
+    template<uint32_t primaryMask, ptrdiff_t primaryEntriesOffset, uint32_t secondaryMask, ptrdiff_t secondaryEntriesOffset>
+    JumpList findMegamorphicCacheEntry(VM&, GPRReg baseGPR, GPRReg uidGPR, UniquedStringImpl*, GPRReg scratch1GPR, GPRReg scratch2GPR, GPRReg scratch3GPR);
     std::tuple<JumpList, JumpList> storeMegamorphicProperty(VM&, GPRReg baseGPR, GPRReg uidGPR, UniquedStringImpl*, GPRReg valueGPR, GPRReg scratch1GPR, GPRReg scratch2GPR, GPRReg scratch3GPR);
     JumpList hasMegamorphicProperty(VM&, GPRReg baseGPR, GPRReg uidGPR, UniquedStringImpl*, GPRReg resultGPR, GPRReg scratch1GPR, GPRReg scratch2GPR, GPRReg scratch3GPR);
+    JumpList loadCacheableIdentifierImpl(GPRReg propertyGPR, GPRReg destGPR, bool propertyIsString, bool propertyIsSymbol, bool canBeRope = true);
 
     void moveValueRegs(JSValueRegs srcRegs, JSValueRegs destRegs)
     {
@@ -478,7 +482,7 @@ public:
     void restoreCalleeSavesFromVMEntryFrameCalleeSavesBuffer(GPRReg vmGPR, GPRReg scratchGPR);
     void restoreCalleeSavesFromVMEntryFrameCalleeSavesBufferImpl(GPRReg entryFrame, const RegisterSet& skipList);
 
-    void copyLLIntBaselineCalleeSavesFromFrameOrRegisterToEntryFrameCalleeSavesBuffer(EntryFrame*&, const RegisterSet& usedRegisters = RegisterSetBuilder::stubUnavailableRegisters());
+    void copyLLIntBaselineCalleeSavesFromFrameOrRegisterToEntryFrameCalleeSavesBuffer(EntryFrame*&, const RegisterSet& usedRegisters = RegisterSet::stubUnavailableRegisters());
 
     void emitMaterializeTagCheckRegisters()
     {
@@ -1020,16 +1024,14 @@ public:
     }
 
 #if USE(JSVALUE64)
-    void toBigInt64(GPRReg cellGPR, GPRReg destGPR, GPRReg scratchGPR, GPRReg scratch2GPR)
+    void toBigInt64(GPRReg cellGPR, GPRReg destGPR)
     {
-        ASSERT(noOverlap(cellGPR, destGPR, scratchGPR, scratch2GPR));
+        ASSERT(noOverlap(cellGPR, destGPR));
         load32(Address(cellGPR, JSBigInt::offsetOfLength()), destGPR);
         JumpList doneCases;
         doneCases.append(branchTest32(Zero, destGPR));
-        loadPtr(Address(cellGPR, JSBigInt::offsetOfData()), scratchGPR);
-        cageConditionally(Gigacage::Primitive, scratchGPR, destGPR, scratch2GPR);
-        load64(Address(scratchGPR), destGPR);
-        doneCases.append(branchTest8(Zero, Address(cellGPR, JSBigInt::offsetOfSign())));
+        load64(Address(cellGPR, JSBigInt::offsetOfData()), destGPR);
+        doneCases.append(branchTest8(Zero, Address(cellGPR, JSCell::typeInfoFlagsOffset()), TrustedImm32(TypeInfoPerCellBit)));
         neg64(destGPR);
         doneCases.link(this);
     }
@@ -1200,6 +1202,28 @@ public:
         return branchIfNotNull(regs.tagGPR());
 #endif
     }
+
+#if USE(JSVALUE64)
+    Jump branchIfTrue(GPRReg gpr)
+    {
+        return branch64(Equal, gpr, TrustedImm64(JSValue::encode(jsBoolean(true))));
+    }
+
+    Jump branchIfNotTrue(GPRReg gpr)
+    {
+        return branch64(NotEqual, gpr, TrustedImm64(JSValue::encode(jsBoolean(true))));
+    }
+
+    Jump branchIfFalse(GPRReg gpr)
+    {
+        return branch64(Equal, gpr, TrustedImm64(JSValue::encode(jsBoolean(false))));
+    }
+
+    Jump branchIfNotFalse(GPRReg gpr)
+    {
+        return branch64(NotEqual, gpr, TrustedImm64(JSValue::encode(jsBoolean(false))));
+    }
+#endif
 
     template<typename T>
     Jump branchStructure(RelationalCondition condition, T leftHandSide, Structure* structure)
@@ -1531,17 +1555,15 @@ public:
     {
         // This moves the checking range (fail if N >= (1 << (52 - 1)) or N < -(1 << (52 - 1))) by subtracting a value.
         // So, valid value region starts with -1 and lower. In unsigned form, which means,
-        // 0x00000000000000000 to 0x000fffffffffffff . So, by shifting 52, we can extract 0x000 part, and we can check whether it is zero.
+        // 0x00000000000000000 to 0x000fffffffffffff. So, by ignoring 52 bits, we can extract 0x000 part, and we can check whether it is zero.
         add64(TrustedImm64(0x0008000000000000ULL), valueGPR, scratchGPR);
-        urshift64(TrustedImm32(52), scratchGPR);
-        return branchTest64(Zero, scratchGPR);
+        return branchTest64(Zero, scratchGPR, TrustedImm64(0xFFF0000000000000ULL));
     }
 
     Jump isNotStrictInt52(GPRReg valueGPR, GPRReg scratchGPR)
     {
         add64(TrustedImm64(0x0008000000000000ULL), valueGPR, scratchGPR);
-        urshift64(TrustedImm32(52), scratchGPR);
-        return branchTest64(NonZero, scratchGPR);
+        return branchTest64(NonZero, scratchGPR, TrustedImm64(0xFFF0000000000000ULL));
     }
 
     // Here are possible arrangements of source, target, scratch:
@@ -2087,6 +2109,39 @@ public:
         storePtr(TrustedImmPtr(nullptr), Address(resultGPR, JSObject::butterflyOffset()));
     }
 
+    template<typename StructureType>
+    void emitAllocateJSBigInt64(VM& vm, GPRReg resultGPR, GPRReg valueGPR, GPRReg scratchGPR1, GPRReg scratchGPR2, StructureType structure, bool isSigned, JumpList& slowCases)
+    {
+        // A zero value maps to the shared, immortal heapBigIntConstantZero held by the VM, so we
+        // can avoid allocating (and taking the slow path) entirely for it.
+        auto isZero = branchTest64(Zero, valueGPR);
+
+        Allocator allocator = allocatorForConcurrently<JSBigInt>(vm, JSBigInt::allocationSize(1), AllocatorForMode::AllocatorIfExists);
+        emitAllocateJSCell(resultGPR, JITAllocator::constant(allocator), scratchGPR1, structure, scratchGPR2, slowCases, SlowAllocationResult::UndefinedBehavior);
+
+        store64(TrustedImm64(1), Address(resultGPR, JSBigInt::offsetOfLength()));
+
+        if (isSigned) {
+            neg64(valueGPR, scratchGPR1);
+            moveConditionally64(LessThan, valueGPR, TrustedImm32(0), scratchGPR1, valueGPR, scratchGPR1);
+            store64(scratchGPR1, Address(resultGPR, JSBigInt::offsetOfData()));
+
+            load8(Address(resultGPR, JSCell::typeInfoFlagsOffset()), scratchGPR1);
+            or32(TrustedImm32(TypeInfoPerCellBit), scratchGPR1, scratchGPR2);
+            moveConditionally64(LessThan, valueGPR, TrustedImm32(0), scratchGPR2, scratchGPR1, scratchGPR1);
+            store8(scratchGPR1, Address(resultGPR, JSCell::typeInfoFlagsOffset()));
+        } else
+            store64(valueGPR, Address(resultGPR, JSBigInt::offsetOfData()));
+
+        mutatorFence(vm);
+        auto done = jump();
+
+        isZero.link(this);
+        move(TrustedImmPtr(vm.heapBigIntConstantZero.get()), resultGPR);
+
+        done.link(this);
+    }
+
     enum LazyGlobalObjectLoadTag { LazyBaselineGlobalObject };
     JumpList branchIfValue(VM&, JSValueRegs, GPRReg scratch, GPRReg scratchIfShouldCheckMasqueradesAsUndefined, FPRReg, FPRReg, bool shouldCheckMasqueradesAsUndefined, Variant<JSGlobalObject*, GPRReg, LazyGlobalObjectLoadTag>, bool negateResult);
     JumpList branchIfTruthy(VM& vm, JSValueRegs value, GPRReg scratch, GPRReg scratchIfShouldCheckMasqueradesAsUndefined, FPRReg scratchFPR0, FPRReg scratchFPR1, bool shouldCheckMasqueradesAsUndefined, Variant<JSGlobalObject*, GPRReg, LazyGlobalObjectLoadTag> globalObject)
@@ -2122,7 +2177,7 @@ public:
     }
 
 #if USE(JSVALUE64)
-    void wangsInt64Hash(GPRReg inputAndResult, GPRReg scratch);
+    void rapidHashMix64(GPRReg inputAndResult, GPRReg scratch1, GPRReg scratch2);
 #endif
 
 #if ENABLE(WEBASSEMBLY)

@@ -28,7 +28,8 @@
 #include <WebCore/CSSNumericValue.h>
 #include <WebCore/CSSPrimitiveValue.h>
 #include <WebCore/ScrollTimeline.h>
-#include <WebCore/StyleViewTimelineInsets.h>
+#include <WebCore/StyleViewFunction.h>
+#include <WebCore/StyleViewTimelineInsetItem.h>
 #include <WebCore/Styleable.h>
 #include <WebCore/ViewTimelineOptions.h>
 #include <wtf/Ref.h>
@@ -51,14 +52,15 @@ struct StickinessAdjustmentData {
         BeforeEntry,
         DuringEntry,
         WhileContained,
+        WhileCovering,
         DuringExit,
         AfterExit
     };
 
-    float entryDistanceAdjustment() const;
-    float exitDistanceAdjustment() const;
-    float rangeStartAdjustment() const;
-    float rangeEndAdjustment() const;
+    float NODELETE entryDistanceAdjustment() const;
+    float NODELETE exitDistanceAdjustment() const;
+    float NODELETE rangeStartAdjustment() const;
+    float NODELETE rangeEndAdjustment() const;
 
     static StickinessAdjustmentData computeStickinessAdjustmentData(const StickyPositionViewportConstraints&, ScrollTimeline::ResolvedScrollDirection, float scrollContainerSize, float subjectSize, float subjectOffset);
 
@@ -73,12 +75,12 @@ public:
     static ExceptionOr<Ref<ViewTimeline>> create(Document&, ViewTimelineOptions&& = { });
     static Ref<ViewTimeline> create(const AtomString&, ScrollAxis, const Style::ViewTimelineInsetItem&);
 
-    const Element* subject() const;
+    const Element* NODELETE subject() const;
     const WeakStyleable subjectStyleable() const { return m_subject; }
     void setSubject(Element*);
     void setSubject(const Styleable&);
 
-    const Style::ViewTimelineInsetItem& insets() const { return m_insets; }
+    const Style::ViewTimelineInsetItem& insets() const LIFETIME_BOUND { return m_insets; }
     void setInsets(const Style::ViewTimelineInsetItem& insets) { m_insets = insets; }
 
     Ref<CSSNumericValue> startOffset() const;
@@ -93,9 +95,12 @@ public:
     RefPtr<Element> source() const override;
     Style::SingleAnimationRange defaultRange() const final;
 
-    std::pair<WebAnimationTime, WebAnimationTime> intervalForAttachmentRange(const Style::SingleAnimationRange&) const final;
-    std::pair<double, double> offsetIntervalForAttachmentRange(const Style::SingleAnimationRange&) const;
+    std::pair<WebAnimationTime, WebAnimationTime> intervalForAttachmentRange(const ResolvableTimelineRange&) const final;
+    std::pair<double, double> offsetIntervalForAttachmentRange(const ResolvableTimelineRange&) const;
     std::pair<double, double> offsetIntervalForTimelineRangeName(Style::SingleAnimationRangeName) const;
+
+    bool matchesAnonymousViewFunctionForSubject(const Style::ViewFunction&, const Styleable&) const;
+    WebAnimationTime NODELETE epsilon() const;
 
 private:
     ScrollTimeline::Data computeTimelineData(UseCachedCurrentTime = UseCachedCurrentTime::Yes) const final;
@@ -109,6 +114,7 @@ private:
 
     struct CurrentTimeData {
         float scrollOffset { 0 };
+        float maxScrollOffset { 0 };
         float scrollContainerSize { 0 };
         float subjectOffset { 0 };
         float subjectSize { 0 };
@@ -120,8 +126,8 @@ private:
     void cacheCurrentTime();
 
     struct SpecifiedViewTimelineInsets {
-        RefPtr<CSSPrimitiveValue> start;
-        RefPtr<CSSPrimitiveValue> end;
+        RefPtr<CSSValue> start;
+        RefPtr<CSSValue> end;
     };
 
     ExceptionOr<SpecifiedViewTimelineInsets> validateSpecifiedInsets(const ViewTimelineInsetValue, const Document&);

@@ -61,11 +61,11 @@ class InspectorCanvas final : public RefCountedAndCanMakeWeakPtr<InspectorCanvas
 public:
     static Ref<InspectorCanvas> create(CanvasRenderingContext&);
 
-    const String& identifier() const { return m_identifier; }
+    const String& identifier() const LIFETIME_BOUND { return m_identifier; }
 
-    const CanvasRenderingContext& canvasContext() const { return m_context.get(); }
-    CanvasRenderingContext& canvasContext() { return m_context.get(); }
-    HTMLCanvasElement* canvasElement() const;
+    const CanvasRenderingContext& canvasContext() const { return m_context; }
+    CanvasRenderingContext& canvasContext() { return m_context; }
+    HTMLCanvasElement* NODELETE canvasElement() const;
 
     ScriptExecutionContext* scriptExecutionContext() const;
 
@@ -73,11 +73,11 @@ public:
 
     HashSet<Element*> clientNodes() const;
 
-    void canvasChanged();
+    void NODELETE canvasChanged();
 
     void resetRecordingData();
-    bool hasRecordingData() const;
-    bool currentFrameHasData() const;
+    bool NODELETE hasRecordingData() const;
+    bool NODELETE currentFrameHasData() const;
 
     void recordAction(String&&, InspectorCanvasProcessedArguments&& = { });
 
@@ -89,11 +89,11 @@ public:
     void setRecordingName(const String& name) { m_recordingName = name; }
 
     void setBufferLimit(long);
-    bool hasBufferSpace() const;
+    bool NODELETE hasBufferSpace() const;
     long bufferUsed() const { return m_bufferUsed; }
 
     void setFrameCount(long);
-    bool overFrameCount() const;
+    bool NODELETE overFrameCount() const;
 
     Ref<Inspector::Protocol::Canvas::Canvas> buildObjectForCanvas(bool captureBacktrace);
     Ref<Inspector::Protocol::Recording::Recording> releaseObjectForRecording();
@@ -109,21 +109,21 @@ private:
     void appendActionSnapshotIfNeeded();
 
     using DuplicateDataVariant = Variant<
-        RefPtr<CanvasGradient>,
-        RefPtr<CanvasPattern>,
-        RefPtr<HTMLCanvasElement>,
-        RefPtr<HTMLImageElement>,
+        Ref<CanvasGradient>,
+        Ref<CanvasPattern>,
+        Ref<HTMLCanvasElement>,
+        Ref<HTMLImageElement>,
 #if ENABLE(VIDEO)
-        RefPtr<HTMLVideoElement>,
+        Ref<HTMLVideoElement>,
 #endif
-        RefPtr<ImageData>,
-        RefPtr<ImageBitmap>,
-        RefPtr<Inspector::ScriptCallStack>,
-        RefPtr<Inspector::AsyncStackTrace>,
-        RefPtr<CSSStyleImageValue>,
+        Ref<ImageData>,
+        Ref<ImageBitmap>,
+        Ref<Inspector::ScriptCallStack>,
+        Ref<Inspector::AsyncStackTrace>,
+        Ref<CSSStyleImageValue>,
         Inspector::ScriptCallFrame,
 #if ENABLE(OFFSCREEN_CANVAS)
-        RefPtr<OffscreenCanvas>,
+        Ref<OffscreenCanvas>,
 #endif
         String
     >;

@@ -53,7 +53,7 @@ Ref<WebGeolocationManagerProxy> WebGeolocationManagerProxy::create(WebProcessPoo
 WebGeolocationManagerProxy::WebGeolocationManagerProxy(WebProcessPool* processPool)
     : WebContextSupplement(processPool)
 {
-    WebContextSupplement::protectedProcessPool()->addMessageReceiver(Messages::WebGeolocationManagerProxy::messageReceiverName(), *this);
+    protect(WebContextSupplement::processPool())->addMessageReceiver(Messages::WebGeolocationManagerProxy::messageReceiverName(), *this);
 }
 
 WebGeolocationManagerProxy::~WebGeolocationManagerProxy() = default;
@@ -129,8 +129,9 @@ void WebGeolocationManagerProxy::startUpdatingWithProxy(WebProcessProxy& proxy, 
     RefPtr page = WebProcessProxy::webPage(pageProxyID);
     MESSAGE_CHECK(proxy.connection(), !!page);
 
-    auto isValidAuthorizationToken = page->protectedGeolocationPermissionRequestManager()->isValidAuthorizationToken(authorizationToken);
-    MESSAGE_CHECK(proxy.connection(), isValidAuthorizationToken);
+    auto authorizedDomain = protect(page->geolocationPermissionRequestManager())->registrableDomainForAuthorizationToken(authorizationToken);
+    MESSAGE_CHECK(proxy.connection(), !!authorizedDomain);
+    MESSAGE_CHECK(proxy.connection(), authorizedDomain->isEmpty() || *authorizedDomain == registrableDomain);
 
     auto& perDomainData = *m_perDomainData.ensure(registrableDomain, [] {
         return makeUnique<PerDomainData>();

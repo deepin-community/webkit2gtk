@@ -82,7 +82,7 @@ public:
 
     bool isDetached() const { return m_isDetached; }
 
-    const WebCodecsAudioInternalData& data() const { return m_data; }
+    const WebCodecsAudioInternalData& data() const LIFETIME_BOUND { return m_data; }
 
     // memoryCost() may be called from a GC thread by the JS wrapper's visitChildren, so it must
     // not touch m_data.audioData (which close() may concurrently null on the main thread).

@@ -23,9 +23,9 @@
  * DAMAGE.
  */
 
-#ifndef PlatformLocale_h
-#define PlatformLocale_h
+#pragma once
 
+#include <wtf/CheckedRef.h>
 #include <wtf/Language.h>
 #include <wtf/Platform.h>
 #include <wtf/TZoneMalloc.h>
@@ -39,9 +39,10 @@ class DateComponents;
 class FontCascade;
 #endif
 
-class Locale {
+class Locale : public CanMakeCheckedPtr<Locale> {
     WTF_MAKE_TZONE_ALLOCATED(Locale);
     WTF_MAKE_NONCOPYABLE(Locale);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(Locale);
 
 public:
     WEBCORE_EXPORT static std::unique_ptr<Locale> create(const AtomString& localeIdentifier);
@@ -151,8 +152,8 @@ protected:
     void setLocaleData(const Vector<String, DecimalSymbolsSize>&, const String& positivePrefix, const String& positiveSuffix, const String& negativePrefix, const String& negativeSuffix);
 
 private:
-    bool detectSignAndGetDigitRange(const String& input, bool& isNegative, unsigned& startIndex, unsigned& endIndex);
-    unsigned matchedDecimalSymbolIndex(const String& input, unsigned& position);
+    bool NODELETE detectSignAndGetDigitRange(const String& input, bool& isNegative, unsigned& startIndex, unsigned& endIndex);
+    unsigned NODELETE matchedDecimalSymbolIndex(const String& input, unsigned& position);
 
     std::array<String, DecimalSymbolsSize> m_decimalSymbols;
     String m_positivePrefix;
@@ -167,5 +168,4 @@ inline std::unique_ptr<Locale> Locale::createDefault()
     return Locale::create(AtomString { defaultLanguage() });
 }
 
-}
-#endif
+} // namespace WebCore

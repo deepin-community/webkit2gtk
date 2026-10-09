@@ -28,39 +28,77 @@ import CoreGraphics
 import Foundation
 import os
 import simd
+#if canImport(CoreRE)
 @_spi(Private) @_spi(RealityKit) @_spi(RealityKit_Webkit) import RealityKit
+#else
+import RealityKit
+#endif
 
-private extension Logger {
-    static let realityKitEntity = Logger(subsystem: "com.apple.WebKit", category: "RealityKitEntity")
+extension Logger {
+    fileprivate static let realityKitEntity = Logger(subsystem: "com.apple.WebKit", category: "RealityKitEntity")
 }
 
 @objc
 @implementation
 extension WKRKEntity {
-    @nonobjc private let entity: Entity
+    @nonobjc
+    private var entity = Entity()
 
-    weak var delegate: WKRKEntityDelegate?
+    weak var delegate: (any WKRKEntityDelegate)?
 
-    @nonobjc private var animationPlaybackController: AnimationPlaybackController? = nil
-    @nonobjc private var animationFinishedSubscription: Cancellable?
-    @nonobjc private var _duration: TimeInterval? = nil
-    @nonobjc private var _playbackRate: Float = 1.0
+    @nonobjc
+    private var animationPlaybackController: AnimationPlaybackController? = nil
+    @nonobjc
+    private var animationFinishedSubscription: (any Cancellable)?
+    @nonobjc
+    private var backingDuration: TimeInterval? = nil
+    @nonobjc
+    private var backingPlaybackRate: Float = 1.0
+    @nonobjc
+    private var backingAnimation: AnimationResource? = nil
+    @nonobjc
+    private var backingCurrentTime: TimeInterval = 0
 
-    private static var _defaultEnvironmentResource: EnvironmentResource?
+    private static var defaultEnvironmentResource: EnvironmentResource?
+
+    #if !canImport(CoreRE)
+    @nonobjc
+    private static var headlessRenderer: RealityRenderer?
+
+    @nonobjc
+    private static var rendererUpdateTimer: Timer?
+
+    @nonobjc
+    private final func ensureInScene() {
+        guard entity.scene == nil else { return }
+
+        if Self.headlessRenderer == nil {
+            Self.headlessRenderer = try? RealityRenderer()
+            let timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { _ in
+                try? Self.headlessRenderer?.update(1.0 / 60.0)
+            }
+            RunLoop.main.add(timer, forMode: .common)
+            Self.rendererUpdateTimer = timer
+        }
+        Self.headlessRenderer?.entities.append(entity)
+    }
+    #endif
 
     class func isLoadFromDataAvailable() -> Bool {
-#if canImport(RealityKit, _version: 377)
+        #if canImport(RealityKit, _version: 377)
         true
-#else
+        #else
         false
-#endif
+        #endif
     }
 
     @objc(loadFromData:withAttributionTaskID:entityMemoryLimit:completionHandler:)
     class func load(from data: Data, withAttributionTaskID attributionTaskId: String?, entityMemoryLimit: Int) async -> WKRKEntity? {
-#if canImport(RealityKit, _version: "403.0.3")
+        #if canImport(RealityKit, _version: "403.0.3")
         do {
-            var loadOptions = Entity.__LoadOptions()
+            #if canImport(CoreRE)
+            // FIXME: https://bugs.webkit.org/show_bug.cgi?id=313180
+            var loadOptions = unsafe Entity.__LoadOptions()
             if let attributionTaskId {
                 loadOptions.memoryAttributionID = attributionTaskId
             }
@@ -68,34 +106,46 @@ extension WKRKEntity {
                 loadOptions.enforceMemoryConstraints = true
                 loadOptions.memoryLimit = entityMemoryLimit * 1024 * 1024
             }
-#if canImport(RealityKit, _version: "403.0.9")
+            #if canImport(RealityKit, _version: "403.0.9")
             loadOptions.featuresToSkip = [.audio]
-#endif
-
+            #endif
             let loadedEntity = try await Entity(from: data, options: loadOptions)
+            #else
+            let loadedEntity = try await Entity(from: data)
+            #endif
             return WKRKEntity(loadedEntity)
         } catch {
-            Logger.realityKitEntity.error("Failed to load entity from data")
+            Logger.realityKitEntity.error("Failed to load entity from data: \(error)")
             return nil
         }
-#else
+        #else
         return nil
-#endif // canImport(RealityKit, _version: "403.0.3")
+        #endif // canImport(RealityKit, _version: "403.0.3")
     }
 
-    @nonobjc convenience init(_ rkEntity: Entity) {
-        self.init(coreEntity: rkEntity.coreEntity)
+    @nonobjc
+    convenience init(_ rkEntity: Entity) {
+        #if canImport(CoreRE)
+        // FIXME: https://bugs.webkit.org/show_bug.cgi?id=313180
+        unsafe self.init(coreEntity: rkEntity.coreEntity)
+        #else
+        self.init()
+        entity = rkEntity
+        #endif
     }
 
+    #if canImport(CoreRE)
     init(coreEntity: REEntityRef) {
-        entity = Entity.fromCore(coreEntity)
+        // FIXME: https://bugs.webkit.org/show_bug.cgi?id=313180
+        entity = unsafe Entity.fromCore(coreEntity)
     }
+    #endif
 
     var name: String {
         get { entity.name }
         set { entity.name = newValue }
     }
-    
+
     var interactionPivotPoint: simd_float3 {
         entity.visualBounds(relativeTo: nil).center
     }
@@ -107,12 +157,13 @@ extension WKRKEntity {
     var boundingBoxCenter: simd_float3 {
         boundingBox?.center ?? SIMD3<Float>(0, 0, 0)
     }
-    
+
     var boundingRadius: Float {
         boundingBox?.boundingRadius ?? 0
     }
 
-    @nonobjc private final var boundingBox: BoundingBox? {
+    @nonobjc
+    private final var boundingBox: BoundingBox? {
         entity.visualBounds(relativeTo: entity)
     }
 
@@ -126,7 +177,7 @@ extension WKRKEntity {
             if let container = entity.parent {
                 adjustedTransform = container.convert(transform: adjustedTransform, from: nil)
             }
-            
+
             entity.transform = adjustedTransform
         }
     }
@@ -151,22 +202,21 @@ extension WKRKEntity {
     }
 
     var duration: TimeInterval {
-        _duration ?? 0
+        backingDuration ?? 0
     }
 
     var loop: Bool = false
 
     var playbackRate: Float {
         get {
-            animationPlaybackController?.speed ?? _playbackRate
+            animationPlaybackController?.speed ?? backingPlaybackRate
         }
         set {
-            // FIXME (280081): Support negative playback rate
-            _playbackRate = max(newValue, 0);
+            backingPlaybackRate = newValue
             guard let animationPlaybackController else {
                 return
             }
-            animationPlaybackController.speed = _playbackRate
+            animationPlaybackController.speed = backingPlaybackRate
             animationPlaybackStateDidUpdate()
         }
     }
@@ -176,6 +226,17 @@ extension WKRKEntity {
             animationPlaybackController?.isPaused ?? true
         }
         set {
+            if animationPlaybackController == nil {
+                guard !newValue, let animation = backingAnimation else {
+                    return
+                }
+                let controller = entity.playAnimation(animation, startsPaused: false)
+                controller.speed = backingPlaybackRate
+                animationPlaybackController = controller
+                animationPlaybackStateDidUpdate()
+                return
+            }
+
             guard let animationPlaybackController, animationPlaybackController.isPaused != newValue else {
                 return
             }
@@ -191,11 +252,21 @@ extension WKRKEntity {
 
     var currentTime: TimeInterval {
         get {
-            animationPlaybackController?.time ?? 0
+            animationPlaybackController?.time ?? backingCurrentTime
         }
 
         set {
-            guard let animationPlaybackController, let duration = _duration else {
+            guard let duration = backingDuration else {
+                return
+            }
+
+            if animationPlaybackController == nil, let animation = backingAnimation {
+                let controller = entity.playAnimation(animation, startsPaused: true)
+                controller.speed = backingPlaybackRate
+                animationPlaybackController = controller
+            }
+
+            guard let animationPlaybackController else {
                 return
             }
 
@@ -213,14 +284,19 @@ extension WKRKEntity {
             return
         }
 
+        #if !canImport(CoreRE)
+        ensureInScene()
+        #endif
+
+        backingAnimation = animation
         animationPlaybackController = entity.playAnimation(animation, startsPaused: !autoplay)
         guard let animationPlaybackController else {
             Logger.realityKitEntity.error("Cannot play entity animation")
             return
         }
 
-        _duration = animationPlaybackController.duration
-        animationPlaybackController.speed = _playbackRate
+        backingDuration = animationPlaybackController.duration
+        animationPlaybackController.speed = backingPlaybackRate
         animationPlaybackStateDidUpdate()
 
         guard let scene = entity.scene else {
@@ -230,15 +306,22 @@ extension WKRKEntity {
 
         animationFinishedSubscription = scene.subscribe(to: AnimationEvents.PlaybackCompleted.self, on: entity) { [weak self] event in
             guard let self,
-                  let playbackController = self.animationPlaybackController,
-                  event.playbackController == playbackController else {
+                let playbackController = self.animationPlaybackController,
+                event.playbackController == playbackController
+            else {
                 Logger.realityKitEntity.error("Cannot schedule the next animation")
                 return
             }
 
-            let startsPaused = !self.loop
-            let animationController = self.entity.playAnimation(animation, startsPaused: startsPaused)
-            animationController.speed = self._playbackRate
+            guard self.loop else {
+                self.backingCurrentTime = self.backingDuration ?? 0
+                self.animationPlaybackController = nil
+                self.animationPlaybackStateDidUpdate()
+                return
+            }
+
+            let animationController = self.entity.playAnimation(animation, startsPaused: false)
+            animationController.speed = self.backingPlaybackRate
             self.animationPlaybackController = animationController
             self.animationPlaybackStateDidUpdate()
         }
@@ -251,7 +334,8 @@ extension WKRKEntity {
         }
 
         guard let imageWidth = properties[kCGImagePropertyPixelWidth] as? CGFloat,
-              let imageHeight = properties[kCGImagePropertyPixelHeight] as? CGFloat else {
+            let imageHeight = properties[kCGImagePropertyPixelHeight] as? CGFloat
+        else {
             Logger.realityKitEntity.error("Resizing IBL image: width and height properties are not valid")
             return nil
         }
@@ -291,20 +375,40 @@ extension WKRKEntity {
 
         let targetWidth = Int(CGFloat(image.width) / scaleFactor)
         let targetHeight = Int(CGFloat(image.height) / scaleFactor)
-        Logger.realityKitEntity.info("Resizing IBL image: doing an actual resize for image with size: (\(image.width), \(image.height)) to target size: (\(targetWidth), \(targetHeight)), bitsPerComponent: \(image.bitsPerComponent), colorSpace: \(String(describing: image.colorSpace)), bitmapInfo: \(String(describing: image.bitmapInfo))")
+        Logger.realityKitEntity.info(
+            "Resizing IBL image: doing an actual resize for image with size: (\(image.width), \(image.height)) to target size: (\(targetWidth), \(targetHeight)), bitsPerComponent: \(image.bitsPerComponent), colorSpace: \(String(describing: image.colorSpace)), bitmapInfo: \(String(describing: image.bitmapInfo))"
+        )
 
         var imageBitmapInfoRawValue = image.bitmapInfo.rawValue
         // CGBitmapContext will not render to any non-premultiplied alpha format.
         switch image.bitmapInfo.intersection(.alphaInfoMask).rawValue {
         case CGImageAlphaInfo.first.rawValue:
-            imageBitmapInfoRawValue = (imageBitmapInfoRawValue & ~CGBitmapInfo.alphaInfoMask.rawValue) | CGImageAlphaInfo.noneSkipFirst.rawValue
+            imageBitmapInfoRawValue =
+                (imageBitmapInfoRawValue & ~CGBitmapInfo.alphaInfoMask.rawValue) | CGImageAlphaInfo.noneSkipFirst.rawValue
         case CGImageAlphaInfo.last.rawValue:
-            imageBitmapInfoRawValue = (imageBitmapInfoRawValue & ~CGBitmapInfo.alphaInfoMask.rawValue) | CGImageAlphaInfo.noneSkipLast.rawValue
+            imageBitmapInfoRawValue =
+                (imageBitmapInfoRawValue & ~CGBitmapInfo.alphaInfoMask.rawValue) | CGImageAlphaInfo.noneSkipLast.rawValue
         default:
             break
         }
-        
-        guard let context = CGContext.init(data: nil, width: targetWidth, height: targetHeight, bitsPerComponent: image.bitsPerComponent, bytesPerRow: 0, space: image.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: imageBitmapInfoRawValue) else {
+
+        guard let colorSpace = image.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB) else {
+            Logger.realityKitEntity.error("Resizing IBL image: Unable to create CGContext for image resizing")
+            return nil
+        }
+
+        guard
+            // FIXME: https://bugs.webkit.org/show_bug.cgi?id=313180
+            let context = unsafe CGContext(
+                data: nil,
+                width: targetWidth,
+                height: targetHeight,
+                bitsPerComponent: image.bitsPerComponent,
+                bytesPerRow: 0,
+                space: colorSpace,
+                bitmapInfo: imageBitmapInfoRawValue
+            )
+        else {
             Logger.realityKitEntity.error("Resizing IBL image: Unable to create CGContext for image resizing")
             return nil
         }
@@ -312,7 +416,8 @@ extension WKRKEntity {
         return context.makeImage()
     }
 
-    @nonobjc private final func applyIBL(_ environment: EnvironmentResource) {
+    @nonobjc
+    private final func applyIBL(_ environment: EnvironmentResource) {
         entity.components[VirtualEnvironmentProbeComponent.self] = .init(source: .single(.init(environment: environment)))
         entity.components[ImageBasedLightComponent.self] = .init(source: .none)
         entity.components[ImageBasedLightReceiverComponent.self] = .init(imageBasedLight: entity)
@@ -331,12 +436,19 @@ extension WKRKEntity {
         }
 
         do {
-            let textureResource = try await TextureResource(cubeFromEquirectangular: cgImage, options: TextureResource.CreateOptions(semantic: .hdrColor))
+            let textureResource = try await TextureResource(
+                cubeFromEquirectangular: cgImage,
+                options: TextureResource.CreateOptions(semantic: .hdrColor)
+            )
             let environment = try await EnvironmentResource(cube: textureResource, options: .init())
 
-            if let coreEnvironmentResourceAsset = environment.coreIBLAsset?.__as(REAssetRef.self) {
-                attributionHandler(coreEnvironmentResourceAsset)
+            #if canImport(CoreRE)
+            // FIXME: https://bugs.webkit.org/show_bug.cgi?id=313180
+            if let coreEnvironmentResourceAsset = unsafe environment.coreIBLAsset?.__as(REAssetRef.self) {
+                // FIXME: https://bugs.webkit.org/show_bug.cgi?id=313180
+                unsafe attributionHandler(coreEnvironmentResourceAsset)
             }
+            #endif
 
             applyIBL(environment)
             Logger.realityKitEntity.info("Successfully applied IBL to entity")
@@ -348,47 +460,65 @@ extension WKRKEntity {
     }
 
     func applyDefaultIBL() {
-#if canImport(RealityFoundation, _version: 380)
-        if let environment = WKRKEntity._defaultEnvironmentResource {
+        #if canImport(RealityFoundation, _version: 380)
+        if let environment = WKRKEntity.defaultEnvironmentResource {
             applyIBL(environment)
             return
         }
 
-        let defaultEnvironmentResource = EnvironmentResource.defaultObject()
-        WKRKEntity._defaultEnvironmentResource = defaultEnvironmentResource
+        guard
+            let defaultEnvironmentResource = try? EnvironmentResource.load(
+                named: "studio_lighting_objectmode_v3",
+                in: Bundle(identifier: "com.apple.WebKit")
+            )
+        else {
+            fatalError("Could not open studio_lighting_objectmode_v3")
+        }
+        WKRKEntity.defaultEnvironmentResource = defaultEnvironmentResource
         applyIBL(defaultEnvironmentResource)
-#else
+        #else
         entity.components[ImageBasedLightComponent.self] = .init(source: .none)
         entity.components[ImageBasedLightReceiverComponent.self] = nil
-#endif
+        #endif
     }
 
     private func animationPlaybackStateDidUpdate() {
         delegate?.entityAnimationPlaybackStateDidUpdate?(self)
     }
 
+    #if canImport(CoreRE)
     @objc(setParentCoreEntity:preservingWorldTransform:)
     func setParentCore(_ coreEntity: REEntityRef, preservingWorldTransform: Bool) {
-        let parentEntity = Entity.fromCore(coreEntity)
+        // FIXME: https://bugs.webkit.org/show_bug.cgi?id=313180
+        let parentEntity = unsafe Entity.fromCore(coreEntity)
         entity.setParent(parentEntity, preservingWorldTransform: preservingWorldTransform)
     }
-    
+    #endif
+
     @objc(interactionContainerDidRecenterFromTransform:)
     func interactionContainerDidRecenter(fromTransform transform: simd_float4x4) {
         entity.setTransformMatrix(transform, relativeTo: nil)
     }
-    
+
     @objc(recenterEntityAtTransform:)
     func recenter(at transform: WKEntityTransform) {
         // Apply the scale and translation of the entity separately from the rotation
-        self.transform = WKEntityTransform(scale: transform.scale, rotation: .init(ix: 0, iy: 0, iz: 0, r: 1), translation: transform.translation)
+        self.transform = WKEntityTransform(
+            scale: transform.scale,
+            rotation: .init(ix: 0, iy: 0, iz: 0, r: 1),
+            translation: transform.translation
+        )
 
         // The pivot for the orientation may be different from the center of the model's bounding box
         // As a result, we offset the translation after the rotation has been applied to recenter it
         let pivotPoint = interactionPivotPoint
         self.transform = transform
         let offset = pivotPoint - interactionPivotPoint
-        self.transform = WKEntityTransform(scale: transform.scale, rotation: transform.rotation, translation: transform.translation + offset)
+        self.transform = WKEntityTransform(
+            scale: transform.scale,
+            rotation: transform.rotation,
+            translation: transform.translation + offset
+        )
     }
 }
 

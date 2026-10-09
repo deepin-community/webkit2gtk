@@ -34,6 +34,7 @@
 #include "DOMException.h"
 #include "ExceptionOr.h"
 #include "FlacEncoderConfig.h"
+#include "JSDOMConvertDictionary.h"
 #include "JSDOMPromiseDeferred.h"
 #include "JSWebCodecsAudioEncoderSupport.h"
 #include "Logging.h"
@@ -50,6 +51,7 @@
 #include "WebCodecsUtilities.h"
 #include <JavaScriptCore/ArrayBuffer.h>
 #include <JavaScriptCore/ConsoleTypes.h>
+#include <wtf/Scope.h>
 #include <wtf/StdLibExtras.h>
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/MakeString.h>
@@ -135,7 +137,7 @@ static bool isValidEncoderConfig(const WebCodecsAudioEncoderConfig& config)
 
 static ExceptionOr<AudioEncoder::Config> createAudioEncoderConfig(const WebCodecsAudioEncoderConfig& config)
 {
-    std::optional<AudioEncoder::OpusConfig> opusConfig = std::nullopt;
+    std::optional<AudioEncoder::OpusConfig> opusConfig;
     if (config.opus) {
         opusConfig = {
             .isOggBitStream = config.opus->format == OpusBitstreamFormat::Ogg,
@@ -147,11 +149,11 @@ static ExceptionOr<AudioEncoder::Config> createAudioEncoderConfig(const WebCodec
         };
     }
 
-    std::optional<bool> isAacADTS = std::nullopt;
+    std::optional<bool> isAacADTS;
     if (config.aac)
         isAacADTS = config.aac->format == AacBitstreamFormat::Adts;
 
-    std::optional<AudioEncoder::FlacConfig> flacConfig = std::nullopt;
+    std::optional<AudioEncoder::FlacConfig> flacConfig;
     if (config.flac)
         flacConfig = { config.flac->blockSize, config.flac->compressLevel };
 
@@ -181,7 +183,7 @@ ExceptionOr<void> WebCodecsAudioEncoder::configure(ScriptExecutionContext&, WebC
         queueControlMessageAndProcess({ *this, [this, config]() mutable {
             blockControlMessageQueue();
 
-            protectedScriptExecutionContext()->enqueueTaskWhenSettled(Ref { *m_internalEncoder }->flush(), TaskSource::MediaElement, [weakThis = ThreadSafeWeakPtr { *this }, config = WTF::move(config)] (auto&&) mutable {
+            protect(scriptExecutionContext())->enqueueTaskWhenSettled(protect(*m_internalEncoder)->flush(), TaskSource::MediaElement, [weakThis = ThreadSafeWeakPtr { *this }, config = WTF::move(config)] (auto&&) mutable {
                 RefPtr protectedThis = weakThis.get();
                 if (!protectedThis)
                     return;
@@ -230,12 +232,11 @@ ExceptionOr<void> WebCodecsAudioEncoder::configure(ScriptExecutionContext&, WebC
                 if (encoder.state() != WebCodecsCodecState::Configured || encoder.m_encoderCount != encoderCount)
                     return;
 
-                RefPtr buffer = JSC::ArrayBuffer::create(result.data);
                 auto chunk = WebCodecsEncodedAudioChunk::create(WebCodecsEncodedAudioChunk::Init {
                     result.isKeyFrame ? WebCodecsEncodedAudioChunkType::Key : WebCodecsEncodedAudioChunkType::Delta,
                     result.timestamp,
                     result.duration,
-                    BufferSource { WTF::move(buffer) }
+                    JSC::ArrayBuffer::create(result.data)
                 });
                 encoder.m_output->invoke(WTF::move(chunk), encoder.createEncodedChunkMetadata());
             });
@@ -273,17 +274,17 @@ WebCodecsEncodedAudioChunkMetadata WebCodecsAudioEncoder::createEncodedChunkMeta
         auto baseConfigurationNumberOfChannels = m_baseConfiguration.numberOfChannels;
         metadata.decoderConfig = WebCodecsAudioDecoderConfig {
             !m_activeConfiguration.codec.isEmpty() ? WTF::move(m_activeConfiguration.codec) : String { m_baseConfiguration.codec },
-            { },
             m_activeConfiguration.sampleRate.value_or(baseConfigurationSampleRate),
-            m_activeConfiguration.numberOfChannels.value_or(baseConfigurationNumberOfChannels)
+            m_activeConfiguration.numberOfChannels.value_or(baseConfigurationNumberOfChannels),
+            { },
         };
 
         if (m_activeConfiguration.description && m_activeConfiguration.description->size()) {
             auto arrayBuffer = ArrayBuffer::tryCreateUninitialized(m_activeConfiguration.description->size(), 1);
-            RELEASE_LOG_ERROR_IF(!!arrayBuffer, Media, "Cannot create array buffer for WebCodecs encoder description");
+            RELEASE_LOG_ERROR_IF(!arrayBuffer, Media, "Cannot create array buffer for WebCodecs encoder description");
             if (arrayBuffer) {
                 memcpySpan(arrayBuffer->mutableSpan(), m_activeConfiguration.description->span());
-                metadata.decoderConfig->description = WTF::move(arrayBuffer);
+                metadata.decoderConfig->description = arrayBuffer.releaseNonNull();
             }
         }
     }
@@ -314,7 +315,7 @@ ExceptionOr<void> WebCodecsAudioEncoder::encode(Ref<WebCodecsAudioData>&& frame)
         }
 
         incrementCodecOperationCount();
-        protectedScriptExecutionContext()->enqueueTaskWhenSettled(Ref { *m_internalEncoder }->encode({ WTF::move(audioData), timestamp, duration }), TaskSource::MediaElement, [weakThis = ThreadSafeWeakPtr { *this }, pendingActivity = makePendingActivity(*this)] (auto&& result) {
+        protect(scriptExecutionContext())->enqueueTaskWhenSettled(protect(*m_internalEncoder)->encode({ WTF::move(audioData), timestamp, duration }), TaskSource::MediaElement, [weakThis = ThreadSafeWeakPtr { *this }, pendingActivity = makePendingActivity(*this)] (auto&& result) {
             RefPtr protectedThis = weakThis.get();
             if (!protectedThis)
                 return;
@@ -341,7 +342,7 @@ void WebCodecsAudioEncoder::flush(Ref<DeferredPromise>&& promise)
 
     m_pendingFlushPromises.append(promise);
     queueControlMessageAndProcess({ *this, [this, promise = WTF::move(promise)]() mutable {
-        protectedScriptExecutionContext()->enqueueTaskWhenSettled(Ref { *m_internalEncoder }->flush(), TaskSource::MediaElement, [weakThis = ThreadSafeWeakPtr { *this }, pendingActivity = makePendingActivity(*this), promise = WTF::move(promise)] (auto&&) {
+        protect(scriptExecutionContext())->enqueueTaskWhenSettled(protect(*m_internalEncoder)->flush(), TaskSource::MediaElement, [weakThis = ThreadSafeWeakPtr { *this }, pendingActivity = makePendingActivity(*this), promise = WTF::move(promise)] (auto&&) {
             promise->resolve();
             if (RefPtr protectedThis = weakThis.get())
                 protectedThis->m_pendingFlushPromises.removeFirstMatching([&](auto& flushPromise) { return promise.ptr() == flushPromise.ptr(); });

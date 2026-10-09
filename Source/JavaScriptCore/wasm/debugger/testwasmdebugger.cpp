@@ -27,11 +27,18 @@
 
 #include <wtf/DataLog.h>
 
-#if ENABLE(WEBASSEMBLY)
+#if OS(WINDOWS)
+#include <windows.h>
+#include <wtf/win/WTFCRTDebug.h>
+#endif
+
+#if ENABLE(WEBASSEMBLY_DEBUGGER)
 
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
+#include "ExecutionHandlerIdleStopTest.h"
 #include "ExecutionHandlerTest.h"
+#include "ExecutionHandlerVMLifecycleTest.h"
 #include "GDBPacketParserTest.h"
 #include "InitializeThreading.h"
 #include "Options.h"
@@ -40,10 +47,6 @@ WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 #include <wtf/HexNumber.h>
 #include <wtf/text/MakeString.h>
 #include <wtf/text/WTFString.h>
-
-#if OS(WINDOWS)
-#include <wtf/win/WTFCRTDebug.h>
-#endif
 
 using namespace JSC;
 using namespace JSC::Wasm;
@@ -287,7 +290,7 @@ static void testWASMVirtualAddressOperators()
     dataLogLn("VirtualAddress operators tests completed");
 }
 
-static int runAllTests()
+[[maybe_unused]] static int runAllTests()
 {
     dataLogLn("Starting WASM Debugger Test Suite");
     dataLogLn("===============================================");
@@ -310,14 +313,22 @@ static int runAllTests()
     dataLogLn("\n--- WASM Debugger Execution Handler Tests ---");
     int executionHandlerTestsFailed = testExecutionHandler();
 
+    dataLogLn("\n--- WASM Debugger Idle VM Stress Tests ---");
+    int idleStopTestsFailed = testExecutionHandlerIdleStop();
+
+    dataLogLn("\n--- WASM Debugger VM Lifecycle Race Tests ---");
+    int vmLifecycleTestsFailed = testExecutionHandlerVMLifecycle();
+
     dataLogLn("===============================================");
     dataLogLn("Combined Test Results:");
     dataLogLn("  VirtualAddress Tests - PASSED (assertion-based)");
     dataLogLn("  WASM Debug Info Tests - See detailed results above");
     dataLogLn("  WASM Debugger Stress Tests - See detailed results above");
-    dataLogLn("  Total Failures: ", testsFailed, " (VirtualAddress) + ", debugInfoTestsFailed, " (Debug Info) + ", executionHandlerTestsFailed, " (Stress) = ", testsFailed + debugInfoTestsFailed + executionHandlerTestsFailed);
+    dataLogLn("  WASM Debugger Idle VM Tests - See detailed results above");
+    dataLogLn("  WASM Debugger VM Lifecycle Race Tests - See detailed results above");
+    dataLogLn("  Total Failures: ", testsFailed, " (VirtualAddress) + ", debugInfoTestsFailed, " (Debug Info) + ", executionHandlerTestsFailed, " (Stress) + ", idleStopTestsFailed, " (Idle VM) + ", vmLifecycleTestsFailed, " (VM Lifecycle) = ", testsFailed + debugInfoTestsFailed + executionHandlerTestsFailed + idleStopTestsFailed + vmLifecycleTestsFailed);
 
-    int totalFailures = testsFailed + debugInfoTestsFailed + executionHandlerTestsFailed;
+    int totalFailures = testsFailed + debugInfoTestsFailed + executionHandlerTestsFailed + idleStopTestsFailed + vmLifecycleTestsFailed;
     if (!totalFailures) {
         dataLogLn("All tests PASSED!");
         dataLogLn("WASM debugger infrastructure is working correctly");
@@ -329,6 +340,8 @@ static int runAllTests()
 
     return totalFailures;
 }
+
+#if CPU(ARM64)
 
 int main(int argc, char** argv)
 {
@@ -350,6 +363,19 @@ int main(int argc, char** argv)
     return runAllTests();
 }
 
+#else // !CPU(ARM64)
+
+int main(int argc, char** argv)
+{
+    UNUSED_PARAM(argc);
+    UNUSED_PARAM(argv);
+
+    dataLogLn("WASM debugger tests are disabled (only supported on ARM64)");
+    return 0;
+}
+
+#endif // CPU(ARM64)
+
 #if OS(WINDOWS)
 extern "C" __declspec(dllexport) int WINAPI dllLauncherEntryPoint(int argc, const char* argv[])
 {
@@ -359,7 +385,7 @@ extern "C" __declspec(dllexport) int WINAPI dllLauncherEntryPoint(int argc, cons
 
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
-#else // !ENABLE(WEBASSEMBLY)
+#else // !ENABLE(WEBASSEMBLY_DEBUGGER)
 
 int main(int argc, char** argv)
 {
@@ -378,4 +404,4 @@ extern "C" __declspec(dllexport) int WINAPI dllLauncherEntryPoint(int argc, cons
 }
 #endif
 
-#endif // ENABLE(WEBASSEMBLY)
+#endif // ENABLE(WEBASSEMBLY_DEBUGGER)

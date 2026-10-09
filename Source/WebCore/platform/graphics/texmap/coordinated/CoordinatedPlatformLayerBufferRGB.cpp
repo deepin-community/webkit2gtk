@@ -28,7 +28,21 @@
 
 #if USE(COORDINATED_GRAPHICS)
 #include "BitmapTexture.h"
+#include "ColorMatrix.h"
+#include "PlatformDisplay.h"
 #include "TextureMapper.h"
+
+#if USE(SKIA)
+#include "ColorSpaceSkia.h"
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
+#include <skia/core/SkColorFilter.h>
+#include <skia/core/SkColorSpace.h>
+#include <skia/core/SkImage.h>
+#include <skia/gpu/ganesh/GrBackendSurface.h>
+#include <skia/gpu/ganesh/SkImageGanesh.h>
+#include <skia/gpu/ganesh/gl/GrGLBackendSurface.h>
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
+#endif
 
 namespace WebCore {
 
@@ -65,6 +79,30 @@ void CoordinatedPlatformLayerBufferRGB::paintToTextureMapper(TextureMapper& text
     else
         textureMapper.drawTexture(m_textureID, m_flags, targetRect, modelViewMatrix, opacity);
 }
+
+#if USE(SKIA)
+sk_sp<SkImage> CoordinatedPlatformLayerBufferRGB::skiaImage()
+{
+    waitForContentsIfNeeded();
+
+    auto colorType = m_texture && m_texture->flags().contains(BitmapTexture::Flags::UseBGRALayout) ? kBGRA_8888_SkColorType : kRGBA_8888_SkColorType;
+    auto* grContext = PlatformDisplay::sharedDisplay().skiaGrContext();
+    ASSERT(grContext);
+    GrGLTextureInfo externalTexture;
+    externalTexture.fTarget = GL_TEXTURE_2D;
+    externalTexture.fID = m_texture ? m_texture->id() : m_textureID;
+    externalTexture.fFormat = colorType == kBGRA_8888_SkColorType ? GL_BGRA8_EXT : GL_RGBA8;
+    auto backendTexture = GrBackendTextures::MakeGL(m_size.width(), m_size.height(), skgpu::Mipmapped::kNo, externalTexture);
+    auto origin = m_flags.contains(TextureMapperFlags::ShouldFlipTexture) ? kBottomLeft_GrSurfaceOrigin : kTopLeft_GrSurfaceOrigin;
+    auto alphaType = [&] {
+        if (!m_flags.contains(TextureMapperFlags::ShouldBlend))
+            return kOpaque_SkAlphaType;
+
+        return m_flags.contains(TextureMapperFlags::ShouldPremultiply) ? kUnpremul_SkAlphaType : kPremul_SkAlphaType;
+    }();
+    return SkImages::BorrowTextureFrom(grContext, backendTexture, origin, colorType, alphaType, sRGBColorSpaceSingleton());
+}
+#endif
 
 } // namespace WebCore
 

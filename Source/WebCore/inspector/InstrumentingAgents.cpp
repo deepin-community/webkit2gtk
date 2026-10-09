@@ -57,7 +57,7 @@ InstrumentingAgents::InstrumentingAgents(InspectorEnvironment& environment, Inst
 
 bool InstrumentingAgents::developerExtrasEnabled() const
 {
-    return checkedEnvironment()->developerExtrasEnabled();
+    return protect(m_environment)->developerExtrasEnabled();
 }
 
 void InstrumentingAgents::reset()
@@ -77,7 +77,7 @@ Class* InstrumentingAgents::Getter##Name() const \
 { \
     if (m_##Getter##Name) \
         return m_##Getter##Name; \
-    if (RefPtr fallbackAgents = m_fallbackAgents.get()) \
+    if (auto* fallbackAgents = m_fallbackAgents.get()) \
         return fallbackAgents->Getter##Name(); \
     return nullptr; \
 } \

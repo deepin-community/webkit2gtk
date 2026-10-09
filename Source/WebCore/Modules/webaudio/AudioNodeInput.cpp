@@ -118,7 +118,7 @@ void AudioNodeInput::disable(AudioNodeOutput* output)
     }
 
     // Propagate disabled state to outputs.
-    checkedNode()->disableOutputsIfNecessary();
+    protect(node())->disableOutputsIfNecessary();
 }
 
 void AudioNodeInput::enable(AudioNodeOutput* output)
@@ -142,12 +142,12 @@ void AudioNodeInput::enable(AudioNodeOutput* output)
     m_disabledOutputs.remove(output);
 
     // Propagate enabled state to outputs.
-    checkedNode()->enableOutputsIfNecessary();
+    protect(node())->enableOutputsIfNecessary();
 }
 
 void AudioNodeInput::didUpdate()
 {
-    checkedNode()->checkNumberOfChannelsForInput(this);
+    protect(node())->checkNumberOfChannelsForInput(this);
 }
 
 void AudioNodeInput::updateInternalBus()
@@ -240,7 +240,7 @@ AudioBus& AudioNodeInput::pull(AudioBus* inPlaceBus, size_t framesToProcess)
     if (!numberOfRenderingConnections()) {
         // At least, generate silence if we're not connected to anything.
         // FIXME: if we wanted to get fancy, we could propagate a 'silent hint' here to optimize the downstream graph processing.
-        m_internalSummingBus->zero();
+        protect(m_internalSummingBus)->zero();
         return m_internalSummingBus;
     }
 

@@ -38,6 +38,8 @@
 #include "ContentSecurityPolicy.h"
 #include "DocumentPage.h"
 #include "DocumentSettingsValues.h"
+#include "FileSystemStorageConnection.h"
+#include "IDBConnectionProxy.h"
 #include "LocalFrame.h"
 #include "WebRTCProvider.h"
 #include "WorkletParameters.h"
@@ -62,7 +64,8 @@ static WorkletParameters generateWorkletParameters(AudioWorklet& worklet)
         worklet.audioContext() ? !worklet.audioContext()->isOfflineContext() : false,
         document->advancedPrivacyProtections(),
         document->noiseInjectionHashSalt(),
-        document->checkedContentSecurityPolicy()->responseHeaders()
+        document->agentClusterID(),
+        protect(document->contentSecurityPolicy())->responseHeaders()
     };
 }
 
@@ -89,6 +92,12 @@ bool AudioWorkletMessagingProxy::postTaskForModeToWorkletGlobalScope(ScriptExecu
 }
 
 RefPtr<CacheStorageConnection> AudioWorkletMessagingProxy::createCacheStorageConnection()
+{
+    ASSERT_NOT_REACHED();
+    return nullptr;
+}
+
+RefPtr<IDBClient::IDBConnectionProxy> AudioWorkletMessagingProxy::createIDBConnectionProxy()
 {
     ASSERT_NOT_REACHED();
     return nullptr;
@@ -122,6 +131,11 @@ void AudioWorkletMessagingProxy::postTaskToAudioWorklet(Function<void(AudioWorkl
         if (protectedThis->m_worklet)
             task(*protectedThis->m_worklet);
     });
+}
+
+RefPtr<FileSystemStorageConnection> AudioWorkletMessagingProxy::createFileSystemStorageConnection()
+{
+    return nullptr;
 }
 
 } // namespace WebCore

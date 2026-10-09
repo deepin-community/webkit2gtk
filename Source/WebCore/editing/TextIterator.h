@@ -58,7 +58,6 @@ WEBCORE_EXPORT SimpleRange findPlainText(const SimpleRange&, const String&, Find
 WEBCORE_EXPORT SimpleRange findClosestPlainText(const SimpleRange&, const String&, FindOptions, uint64_t targetCharacterOffset);
 WEBCORE_EXPORT Vector<SimpleRange> findAllPlainText(const SimpleRange&, const String&, FindOptions, unsigned limit);
 WEBCORE_EXPORT bool containsPlainText(const String& document, const String&, FindOptions); // Lets us use the search algorithm on a string.
-WEBCORE_EXPORT String foldQuoteMarks(const String&);
 
 // FIXME: Move this somewhere else in the editing directory. It doesn't belong in the header with TextIterator.
 bool isRendererReplacedElement(RenderObject*, TextIteratorBehaviors = { });
@@ -68,8 +67,8 @@ bool isRendererReplacedElement(RenderObject*, TextIteratorBehaviors = { });
 class BitStack {
 public:
     void push(bool);
-    void pop();
-    bool top() const;
+    void NODELETE pop();
+    bool NODELETE top() const;
 
 private:
     unsigned m_size { 0 };
@@ -97,7 +96,7 @@ private:
 // at points where replaced elements break up the text flow. The text is delivered in
 // the chunks it's already stored in, to avoid copying any text.
 
-bool shouldEmitNewlinesBeforeAndAfterNode(Node&);
+bool NODELETE shouldEmitNewlinesBeforeAndAfterNode(Node&, bool emitsNewlinesPerInnerTextSpec = false);
 
 class TextIterator {
     WTF_MAKE_TZONE_ALLOCATED_EXPORT(TextIterator, WEBCORE_EXPORT);
@@ -111,9 +110,12 @@ public:
     StringView text() const LIFETIME_BOUND { ASSERT(!atEnd()); return m_text; }
     WEBCORE_EXPORT SimpleRange range() const;
     WEBCORE_EXPORT Node* node() const;
-    RefPtr<Node> protectedCurrentNode() const;
 
-    const TextIteratorCopyableText& copyableText() const { ASSERT(!atEnd()); return m_copyableText; }
+    // Returns true when the current output is a newline emitted from exiting
+    // a block-level element, as opposed to text content or <br> newlines.
+    bool isBlockNewline() const { return m_isBlockNewline; }
+
+    const TextIteratorCopyableText& copyableText() const LIFETIME_BOUND { ASSERT(!atEnd()); return m_copyableText; }
     void appendTextToStringBuilder(StringBuilder& builder) const { copyableText().appendToStringBuilder(builder); }
 
 #if ENABLE(TREE_DEBUGGING)
@@ -125,7 +127,7 @@ private:
     void init();
     void exitNode(Node*);
     bool shouldRepresentNodeOffsetZero();
-    bool shouldEmitSpaceBeforeAndAfterNode(Node&);
+    bool NODELETE shouldEmitSpaceBeforeAndAfterNode(Node&);
     void representNodeOffsetZero();
     bool handleTextNode();
     bool handleReplacedElement();
@@ -137,8 +139,6 @@ private:
     void revertToRemainingTextRun();
 
     Node* baseNodeForEmittingNewLine() const;
-
-    RefPtr<Node> protectedStartContainer() const { return m_startContainer; }
 
     const TextIteratorBehaviors m_behaviors;
 
@@ -180,9 +180,16 @@ private:
     RefPtr<Text> m_lastTextNode;
     bool m_lastTextNodeEndedWithCollapsedSpace { false };
     char16_t m_lastCharacter { 0 };
+    unsigned m_consecutiveNewlineCount { 0 };
 
     // Used when deciding whether to emit a "positioning" (e.g. newline) before any other content
     bool m_hasEmitted { false };
+    bool m_isBlockNewline { false };
+
+    // Tracks the last <tr> for which we emitted a row-exit '\n', so consecutive
+    // empty/effectively-empty rows can each contribute their own line break per the
+    // innerText spec, while preventing the same row from emitting twice.
+    WeakPtr<Node, WeakPtrImplWithEventTargetData> m_lastTableRowEmittedExitNewlineFor;
 
     // Used when deciding text fragment created by :first-letter should be looked into.
     bool m_handledFirstLetter { false };
@@ -201,12 +208,11 @@ public:
     StringView text() const LIFETIME_BOUND { ASSERT(!atEnd()); return m_text; }
     WEBCORE_EXPORT SimpleRange range() const;
     Node* node() const { ASSERT(!atEnd()); return m_node.get(); }
-    RefPtr<Node> protectedNode() const { return m_node.get(); }
 
 private:
     void exitNode();
     bool handleTextNode();
-    RenderText* handleFirstLetter(int& startOffset, int& offsetInNode);
+    CheckedPtr<RenderText> handleFirstLetter(int& startOffset, int& offsetInNode);
     bool handleReplacedElement();
     bool handleNonTextNode();
     void emitCharacter(char16_t, RefPtr<Node>&&, int startOffset, int endOffset);
@@ -257,7 +263,7 @@ public:
     StringView text() const LIFETIME_BOUND { return m_underlyingIterator.text().substring(m_runOffset); }
     WEBCORE_EXPORT SimpleRange range() const;
 
-    bool atBreak() const { return m_atBreak; }
+    bool NODELETE atBreak() const { return m_atBreak; }
     unsigned characterOffset() const { return m_offset; }
 
 private:
@@ -295,7 +301,7 @@ public:
     bool atEnd() const { return !m_didLookAhead && m_underlyingIterator.atEnd(); }
     void advance();
 
-    StringView text() const LIFETIME_BOUND;
+    StringView NODELETE text() const LIFETIME_BOUND;
 
 private:
     TextIterator m_underlyingIterator;

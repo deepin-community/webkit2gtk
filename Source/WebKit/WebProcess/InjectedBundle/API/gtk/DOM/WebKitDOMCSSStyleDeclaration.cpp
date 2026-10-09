@@ -66,7 +66,7 @@ WebKitDOMCSSStyleDeclaration* wrapCSSStyleDeclaration(WebCore::CSSStyleDeclarati
 
 } // namespace WebKit
 
-WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GTK
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GTK port
 G_DEFINE_TYPE(WebKitDOMCSSStyleDeclaration, webkit_dom_css_style_declaration, WEBKIT_DOM_TYPE_OBJECT)
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 

@@ -32,7 +32,6 @@
 #include "GraphicsLayer.h"
 #include "GraphicsLayerContentsDisplayDelegate.h"
 #include "HTMLCanvasElement.h"
-#include "NodeInlines.h"
 #include "OffscreenCanvas.h"
 #include <wtf/TZoneMallocInlines.h>
 
@@ -72,7 +71,7 @@ void PlaceholderRenderingContextSource::setPlaceholderBuffer(ImageBuffer& imageB
         RefPtr placeholder = weakPlaceholder.get();
         if (!placeholder)
             return;
-        RefPtr imageBuffer = SerializedImageBuffer::sinkIntoImageBuffer(WTF::move(buffer), placeholder->protectedCanvas()->protectedScriptExecutionContext()->graphicsClient());
+        RefPtr imageBuffer = SerializedImageBuffer::sinkIntoImageBuffer(WTF::move(buffer), protect(protect(placeholder->canvas())->scriptExecutionContext())->graphicsClient());
         if (!imageBuffer)
             return;
         Ref source = placeholder->source();
@@ -149,7 +148,7 @@ void PlaceholderRenderingContext::setPlaceholderBuffer(Ref<ImageBuffer>&& newBuf
 
 PixelFormat PlaceholderRenderingContext::pixelFormat() const
 {
-    if (RefPtr buffer = m_buffer)
+    if (auto* buffer = m_buffer.get())
         return buffer->pixelFormat();
     return CanvasRenderingContext::pixelFormat();
 }

@@ -27,7 +27,6 @@
 
 #include <JavaScriptCore/Strong.h>
 #include <WebCore/IDLTypes.h>
-#include <WebCore/JSDOMPromiseDeferredForward.h>
 #include <wtf/ObjectIdentifier.h>
 #include <wtf/RefCountedAndCanMakeWeakPtr.h>
 #include <wtf/TZoneMalloc.h>
@@ -59,7 +58,7 @@ public:
     static Ref<Permissions> create(NavigatorBase&);
     ~Permissions();
 
-    NavigatorBase* navigator();
+    NavigatorBase* NODELETE navigator();
     void query(JSC::Strong<JSC::JSObject>, Ref<DeferredPromise>&&);
     WEBCORE_EXPORT static std::optional<PermissionQuerySource> sourceFromContext(const ScriptExecutionContext&);
     WEBCORE_EXPORT static std::optional<PermissionName> toPermissionName(const String&);

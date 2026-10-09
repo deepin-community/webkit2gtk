@@ -41,6 +41,7 @@
 #include "ParentalControlsContentFilter.h"
 #include "ScriptController.h"
 #include "SharedBuffer.h"
+#include <array>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/Ref.h>
 #include <wtf/SetForScope.h>
@@ -69,13 +70,20 @@ Vector<ContentFilter::Type>& ContentFilter::types()
     return types;
 }
 
-RefPtr<ContentFilter> ContentFilter::create(ContentFilterClient& client)
+RefPtr<ContentFilter> ContentFilter::create(ContentFilterClient& client, IsMainFrameLoad isMainFrameLoad)
 {
-    PlatformContentFilter::FilterParameters params {
+    PlatformContentFilter::FilterParameters params;
+#if HAVE(WEBCONTENTRESTRICTIONS)
+    params = PlatformContentFilter::FilterParameters {
 #if HAVE(WEBCONTENTRESTRICTIONS_PATH_SPI)
         client.webContentRestrictionsConfigurationPath(),
 #endif
+        isMainFrameLoad,
+        client.mainDocumentURL()
     };
+#else
+    UNUSED_PARAM(isMainFrameLoad);
+#endif
     auto filters = types().map([params](auto& type) {
         return type.create(params);
     });
@@ -184,7 +192,10 @@ void ContentFilter::continueAfterWillSendRequest(ResourceRequest&& request, cons
             contentFilterCallbackAggregator->didReceivePlatformContentFilterDecision(platformContentFilter, WTF::move(urlString));
         };
 
-        ASSERT(platformContentFilter->needsMoreData());
+        if (!platformContentFilter->needsMoreData()) {
+            completion({ });
+            continue;
+        }
         platformContentFilter->willSendRequest(ResourceRequest { request }, redirectResponse, WTF::move(completion));
     }
 }
@@ -370,11 +381,6 @@ void ContentFilter::didDecide(State state)
     client->cancelMainResourceLoadForContentFilter(m_blockedError);
 }
 
-Ref<ContentFilterClient> ContentFilter::protectedClient() const
-{
-    return m_client.get();
-}
-
 void ContentFilter::deliverResourceData(const SharedBuffer& buffer)
 {
     ASSERT(m_state == State::Allowed);
@@ -384,8 +390,8 @@ void ContentFilter::deliverResourceData(const SharedBuffer& buffer)
 
 URL ContentFilter::url()
 {
-    if (m_mainResource)
-        return m_mainResource->url();
+    if (RefPtr mainResource = m_mainResource)
+        return mainResource->url();
     return m_mainResourceURL;
 }
 
@@ -464,7 +470,20 @@ bool ContentFilter::isWebContentRestrictionsUnblockURL(const URL& url)
         return true;
 #endif
 
-    return url.protocolIs(ContentFilter::urlScheme()) && equalIgnoringASCIICase(url.host(), "unblock"_s);
+    if (!url.protocolIs(ContentFilter::urlScheme()))
+        return false;
+
+#if HAVE(WEBCONTENTRESTRICTIONS_ASK_TO)
+    static constexpr std::array validHosts { "unblock"_s, "present"_s, "ask"_s };
+#else
+    static constexpr std::array validHosts { "unblock"_s };
+#endif
+
+    for (const auto& host : validHosts) {
+        if (equalIgnoringASCIICase(url.host(), host))
+            return true;
+    }
+    return false;
 }
 
 #endif

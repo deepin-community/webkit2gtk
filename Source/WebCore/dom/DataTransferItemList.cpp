@@ -124,7 +124,7 @@ ExceptionOr<void> DataTransferItemList::remove(unsigned index)
     removedItem->clearListAndPutIntoDisabledMode();
     items.removeAt(index);
     if (removedItem->isFile())
-        dataTransfer->updateFileList(protectedScriptExecutionContext().get());
+        dataTransfer->updateFileList(protect(scriptExecutionContext()).get());
 
     return { };
 }
@@ -143,7 +143,7 @@ void DataTransferItemList::clear()
     }
 
     if (removedItemContainingFile)
-        dataTransfer->updateFileList(protectedScriptExecutionContext().get());
+        dataTransfer->updateFileList(protect(scriptExecutionContext()).get());
 }
 
 Vector<Ref<DataTransferItem>>& DataTransferItemList::ensureItems() const
@@ -178,7 +178,7 @@ Vector<Ref<DataTransferItem>>& DataTransferItemList::ensureItems() const
 
 static void removeStringItemOfLowercasedType(Vector<Ref<DataTransferItem>>& items, const String& lowercasedType)
 {
-    auto index = items.findIf([lowercasedType](auto& item) {
+    auto index = items.findIf([&lowercasedType](auto& item) {
         return !item->isFile() && item->type() == lowercasedType;
     });
     if (index == notFound)
@@ -212,7 +212,7 @@ void DataTransferItemList::didSetStringData(const String& type)
         return;
 
     String lowercasedType = type.convertToASCIILowercase();
-    removeStringItemOfLowercasedType(*m_items, type.convertToASCIILowercase());
+    removeStringItemOfLowercasedType(*m_items, lowercasedType);
 
     m_items->append(DataTransferItem::create(*this, lowercasedType, DataTransferItem::Kind::String));
 }

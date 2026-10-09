@@ -65,7 +65,7 @@ WebKitDOMDOMTokenList* wrapDOMTokenList(WebCore::DOMTokenList* coreObject)
 
 } // namespace WebKit
 
-WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GTK
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GTK port
 G_DEFINE_TYPE(WebKitDOMDOMTokenList, webkit_dom_dom_token_list, WEBKIT_DOM_TYPE_OBJECT)
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 

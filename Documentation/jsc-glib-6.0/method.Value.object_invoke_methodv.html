@@ -62,7 +62,7 @@ SPDX-License-Identifier: BSD, LGPL-2.1
         <h3><a href="index.html">JavaScriptCore</a></h3>
         <p>API Version: 6.0</p>
         
-        <p>Library Version: 2.52.5</p>
+        <p>Library Version: 2.54.0</p>
         
       </div>
       
@@ -211,7 +211,7 @@ SPDX-License-Identifier: BSD, LGPL-2.1
         Description
         <a class="anchor" href="#description"></a>
         
-        <a class="srclink" title="go to source location" href="https://github.com/WebKit/WebKit/tree/Source/JavaScriptCore/API/glib/JSCValue.cpp#L975">[src]</a>
+        <a class="srclink" title="go to source location" href="https://github.com/WebKit/WebKit/tree/Source/JavaScriptCore/API/glib/JSCValue.cpp#L976">[src]</a>
         
       </h4>
 
@@ -222,7 +222,7 @@ The object instance will be handled automatically even when the method is a cust
 registered with jsc_class_add_method(), so it should never be passed explicitly as parameter
 of this&nbsp;function.</p>
 <p>This function always returns a <code>JSCValue</code>, in case of void methods a <code>JSCValue</code> referencing
-<function>undefined</function> is&nbsp;returned.</p>
+<code>undefined</code> is&nbsp;returned.</p>
       </div>
 
       <div class="docblock">
@@ -284,7 +284,7 @@ of this&nbsp;function.</p>
           <dt class="arg-name"><code>parameters</code></dt>
           <dd class="arg-description">
             <p><em>Type:</em>&nbsp;An array of&nbsp;<code>JSCValue*</code></p>
-            <p>The <code>JSCValue</code><!-- -->s to pass as parameters to the method, or <code>NULL</code>.</p>
+            <p>The <code>JSCValue</code> objects to pass as parameters to the method, or <code>NULL</code>.</p>
             <table>
             
             <tr><td>The argument can be <code>NULL</code>.</td></tr>

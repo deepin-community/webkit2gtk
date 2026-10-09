@@ -59,39 +59,25 @@ void SVGTextPositioningElement::attributeChanged(const QualifiedName& name, cons
 {
     switch (name.nodeName()) {
     case AttributeNames::xAttr:
-        Ref { m_x }->baseVal()->parse(newValue);
+        protect(m_x)->baseVal()->parse(newValue);
         break;
     case AttributeNames::yAttr:
-        Ref { m_y }->baseVal()->parse(newValue);
+        protect(m_y)->baseVal()->parse(newValue);
         break;
     case AttributeNames::dxAttr:
-        Ref { m_dx }->baseVal()->parse(newValue);
+        protect(m_dx)->baseVal()->parse(newValue);
         break;
     case AttributeNames::dyAttr:
-        Ref { m_dy }->baseVal()->parse(newValue);
+        protect(m_dy)->baseVal()->parse(newValue);
         break;
     case AttributeNames::rotateAttr:
-        Ref { m_rotate }->baseVal()->parse(newValue);
+        protect(m_rotate)->baseVal()->parse(newValue);
         break;
     default:
         break;
     }
 
     SVGTextContentElement::attributeChanged(name, oldValue, newValue, attributeModificationReason);
-}
-
-void SVGTextPositioningElement::collectPresentationalHintsForAttribute(const QualifiedName& name, const AtomString& value, MutableStyleProperties& style)
-{
-    if (name == SVGNames::xAttr || name == SVGNames::yAttr)
-        return;
-    SVGTextContentElement::collectPresentationalHintsForAttribute(name, value, style);
-}
-
-bool SVGTextPositioningElement::hasPresentationalHintsForAttribute(const QualifiedName& name) const
-{
-    if (name == SVGNames::xAttr || name == SVGNames::yAttr)
-        return false;
-    return SVGTextContentElement::hasPresentationalHintsForAttribute(name);
 }
 
 void SVGTextPositioningElement::svgAttributeChanged(const QualifiedName& attrName)
@@ -102,8 +88,8 @@ void SVGTextPositioningElement::svgAttributeChanged(const QualifiedName& attrNam
         if (attrName != SVGNames::rotateAttr)
             updateRelativeLengthsInformation();
 
-        if (CheckedPtr renderer = this->renderer()) {
-            if (CheckedPtr textAncestor = RenderSVGText::locateRenderSVGTextAncestor(*renderer))
+        if (auto* renderer = this->renderer()) {
+            if (auto* textAncestor = RenderSVGText::locateRenderSVGTextAncestor(*renderer))
                 textAncestor->setNeedsPositioningValuesUpdate();
         }
         updateSVGRendererForElementChange();

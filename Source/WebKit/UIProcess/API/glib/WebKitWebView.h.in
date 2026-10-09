@@ -607,6 +607,11 @@ webkit_web_view_get_favicon                          (WebKitWebView             
 #endif
 #endif
 
+#if ENABLE(2022_GLIB_API)
+WEBKIT_API WebKitImageList *
+webkit_web_view_get_page_icons                       (WebKitWebView             *web_view);
+#endif
+
 WEBKIT_API const gchar *
 webkit_web_view_get_custom_charset                   (WebKitWebView             *web_view);
 
@@ -629,6 +634,12 @@ webkit_web_view_set_zoom_level                       (WebKitWebView             
                                                       gdouble                    zoom_level);
 WEBKIT_API gdouble
 webkit_web_view_get_zoom_level                       (WebKitWebView             *web_view);
+
+WEBKIT_API void
+webkit_web_view_set_magnification                    (WebKitWebView             *web_view,
+                                                      gdouble                    magnification);
+WEBKIT_API gdouble
+webkit_web_view_get_magnification                    (WebKitWebView             *web_view);
 
 WEBKIT_API void
 webkit_web_view_can_execute_editing_command          (WebKitWebView             *web_view,
@@ -970,7 +981,7 @@ webkit_web_view_leave_immersive_mode                 (WebKitWebView             
  *     JSCValue               *value;
  *     GError                 *error = NULL;
  *
- *     js_result = webkit_web_view_run_javascript_finish (WEBKIT_WEB_VIEW (object), result, &error);
+ *     js_result = webkit_web_view_run_javascript_in_world_finish (WEBKIT_WEB_VIEW (object), result, &error);
  *     if (!js_result) {
  *         g_warning ("Error running javascript: %s", error->message);
  *         g_error_free (error);
@@ -979,13 +990,12 @@ webkit_web_view_leave_immersive_mode                 (WebKitWebView             
  *
  *     value = webkit_javascript_result_get_js_value (js_result);
  *     if (jsc_value_is_number (value)) {
- *         gint32        int_value = jsc_value_to_string (value);
+ *         gint32        int_value = jsc_value_to_int32 (value);
  *         JSCException *exception = jsc_context_get_exception (jsc_value_get_context (value));
  *         if (exception)
  *             g_warning ("Error running javascript: %s", jsc_exception_get_message (exception));
  *         else
  *             g_print ("Script result: %d\n", int_value);
- *         g_free (str_value);
  *     } else {
  *         g_warning ("Error running javascript: unexpected return value");
  *     }
@@ -1000,7 +1010,7 @@ webkit_web_view_leave_immersive_mode                 (WebKitWebView             
  *     g_variant_dict_insert (&dict, "count", "u", 42);
  *     GVariant *args = g_variant_dict_end (&dict);
  *     const gchar *body = "return new Promise((resolve) => { resolve(count); });";
- *     webkit_web_view_run_async_javascript_function_in_world (web_view, body, arguments, NULL, NULL, web_view_javascript_finished, NULL);
+ *     webkit_web_view_run_async_javascript_function_in_world (web_view, body, args, NULL, NULL, web_view_javascript_finished, NULL);
  * }
  * ```
  *
@@ -1040,7 +1050,7 @@ webkit_web_view_leave_immersive_mode                 (WebKitWebView             
  *     JSCValue               *value;
  *     GError                 *error = NULL;
  *
- *     js_result = webkit_web_view_run_javascript_finish (WEBKIT_WEB_VIEW (object), result, &error);
+ *     js_result = webkit_web_view_run_javascript_in_world_finish (WEBKIT_WEB_VIEW (object), result, &error);
  *     if (!js_result) {
  *         g_warning ("Error running javascript: %s", error->message);
  *         g_error_free (error);
@@ -1049,13 +1059,12 @@ webkit_web_view_leave_immersive_mode                 (WebKitWebView             
  *
  *     value = webkit_javascript_result_get_js_value (js_result);
  *     if (jsc_value_is_number (value)) {
- *         gint32        int_value = jsc_value_to_string (value);
+ *         gint32        int_value = jsc_value_to_int32 (value);
  *         JSCException *exception = jsc_context_get_exception (jsc_value_get_context (value));
  *         if (exception)
  *             g_warning ("Error running javascript: %s", jsc_exception_get_message (exception));
  *         else
  *             g_print ("Script result: %d\n", int_value);
- *         g_free (str_value);
  *     } else {
  *         g_warning ("Error running javascript: unexpected return value");
  *     }
@@ -1070,7 +1079,7 @@ webkit_web_view_leave_immersive_mode                 (WebKitWebView             
  *     g_variant_dict_insert (&dict, "count", "u", 42);
  *     GVariant *args = g_variant_dict_end (&dict);
  *     const gchar *body = "return new Promise((resolve) => { resolve(count); });";
- *     webkit_web_view_run_async_javascript_function_in_world (web_view, body, arguments, NULL, NULL, web_view_javascript_finished, NULL);
+ *     webkit_web_view_run_async_javascript_function_in_world (web_view, body, args, NULL, NULL, web_view_javascript_finished, NULL);
  * }
  * ```
  *
@@ -1079,6 +1088,60 @@ webkit_web_view_leave_immersive_mode                 (WebKitWebView             
  * Deprecated: 2.40: Use webkit_web_view_call_async_javascript_function() instead.
  */
 #endif
+
+#if PLATFORM(GTK)
+#if USE(GTK4)
+/**
+ * WebKitWebView:favicon:
+ *
+ * The favicon currently associated with the #WebKitWebView.
+ * See webkit_web_view_get_favicon() for more details.
+ *
+ * New applications should use [property@WebView:page-icons] instead.
+ *
+ * Deprecated: 2.54
+ */
+
+/**
+ * webkit_web_view_get_favicon:
+ * @web_view: a #WebKitWebView
+ *
+ * Returns favicon currently associated with @web_view.
+ *
+ * Returns favicon currently associated with @web_view, if any. You can
+ * connect to notify::favicon signal of @web_view to be notified when
+ * the favicon is available.
+ *
+ * New applications should use [method@WebView.get_page_icons] instead.
+ *
+ * Returns: (transfer none): the favicon image or %NULL if there's no
+ *    icon associated with @web_view.
+ *
+ * Deprecated: 2.54
+ */
+#else
+/**
+ * WebKitWebView:favicon:
+ *
+ * The favicon currently associated with the #WebKitWebView.
+ * See webkit_web_view_get_favicon() for more details.
+ */
+
+/**
+ * webkit_web_view_get_favicon:
+ * @web_view: a #WebKitWebView
+ *
+ * Returns favicon currently associated with @web_view.
+ *
+ * Returns favicon currently associated with @web_view, if any. You can
+ * connect to notify::favicon signal of @web_view to be notified when
+ * the favicon is available.
+ *
+ * Returns: (transfer none): the favicon image or %NULL if there's no
+ *    icon associated with @web_view.
+ */
+#endif // USE(GTK4)
+#endif // PLATFORM(GTK)
 
 G_END_DECLS
 

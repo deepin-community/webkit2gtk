@@ -48,6 +48,9 @@ SharedBufferReference::SharedBufferReference(std::optional<SerializableBuffer>&&
     if (!serializableBuffer->handle)
         return;
 
+    if (auto ledger = serializableBuffer->ledger)
+        serializableBuffer->handle->takeOwnershipOfMemory(*ledger);
+
     auto sharedMemoryBuffer = SharedMemory::map(WTF::move(*serializableBuffer->handle), SharedMemory::Protection::ReadOnly);
     if (!sharedMemoryBuffer || sharedMemoryBuffer->size() < serializableBuffer->size)
         return;
@@ -61,11 +64,11 @@ auto SharedBufferReference::serializableBuffer() const -> std::optional<Serializ
     if (isNull())
         return std::nullopt;
     if (!m_size)
-        return SerializableBuffer { 0, std::nullopt };
-    auto sharedMemoryBuffer = m_memory ? m_memory : SharedMemory::copyBuffer(Ref { *m_buffer });
+        return SerializableBuffer { 0, std::nullopt, std::nullopt };
+    auto sharedMemoryBuffer = m_memory ? m_memory : SharedMemory::copyBuffer(protect(*m_buffer));
     if (!sharedMemoryBuffer)
         return std::nullopt;
-    return SerializableBuffer { m_size, sharedMemoryBuffer->createHandle(SharedMemory::Protection::ReadOnly) };
+    return SerializableBuffer { m_size, sharedMemoryBuffer->createHandle(SharedMemory::Protection::ReadOnly), m_ledger };
 }
 #endif
 
@@ -94,7 +97,7 @@ std::span<const uint8_t> SharedBufferReference::span() const LIFETIME_BOUND
         return { };
 
     if (!m_buffer->isContiguous())
-        m_buffer = RefPtr { m_buffer }->makeContiguous();
+        m_buffer = protect(m_buffer)->makeContiguous();
 
     return downcast<SharedBuffer>(m_buffer.get())->span().first(m_size);
 }

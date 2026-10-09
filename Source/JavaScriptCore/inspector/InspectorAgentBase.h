@@ -26,6 +26,7 @@
 
 #pragma once
 
+#include <JavaScriptCore/InjectedScriptManager.h>
 #include <JavaScriptCore/InspectorEnvironment.h>
 #include <JavaScriptCore/InspectorFrontendRouter.h>
 #include <wtf/CheckedRef.h>
@@ -39,11 +40,10 @@ class JSGlobalObject;
 namespace Inspector {
 
 class BackendDispatcher;
-class InjectedScriptManager;
 
 struct AgentContext {
     CheckedRef<InspectorEnvironment> environment;
-    InjectedScriptManager& injectedScriptManager;
+    CheckedRef<InjectedScriptManager> injectedScriptManager;
     CheckedRef<FrontendRouter> frontendRouter;
     BackendDispatcher& backendDispatcher;
 };
@@ -55,7 +55,7 @@ struct JSAgentContext : public AgentContext {
     {
     }
 
-    JSC::JSGlobalObject& inspectedGlobalObject;
+    SUPPRESS_FORWARD_DECL_MEMBER JSC::JSGlobalObject& inspectedGlobalObject;
 };
 
 enum class DisconnectReason {

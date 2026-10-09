@@ -33,12 +33,14 @@
 #include "BoxLayoutShape.h"
 #include "FloatingObjects.h"
 #include "NullGraphicsContext.h"
-#include "RenderBlockFlow.h"
+#include "RenderBlockFlowInlines.h"
 #include "RenderBoxInlines.h"
 #include "RenderBoxModelObjectInlines.h"
 #include "RenderFragmentContainer.h"
 #include "RenderImage.h"
 #include "RenderView.h"
+#include "StyleImage.h"
+#include "StylePrimitiveNumericTypes+Evaluation.h"
 #include <JavaScriptCore/ConsoleTypes.h>
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/MakeString.h>
@@ -53,7 +55,7 @@ static LayoutUnit logicalTopOffset(const RenderBox&);
 
 LayoutRect ShapeOutsideInfo::computedShapePhysicalBoundingBox() const
 {
-    LayoutRect physicalBoundingBox = computedShape().shapeMarginLogicalBoundingBox();
+    LayoutRect physicalBoundingBox = protect(computedShape())->shapeMarginLogicalBoundingBox();
     if (m_renderer.writingMode().isBlockFlipped())
         physicalBoundingBox.setY(m_renderer.logicalHeight() - physicalBoundingBox.maxY());
     if (!m_renderer.isHorizontalWritingMode())
@@ -74,7 +76,7 @@ FloatPoint ShapeOutsideInfo::shapeToRendererPoint(const FloatPoint& point) const
 static LayoutSize computeLogicalBoxSize(const RenderBox& renderer, bool isHorizontalWritingMode)
 {
     auto& shapeOutside = renderer.style().shapeOutside();
-    auto size = isHorizontalWritingMode ? renderer.size() : renderer.size().transposedSize();
+    auto size = isHorizontalWritingMode ? renderer.borderBoxSize() : renderer.borderBoxSize().transposedSize();
     switch (shapeOutside.effectiveCSSBox()) {
     case CSSBoxType::MarginBox:
         if (isHorizontalWritingMode)
@@ -157,20 +159,6 @@ static LayoutUnit logicalTopOffset(const RenderBox& renderer)
     return 0_lu;
 }
 
-static inline LayoutUnit borderStartWithStyleForWritingMode(const RenderBox& renderer, const WritingMode writingMode)
-{
-    if (writingMode.isHorizontal()) {
-        if (writingMode.isInlineLeftToRight())
-            return renderer.borderLeft();
-        
-        return renderer.borderRight();
-    }
-    if (writingMode.isInlineTopToBottom())
-        return renderer.borderTop();
-    
-    return renderer.borderBottom();
-}
-
 static inline LayoutUnit borderAndPaddingStartWithStyleForWritingMode(const RenderBox& renderer, const WritingMode writingMode)
 {
     if (writingMode.isHorizontal()) {
@@ -199,16 +187,20 @@ static LayoutUnit logicalLeftOffset(const RenderBox& renderer)
 {
     if (renderer.isRenderFragmentContainer())
         return 0_lu;
-    
+
+    // The offset converts from reference-box coordinates to border-box coordinates.
+    // Shape coordinates are physical before the RTL flip, so use physical-left (horizontal)
+    // or physical-top (vertical) values, not inline-start values.
+    auto isHorizontal = renderer.containingBlock()->isHorizontalWritingMode();
     switch (renderer.style().shapeOutside().effectiveCSSBox()) {
     case CSSBoxType::MarginBox:
-        return -renderer.marginStart(renderer.containingBlock()->writingMode());
+        return isHorizontal ? -renderer.marginLeft() : -renderer.marginTop();
     case CSSBoxType::BorderBox:
         return 0_lu;
     case CSSBoxType::PaddingBox:
-        return borderStartWithStyleForWritingMode(renderer, renderer.containingBlock()->writingMode());
+        return isHorizontal ? renderer.borderLeft() : renderer.borderTop();
     case CSSBoxType::ContentBox:
-        return borderAndPaddingStartWithStyleForWritingMode(renderer, renderer.containingBlock()->writingMode());
+        return isHorizontal ? renderer.borderLeft() + renderer.paddingLeft() : renderer.borderTop() + renderer.paddingTop();
     case CSSBoxType::FillBox:
         break;
     case CSSBoxType::StrokeBox:
@@ -252,22 +244,24 @@ Ref<const LayoutShape> makeShapeForShapeOutside(const RenderBox& renderer)
     bool isHorizontalWritingMode = containingBlock.isHorizontalWritingMode();
     auto shapeImageThreshold = style.shapeImageThreshold();
     auto& shapeOutside = style.shapeOutside();
+    auto zoom = style.usedZoomForLength();
 
     auto boxSize = computeLogicalBoxSize(renderer, isHorizontalWritingMode);
+    auto borderBoxLogicalWidth = isHorizontalWritingMode ? renderer.borderBoxWidth() : renderer.borderBoxHeight();
 
     auto logicalMargin = [&] {
-        auto shapeMargin = Style::evaluate<LayoutUnit>(style.shapeMargin(), containingBlock.contentBoxLogicalWidth(), Style::ZoomNeeded { }).toFloat();
+        auto shapeMargin = Style::evaluate<LayoutUnit>(style.shapeMargin(), containingBlock.contentBoxLogicalWidth(), zoom).toFloat();
         return isnan(shapeMargin) ? 0.0f : shapeMargin;
     }();
 
     return WTF::switchOn(shapeOutside,
         [&](const Style::ShapeOutside::Shape& shape) {
             auto offset = LayoutPoint { logicalLeftOffset(renderer), logicalTopOffset(renderer) };
-            return LayoutShape::createShape(shape, offset, boxSize, writingMode, logicalMargin);
+            return LayoutShape::createShape(shape, offset, boxSize, borderBoxLogicalWidth, writingMode, logicalMargin, zoom);
         },
         [&](const Style::ShapeOutside::ShapeAndShapeBox& shapeAndShapeBox) {
             auto offset = LayoutPoint { logicalLeftOffset(renderer), logicalTopOffset(renderer) };
-            return LayoutShape::createShape(shapeAndShapeBox.shape, offset, boxSize, writingMode, logicalMargin);
+            return LayoutShape::createShape(shapeAndShapeBox.shape, offset, boxSize, borderBoxLogicalWidth, writingMode, logicalMargin, zoom);
         },
         [&](const Style::ShapeOutside::Image& shapeImage) {
             ASSERT(shapeImage.isValid());
@@ -315,17 +309,17 @@ Ref<const LayoutShape> makeShapeForShapeOutside(const RenderBox& renderer)
     );
 }
 
-static inline bool checkShapeImageOrigin(Document& document, const StyleImage& styleImage)
+static inline bool checkShapeImageOrigin(Document& document, const Style::Image& styleImage)
 {
     if (styleImage.isGeneratedImage())
         return true;
 
     ASSERT(styleImage.cachedImage());
-    CachedImage& cachedImage = *(styleImage.cachedImage());
-    if (cachedImage.isOriginClean(&document.securityOrigin()))
+    Ref cachedImage = *(styleImage.cachedImage());
+    if (cachedImage->isOriginClean(&document.securityOrigin()))
         return true;
 
-    const URL& url = cachedImage.url();
+    const URL& url = cachedImage->url();
     String urlString = url.isNull() ? "''"_s : url.stringCenterEllipsizedToLength();
     document.addConsoleMessage(MessageSource::Security, MessageLevel::Error, makeString("Unsafe attempt to load URL "_s, urlString, '.'));
 
@@ -350,7 +344,7 @@ bool ShapeOutsideInfo::isEnabledFor(const RenderBox& box)
         [](const Style::ShapeOutside::Shape&) { return true; },
         [](const Style::ShapeOutside::ShapeBox&) { return true; },
         [](const Style::ShapeOutside::ShapeAndShapeBox&) { return true; },
-        [&](const Style::ShapeOutside::Image& image) { return image.isValid() && checkShapeImageOrigin(box.document(), image.image.value); }
+        [&](const Style::ShapeOutside::Image& image) { return image.isValid() && checkShapeImageOrigin(protect(box.document()), image.image.value); }
     );
 }
 
@@ -367,8 +361,8 @@ ShapeOutsideDeltas ShapeOutsideInfo::computeDeltasForContainingBlockLine(const R
     if (isShapeDirty() || !m_shapeOutsideDeltas.isForLine(borderBoxLineTop, lineHeight)) {
         LayoutUnit floatMarginBoxWidth = std::max<LayoutUnit>(0_lu, containingBlock.logicalWidthForFloat(floatingObject));
 
-        if (computedShape().lineOverlapsShapeMarginBounds(borderBoxLineTop, lineHeight)) {
-            LineSegment segment = computedShape().getExcludedInterval(borderBoxLineTop, std::min(lineHeight, shapeLogicalBottom() - borderBoxLineTop));
+        if (protect(computedShape())->lineOverlapsShapeMarginBounds(borderBoxLineTop, lineHeight)) {
+            LineSegment segment = protect(computedShape())->getExcludedInterval(borderBoxLineTop, std::min(lineHeight, shapeLogicalBottom() - borderBoxLineTop));
             if (segment.isValid) {
                 LayoutUnit logicalLeftMargin = containingBlock.writingMode().isLogicalLeftInlineStart() ? containingBlock.marginStartForChild(m_renderer) : containingBlock.marginEndForChild(m_renderer);
                 LayoutUnit rawLeftMarginBoxDelta { segment.logicalLeft + logicalLeftMargin };

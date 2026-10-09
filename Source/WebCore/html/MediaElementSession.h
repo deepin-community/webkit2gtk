@@ -44,10 +44,16 @@ enum class MediaSessionMainContentPurpose { MediaControls, Autoplay };
 enum class MediaPlaybackState { Playing, Paused };
 
 enum class MediaPlaybackDenialReason {
+    Unknown,
     UserGestureRequired,
     FullscreenRequired,
     PageConsentRequired,
     InvalidState,
+};
+
+struct MediaPlaybackDenialExplanation {
+    MediaPlaybackDenialReason reason { MediaPlaybackDenialReason::Unknown };
+    String description;
 };
 
 class AudioTrack;
@@ -86,7 +92,7 @@ public:
     void isVisibleInViewportChanged();
     void inActiveDocumentChanged();
 
-    Expected<void, MediaPlaybackDenialReason> playbackStateChangePermitted(MediaPlaybackState) const;
+    Expected<void, MediaPlaybackDenialExplanation> playbackStateChangePermitted(MediaPlaybackState) const;
     bool autoplayPermitted() const;
     bool dataLoadingPermitted() const;
     MediaPlayer::BufferingPolicy preferredBufferingPolicy() const;
@@ -111,9 +117,9 @@ public:
 #endif
 
     bool requiresFullscreenForVideoPlayback() const;
-    WEBCORE_EXPORT bool allowsPictureInPicture() const;
+    WEBCORE_EXPORT bool NODELETE allowsPictureInPicture() const;
     MediaPlayer::Preload effectivePreloadForElement() const;
-    bool allowsAutomaticMediaDataLoading() const;
+    bool NODELETE allowsAutomaticMediaDataLoading() const;
 
     void mediaEngineUpdated();
 
@@ -121,7 +127,7 @@ public:
 
     void suspendBuffering() override;
     void resumeBuffering() override;
-    bool bufferingSuspended() const;
+    bool NODELETE bufferingSuspended() const;
     void updateBufferingPolicy() { scheduleClientDataBufferingCheck(); }
 
     // Restrictions to modify default behaviors.
@@ -156,8 +162,7 @@ public:
     WEBCORE_EXPORT void removeBehaviorRestriction(BehaviorRestrictions);
     bool hasBehaviorRestriction(BehaviorRestrictions restriction) const { return restriction & m_restrictions; }
 
-    WeakPtr<HTMLMediaElement> element() const { return m_element; }
-    RefPtr<HTMLMediaElement> protectedElement() const;
+    inline HTMLMediaElement* element() const; // Defined in HTMLMediaElement.h.
 
     bool wantsToObserveViewportVisibilityForMediaControls() const;
     bool wantsToObserveViewportVisibilityForAutoplay() const;
@@ -166,9 +171,9 @@ public:
     bool isLargeEnoughForMainContent(MediaSessionMainContentPurpose) const;
     bool isLongEnoughForMainContent() const final;
     bool isMainContentForPurposesOfAutoplayEvents() const;
-    Markable<MonotonicTime> mostRecentUserInteractionTime() const;
+    Markable<MonotonicTime> NODELETE mostRecentUserInteractionTime() const;
 
-    bool allowsPlaybackControlsForAutoplayingAudio() const;
+    bool NODELETE allowsPlaybackControlsForAutoplayingAudio() const;
 
     static bool isMediaElementSessionMediaType(MediaType type)
     {
@@ -194,7 +199,7 @@ public:
 #endif
     void metadataChanged(const RefPtr<MediaMetadata>&);
     void positionStateChanged(const std::optional<MediaPositionState>&);
-    void playbackStateChanged(MediaSessionPlaybackState);
+    void NODELETE playbackStateChanged(MediaSessionPlaybackState);
     void actionHandlersChanged();
 
     MediaSession* mediaSession() const;
@@ -277,7 +282,15 @@ struct LogArgument<WebCore::MediaPlaybackDenialReason> {
         return convertEnumerationToString(reason);
     }
 };
-    
+
+template <>
+struct LogArgument<WebCore::MediaPlaybackDenialExplanation> {
+    static String toString(const WebCore::MediaPlaybackDenialExplanation explanation)
+    {
+        return makeString(convertEnumerationToString(explanation.reason), ": "_s, explanation.description);
+    }
+};
+
 }; // namespace WTF
 
 

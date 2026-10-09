@@ -234,8 +234,9 @@ class ConvertStructState : angle::NonCopyable
             ModifiedAccess *modified = &AccessField(modifiedParam, info.modifiedFieldName);
             if (useAttributeAliasing)
             {
-                std::ostringstream aliasedName;
-                aliasedName << "ANGLE_ALIASED_" << info.modifiedFieldName;
+                TInfoSinkBase aliasedName;
+                aliasedName << "ANGLE_ALIASED_";
+                info.modifiedFieldName.emit(aliasedName, kUserVariableNamePrefix);
 
                 TType *placeholderType = new TType(modified->getType());
                 placeholderType->setQualifier(EvqSpecConst);
@@ -878,6 +879,13 @@ bool SaturateScalarOrVectorCommon(ConvertStructState &state,
             {
                 return Access{o_, m_};
             }
+        });
+    }
+    for (uint8_t d = dim; d < saturation; ++d)
+    {
+        state.addConversion([=](Access::Env &, OriginalAccess &, ModifiedAccess &m) {
+            auto &m_ = AccessIndex(m, d);
+            return Access{*CreateZeroNode(m_.getType()), m_};
         });
     }
 

@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2013-2014 Google Inc. All rights reserved.
  * Copyright (C) 2014-2022 Apple Inc. All rights reserved.
- * Copyright (C) 2025 Samuel Weinig <sam@webkit.org>
+ * Copyright (C) 2025-2026 Samuel Weinig <sam@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,18 +30,20 @@
 #include "AnchorPositionEvaluator.h"
 #include "CSSCounterStyleRegistry.h"
 #include "CSSCounterStyleRule.h"
-#include "CSSCounterValue.h"
-#include "CSSPrimitiveValueMappings.h"
 #include "CSSPropertyParserConsumer+Font.h"
 #include "CSSRegisteredCustomProperty.h"
+#include "CSSStringValue.h"
 #include "CSSValuePair.h"
+#include "CSSValuePool.h"
 #include "DocumentQuirks.h"
 #include "DocumentView.h"
 #include "ElementAncestorIteratorInlines.h"
+#include "FontCascadeInlines.h"
 #include "FontSelectionValueInlines.h"
 #include "FrameDestructionObserverInlines.h"
 #include "HTMLElement.h"
 #include "LocalFrame.h"
+#include "OpenTypeMathData.h"
 #include "SVGElement.h"
 #include "SVGElementTypeHelpers.h"
 #include "SVGPathElement.h"
@@ -52,10 +54,9 @@
 #include "StyleComputedStyle+InitialInlines.h"
 #include "StyleComputedStyle+SettersInlines.h"
 #include "StyleFontSizeFunctions.h"
-#include "StyleLengthWrapper+CSSValueConversion.h"
-#include "StylePrimitiveKeyword+CSSValueConversion.h"
+#include "StyleKeyword+CSSValueConversion.h"
+#include "StylePrimitiveNumericOrKeyword+CSSValueConversion.h"
 #include "StylePrimitiveNumericTypes+CSSValueConversion.h"
-#include "StylePrimitiveNumericTypes+Conversions.h"
 #include "StyleResolveForFont.h"
 #include "StyleResolver.h"
 #include "StyleTextEdge+CSSValueConversion.h"
@@ -67,148 +68,42 @@
 namespace WebCore {
 namespace Style {
 
-#define DECLARE_PROPERTY_CUSTOM_HANDLERS(property) \
-    static void applyInherit##property(BuilderState&); \
-    static void applyInitial##property(BuilderState&); \
-    static void applyValue##property(BuilderState&, CSSValue&)
+template<typename T>
+decltype(auto) forwardInheritedValue(T&& value)
+{
+    if constexpr (std::is_lvalue_reference_v<T>)
+        return std::remove_cvref_t<T>(value);
+    else
+        return std::forward<T>(value);
+}
 
-template<typename T> inline T forwardInheritedValue(T&& value) { return std::forward<T>(value); }
-template<auto R, typename V> inline Length<R, V> forwardInheritedValue(const Length<R, V>& value) { auto copy = value; return copy; }
-inline AccentColor forwardInheritedValue(const AccentColor& value) { auto copy = value; return copy; }
-inline AnchorNames forwardInheritedValue(const AnchorNames& value) { auto copy = value; return copy; }
-inline AppleColorFilter forwardInheritedValue(const AppleColorFilter& value) { auto copy = value; return copy; }
-inline AspectRatio forwardInheritedValue(const AspectRatio& value) { auto copy = value; return copy; }
-inline BackgroundSize forwardInheritedValue(const BackgroundSize& value) { auto copy = value; return copy; }
-inline BlockEllipsis forwardInheritedValue(const BlockEllipsis& value) { auto copy = value; return copy; }
-inline BlockStepSize forwardInheritedValue(const BlockStepSize& value) { auto copy = value; return copy; }
-inline BorderImageSource forwardInheritedValue(const BorderImageSource& value) { auto copy = value; return copy; }
-inline BorderImageSlice forwardInheritedValue(const BorderImageSlice& value) { auto copy = value; return copy; }
-inline BorderImageWidth forwardInheritedValue(const BorderImageWidth& value) { auto copy = value; return copy; }
-inline BorderImageOutset forwardInheritedValue(const BorderImageOutset& value) { auto copy = value; return copy; }
-inline BorderImageRepeat forwardInheritedValue(const BorderImageRepeat& value) { auto copy = value; return copy; }
-inline BorderRadiusValue forwardInheritedValue(const BorderRadiusValue& value) { auto copy = value; return copy; }
-inline BoxShadows forwardInheritedValue(const BoxShadows& value) { auto copy = value; return copy; }
-inline CaretColor forwardInheritedValue(const CaretColor& value) { auto copy = value; return copy; }
-inline ContainIntrinsicSize forwardInheritedValue(const ContainIntrinsicSize& value) { auto copy = value; return copy; }
-inline ContainerNames forwardInheritedValue(const ContainerNames& value) { auto copy = value; return copy; }
-inline CounterIncrement forwardInheritedValue(const CounterIncrement& value) { auto copy = value; return copy; }
-inline CounterReset forwardInheritedValue(const CounterReset& value) { auto copy = value; return copy; }
-inline CounterSet forwardInheritedValue(const CounterSet& value) { auto copy = value; return copy; }
-inline Content forwardInheritedValue(const Content& value) { auto copy = value; return copy; }
-inline WebCore::Color forwardInheritedValue(const WebCore::Color& value) { auto copy = value; return copy; }
-inline Color forwardInheritedValue(const Color& value) { auto copy = value; return copy; }
-inline EasingFunction forwardInheritedValue(const EasingFunction& value) { auto copy = value; return copy; }
-inline GapGutter forwardInheritedValue(const GapGutter& value) { auto copy = value; return copy; }
-inline FontFamilies forwardInheritedValue(const FontFamilies& value) { auto copy = value; return copy; }
-inline FilterOperations forwardInheritedValue(const FilterOperations& value) { auto copy = value; return copy; }
-inline ScrollMarginEdge forwardInheritedValue(const ScrollMarginEdge& value) { auto copy = value; return copy; }
-inline ScrollPaddingEdge forwardInheritedValue(const ScrollPaddingEdge& value) { auto copy = value; return copy; }
-inline LineWidth forwardInheritedValue(const LineWidth& value) { auto copy = value; return copy; }
-inline MaskBorderSource forwardInheritedValue(const MaskBorderSource& value) { auto copy = value; return copy; }
-inline MaskBorderSlice forwardInheritedValue(const MaskBorderSlice& value) { auto copy = value; return copy; }
-inline MaskBorderWidth forwardInheritedValue(const MaskBorderWidth& value) { auto copy = value; return copy; }
-inline MaskBorderOutset forwardInheritedValue(const MaskBorderOutset& value) { auto copy = value; return copy; }
-inline MaskBorderRepeat forwardInheritedValue(const MaskBorderRepeat& value) { auto copy = value; return copy; }
-inline MarginEdge forwardInheritedValue(const MarginEdge& value) { auto copy = value; return copy; }
-inline PaddingEdge forwardInheritedValue(const PaddingEdge& value) { auto copy = value; return copy; }
-inline ImageOrNone forwardInheritedValue(const ImageOrNone& value) { auto copy = value; return copy; }
-inline InsetEdge forwardInheritedValue(const InsetEdge& value) { auto copy = value; return copy; }
-inline Perspective forwardInheritedValue(const Perspective& value) { auto copy = value; return copy; }
-inline Quotes forwardInheritedValue(const Quotes& value) { auto copy = value; return copy; }
-inline Rotate forwardInheritedValue(const Rotate& value) { auto copy = value; return copy; }
-inline Scale forwardInheritedValue(const Scale& value) { auto copy = value; return copy; }
-inline Translate forwardInheritedValue(const Translate& value) { auto copy = value; return copy; }
-inline PreferredSize forwardInheritedValue(const PreferredSize& value) { auto copy = value; return copy; }
-inline MinimumSize forwardInheritedValue(const MinimumSize& value) { auto copy = value; return copy; }
-inline MaximumSize forwardInheritedValue(const MaximumSize& value) { auto copy = value; return copy; }
-inline Filter forwardInheritedValue(const Filter& value) { auto copy = value; return copy; }
-inline FlexBasis forwardInheritedValue(const FlexBasis& value) { auto copy = value; return copy; }
-inline DynamicRangeLimit forwardInheritedValue(const DynamicRangeLimit& value) { auto copy = value; return copy; }
-inline Clip forwardInheritedValue(const Clip& value) { auto copy = value; return copy; }
-inline ClipPath forwardInheritedValue(const ClipPath& value) { auto copy = value; return copy; }
-inline CornerShapeValue forwardInheritedValue(const CornerShapeValue& value) { auto copy = value; return copy; }
-inline GridPosition forwardInheritedValue(const GridPosition& value) { auto copy = value; return copy; }
-inline GridTemplateAreas forwardInheritedValue(const GridTemplateAreas& value) { auto copy = value; return copy; }
-inline GridTemplateList forwardInheritedValue(const GridTemplateList& value) { auto copy = value; return copy; }
-inline GridTrackSizes forwardInheritedValue(const GridTrackSizes& value) { auto copy = value; return copy; }
-inline HyphenateCharacter forwardInheritedValue(const HyphenateCharacter& value) { auto copy = value; return copy; }
-inline FlowTolerance forwardInheritedValue(const FlowTolerance& value) { auto copy = value; return copy; }
-inline LetterSpacing forwardInheritedValue(const LetterSpacing& value) { auto copy = value; return copy; }
-inline LineHeight forwardInheritedValue(const LineHeight& value) { auto copy = value; return copy; }
-inline ListStyleType forwardInheritedValue(const ListStyleType& value) { auto copy = value; return copy; }
-inline NameScope forwardInheritedValue(const NameScope& value) { auto copy = value; return copy; }
-inline OffsetAnchor forwardInheritedValue(const OffsetAnchor& value) { auto copy = value; return copy; }
-inline OffsetDistance forwardInheritedValue(const OffsetDistance& value) { auto copy = value; return copy; }
-inline OffsetPath forwardInheritedValue(const OffsetPath& value) { auto copy = value; return copy; }
-inline OffsetPosition forwardInheritedValue(const OffsetPosition& value) { auto copy = value; return copy; }
-inline OffsetRotate forwardInheritedValue(const OffsetRotate& value) { auto copy = value; return copy; }
-inline Position forwardInheritedValue(const Position& value) { auto copy = value; return copy; }
-inline PositionAnchor forwardInheritedValue(const PositionAnchor& value) { auto copy = value; return copy; }
-inline PositionTryFallbacks forwardInheritedValue(const PositionTryFallbacks& value) { auto copy = value; return copy; }
-inline PositionX forwardInheritedValue(const PositionX& value) { auto copy = value; return copy; }
-inline PositionY forwardInheritedValue(const PositionY& value) { auto copy = value; return copy; }
-inline RepeatStyle forwardInheritedValue(const RepeatStyle& value) { auto copy = value; return copy; }
-inline SVGBaselineShift forwardInheritedValue(const SVGBaselineShift& value) { auto copy = value; return copy; }
-inline SVGCenterCoordinateComponent forwardInheritedValue(const SVGCenterCoordinateComponent& value) { auto copy = value; return copy; }
-inline SVGCoordinateComponent forwardInheritedValue(const SVGCoordinateComponent& value) { auto copy = value; return copy; }
-inline SVGMarkerResource forwardInheritedValue(const SVGMarkerResource& value) { auto copy = value; return copy; }
-inline SVGPathData forwardInheritedValue(const SVGPathData& value) { auto copy = value; return copy; }
-inline SVGPaint forwardInheritedValue(const SVGPaint& value) { auto copy = value; return copy; }
-inline SVGRadius forwardInheritedValue(const SVGRadius& value) { auto copy = value; return copy; }
-inline SVGRadiusComponent forwardInheritedValue(const SVGRadiusComponent& value) { auto copy = value; return copy; }
-inline SVGStrokeDasharray forwardInheritedValue(const SVGStrokeDasharray& value) { auto copy = value; return copy; }
-inline SVGStrokeDashoffset forwardInheritedValue(const SVGStrokeDashoffset& value) { auto copy = value; return copy; }
-inline ScrollSnapAlign forwardInheritedValue(const ScrollSnapAlign& value) { auto copy = value; return copy; }
-inline ScrollSnapType forwardInheritedValue(const ScrollSnapType& value) { auto copy = value; return copy; }
-inline ScrollbarColor forwardInheritedValue(const ScrollbarColor& value) { auto copy = value; return copy; }
-inline ScrollbarGutter forwardInheritedValue(const ScrollbarGutter& value) { auto copy = value; return copy; }
-inline ShapeMargin forwardInheritedValue(const ShapeMargin& value) { auto copy = value; return copy; }
-inline ShapeOutside forwardInheritedValue(const ShapeOutside& value) { auto copy = value; return copy; }
-inline SingleAnimationName forwardInheritedValue(const SingleAnimationName& value) { auto copy = value; return copy; }
-inline SingleAnimationRangeStart forwardInheritedValue(const SingleAnimationRangeStart& value) { auto copy = value; return copy; }
-inline SingleAnimationRangeEnd forwardInheritedValue(const SingleAnimationRangeEnd& value) { auto copy = value; return copy; }
-inline SingleAnimationRange forwardInheritedValue(const SingleAnimationRange& value) { auto copy = value; return copy; }
-inline SingleAnimationTimeline forwardInheritedValue(const SingleAnimationTimeline& value) { auto copy = value; return copy; }
-inline SingleTransitionProperty forwardInheritedValue(const SingleTransitionProperty& value) { auto copy = value; return copy; }
-inline StrokeWidth forwardInheritedValue(const StrokeWidth& value) { auto copy = value; return copy; }
-inline TabSize forwardInheritedValue(const TabSize& value) { auto copy = value; return copy; }
-inline TextDecorationLine forwardInheritedValue(const TextDecorationLine& value) { auto copy = value; return copy; }
-inline TextDecorationThickness forwardInheritedValue(const TextDecorationThickness& value) { auto copy = value; return copy; }
-inline TextEmphasisStyle forwardInheritedValue(const TextEmphasisStyle& value) { auto copy = value; return copy; }
-inline TextIndent forwardInheritedValue(const TextIndent& value) { auto copy = value; return copy; }
-inline TextShadows forwardInheritedValue(const TextShadows& value) { auto copy = value; return copy; }
-inline TextUnderlineOffset forwardInheritedValue(const TextUnderlineOffset& value) { auto copy = value; return copy; }
-inline URL forwardInheritedValue(const URL& value) { auto copy = value; return copy; }
-inline FixedVector<PositionTryFallback> forwardInheritedValue(const FixedVector<PositionTryFallback>& value) { auto copy = value; return copy; }
-inline ProgressTimelineAxes forwardInheritedValue(const ProgressTimelineAxes& value) { auto copy = value; return copy; }
-inline ProgressTimelineNames forwardInheritedValue(const ProgressTimelineNames& value) { auto copy = value; return copy; }
-inline ScrollTimelines forwardInheritedValue(const ScrollTimelines& value) { auto copy = value; return copy; }
-inline Transform forwardInheritedValue(const Transform& value) { auto copy = value; return copy; }
-inline VerticalAlign forwardInheritedValue(const VerticalAlign& value) { auto copy = value; return copy; }
-inline ViewTimelineInsets forwardInheritedValue(const ViewTimelineInsets& value) { auto copy = value; return copy; }
-inline ViewTimelines forwardInheritedValue(const ViewTimelines& value) { auto copy = value; return copy; }
-inline ViewTransitionClasses forwardInheritedValue(const ViewTransitionClasses& value) { auto copy = value; return copy; }
-inline ViewTransitionName forwardInheritedValue(const ViewTransitionName& value) { auto copy = value; return copy; }
-inline WebkitBoxReflect forwardInheritedValue(const WebkitBoxReflect& value) { auto copy = value; return copy; }
-inline WebkitInitialLetter forwardInheritedValue(const WebkitInitialLetter& value) { auto copy = value; return copy; }
-inline WebkitLineClamp forwardInheritedValue(const WebkitLineClamp& value) { auto copy = value; return copy; }
-inline WebkitLineGrid forwardInheritedValue(const WebkitLineGrid& value) { auto copy = value; return copy; }
-inline WebkitMarqueeIncrement forwardInheritedValue(const WebkitMarqueeIncrement& value) { auto copy = value; return copy; }
-inline WillChange forwardInheritedValue(const WillChange& value) { auto copy = value; return copy; }
-inline WordSpacing forwardInheritedValue(const WordSpacing& value) { auto copy = value; return copy; }
-
-// Note that we assume the CSS parser only allows valid CSSValue types.
 class BuilderCustom {
 public:
-    // Custom handling of inherit, initial and value setting.
-    DECLARE_PROPERTY_CUSTOM_HANDLERS(FontFamily);
-    DECLARE_PROPERTY_CUSTOM_HANDLERS(FontSize);
-    DECLARE_PROPERTY_CUSTOM_HANDLERS(LetterSpacing);
+    static void applyInheritFontFamily(BuilderState&);
+    static void applyInitialFontFamily(BuilderState&);
+    static void applyValueFontFamily(BuilderState&, CSSValue&);
+
+    static void applyInheritFontSize(BuilderState&);
+    static void applyInitialFontSize(BuilderState&);
+    static void applyValueFontSize(BuilderState&, CSSValue&);
+
+    static void applyInheritLetterSpacing(BuilderState&);
+    static void applyInitialLetterSpacing(BuilderState&);
+    static void applyValueLetterSpacing(BuilderState&, CSSValue&);
+
 #if ENABLE(TEXT_AUTOSIZING)
-    DECLARE_PROPERTY_CUSTOM_HANDLERS(LineHeight);
+    static void applyInheritLineHeight(BuilderState&);
+    static void applyInitialLineHeight(BuilderState&);
+    static void applyValueLineHeight(BuilderState&, CSSValue&);
 #endif
-    DECLARE_PROPERTY_CUSTOM_HANDLERS(WordSpacing);
-    DECLARE_PROPERTY_CUSTOM_HANDLERS(Zoom);
+
+    static void applyInheritWordSpacing(BuilderState&);
+    static void applyInitialWordSpacing(BuilderState&);
+    static void applyValueWordSpacing(BuilderState&, CSSValue&);
+
+    static void applyInheritZoom(BuilderState&);
+    static void applyInitialZoom(BuilderState&);
+    static void applyValueZoom(BuilderState&, CSSValue&);
 
     // Custom handling of initial setting only.
     static void applyInitialBorderTopWidth(BuilderState&);
@@ -217,6 +112,7 @@ public:
     static void applyInitialBorderLeftWidth(BuilderState&);
     static void applyInitialOutlineWidth(BuilderState&);
     static void applyInitialColumnRuleWidth(BuilderState&);
+    static void applyInitialColor(BuilderState&);
 
     // Custom handling of value setting only.
     static void applyValueColor(BuilderState&, CSSValue&);
@@ -231,12 +127,6 @@ public:
 
 private:
     static void resetUsedZoom(BuilderState&);
-
-    enum CounterBehavior { Increment, Reset, Set };
-    template<CounterBehavior>
-    static void applyInheritCounter(BuilderState&);
-    template<CounterBehavior>
-    static void applyValueCounter(BuilderState&, CSSValue&);
 
     static float largerFontSize(float size);
     static float smallerFontSize(float size);
@@ -290,7 +180,7 @@ void applyValueCoordinatedValueListProperty(BuilderState& builderState, CSSValue
     auto& list = (builderState.style().*listMutableGetter)();
 
     auto set = [&](auto i, auto& item) {
-        if (item.valueID() == CSSValueInitial)
+        if (isValueID(item, CSSValueInitial))
             PropertyAccessor { list[i] }.set(PropertyAccessor::initial());
         else
             PropertyAccessor { list[i] }.set(toStyleFromCSSValue<ItemType>(builderState, item));
@@ -326,7 +216,7 @@ inline void BuilderCustom::resetUsedZoom(BuilderState& builderState)
 inline void BuilderCustom::applyInitialZoom(BuilderState& builderState)
 {
     resetUsedZoom(builderState);
-    builderState.setZoom(Style::ComputedStyle::initialZoom());
+    builderState.setZoom(ComputedStyle::initialZoom());
 }
 
 inline void BuilderCustom::applyInheritZoom(BuilderState& builderState)
@@ -337,21 +227,22 @@ inline void BuilderCustom::applyInheritZoom(BuilderState& builderState)
 
 inline void BuilderCustom::applyValueZoom(BuilderState& builderState, CSSValue& value)
 {
-    auto primitiveValue = requiredDowncast<CSSPrimitiveValue>(builderState, value);
-    if (!primitiveValue)
-        return;
+    if (auto* keywordValue = dynamicDowncast<CSSKeywordValue>(value)) {
+        switch (keywordValue->valueID()) {
+        case CSSValueNormal:
+            resetUsedZoom(builderState);
+            builderState.setZoom(Style::ComputedStyle::initialZoom());
+            return;
 
-    if (primitiveValue->valueID() == CSSValueNormal) {
-        resetUsedZoom(builderState);
-        builderState.setZoom(Style::ComputedStyle::initialZoom());
-    } else {
-        resetUsedZoom(builderState);
-
-        auto zoom = toStyleFromCSSValue<Zoom>(builderState, *primitiveValue);
-        // FIXME: The spec says that zoom values of 0 should be treated as 1, not ignored entirely. https://drafts.csswg.org/css-viewport/#valdef-zoom-number
-        if (!isZero(zoom))
-            builderState.setZoom(zoom);
+        default:
+            builderState.setCurrentPropertyInvalidAtComputedValueTime();
+            return;
+        }
     }
+
+    resetUsedZoom(builderState);
+    auto zoom = toStyleFromCSSValue<Zoom>(builderState, value);
+    builderState.setZoom(isZero(zoom) ? Zoom { 1.0f } : zoom);
 }
 
 void maybeUpdateFontForLetterSpacingOrWordSpacing(BuilderState& builderState, CSSValue& value)
@@ -389,7 +280,7 @@ inline void BuilderCustom::applyInheritWordSpacing(BuilderState& builderState)
 
 inline void BuilderCustom::applyInitialWordSpacing(BuilderState& builderState)
 {
-    builderState.style().setWordSpacing(Style::ComputedStyle::initialWordSpacing());
+    builderState.style().setWordSpacing(ComputedStyle::initialWordSpacing());
     builderState.setFontDirty();
 }
 
@@ -408,7 +299,7 @@ inline void BuilderCustom::applyInheritLetterSpacing(BuilderState& builderState)
 
 inline void BuilderCustom::applyInitialLetterSpacing(BuilderState& builderState)
 {
-    builderState.style().setLetterSpacing(Style::ComputedStyle::initialLetterSpacing());
+    builderState.style().setLetterSpacing(ComputedStyle::initialLetterSpacing());
     builderState.setFontDirty();
 }
 
@@ -429,8 +320,8 @@ inline void BuilderCustom::applyInheritLineHeight(BuilderState& builderState)
 
 inline void BuilderCustom::applyInitialLineHeight(BuilderState& builderState)
 {
-    builderState.style().setLineHeight(Style::ComputedStyle::initialLineHeight());
-    builderState.style().setSpecifiedLineHeight(Style::ComputedStyle::initialSpecifiedLineHeight());
+    builderState.style().setLineHeight(ComputedStyle::initialLineHeight());
+    builderState.style().setSpecifiedLineHeight(ComputedStyle::initialSpecifiedLineHeight());
 }
 
 static inline float computeBaseSpecifiedFontSize(const Document& document, const ComputedStyle& style, bool percentageAutosizingEnabled)
@@ -446,11 +337,11 @@ static inline float computeBaseSpecifiedFontSize(const Document& document, const
     return result;
 }
 
-static inline float computeLineHeightMultiplierDueToFontSize(const Document& document, const ComputedStyle& style, const CSSPrimitiveValue& value)
+static inline float computeLineHeightMultiplierDueToFontSize(const Document& document, const ComputedStyle& style, const CSSValue& value)
 {
     bool percentageAutosizingEnabled = document.settings().textAutosizingEnabled() && style.textSizeAdjust().isPercentage();
 
-    if (value.isLength()) {
+    if (RefPtr primitiveValue = dynamicDowncast<CSSPrimitiveValue>(value); primitiveValue && primitiveValue->isLength()) {
         auto minimumFontSize = document.settings().minimumFontSize();
         if (minimumFontSize > 0) {
             auto specifiedFontSize = computeBaseSpecifiedFontSize(document, style, percentageAutosizingEnabled);
@@ -480,26 +371,22 @@ static inline float computeLineHeightMultiplierDueToFontSize(const Document& doc
 
 inline void BuilderCustom::applyValueLineHeight(BuilderState& builderState, CSSValue& value)
 {
-    if (CSSPropertyParserHelpers::isSystemFontShorthand(value.valueID())) {
+    if (CSSPropertyParserHelpers::isSystemFontShorthand(valueID(value))) {
         applyInitialLineHeight(builderState);
         return;
     }
 
-    RefPtr primitiveValue = requiredDowncast<CSSPrimitiveValue>(builderState, value);
-    if (!primitiveValue)
-        return;
-
-    auto lineHeight = toStyleFromCSSValue<LineHeight>(builderState, *primitiveValue, 1.0f);
+    auto lineHeight = toStyleFromCSSValue<LineHeight>(builderState, value, 1.0f);
 
     auto computedLineHeight = [&] -> LineHeight {
         if (lineHeight.isNormal())
             return lineHeight;
 
-        auto multiplier = computeLineHeightMultiplierDueToFontSize(builderState.document(), builderState.style(), *primitiveValue);
+        auto multiplier = computeLineHeightMultiplierDueToFontSize(builderState.document(), builderState.style(), value);
         if (multiplier == 1)
             return lineHeight;
 
-        return toStyleFromCSSValue<LineHeight>(builderState, *primitiveValue, multiplier);
+        return toStyleFromCSSValue<LineHeight>(builderState, value, multiplier);
     }();
 
     builderState.style().setLineHeight(WTF::move(computedLineHeight));
@@ -510,14 +397,7 @@ inline void BuilderCustom::applyValueLineHeight(BuilderState& builderState, CSSV
 
 inline void BuilderCustom::applyValueWebkitLocale(BuilderState& builderState, CSSValue& value)
 {
-    auto primitiveValue = requiredDowncast<CSSPrimitiveValue>(builderState, value);
-    if (!primitiveValue)
-        return;
-
-    if (primitiveValue->valueID() == CSSValueAuto)
-        builderState.setFontDescriptionSpecifiedLocale(nullAtom());
-    else
-        builderState.setFontDescriptionSpecifiedLocale(AtomString { primitiveValue->stringValue() });
+    builderState.setFontDescriptionSpecifiedLocale(toStyleFromCSSValue<WebkitLocale>(builderState, value));
 }
 
 inline void BuilderCustom::applyValueWritingMode(BuilderState& builderState, CSSValue& value)
@@ -541,14 +421,7 @@ inline void BuilderCustom::applyValueWebkitTextSizeAdjust(BuilderState& builderS
 
 inline void BuilderCustom::applyValueWebkitTextZoom(BuilderState& builderState, CSSValue& value)
 {
-    auto primitiveValue = requiredDowncast<CSSPrimitiveValue>(builderState, value);
-    if (!primitiveValue)
-        return;
-
-    if (primitiveValue->valueID() == CSSValueNormal)
-        builderState.style().setTextZoom(TextZoom::Normal);
-    else if (primitiveValue->valueID() == CSSValueReset)
-        builderState.style().setTextZoom(TextZoom::Reset);
+    builderState.style().setTextZoom(toStyleFromCSSValue<TextZoom>(builderState, value));
     builderState.setFontDirty();
 }
 
@@ -560,11 +433,11 @@ inline void BuilderCustom::applyInitialFontFamily(BuilderState& builderState)
     // We need to adjust the size to account for the generic family change from monospace to non-monospace.
     if (fontDescription.useFixedDefaultSize()) {
         if (CSSValueID sizeIdentifier = fontDescription.keywordSizeAsIdentifier())
-            builderState.setFontDescriptionFontSize(Style::fontSizeForKeyword(sizeIdentifier, false, builderState.document()));
+            builderState.setFontDescriptionFontSize(fontSizeForKeyword(sizeIdentifier, false, builderState.document()));
     }
 
-    if (!initialDesc.firstFamily().isEmpty())
-        builderState.setFontDescriptionFamilies(FontFamilies { initialDesc.families(), fontDescription.isSpecifiedFont() });
+    if (!initialDesc.firstFamily().name.isEmpty())
+        builderState.setFontDescriptionFamilies(FontFamilies { initialDesc.families(), fontDescription.hasAuthorSpecifiedNonGenericPrimaryFont() });
 }
 
 inline void BuilderCustom::applyInheritFontFamily(BuilderState& builderState)
@@ -583,44 +456,62 @@ inline void BuilderCustom::applyValueFontFamily(BuilderState& builderState, CSSV
 
     if (fontDescription.useFixedDefaultSize() != oldFamilyUsedFixedDefaultSize) {
         if (CSSValueID sizeIdentifier = fontDescription.keywordSizeAsIdentifier())
-            builderState.setFontDescriptionFontSize(Style::fontSizeForKeyword(sizeIdentifier, !oldFamilyUsedFixedDefaultSize, builderState.document()));
+            builderState.setFontDescriptionFontSize(fontSizeForKeyword(sizeIdentifier, !oldFamilyUsedFixedDefaultSize, builderState.document()));
     }
 }
 
 inline void BuilderCustom::applyInitialBorderTopWidth(BuilderState& builderState)
 {
-    builderState.style().setBorderTopWidth(Style::LineWidth::snapLengthAsBorderWidth(3.0f * builderState.style().usedZoom(), builderState.document().deviceScaleFactor()));
+    if (!builderState.cssToLengthConversionData().evaluationTimeZoomEnabled())
+        builderState.style().setBorderTopWidth(LineWidth::snapLengthAsBorderWidth(3.0f * builderState.style().usedZoom(), builderState.style().deviceScaleFactor()));
+    else
+        builderState.style().setBorderTopWidth(ComputedStyle::initialBorderTopWidth());
 }
 
 inline void BuilderCustom::applyInitialBorderRightWidth(BuilderState& builderState)
 {
-    builderState.style().setBorderRightWidth(Style::LineWidth::snapLengthAsBorderWidth(3.0f * builderState.style().usedZoom(), builderState.document().deviceScaleFactor()));
+    if (!builderState.cssToLengthConversionData().evaluationTimeZoomEnabled())
+        builderState.style().setBorderRightWidth(LineWidth::snapLengthAsBorderWidth(3.0f * builderState.style().usedZoom(), builderState.style().deviceScaleFactor()));
+    else
+        builderState.style().setBorderRightWidth(ComputedStyle::initialBorderRightWidth());
 }
 
 inline void BuilderCustom::applyInitialBorderBottomWidth(BuilderState& builderState)
 {
-    builderState.style().setBorderBottomWidth(Style::LineWidth::snapLengthAsBorderWidth(3.0f * builderState.style().usedZoom(), builderState.document().deviceScaleFactor()));
+    if (!builderState.cssToLengthConversionData().evaluationTimeZoomEnabled())
+        builderState.style().setBorderBottomWidth(LineWidth::snapLengthAsBorderWidth(3.0f * builderState.style().usedZoom(), builderState.style().deviceScaleFactor()));
+    else
+        builderState.style().setBorderBottomWidth(ComputedStyle::initialBorderBottomWidth());
 }
 
 inline void BuilderCustom::applyInitialBorderLeftWidth(BuilderState& builderState)
 {
-    builderState.style().setBorderLeftWidth(Style::LineWidth::snapLengthAsBorderWidth(3.0f * builderState.style().usedZoom(), builderState.document().deviceScaleFactor()));
+    if (!builderState.cssToLengthConversionData().evaluationTimeZoomEnabled())
+        builderState.style().setBorderLeftWidth(LineWidth::snapLengthAsBorderWidth(3.0f * builderState.style().usedZoom(), builderState.style().deviceScaleFactor()));
+    else
+        builderState.style().setBorderLeftWidth(ComputedStyle::initialBorderLeftWidth());
 }
 
 inline void BuilderCustom::applyInitialOutlineWidth(BuilderState& builderState)
 {
-    builderState.style().setOutlineWidth(Style::LineWidth::snapLengthAsBorderWidth(3.0f * builderState.style().usedZoom(), builderState.document().deviceScaleFactor()));
+    if (!builderState.cssToLengthConversionData().evaluationTimeZoomEnabled())
+        builderState.style().setOutlineWidth(LineWidth::snapLengthAsBorderWidth(3.0f * builderState.style().usedZoom(), builderState.style().deviceScaleFactor()));
+    else
+        builderState.style().setOutlineWidth(ComputedStyle::initialOutlineWidth());
 }
 
 inline void BuilderCustom::applyInitialColumnRuleWidth(BuilderState& builderState)
 {
-    builderState.style().setColumnRuleWidth(Style::LineWidth::snapLengthAsBorderWidth(3.0f * builderState.style().usedZoom(), builderState.document().deviceScaleFactor()));
+    if (!builderState.cssToLengthConversionData().evaluationTimeZoomEnabled())
+        builderState.style().setColumnRuleWidth(LineWidth::snapLengthAsBorderWidth(3.0f * builderState.style().usedZoom(), builderState.style().deviceScaleFactor()));
+    else
+        builderState.style().setColumnRuleWidth(ComputedStyle::initialColumnRuleWidth());
 }
 
 inline void BuilderCustom::applyInitialFontSize(BuilderState& builderState)
 {
     auto fontDescription = builderState.fontDescription();
-    float size = Style::fontSizeForKeyword(CSSValueMedium, fontDescription.useFixedDefaultSize(), builderState.document());
+    float size = fontSizeForKeyword(CSSValueMedium, fontDescription.useFixedDefaultSize(), builderState.document());
 
     if (size < 0)
         return;
@@ -710,11 +601,11 @@ inline float BuilderCustom::determineMathDepthScale(BuilderState& builderState)
 #if ENABLE(MATHML)
     Ref primaryFont = builderState.style().fontCascade().primaryFont();
     if (RefPtr mathData = primaryFont->mathData()) {
-        float scriptPercentScaleDown = mathData->getMathConstant(primaryFont, OpenTypeMathData::ScriptPercentScaleDown);
+        float scriptPercentScaleDown = mathData->getMathConstant(primaryFont, OpenTypeMathData::MathConstant::ScriptPercentScaleDown);
         if (!scriptPercentScaleDown)
             scriptPercentScaleDown = 0.71;
 
-        float scriptScriptPercentScaleDown = mathData->getMathConstant(primaryFont, OpenTypeMathData::ScriptScriptPercentScaleDown);
+        float scriptScriptPercentScaleDown = mathData->getMathConstant(primaryFont, OpenTypeMathData::MathConstant::ScriptScriptPercentScaleDown);
         if (!scriptScriptPercentScaleDown)
             scriptScriptPercentScaleDown = 0.5041;
 
@@ -746,12 +637,9 @@ inline void BuilderCustom::applyValueFontSize(BuilderState& builderState, CSSVal
     float parentSize = builderState.parentStyle().fontDescription().specifiedSize();
     bool parentIsAbsoluteSize = builderState.parentStyle().fontDescription().isAbsoluteSize();
 
-    auto primitiveValue = requiredDowncast<CSSPrimitiveValue>(builderState, value);
-    if (!primitiveValue)
-        return;
-
     float size = 0;
-    if (CSSValueID ident = primitiveValue->valueID()) {
+    if (RefPtr keywordValue = dynamicDowncast<CSSKeywordValue>(value)) {
+        auto ident = keywordValue->valueID();
         builderState.setFontDescriptionIsAbsoluteSize((parentIsAbsoluteSize && (ident == CSSValueLarger || ident == CSSValueSmaller || ident == CSSValueWebkitRubyText || ident == CSSValueMath)) || CSSPropertyParserHelpers::isSystemFontShorthand(ident));
 
         if (CSSPropertyParserHelpers::isSystemFontShorthand(ident))
@@ -766,7 +654,7 @@ inline void BuilderCustom::applyValueFontSize(BuilderState& builderState, CSSVal
         case CSSValueXLarge:
         case CSSValueXxLarge:
         case CSSValueXxxLarge:
-            size = Style::fontSizeForKeyword(ident, fontDescription.useFixedDefaultSize(), builderState.document());
+            size = fontSizeForKeyword(ident, fontDescription.useFixedDefaultSize(), builderState.document());
             builderState.setFontDescriptionKeywordSizeFromIdentifier(ident);
             break;
         case CSSValueLarger:
@@ -784,23 +672,76 @@ inline void BuilderCustom::applyValueFontSize(BuilderState& builderState, CSSVal
         default:
             break;
         }
-    } else {
-        builderState.setFontDescriptionIsAbsoluteSize(parentIsAbsoluteSize || !primitiveValue->isParentFontRelativeLength());
+    } else if (RefPtr primitiveValue = dynamicDowncast<CSSPrimitiveValue>(value)) {
+        // FIXME: Checking `primitiveValue->isPercentageOrParentFontRelativeLength()` is not sufficient to determine if any parent relative length units have been used, as arbitrary calc() expressions may contain them as well. For example, `font-size: calc(1px + 1em)`.
+        builderState.setFontDescriptionIsAbsoluteSize(parentIsAbsoluteSize || !primitiveValue->isPercentageOrParentFontRelativeLength());
+
         auto conversionData = builderState.cssToLengthConversionData().copyForFontSize();
-        if (primitiveValue->isLength())
-            size = primitiveValue->resolveAsLength<float>(conversionData);
-        else if (primitiveValue->isPercentage())
-            size = (primitiveValue->resolveAsPercentage<float>(conversionData) * parentSize) / 100.0f;
-        else if (primitiveValue->isCalculatedPercentageWithLength())
-            size = primitiveValue->cssCalcValue()->createCalculationValue(conversionData, CSSCalcSymbolTable { })->evaluate(parentSize, Style::ZoomNeeded { });
-        else
-            return;
+
+        using StyleType = LengthPercentage<CSS::NonnegativeUnzoomed, float>;
+
+        auto handleLength = [](const auto& length) -> float { return length.resolveZoom(ZoomFactor::none()); };
+        auto handlePercentage = [&](const auto& percentage) -> float { return percentage.value * parentSize / 100.0f; };
+        auto handleCalc = [&](const auto& calc) -> float { return calc.evaluate(parentSize, ZoomFactor::none()); };
+
+        size =  WTF::switchOn(*primitiveValue,
+            [&](const CSSPrimitiveValue::Calc& calc) -> float {
+                using CSSRaw = typename StyleType::CSS::Raw;
+
+                auto resolved = toStyle(CSS::UnevaluatedCalc<CSSRaw> { calc }, conversionData);
+                return WTF::switchOn(resolved,
+                    [&](const typename StyleType::Dimension& length) {
+                        return handleLength(length);
+                    },
+                    [&](const typename StyleType::Percentage& percentage) {
+                        return handlePercentage(percentage);
+                    },
+                    [&](const typename StyleType::Calc& calc) {
+                        return handleCalc(calc);
+                    }
+                );
+            },
+            [&](const CSSPrimitiveValue::Raw& raw) -> float {
+                using CSSDimensionRaw = typename StyleType::Dimension::CSS::Raw;
+                using CSSPercentageRaw = typename StyleType::Percentage::CSS::Raw;
+
+                if (auto unit = CSSDimensionRaw::UnitTraits::validate(raw.unit))
+                    return handleLength(toStyle(CSSDimensionRaw(*unit, raw.value), conversionData));
+                if (auto unit = CSSPercentageRaw::UnitTraits::validate(raw.unit))
+                    return handlePercentage(toStyle(CSSPercentageRaw(*unit, raw.value), conversionData));
+
+                builderState.setCurrentPropertyInvalidAtComputedValueTime();
+                return 0;
+            }
+        );
+    } else {
+        builderState.setCurrentPropertyInvalidAtComputedValueTime();
+        return;
     }
 
     if (size < 0)
         return;
 
     builderState.setFontDescriptionFontSize(std::min(maximumAllowedFontSize, size));
+}
+
+// CanvasText is the initial color according to spec.
+// https://www.w3.org/TR/css-color-4/#the-color-property
+inline void BuilderCustom::applyInitialColor(BuilderState& builderState)
+{
+    const CSS::Color initialColor { CSS::KeywordColor { CSSValueCanvastext } };
+
+    if (builderState.applyPropertyToRegularStyle()) {
+        auto styleColor = toStyle(initialColor, builderState, ForVisitedLink::No);
+        builderState.style().setColor(styleColor.resolveColor(builderState.parentStyle().color()));
+    }
+    if (builderState.applyPropertyToVisitedLinkStyle()) {
+        auto styleColor = toStyle(initialColor, builderState, ForVisitedLink::Yes);
+        builderState.style().setVisitedLinkColor(styleColor.resolveColor(builderState.parentStyle().visitedLinkColor()));
+    }
+
+    builderState.style().setDisallowsFastPathInheritance();
+    builderState.style().setHasExplicitlySetColor(builderState.isAuthorOrigin());
 }
 
 // For the color property, "currentcolor" is actually the inherited computed color.

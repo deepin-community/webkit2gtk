@@ -104,11 +104,11 @@ String DOMURL::createObjectURL(ScriptExecutionContext& scriptExecutionContext, B
 
 String DOMURL::createPublicURL(ScriptExecutionContext& scriptExecutionContext, URLRegistrable& registrable)
 {
-    URL publicURL = BlobURL::createPublicURL(scriptExecutionContext.protectedSecurityOrigin().get());
+    URL publicURL = BlobURL::createPublicURL(protect(scriptExecutionContext.securityOrigin()).get());
     if (publicURL.isEmpty())
         return String();
 
-    scriptExecutionContext.protectedPublicURLManager()->registerURL(publicURL, registrable);
+    protect(scriptExecutionContext.publicURLManager())->registerURL(publicURL, registrable);
 
     return publicURL.string();
 }
@@ -124,11 +124,11 @@ void DOMURL::revokeObjectURL(ScriptExecutionContext& scriptExecutionContext, con
 {
     URL url { urlString };
     ResourceRequest request(WTF::move(url));
-    request.setDomainForCachePartition(scriptExecutionContext.domainForCachePartition());
+    request.setShouldBlockThirdPartyStorage(scriptExecutionContext.shouldBlockThirdPartyStorage());
 
     MemoryCache::removeRequestFromSessionCaches(scriptExecutionContext, request);
 
-    scriptExecutionContext.protectedPublicURLManager()->revoke(request.url());
+    protect(scriptExecutionContext.publicURLManager())->revoke(request.url());
 }
 
 } // namespace WebCore

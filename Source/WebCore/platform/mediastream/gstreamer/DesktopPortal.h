@@ -79,7 +79,7 @@ public:
             , m_proxy(proxy)
         {
         }
-        const String& path() const { return m_path; }
+        const String& path() const LIFETIME_BOUND { return m_path; }
         GRefPtr<GVariant> selectSources(GVariantBuilder&);
         GRefPtr<GVariant> start();
         std::optional<PipeWireNodeData> openPipewireRemote();

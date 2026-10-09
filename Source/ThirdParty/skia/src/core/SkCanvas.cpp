@@ -34,24 +34,22 @@
 #include "include/core/SkTileMode.h"
 #include "include/core/SkTypes.h"
 #include "include/core/SkVertices.h"
-#include "include/private/base/SkDebug.h"
-#include "include/private/base/SkFloatingPoint.h"
-#include "include/private/base/SkSafe32.h"
-#include "include/private/base/SkTPin.h"
-#include "include/private/base/SkTemplates.h"
-#include "include/private/base/SkTo.h"
+#include "include/private/SkDebug.h"
+#include "include/private/SkFloatingPoint.h"
+#include "include/private/SkSafe32.h"
+#include "include/private/SkTPin.h"
+#include "include/private/SkTemplates.h"
+#include "include/private/SkTo.h"
 #include "include/private/chromium/Slug.h"
 #include "include/utils/SkNoDrawCanvas.h"
-#include "src/base/SkEnumBitMask.h"
-#include "src/base/SkMSAN.h"
 #include "src/core/SkBlenderBase.h"
 #include "src/core/SkBlurMaskFilterImpl.h"
 #include "src/core/SkCanvasPriv.h"
 #include "src/core/SkDevice.h"
 #include "src/core/SkImageFilterTypes.h"
 #include "src/core/SkImageFilter_Base.h"
-#include "src/core/SkImagePriv.h"
 #include "src/core/SkLatticeIter.h"
+#include "src/core/SkMSAN.h"
 #include "src/core/SkMaskFilterBase.h"
 #include "src/core/SkMatrixPriv.h"
 #include "src/core/SkPaintPriv.h"
@@ -61,6 +59,7 @@
 #include "src/core/SkVerticesPriv.h"
 #include "src/effects/colorfilters/SkColorFilterBase.h"
 #include "src/image/SkSurface_Base.h"
+#include "src/shaders/SkImageShader.h"
 #include "src/text/GlyphRun.h"
 #include "src/utils/SkPatchUtils.h"
 
@@ -318,7 +317,7 @@ void SkCanvas::init(sk_sp<SkDevice> device) {
 
     fSurfaceBase = nullptr;
     fRootDevice = std::move(device);
-    fScratchGlyphRunBuilder = std::make_unique<sktext::GlyphRunBuilder>();
+    fRunBuilders.push_back(std::make_unique<sktext::GlyphRunBuilder>());
     fQuickRejectBounds = this->computeDeviceClipBounds();
 }
 
@@ -500,7 +499,7 @@ int SkCanvas::saveLayer(const SkRect* bounds, const SkPaint* paint) {
 
 int SkCanvas::saveLayer(const SaveLayerRec& rec) {
     TRACE_EVENT0("skia", TRACE_FUNC);
-    if (rec.fPaint && rec.fPaint->nothingToDraw()) {
+    if (rec.fPaint && this->nothingToDraw(*rec.fPaint)) {
         // no need for the layer (or any of the draws until the matching restore()
         this->save();
         this->clipRect({0,0,0,0});
@@ -1587,9 +1586,13 @@ bool SkCanvas::quickReject(const SkPath& path) const {
     return path.isEmpty() || this->quickReject(path.getBounds());
 }
 
+bool SkCanvas::nothingToDraw(const SkPaint& paint) const {
+    return !this->topDevice()->surfaceProps().preservesTransparentDraws() && paint.nothingToDraw();
+}
+
 bool SkCanvas::internalQuickReject(const SkRect& bounds, const SkPaint& paint,
                                    const SkMatrix* matrix) {
-    if (!bounds.isFinite() || paint.nothingToDraw()) {
+    if (!bounds.isFinite() || this->nothingToDraw(paint)) {
         return true;
     }
 
@@ -1923,7 +1926,7 @@ void SkCanvas::onDrawPaint(const SkPaint& paint) {
 void SkCanvas::internalDrawPaint(const SkPaint& paint) {
     // drawPaint does not call internalQuickReject() because computing its geometry is not free
     // (see getLocalClipBounds(), and the two conditions below are sufficient.
-    if (paint.nothingToDraw() || this->isClipEmpty()) {
+    if (this->nothingToDraw(paint) || this->isClipEmpty()) {
         return;
     }
 
@@ -1935,7 +1938,7 @@ void SkCanvas::internalDrawPaint(const SkPaint& paint) {
 
 void SkCanvas::onDrawPoints(PointMode mode, size_t count, const SkPoint pts[],
                             const SkPaint& paint) {
-    if ((long)count <= 0 || paint.nothingToDraw()) {
+    if ((long)count <= 0 || this->nothingToDraw(paint)) {
         return;
     }
     SkASSERT(pts != nullptr);
@@ -2345,14 +2348,14 @@ void SkCanvas::onDrawImageRect2(const SkImage* image, const SkRect& src, const S
     if (realPaint.getMaskFilter() && this->topDevice()->useDrawCoverageMaskForMaskFilters()) {
         // Route mask-filtered drawImages to drawRect() to use the auto-layer for mask filters,
         // which require all shading to be encoded in the paint.
-        SkRect drawDst = SkModifyPaintAndDstForDrawImageRect(
-                image, sampling, src, dst, constraint == kStrict_SrcRectConstraint, &realPaint);
-        if (drawDst.isEmpty()) {
-            return;
-        } else {
-            this->drawRect(drawDst, realPaint);
+        auto [drawDstRect, shader] = SkImageShader::MakeForDrawRect(
+                image, realPaint, sampling, src, dst, constraint == kStrict_SrcRectConstraint);
+        if (drawDstRect.isEmpty() || !shader) {
             return;
         }
+        realPaint.setShader(std::move(shader));
+        this->drawRect(drawDstRect, realPaint);
+        return;
     }
 
     auto layer = this->aboutToDraw(realPaint, &dst,
@@ -2409,9 +2412,37 @@ void SkCanvas::drawImageRect(const SkImage* image, const SkRect& dst,
                         paint, kFast_SrcRectConstraint);
 }
 
+sktext::GlyphRunBuilder* SkCanvas::obtainGlyphRunBuilder() {
+    if (fRunBuildersUsed >= fRunBuilders.size()) {
+        fRunBuilders.push_back(std::make_unique<sktext::GlyphRunBuilder>());
+    }
+    sktext::GlyphRunBuilder* result = fRunBuilders[fRunBuildersUsed].get();
+    fRunBuildersUsed++;
+    return result;
+}
+
+void SkCanvas::releaseGlyphRunBuilder() {
+    SkASSERT(fRunBuildersUsed > 0);
+    fRunBuildersUsed--;
+}
+
+class AutoGlyphRunBuilder {
+public:
+    AutoGlyphRunBuilder(SkCanvas* canvas)
+            : fCanvas(canvas), fGlyphRunBuilder(canvas->obtainGlyphRunBuilder()) {}
+    ~AutoGlyphRunBuilder() { fCanvas->releaseGlyphRunBuilder(); }
+
+    sktext::GlyphRunBuilder* operator->() { return fGlyphRunBuilder; }
+
+private:
+    SkCanvas* fCanvas;
+    sktext::GlyphRunBuilder* fGlyphRunBuilder;
+};
+
 void SkCanvas::onDrawTextBlob(const SkTextBlob* blob, SkScalar x, SkScalar y,
                               const SkPaint& paint) {
-    auto glyphRunList = fScratchGlyphRunBuilder->blobToGlyphRunList(*blob, {x, y});
+    AutoGlyphRunBuilder scratchBuilder(this);
+    auto glyphRunList = scratchBuilder->blobToGlyphRunList(*blob, {x, y});
     this->onDrawGlyphRunList(glyphRunList, paint);
 }
 
@@ -2434,14 +2465,15 @@ void SkCanvas::onDrawGlyphRunList(const sktext::GlyphRunList& glyphRunList, cons
 sk_sp<Slug> SkCanvas::convertBlobToSlug(
         const SkTextBlob& blob, SkPoint origin, const SkPaint& paint) {
     TRACE_EVENT0("skia", TRACE_FUNC);
-    auto glyphRunList = fScratchGlyphRunBuilder->blobToGlyphRunList(blob, origin);
+    AutoGlyphRunBuilder scratchBuilder(this);
+    auto glyphRunList = scratchBuilder->blobToGlyphRunList(blob, origin);
     return this->onConvertGlyphRunListToSlug(glyphRunList, paint);
 }
 
 sk_sp<Slug> SkCanvas::onConvertGlyphRunListToSlug(const sktext::GlyphRunList& glyphRunList,
                                                   const SkPaint& paint) {
     SkRect bounds = glyphRunList.sourceBoundsWithOrigin();
-    if (bounds.isEmpty() || !bounds.isFinite() || paint.nothingToDraw()) {
+    if (bounds.isEmpty() || !bounds.isFinite() || this->nothingToDraw(paint)) {
         return nullptr;
     }
     // See comment in onDrawGlyphRunList()
@@ -2477,8 +2509,9 @@ void SkCanvas::drawSimpleText(const void* text, size_t byteLength, SkTextEncodin
     TRACE_EVENT0("skia", TRACE_FUNC);
     if (byteLength) {
         sk_msan_assert_initialized(text, SkTAddOffset<const void>(text, byteLength));
+        AutoGlyphRunBuilder scratchBuilder(this);
         const sktext::GlyphRunList& glyphRunList =
-            fScratchGlyphRunBuilder->textToGlyphRunList(
+        scratchBuilder->textToGlyphRunList(
                     font, paint, text, byteLength, {x, y}, encoding);
         if (!glyphRunList.empty()) {
             this->onDrawGlyphRunList(glyphRunList, paint);
@@ -2490,6 +2523,7 @@ void SkCanvas::drawGlyphs(SkSpan<const SkGlyphID> glyphs, SkSpan<const SkPoint> 
                           SkSpan<const uint32_t> clusters, SkSpan<const char> utf8text,
                           SkPoint origin, const SkFont& font, const SkPaint& paint) {
     if (glyphs.empty()) { return; }
+    AutoGlyphRunBuilder scratchBuilder(this);
 
     sktext::GlyphRun glyphRun {
             font,
@@ -2500,14 +2534,14 @@ void SkCanvas::drawGlyphs(SkSpan<const SkGlyphID> glyphs, SkSpan<const SkPoint> 
             SkSpan<SkVector>()
     };
 
-    sktext::GlyphRunList glyphRunList = fScratchGlyphRunBuilder->makeGlyphRunList(
-            glyphRun, paint, origin);
+    sktext::GlyphRunList glyphRunList = scratchBuilder->makeGlyphRunList(glyphRun, paint, origin);
     this->onDrawGlyphRunList(glyphRunList, paint);
 }
 
 void SkCanvas::drawGlyphs(SkSpan<const SkGlyphID> glyphs, SkSpan<const SkPoint> positions,
                           SkPoint origin, const SkFont& font, const SkPaint& paint) {
     if (glyphs.empty()) { return; }
+    AutoGlyphRunBuilder scratchBuilder(this);
 
     sktext::GlyphRun glyphRun {
         font,
@@ -2518,17 +2552,17 @@ void SkCanvas::drawGlyphs(SkSpan<const SkGlyphID> glyphs, SkSpan<const SkPoint> 
         SkSpan<SkVector>()
     };
 
-    sktext::GlyphRunList glyphRunList = fScratchGlyphRunBuilder->makeGlyphRunList(
-            glyphRun, paint, origin);
+    sktext::GlyphRunList glyphRunList = scratchBuilder->makeGlyphRunList(glyphRun, paint, origin);
+
     this->onDrawGlyphRunList(glyphRunList, paint);
 }
 
 void SkCanvas::drawGlyphsRSXform(SkSpan<const SkGlyphID> glyphs, SkSpan<const SkRSXform> xforms,
                                  SkPoint origin, const SkFont& font, const SkPaint& paint) {
     if (glyphs.empty()) { return; }
+    AutoGlyphRunBuilder scratchBuilder(this);
 
-    auto [positions, rotateScales] =
-            fScratchGlyphRunBuilder->convertRSXForm(xforms);
+    auto [positions, rotateScales] = scratchBuilder->convertRSXForm(xforms);
 
     sktext::GlyphRun glyphRun {
             font,
@@ -2538,8 +2572,8 @@ void SkCanvas::drawGlyphsRSXform(SkSpan<const SkGlyphID> glyphs, SkSpan<const Sk
             SkSpan<const uint32_t>(),
             rotateScales
     };
-    sktext::GlyphRunList glyphRunList = fScratchGlyphRunBuilder->makeGlyphRunList(
-            glyphRun, paint, origin);
+
+    sktext::GlyphRunList glyphRunList = scratchBuilder->makeGlyphRunList(glyphRun, paint, origin);
     this->onDrawGlyphRunList(glyphRunList, paint);
 }
 
@@ -2747,15 +2781,18 @@ void SkCanvas::onDrawEdgeAAImageSet2(const ImageSetEntry imageSet[], int count,
         int dstClipIndex = 0;
         for (int i = 0; i < count; ++i) {
             SkPaint imagePaint = realPaint;
-            SkRect drawDst = SkModifyPaintAndDstForDrawImageRect(
-                                imageSet[i].fImage.get(), sampling,
-                                imageSet[i].fSrcRect, imageSet[i].fDstRect,
-                                constraint == kStrict_SrcRectConstraint, &imagePaint);
-            if (drawDst.isEmpty()) {
+            auto [drawDstRect, shader] =
+                    SkImageShader::MakeForDrawRect(imageSet[i].fImage.get(),
+                                                   imagePaint,
+                                                   sampling,
+                                                   imageSet[i].fSrcRect,
+                                                   imageSet[i].fDstRect,
+                                                   constraint == kStrict_SrcRectConstraint);
+            if (drawDstRect.isEmpty() || !shader) {
                 return;
             }
-
-            auto layer = this->aboutToDraw(imagePaint, &drawDst);
+            imagePaint.setShader(std::move(shader));
+            auto layer = this->aboutToDraw(imagePaint, &drawDstRect);
             if (layer) {
                 // Since we can't call mapRect to apply any preview matrix and drawEdgeAAQuad
                 // doesn't take an optional matrix, we can modify the local-to-device matrix
@@ -2768,7 +2805,7 @@ void SkCanvas::onDrawEdgeAAImageSet2(const ImageSetEntry imageSet[], int count,
 
                 // Call drawEdgeAAImageSet on each image one at a time, to correctly
                 // paint the image.
-                this->topDevice()->drawEdgeAAQuad(drawDst,
+                this->topDevice()->drawEdgeAAQuad(drawDstRect,
                                                   imageSet[i].fHasClip ? dstClips + dstClipIndex
                                                                         : nullptr,
                                                   (QuadAAFlags)imageSet[i].fAAFlags,

@@ -50,11 +50,6 @@
 #include "ImportanceAssertion.h"
 #endif
 
-#if !USE(SYSTEM_MALLOC)
-#include <bmalloc/TZoneHeap.h>
-#include <bmalloc/bmalloc.h>
-#endif
-
 namespace IPC {
 
 enum class MessageFlags : uint8_t;
@@ -100,16 +95,16 @@ public:
     bool matches(const ReceiverMatcher& matcher) const { return matcher.matches(messageReceiverName(), destinationID()); }
 
     bool isSyncMessage() const { return messageIsSync(messageName()); }
-    ShouldDispatchWhenWaitingForSyncReply shouldDispatchMessageWhenWaitingForSyncReply() const;
+    ShouldDispatchWhenWaitingForSyncReply NODELETE shouldDispatchMessageWhenWaitingForSyncReply() const;
     bool isAllowedWhenWaitingForSyncReply() const { return messageAllowedWhenWaitingForSyncReply(messageName()) || m_isAllowedWhenWaitingForSyncReplyOverride; }
     bool isAllowedWhenWaitingForUnboundedSyncReply() const { return messageAllowedWhenWaitingForUnboundedSyncReply(messageName()); }
-    bool shouldUseFullySynchronousModeForTesting() const;
-    bool shouldMaintainOrderingWithAsyncMessages() const;
+    bool NODELETE shouldUseFullySynchronousModeForTesting() const;
+    bool NODELETE shouldMaintainOrderingWithAsyncMessages() const;
     void setIsAllowedWhenWaitingForSyncReplyOverride(bool value) { m_isAllowedWhenWaitingForSyncReplyOverride = value; }
     bool isAsyncReplyMessage() const { return isAsyncReply(messageName()); }
 
 #if PLATFORM(MAC)
-    void setImportanceAssertion(ImportanceAssertion&&);
+    void NODELETE setImportanceAssertion(ImportanceAssertion&&);
 #endif
 
 #if ENABLE(IPC_TESTING_API)
@@ -182,14 +177,14 @@ public:
     }
 
 #if !HAVE(WK_SECURE_CODING_NSURLREQUEST)
-    AllowedClassHashSet& allowedClasses() { return m_allowedClasses; }
+    AllowedClassHashSet& allowedClasses() LIFETIME_BOUND { return m_allowedClasses; }
 #endif // !HAVE(WK_SECURE_CODING_NSURLREQUEST)
 #endif // __OBJC__
 
     std::optional<Attachment> takeLastAttachment();
 
     void addIndexOfDecodingFailure(uint32_t indexOfObjectFailingDecoding) { m_indicesOfObjectsFailingDecoding.append(indexOfObjectFailingDecoding); }
-    const Vector<uint32_t>& indicesOfObjectsFailingDecoding() const { return m_indicesOfObjectsFailingDecoding; }
+    const Vector<uint32_t>& indicesOfObjectsFailingDecoding() const LIFETIME_BOUND { return m_indicesOfObjectsFailingDecoding; }
 
 private:
     Decoder(std::span<const uint8_t> buffer, BufferDeallocator&&, Vector<Attachment>&&);

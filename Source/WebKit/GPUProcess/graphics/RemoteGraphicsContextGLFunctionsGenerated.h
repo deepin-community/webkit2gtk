@@ -75,9 +75,8 @@
     void framebufferTexture2D(uint32_t target, uint32_t attachment, uint32_t textarget, uint32_t arg3, int32_t level);
     void frontFace(uint32_t mode);
     void generateMipmap(uint32_t target);
-    void getActiveAttrib(uint32_t program, uint32_t index, CompletionHandler<void(std::optional<WebCore::GraphicsContextGLActiveInfo>&&)>&&);
-    void getActiveUniform(uint32_t program, uint32_t index, CompletionHandler<void(std::optional<WebCore::GraphicsContextGLActiveInfo>&&)>&&);
-    void getAttribLocation(uint32_t arg0, CString&& name, CompletionHandler<void(int32_t)>&&);
+    void activeAttribs(uint32_t program, CompletionHandler<void(Vector<WebCore::GCGLAttribActiveInfo>&&)>&&);
+    void activeUniforms(uint32_t program, CompletionHandler<void(Vector<WebCore::GCGLUniformActiveInfo>&&)>&&);
     void getBufferParameteri(uint32_t target, uint32_t pname, CompletionHandler<void(int32_t)>&&);
     void getString(uint32_t name, CompletionHandler<void(CString&&)>&&);
     void getFloatv(uint32_t pname, uint64_t valueSize, CompletionHandler<void(std::span<const float>)>&&);
@@ -98,7 +97,6 @@
     void getUniformfv(uint32_t program, int32_t location, uint64_t valueSize, CompletionHandler<void(std::span<const float>)>&&);
     void getUniformiv(uint32_t program, int32_t location, uint64_t valueSize, CompletionHandler<void(std::span<const int32_t>)>&&);
     void getUniformuiv(uint32_t program, int32_t location, uint64_t valueSize, CompletionHandler<void(std::span<const uint32_t>)>&&);
-    void getUniformLocation(uint32_t arg0, CString&& name, CompletionHandler<void(int32_t)>&&);
     void getVertexAttribOffset(uint32_t index, uint32_t pname, CompletionHandler<void(uint64_t)>&&);
     void hint(uint32_t target, uint32_t mode);
     void isBuffer(uint32_t arg0, CompletionHandler<void(bool)>&&);
@@ -163,9 +161,9 @@
     void texImage2D1(uint32_t target, int32_t level, uint32_t internalformat, int32_t width, int32_t height, int32_t border, uint32_t format, uint32_t type, uint64_t offset);
     void texSubImage2D0(uint32_t target, int32_t level, int32_t xoffset, int32_t yoffset, int32_t width, int32_t height, uint32_t format, uint32_t type, std::span<const uint8_t>&& pixels);
     void texSubImage2D1(uint32_t target, int32_t level, int32_t xoffset, int32_t yoffset, int32_t width, int32_t height, uint32_t format, uint32_t type, uint64_t offset);
-    void compressedTexImage2D0(uint32_t target, int32_t level, uint32_t internalformat, int32_t width, int32_t height, int32_t border, int32_t imageSize, std::span<const uint8_t>&& data);
+    void compressedTexImage2D0(uint32_t target, int32_t level, uint32_t internalformat, int32_t width, int32_t height, int32_t border, std::span<const uint8_t>&& data);
     void compressedTexImage2D1(uint32_t target, int32_t level, uint32_t internalformat, int32_t width, int32_t height, int32_t border, int32_t imageSize, uint64_t offset);
-    void compressedTexSubImage2D0(uint32_t target, int32_t level, int32_t xoffset, int32_t yoffset, int32_t width, int32_t height, uint32_t format, int32_t imageSize, std::span<const uint8_t>&& data);
+    void compressedTexSubImage2D0(uint32_t target, int32_t level, int32_t xoffset, int32_t yoffset, int32_t width, int32_t height, uint32_t format, std::span<const uint8_t>&& data);
     void compressedTexSubImage2D1(uint32_t target, int32_t level, int32_t xoffset, int32_t yoffset, int32_t width, int32_t height, uint32_t format, int32_t imageSize, uint64_t offset);
     void drawArraysInstanced(uint32_t mode, int32_t first, int32_t count, int32_t primcount);
     void drawElementsInstanced(uint32_t mode, int32_t count, uint32_t type, uint64_t offset, int32_t primcount);
@@ -186,9 +184,9 @@
     void texSubImage3D0(uint32_t target, int32_t level, int32_t xoffset, int32_t yoffset, int32_t zoffset, int32_t width, int32_t height, int32_t depth, uint32_t format, uint32_t type, std::span<const uint8_t>&& pixels);
     void texSubImage3D1(uint32_t target, int32_t level, int32_t xoffset, int32_t yoffset, int32_t zoffset, int32_t width, int32_t height, int32_t depth, uint32_t format, uint32_t type, uint64_t offset);
     void copyTexSubImage3D(uint32_t target, int32_t level, int32_t xoffset, int32_t yoffset, int32_t zoffset, int32_t x, int32_t y, int32_t width, int32_t height);
-    void compressedTexImage3D0(uint32_t target, int32_t level, uint32_t internalformat, int32_t width, int32_t height, int32_t depth, int32_t border, int32_t imageSize, std::span<const uint8_t>&& data);
+    void compressedTexImage3D0(uint32_t target, int32_t level, uint32_t internalformat, int32_t width, int32_t height, int32_t depth, int32_t border, std::span<const uint8_t>&& data);
     void compressedTexImage3D1(uint32_t target, int32_t level, uint32_t internalformat, int32_t width, int32_t height, int32_t depth, int32_t border, int32_t imageSize, uint64_t offset);
-    void compressedTexSubImage3D0(uint32_t target, int32_t level, int32_t xoffset, int32_t yoffset, int32_t zoffset, int32_t width, int32_t height, int32_t depth, uint32_t format, int32_t imageSize, std::span<const uint8_t>&& data);
+    void compressedTexSubImage3D0(uint32_t target, int32_t level, int32_t xoffset, int32_t yoffset, int32_t zoffset, int32_t width, int32_t height, int32_t depth, uint32_t format, std::span<const uint8_t>&& data);
     void compressedTexSubImage3D1(uint32_t target, int32_t level, int32_t xoffset, int32_t yoffset, int32_t zoffset, int32_t width, int32_t height, int32_t depth, uint32_t format, int32_t imageSize, uint64_t offset);
     void getFragDataLocation(uint32_t program, CString&& name, CompletionHandler<void(int32_t)>&&);
     void uniform1ui(int32_t location, uint32_t v0);
@@ -243,13 +241,11 @@
     void beginTransformFeedback(uint32_t primitiveMode);
     void endTransformFeedback();
     void transformFeedbackVaryings(uint32_t program, Vector<CString>&& varyings, uint32_t bufferMode);
-    void getTransformFeedbackVarying(uint32_t program, uint32_t index, CompletionHandler<void(std::optional<WebCore::GraphicsContextGLActiveInfo>&&)>&&);
+    void getTransformFeedbackVarying(uint32_t program, uint32_t index, CompletionHandler<void(std::optional<WebCore::GCGLTransformFeedbackActiveInfo>&&)>&&);
     void pauseTransformFeedback();
     void resumeTransformFeedback();
     void bindBufferBase(uint32_t target, uint32_t index, uint32_t buffer);
     void bindBufferRange(uint32_t target, uint32_t index, uint32_t buffer, uint64_t offset, uint64_t arg4);
-    void getUniformIndices(uint32_t program, Vector<CString>&& uniformNames, CompletionHandler<void(Vector<uint32_t>&&)>&&);
-    void getActiveUniforms(uint32_t program, Vector<uint32_t>&& uniformIndices, uint32_t pname, CompletionHandler<void(Vector<int32_t>&&)>&&);
     void getUniformBlockIndex(uint32_t program, CString&& uniformBlockName, CompletionHandler<void(uint32_t)>&&);
     void getActiveUniformBlockName(uint32_t program, uint32_t uniformBlockIndex, CompletionHandler<void(CString&&)>&&);
     void uniformBlockBinding(uint32_t program, uint32_t uniformBlockIndex, uint32_t uniformBlockBinding);

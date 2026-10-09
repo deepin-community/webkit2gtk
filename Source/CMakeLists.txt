@@ -1,10 +1,11 @@
 # -----------------------------------------------------------------------------
 # Add module directories
 # -----------------------------------------------------------------------------
-if (NOT USE_SYSTEM_MALLOC)
-    add_subdirectory(bmalloc)
+if (USE_APPLE_INTERNAL_SDK)
+    add_subdirectory(../../Internal/WebKit/WebKitAdditions ${CMAKE_BINARY_DIR}/WebKitAdditions)
 endif ()
 
+add_subdirectory(bmalloc)
 add_subdirectory(WTF)
 
 if (USE_CAPSTONE)
@@ -29,6 +30,11 @@ endif ()
 
 if (USE_XDGMIME)
     add_subdirectory(ThirdParty/xdgmime)
+endif ()
+
+# dav1d must be declared before libwebrtc and WebCore so target_link_libraries can resolve it.
+if (ENABLE_AV1)
+    add_subdirectory(ThirdParty/dav1d)
 endif ()
 
 if (USE_LIBWEBRTC)

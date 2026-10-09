@@ -29,6 +29,11 @@
 
 #include <wtf/Forward.h>
 
+#if PLATFORM(COCOA)
+#include <CoreFoundation/CFString.h>
+#include <wtf/RetainPtr.h>
+#endif
+
 #ifdef __OBJC__
 #include <wtf/Platform.h>
 #include <wtf/cocoa/TypeCastsCocoa.h>
@@ -146,7 +151,9 @@ namespace WebCore {
     WEBCORE_EXPORT String contextMenuItemTagMakeUpperCase();
     WEBCORE_EXPORT String contextMenuItemTagMakeLowerCase();
     WEBCORE_EXPORT String contextMenuItemTagCapitalize();
-    String contextMenuItemTagChangeBack(const String& replacedString);
+    WEBCORE_EXPORT String contextMenuItemTagConvertToTraditionalChinese();
+    WEBCORE_EXPORT String contextMenuItemTagConvertToSimplifiedChinese();
+    String NODELETE contextMenuItemTagChangeBack(const String& replacedString);
 #endif
     String contextMenuItemTagOpenVideoInNewWindow();
     String contextMenuItemTagOpenAudioInNewWindow();
@@ -161,8 +168,8 @@ namespace WebCore {
     String contextMenuItemTagEnterVideoFullscreen();
     WEBCORE_EXPORT String contextMenuItemTagExitVideoFullscreen();
 #if PLATFORM(MAC) && ENABLE(VIDEO_PRESENTATION_MODE)
-    String contextMenuItemTagEnterVideoEnhancedFullscreen();
-    WEBCORE_EXPORT String contextMenuItemTagExitVideoEnhancedFullscreen();
+    String contextMenuItemTagEnterPictureInPicture();
+    WEBCORE_EXPORT String contextMenuItemTagExitPictureInPicture();
     String contextMenuItemTagEnterVideoViewer();
     WEBCORE_EXPORT String contextMenuItemTagExitVideoViewer();
 #endif
@@ -189,9 +196,7 @@ namespace WebCore {
     WEBCORE_EXPORT String contextMenuItemPDFOpenWithDefaultViewer(const String& appName);
 #endif
 #if ENABLE(PDFJS) || ENABLE(UNIFIED_PDF)
-    WEBCORE_EXPORT String contextMenuItemPDFSinglePage();
     WEBCORE_EXPORT String contextMenuItemPDFSinglePageContinuous();
-    WEBCORE_EXPORT String contextMenuItemPDFTwoPages();
     WEBCORE_EXPORT String contextMenuItemPDFTwoPagesContinuous();
     WEBCORE_EXPORT String contextMenuItemPDFZoomIn();
     WEBCORE_EXPORT String contextMenuItemPDFZoomOut();
@@ -201,6 +206,11 @@ namespace WebCore {
     WEBCORE_EXPORT String contextMenuItemPDFAutoSize();
 #endif
 #endif // ENABLE(CONTEXT_MENU)
+
+#if ENABLE(PDFJS) || ENABLE(UNIFIED_PDF)
+    WEBCORE_EXPORT String contextMenuItemPDFSinglePage();
+    WEBCORE_EXPORT String contextMenuItemPDFTwoPages();
+#endif
 
     WEBCORE_EXPORT String pdfDocumentTypeDescription();
 
@@ -377,6 +387,8 @@ namespace WebCore {
     String addTextTrackKindEasyReaderSuffix(const String&);
     String textTrackKindForcedDisplayName();
     String addTextTrackKindForcedSuffix(const String&);
+    String textTrackKindGeneratedDisplayName();
+    String addTextTrackKindGeneratedSuffix(const String&);
     String audioTrackKindDescriptionsDisplayName();
     String addAudioTrackKindDescriptionsSuffix(const String&);
     String audioTrackKindCommentaryDisplayName();
@@ -425,7 +437,7 @@ namespace WebCore {
     WEBCORE_EXPORT String contextMenuItemTagLookUpImage();
 #endif
 
-#if ENABLE(IMAGE_ANALYSIS_ENHANCEMENTS)
+#if ENABLE(IMAGE_ANALYSIS)
     WEBCORE_EXPORT String contextMenuItemTagCopySubject();
     WEBCORE_EXPORT String contextMenuItemTitleRemoveBackground();
 #endif
@@ -493,7 +505,7 @@ namespace WebCore {
 #if PLATFORM(COCOA)
     WEBCORE_EXPORT String formatLocalizedString(CFStringRef format, ...) CF_FORMAT_FUNCTION(1, 2);
 #elif PLATFORM(WIN)
-    WEBCORE_EXPORT String formatLocalizedString(const wchar_t* format, ...) WTF_ATTRIBUTE_PRINTF(1, 2);
+    WEBCORE_EXPORT String formatLocalizedString(const wchar_t* format, ...);
 #else
     WEBCORE_EXPORT String formatLocalizedString(const char* format, ...) WTF_ATTRIBUTE_PRINTF(1, 2);
 #endif

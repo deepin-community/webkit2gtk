@@ -29,6 +29,7 @@
 #include "MessageSenderInlines.h"
 #include "RemoteDisplayListRecorderProxy.h"
 #include "WebFrameProxyMessages.h"
+#include "WebMessagePortChannelProvider.h"
 #include "WebPage.h"
 #include "WebPageProxyMessages.h"
 #include "WebProcess.h"
@@ -42,6 +43,7 @@
 #include <WebCore/HitTestResult.h>
 #include <WebCore/NodeDocument.h>
 #include <WebCore/PolicyChecker.h>
+#include <WebCore/PrivateClickMeasurement.h>
 #include <WebCore/RemoteFrame.h>
 #include <WebCore/UserGestureIndicator.h>
 
@@ -72,7 +74,7 @@ void WebRemoteFrameClient::frameDetached()
     m_frame->invalidate();
 
     if (ownerElement)
-        ownerElement->protectedDocument()->checkCompleted();
+        protect(ownerElement->document())->checkCompleted();
 }
 
 void WebRemoteFrameClient::frameRectDidChange(IntRect rect)
@@ -88,15 +90,23 @@ void WebRemoteFrameClient::paintContents(GraphicsContext& context, const IntRect
     page->paintRemoteFrameContents(m_frame->frameID(), rect, context);
 }
 
-void WebRemoteFrameClient::postMessageToRemote(FrameIdentifier source, const SecurityOriginData& sourceOrigin, FrameIdentifier target, std::optional<SecurityOriginData> targetOrigin, const MessageWithMessagePorts& message)
+void WebRemoteFrameClient::postMessageToRemote(FrameIdentifier source, const SecurityOriginData& sourceOrigin, FrameIdentifier target, std::optional<SecurityOriginData> targetOrigin, const MessageWithMessagePorts& message, const std::optional<WebCore::UserGestureTokenData>& userGestureToken)
 {
+    for (auto& port : message.transferredPorts)
+        WebMessagePortChannelProvider::singleton().messagePortSentToRemote(port.first);
+
     if (RefPtr page = m_frame->page())
-        page->send(Messages::WebPageProxy::PostMessageToRemote(source, sourceOrigin, target, targetOrigin, message));
+        page->send(Messages::WebPageProxy::PostMessageToRemote(source, sourceOrigin, target, targetOrigin, message, userGestureToken));
 }
 
-void WebRemoteFrameClient::changeLocation(FrameLoadRequest&& request)
+void WebRemoteFrameClient::changeLocation(FrameLoadRequest&& request, std::optional<PrivateClickMeasurement>&& privateClickMeasurement)
 {
     NavigationAction action(request);
+    // Private Click Measurement parsed in this process for a cross-process main-frame navigation
+    // (e.g. <a target="_top"> in a cross-origin iframe) is passed in explicitly; attach it to the
+    // NavigationAction so it is sent to the UI process in the NavigationActionData.
+    if (privateClickMeasurement)
+        action.setPrivateClickMeasurement(WTF::move(*privateClickMeasurement));
     // FIXME: action.request and request are probably duplicate information. <rdar://116203126>
     // FIXME: Get more parameters correct and add tests for each one. <rdar://116203354>
     dispatchDecidePolicyForNavigationAction(action, action.originalRequest(), ResourceResponse(), nullptr, { }, { }, { }, { }, NavigationUpgradeToHTTPSBehavior::BasedOnPolicy, { }, PolicyDecisionMode::Asynchronous, [protectedFrame = Ref { m_frame }, request = WTF::move(request)] (PolicyAction policyAction) mutable {
@@ -147,6 +157,14 @@ void WebRemoteFrameClient::updateRemoteFrameAccessibilityOffset(WebCore::FrameId
         page->send(Messages::WebPageProxy::UpdateRemoteFrameAccessibilityOffset(frameID, offset));
 }
 
+#if ENABLE(ACCESSIBILITY_LOCAL_FRAME)
+void WebRemoteFrameClient::updateRemoteFrameAccessibilityInheritedState(WebCore::FrameIdentifier frameID, const WebCore::InheritedFrameState& state)
+{
+    if (RefPtr page = m_frame->page())
+        page->send(Messages::WebPageProxy::UpdateRemoteFrameAccessibilityInheritedState(frameID, state));
+}
+#endif
+
 void WebRemoteFrameClient::bindRemoteAccessibilityFrames(int processIdentifier, WebCore::FrameIdentifier frameID, WebCore::AccessibilityRemoteToken dataToken, CompletionHandler<void(AccessibilityRemoteToken, int)>&& completionHandler)
 {
     RefPtr page = m_frame->page();
@@ -190,14 +208,6 @@ void WebRemoteFrameClient::unfocus()
         page->send(Messages::WebPageProxy::SetFocus(false, std::nullopt));
 }
 
-void WebRemoteFrameClient::documentURLForConsoleLog(CompletionHandler<void(const URL&)>&& completionHandler)
-{
-    if (RefPtr page = m_frame->page())
-        page->sendWithAsyncReply(Messages::WebPageProxy::DocumentURLForConsoleLog(m_frame->frameID()), WTF::move(completionHandler));
-    else
-        completionHandler({ });
-}
-
 void WebRemoteFrameClient::dispatchDecidePolicyForNavigationAction(const NavigationAction& navigationAction, const ResourceRequest& request, const ResourceResponse& redirectResponse,
     FormState* formState, const String& clientRedirectSourceForHistory, std::optional<WebCore::NavigationIdentifier> navigationID, std::optional<HitTestResult>&& hitTestResult, bool hasOpener, NavigationUpgradeToHTTPSBehavior navigationUpgradeToHTTPSBehavior, SandboxFlags sandboxFlags, PolicyDecisionMode policyDecisionMode, FramePolicyFunction&& function)
 {
@@ -229,6 +239,16 @@ void WebRemoteFrameClient::broadcastFrameTreeSyncDataToOtherProcesses(const Fram
     WebFrameLoaderClient::broadcastFrameTreeSyncDataToOtherProcesses(data);
 }
 
+void WebRemoteFrameClient::didNotifyUserActivation(MonotonicTime activationTime)
+{
+    WebFrameLoaderClient::didNotifyUserActivation(activationTime);
+}
+
+void WebRemoteFrameClient::didConsumeUserActivation()
+{
+    WebFrameLoaderClient::didConsumeUserActivation();
+}
+
 void WebRemoteFrameClient::applyWebsitePolicies(WebsitePoliciesData&& websitePolicies)
 {
     RefPtr coreFrame = m_frame->coreRemoteFrame();
@@ -240,6 +260,7 @@ void WebRemoteFrameClient::applyWebsitePolicies(WebsitePoliciesData&& websitePol
     coreFrame->setCustomUserAgent(WTF::move(websitePolicies.customUserAgent));
     coreFrame->setCustomUserAgentAsSiteSpecificQuirks(WTF::move(websitePolicies.customUserAgentAsSiteSpecificQuirks));
     coreFrame->setAdvancedPrivacyProtections(websitePolicies.advancedPrivacyProtections);
+    coreFrame->setAllowPrivacyProxy(websitePolicies.allowPrivacyProxy);
     coreFrame->setCustomNavigatorPlatform(WTF::move(websitePolicies.customNavigatorPlatform));
     coreFrame->setAutoplayPolicy(core(websitePolicies.autoplayPolicy));
 }
@@ -256,9 +277,26 @@ void WebRemoteFrameClient::reportMixedContentViolation(bool blocked, const URL& 
         page->send(Messages::WebPageProxy::ReportMixedContentViolation(m_frame->frameID(), blocked, target));
 }
 
-void WebRemoteFrameClient::findFocusableElementDescendingIntoRemoteFrame(WebCore::FocusDirection direction, const WebCore::FocusEventData& focusEventData, CompletionHandler<void(WebCore::FoundElementInRemoteFrame)>&& completionHandler)
+void WebRemoteFrameClient::addResourceTimingFromChild(WebCore::ResourceTiming&& resourceTiming)
 {
-    m_frame->sendWithAsyncReply(Messages::WebFrameProxy::FindFocusableElementDescendingIntoRemoteFrame(direction, focusEventData), WTF::move(completionHandler));
+    if (RefPtr page = m_frame->page())
+        page->send(Messages::WebPageProxy::AddResourceTimingFromSubframe(m_frame->frameID(), WTF::move(resourceTiming)));
+}
+
+void WebRemoteFrameClient::findFocusableElementDescendingIntoRemoteFrame(WebCore::FocusDirection direction, const WebCore::FocusEventData& focusEventData, WebCore::ShouldFocusElement shouldFocusElement, CompletionHandler<void(WebCore::FoundElementInRemoteFrame)>&& completionHandler)
+{
+    m_frame->sendWithAsyncReply(Messages::WebFrameProxy::FindFocusableElementDescendingIntoRemoteFrame(direction, focusEventData, shouldFocusElement), WTF::move(completionHandler));
+}
+
+void WebRemoteFrameClient::findFocusableElementContinuingFromFrame(WebCore::FocusDirection direction, WebCore::FrameIdentifier frameID, const WebCore::FocusEventData& focusEventData, WebCore::ShouldFocusElement shouldFocusElement)
+{
+    m_frame->send(Messages::WebFrameProxy::FindFocusableElementContinuingFromFrame(direction, frameID, focusEventData, shouldFocusElement));
+}
+
+void WebRemoteFrameClient::dispatchCrossOriginBeforeUnloadCheck(const WebCore::SecurityOriginData& navigatingFrameOrigin)
+{
+    if (RefPtr page = m_frame->page())
+        page->send(Messages::WebPageProxy::DispatchCrossOriginBeforeUnloadCheckForFrame(m_frame->frameID(), navigatingFrameOrigin));
 }
 
 }

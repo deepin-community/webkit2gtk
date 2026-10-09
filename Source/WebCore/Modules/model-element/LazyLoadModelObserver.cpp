@@ -34,6 +34,7 @@
 #include "LocalFrame.h"
 #include "Logging.h"
 #include "NodeDocument.h"
+#include <WebCore/ExceptionOr.h>
 #include <limits>
 #include <wtf/TZoneMallocInlines.h>
 namespace WebCore {
@@ -53,7 +54,7 @@ private:
     {
     }
 
-    bool hasCallback() const final { return true; }
+    bool NODELETE hasCallback() const final { return true; }
 
     CallbackResult<void> invoke(IntersectionObserver&, const Vector<Ref<IntersectionObserverEntry>>& entries, IntersectionObserver&) final
     {

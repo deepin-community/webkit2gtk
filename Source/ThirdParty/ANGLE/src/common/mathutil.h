@@ -9,17 +9,15 @@
 #ifndef COMMON_MATHUTIL_H_
 #define COMMON_MATHUTIL_H_
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
-
 #include <math.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <algorithm>
+#include <array>
 #include <limits>
 #include <ostream>
+#include "common/unsafe_buffers.h"
 
 #include <anglebase/numerics/safe_math.h>
 
@@ -46,19 +44,23 @@ inline constexpr bool isPow2(T x)
 }
 
 template <typename T>
-inline int log2(T x)
+inline constexpr int log2(T x)
 {
     static_assert(std::is_integral<T>::value, "log2 must be called on an integer type.");
     int r = 0;
     while ((x >> r) > 1)
+    {
         r++;
+    }
     return r;
 }
 
 inline unsigned int ceilPow2(unsigned int x)
 {
     if (x != 0)
+    {
         x--;
+    }
     x |= x >> 1;
     x |= x >> 2;
     x |= x >> 4;
@@ -125,6 +127,13 @@ inline T clamp(T x, MIN min, MAX max)
 }
 
 template <typename T>
+inline bool isOutsideOfBounds(T value, T min, T max)
+{
+    // Since NaNs fail all comparison tests, a NaN value will return true (out of bounds).
+    return !(value >= min && value <= max);
+}
+
+template <typename T>
 T clampForBitCount(T value, size_t bitCount)
 {
     static_assert(std::numeric_limits<T>::is_integer, "T must be an integer.");
@@ -185,7 +194,7 @@ destType bitCast(const sourceType &source)
 {
     size_t copySize = std::min(sizeof(destType), sizeof(sourceType));
     destType output;
-    memcpy(&output, &source, copySize);
+    ANGLE_UNSAFE_TODO(memcpy(&output, &source, copySize));
     return output;
 }
 
@@ -872,10 +881,7 @@ struct IndexRange
     {};
     IndexRange(Undefined) {}
     IndexRange() = default;
-    IndexRange(uint32_t start_, uint32_t end_) : mStart(start_), mEnd(end_)
-    {
-        ASSERT(start_ <= end_);
-    }
+    IndexRange(uint32_t start, uint32_t end) : mStart(start), mEnd(end) { ASSERT(mStart <= mEnd); }
     bool isEmpty() const { return mStart > mEnd; }
     uint32_t start() const
     {
@@ -896,6 +902,7 @@ struct IndexRange
         // Note: unsigned underflow ok on isEmpty() == true.
         return static_cast<size_t>(mEnd) - mStart + 1u;
     }
+
   private:
     uint32_t mStart{1};
     uint32_t mEnd{0};
@@ -996,18 +1003,10 @@ inline int8_t ToPackedSnorm8(float f)
 // unsigned integer starting from the least significant bits.
 inline uint32_t PackUnorm4x8(float f1, float f2, float f3, float f4)
 {
-    uint8_t bits[4];
-    bits[0]         = priv::ToPackedUnorm8(f1);
-    bits[1]         = priv::ToPackedUnorm8(f2);
-    bits[2]         = priv::ToPackedUnorm8(f3);
-    bits[3]         = priv::ToPackedUnorm8(f4);
-    uint32_t result = 0u;
-    for (int i = 0; i < 4; ++i)
-    {
-        int shift = i * 8;
-        result |= (static_cast<uint32_t>(bits[i]) << shift);
-    }
-    return result;
+    return static_cast<uint32_t>(priv::ToPackedUnorm8(f1)) |
+           (static_cast<uint32_t>(priv::ToPackedUnorm8(f2)) << 8) |
+           (static_cast<uint32_t>(priv::ToPackedUnorm8(f3)) << 16) |
+           (static_cast<uint32_t>(priv::ToPackedUnorm8(f4)) << 24);
 }
 
 // Unpacks 4 normalized unsigned floating-point values from a single 32-bit unsigned integer into f.
@@ -1019,7 +1018,7 @@ inline void UnpackUnorm4x8(uint32_t u, float *f)
     {
         int shift    = i * 8;
         uint8_t bits = static_cast<uint8_t>((u >> shift) & 0xFF);
-        f[i]         = static_cast<float>(bits) / 255.0f;
+        ANGLE_UNSAFE_TODO(f[i]) = static_cast<float>(bits) / 255.0f;
     }
 }
 
@@ -1028,18 +1027,10 @@ inline void UnpackUnorm4x8(uint32_t u, float *f)
 // significant bits.
 inline uint32_t PackSnorm4x8(float f1, float f2, float f3, float f4)
 {
-    int8_t bits[4];
-    bits[0]         = priv::ToPackedSnorm8(f1);
-    bits[1]         = priv::ToPackedSnorm8(f2);
-    bits[2]         = priv::ToPackedSnorm8(f3);
-    bits[3]         = priv::ToPackedSnorm8(f4);
-    uint32_t result = 0u;
-    for (int i = 0; i < 4; ++i)
-    {
-        int shift = i * 8;
-        result |= ((static_cast<uint32_t>(bits[i]) & 0xFF) << shift);
-    }
-    return result;
+    return (static_cast<uint32_t>(priv::ToPackedSnorm8(f1)) & 0xFF) |
+           ((static_cast<uint32_t>(priv::ToPackedSnorm8(f2)) & 0xFF) << 8) |
+           ((static_cast<uint32_t>(priv::ToPackedSnorm8(f3)) & 0xFF) << 16) |
+           ((static_cast<uint32_t>(priv::ToPackedSnorm8(f4)) & 0xFF) << 24);
 }
 
 // Unpacks 4 normalized signed floating-point values from a single 32-bit unsigned integer into f.
@@ -1051,7 +1042,7 @@ inline void UnpackSnorm4x8(uint32_t u, float *f)
     {
         int shift   = i * 8;
         int8_t bits = static_cast<int8_t>((u >> shift) & 0xFF);
-        f[i]        = clamp(static_cast<float>(bits) / 127.0f, -1.0f, 1.0f);
+        ANGLE_UNSAFE_TODO(f[i]) = clamp(static_cast<float>(bits) / 127.0f, -1.0f, 1.0f);
     }
 }
 
@@ -1505,7 +1496,7 @@ template <typename T>
 constexpr T roundUpPow2(const T value, const T alignment)
 {
     ASSERT(gl::isPow2(alignment));
-    return (value + alignment - 1) & ~(alignment - 1);
+    return (value + (alignment - 1)) & ~(alignment - 1);
 }
 
 template <typename T>
@@ -1535,6 +1526,12 @@ angle::CheckedNumeric<T> CheckedRoundUp(const T value, const T alignment)
 inline constexpr unsigned int UnsignedCeilDivide(unsigned int value, unsigned int divisor)
 {
     unsigned int divided = value / divisor;
+    return (divided + ((value % divisor == 0) ? 0 : 1));
+}
+
+inline constexpr uint64_t UnsignedCeilDivide64(uint64_t value, uint64_t divisor)
+{
+    uint64_t divided = value / divisor;
     return (divided + ((value % divisor == 0) ? 0 : 1));
 }
 
@@ -1578,12 +1575,8 @@ inline uint16_t RotR16(uint16_t x, int8_t r)
 #    define ANGLE_ROTL64(x, y) ::rx::RotL64(x, y)
 #    define ANGLE_ROTR16(x, y) ::rx::RotR16(x, y)
 
-#endif  // namespace rx
+#endif  // defined(_MSC_VER)
 
-constexpr unsigned int Log2(unsigned int bytes)
-{
-    return bytes == 1 ? 0 : (1 + Log2(bytes / 2));
-}
 }  // namespace rx
 
 #endif  // COMMON_MATHUTIL_H_

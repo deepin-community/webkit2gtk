@@ -26,6 +26,7 @@
 #pragma once
 
 #include <JavaScriptCore/ExecutableBase.h>
+#include <JavaScriptCore/Intrinsic.h>
 #include <JavaScriptCore/ParserModes.h>
 #include <JavaScriptCore/ProfilerJettisonReason.h>
 
@@ -46,21 +47,21 @@ public:
         
     CodeBlockHash hashFor(CodeSpecializationKind) const;
 
-    const SourceCode& source() const { return m_source; }
+    const SourceCode& source() const LIFETIME_BOUND { return m_source; }
     SourceID sourceID() const { return m_source.providerID(); }
-    const SourceOrigin& sourceOrigin() const { return m_source.provider()->sourceOrigin(); }
+    const SourceOrigin& sourceOrigin() const LIFETIME_BOUND { return m_source.provider()->sourceOrigin(); }
     // This is NOT the path that should be used for computing relative paths from a script. Use SourceOrigin's URL for that, the values may or may not be the same... This should only be used for `error.sourceURL` and stack traces.
-    const String& sourceURL() const { return m_source.provider()->sourceURL(); }
-    const String& sourceURLStripped() const { return m_source.provider()->sourceURLStripped(); }
-    const String& preRedirectURL() const { return m_source.provider()->preRedirectURL(); }
+    const String& sourceURL() const LIFETIME_BOUND { return m_source.provider()->sourceURL(); }
+    const String& sourceURLStripped() const LIFETIME_BOUND { return m_source.provider()->sourceURLStripped(); }
+    const String& preRedirectURL() const LIFETIME_BOUND { return m_source.provider()->preRedirectURL(); }
     int firstLine() const { return m_source.firstLine().oneBasedInt(); }
-    JS_EXPORT_PRIVATE int lastLine() const;
+    JS_EXPORT_PRIVATE int NODELETE lastLine() const;
     unsigned startColumn() const { return m_source.startColumn().oneBasedInt(); }
-    JS_EXPORT_PRIVATE unsigned endColumn() const;
+    JS_EXPORT_PRIVATE unsigned NODELETE endColumn() const;
 
-    std::optional<int> overrideLineNumber(VM&) const;
-    unsigned typeProfilingStartOffset() const;
-    unsigned typeProfilingEndOffset() const;
+    std::optional<int> NODELETE overrideLineNumber(VM&) const;
+    unsigned NODELETE typeProfilingStartOffset() const;
+    unsigned NODELETE typeProfilingEndOffset() const;
 
     bool usesArguments() const { return m_features & ArgumentsFeature; }
     bool isArrowFunctionContext() const { return m_isArrowFunctionContext; }
@@ -83,7 +84,7 @@ public:
     bool canUseOSRExitFuzzing() const { return m_canUseOSRExitFuzzing; }
     bool isInsideOrdinaryFunction() const { return m_isInsideOrdinaryFunction; }
     
-    bool* addressOfDidTryToEnterInLoop() { return &m_didTryToEnterInLoop; }
+    bool* addressOfDidTryToEnterInLoop() LIFETIME_BOUND { return &m_didTryToEnterInLoop; }
 
     CodeFeatures features() const { return m_features; }
     LexicallyScopedFeatures lexicallyScopedFeatures() { return static_cast<LexicallyScopedFeatures>(m_lexicallyScopedFeatures); }
@@ -91,7 +92,7 @@ public:
         
     DECLARE_EXPORT_INFO;
 
-    void recordParse(CodeFeatures, LexicallyScopedFeatures, bool hasCapturedVariables, int lastLine, unsigned endColumn);
+    void NODELETE recordParse(CodeFeatures, LexicallyScopedFeatures, bool hasCapturedVariables, int lastLine, unsigned endColumn);
     void installCode(CodeBlock*);
     void installCode(VM&, CodeBlock*, CodeType, CodeSpecializationKind, Profiler::JettisonReason);
     CodeBlock* newCodeBlockFor(CodeSpecializationKind, JSFunction*, JSScope*);
@@ -122,14 +123,14 @@ public:
     template <typename ExecutableType>
     void prepareForExecution(VM&, JSFunction*, JSScope*, CodeSpecializationKind, CodeBlock*&);
 
-    ScriptExecutable* topLevelExecutable();
+    ScriptExecutable* NODELETE topLevelExecutable();
     JSArray* createTemplateObject(JSGlobalObject*, JSTemplateObjectDescriptor*);
 
 private:
     friend class ExecutableBase;
     void prepareForExecutionImpl(VM&, JSFunction*, JSScope*, CodeSpecializationKind, CodeBlock*&);
 
-    bool hasClearableCode() const;
+    bool NODELETE hasClearableCode() const;
 
     TemplateObjectMap& ensureTemplateObjectMap(VM&);
 

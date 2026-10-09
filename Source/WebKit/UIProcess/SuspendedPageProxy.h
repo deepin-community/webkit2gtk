@@ -28,12 +28,14 @@
 #include "Connection.h"
 #include "EnhancedSecurity.h"
 #include "ProcessThrottler.h"
-#include "WebBackForwardListItem.h"
 #include "WebPageProxyMessageReceiverRegistration.h"
 #include "WebProcessProxy.h"
+#include <WebCore/BackForwardFrameItemIdentifier.h>
 #include <WebCore/FrameIdentifier.h>
 #include <WebCore/NavigationIdentifier.h>
+#include <wtf/HashSet.h>
 #include <wtf/RefCounted.h>
+#include <wtf/SwiftBridging.h>
 #include <wtf/TZoneMalloc.h>
 #include <wtf/WeakPtr.h>
 
@@ -68,22 +70,27 @@ public:
 
     static RefPtr<WebProcessProxy> findReusableSuspendedPageProcess(WebProcessPool&, const WebCore::RegistrableDomain&, WebsiteDataStore&, WebProcessProxy::LockdownMode, EnhancedSecurity, const API::PageConfiguration&);
 
-    WebPageProxy* page() const;
+    WebPageProxy* NODELETE page() const;
     WebCore::PageIdentifier webPageID() const { return m_webPageID; }
     WebProcessProxy& process() const { return m_process.get(); }
-    Ref<WebProcessProxy> protectedProcess() const { return process(); }
     WebFrameProxy& mainFrame() { return m_mainFrame.get(); }
-    const BrowsingContextGroup& browsingContextGroup() { return m_browsingContextGroup.get(); }
+    const BrowsingContextGroup& browsingContextGroup() const { return m_browsingContextGroup.get(); }
+    BrowsingContextGroup& browsingContextGroup() { return m_browsingContextGroup.get(); }
 
-    WebBackForwardCache& backForwardCache() const;
-    Ref<WebBackForwardCache> protectedBackForwardCache() const;
+    WebBackForwardCache& NODELETE backForwardCache() const;
 
-    WebPageProxyMessageReceiverRegistration& messageReceiverRegistration() { return m_messageReceiverRegistration; }
+    WebPageProxyMessageReceiverRegistration& messageReceiverRegistration() LIFETIME_BOUND { return m_messageReceiverRegistration; }
 
-    bool pageIsClosedOrClosing() const;
+    bool NODELETE pageIsClosedOrClosing() const;
 
+    void startSuspension(std::optional<WebCore::BackForwardFrameItemIdentifier>);
     void waitUntilReadyToUnsuspend(CompletionHandler<void(SuspendedPageProxy*)>&&);
-    void unsuspend();
+    void unsuspend(WebCore::BackForwardFrameItemIdentifier);
+
+    bool hasSubframeInProcess(WebCore::ProcessIdentifier) const;
+
+    std::optional<WebCore::BackForwardFrameItemIdentifier> suspendedFrameItemID() const { return m_suspendedFrameItemID; }
+    HashSet<Ref<WebProcessProxy>> iframeProcesses() const;
 
     void pageDidFirstLayerFlush();
     void closeWithoutFlashing();
@@ -102,11 +109,15 @@ public:
 private:
     SuspendedPageProxy(WebPageProxy&, Ref<WebProcessProxy>&&, Ref<WebFrameProxy>&& mainFrame, Ref<BrowsingContextGroup>&&, ShouldDelayClosingUntilFirstLayerFlush);
 
-    enum class SuspensionState : uint8_t { Suspending, FailedToSuspend, Suspended, Resumed };
+    enum class SuspensionState : uint8_t { BeforeStart, Suspending, FailedToSuspend, Suspended, Resumed };
+    bool hasSuspensionStarted() const { return m_suspensionState != SuspensionState::BeforeStart; }
     void didProcessRequestToSuspend(SuspensionState);
     void suspensionTimedOut();
+    void suspendSubframeProcesses(WebCore::BackForwardFrameItemIdentifier);
+    void maybeCompleteSuspension();
 
     void close();
+    void teardown();
     void didDestroyNavigation(WebCore::NavigationIdentifier);
 
     // IPC::MessageReceiver
@@ -126,9 +137,13 @@ private:
     ShouldDelayClosingUntilFirstLayerFlush m_shouldDelayClosingUntilFirstLayerFlush { ShouldDelayClosingUntilFirstLayerFlush::No };
     bool m_shouldCloseWhenEnteringAcceleratedCompositingMode { false };
 
-    SuspensionState m_suspensionState { SuspensionState::Suspending };
+    SuspensionState m_suspensionState { SuspensionState::BeforeStart };
+    // Set once in startSuspension; never reset (the entry destructor gates reads on its own frame id).
+    std::optional<WebCore::BackForwardFrameItemIdentifier> m_suspendedFrameItemID;
     CompletionHandler<void(SuspendedPageProxy*)> m_readyToUnsuspendHandler;
     RunLoop::Timer m_suspensionTimeoutTimer;
+    bool m_mainFrameSuspended { false };
+    bool m_allSubframesSuspended { false };
 #if USE(RUNNINGBOARD)
     RefPtr<ProcessThrottler::BackgroundActivity> m_suspensionActivity;
 #endif
@@ -138,6 +153,16 @@ private:
     LayerHostingContextID m_contextIDForVisibilityPropagationInGPUProcess { 0 };
 #endif
 #endif
-};
+} SWIFT_SHARED_REFERENCE(refSuspendedPageProxy, derefSuspendedPageProxy);
 
 } // namespace WebKit
+
+inline void refSuspendedPageProxy(WebKit::SuspendedPageProxy* WTF_NONNULL obj)
+{
+    obj->ref();
+}
+
+inline void derefSuspendedPageProxy(WebKit::SuspendedPageProxy* WTF_NONNULL obj)
+{
+    obj->deref();
+}

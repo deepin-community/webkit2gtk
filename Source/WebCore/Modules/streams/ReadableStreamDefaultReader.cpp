@@ -26,6 +26,7 @@
 #include "config.h"
 #include "ReadableStreamDefaultReader.h"
 
+#include "JSDOMConvertAny.h"
 #include "JSDOMPromise.h"
 #include "JSDOMPromiseDeferred.h"
 #include "JSReadableStreamDefaultReader.h"
@@ -34,6 +35,7 @@
 #include "ReadableStream.h"
 #include "ReadableStreamReadRequest.h"
 #include "WebCoreOpaqueRootInlines.h"
+#include <JavaScriptCore/JSGlobalObjectInlines.h>
 #include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
@@ -100,7 +102,9 @@ void ReadableStreamDefaultReader::read(JSDOMGlobalObject& globalObject, Ref<Read
 {
     if (RefPtr internalReader = this->internalDefaultReader()) {
         auto value = internalReader->readForBindings(globalObject);
-        auto* promise = jsDynamicCast<JSC::JSPromise*>(value);
+        if (!value)
+            return;
+        auto* promise = dynamicDowncast<JSC::JSPromise>(value);
         if (!promise)
             return;
 
@@ -236,7 +240,7 @@ void ReadableStreamDefaultReader::genericRelease(JSDOMGlobalObject& globalObject
         m_closedPromise = WTF::move(promise);
     }
 
-    if (RefPtr controller = stream->controller())
+    if (auto* controller = stream->controller())
         controller->runReleaseSteps();
 
     stream->setDefaultReader(nullptr);
@@ -385,7 +389,7 @@ ReadableStream* ReadableStreamDefaultReader::stream()
     return m_stream.get();
 }
 
-bool ReadableStreamDefaultReader::isReachableFromOpaqueRoots() const
+SUPPRESS_NODELETE bool ReadableStreamDefaultReader::isReachableFromOpaqueRoots() const
 {
     Locker locker { m_streamLock };
     return getNumReadRequests() && m_stream && m_stream->isReachableFromOpaqueRoots();
@@ -396,7 +400,7 @@ JSC::JSValue JSReadableStreamDefaultReader::read(JSC::JSGlobalObject& globalObje
     RefPtr internalDefaultReader = wrapped().internalDefaultReader();
     if (!internalDefaultReader) {
         return callPromiseFunction(globalObject, callFrame, [this](auto& globalObject, auto&, auto&& promise) {
-            protectedWrapped()->readForBindings(globalObject, WTF::move(promise));
+            wrapped().readForBindings(globalObject, WTF::move(promise));
         });
     }
 
@@ -407,7 +411,7 @@ JSC::JSValue JSReadableStreamDefaultReader::closed(JSC::JSGlobalObject& globalOb
 {
     RefPtr internalDefaultReader = wrapped().internalDefaultReader();
     if (!internalDefaultReader)
-        return protectedWrapped()->closedPromise().promise();
+        return wrapped().closedPromise().promise();
 
     return internalDefaultReader->closedForBindings(globalObject);
 }
@@ -419,7 +423,7 @@ WebCoreOpaqueRoot root(ReadableStreamDefaultReader* reader)
 
 bool JSReadableStreamDefaultReaderOwner::isReachableFromOpaqueRoots(JSC::Handle<JSC::Unknown> handle, void*, AbstractSlotVisitor& visitor, ASCIILiteral* reason)
 {
-    auto* jsReader = jsCast<JSReadableStreamDefaultReader*>(handle.slot()->asCell());
+    auto* jsReader = downcast<JSReadableStreamDefaultReader>(handle.slot()->asCell());
     SUPPRESS_UNCOUNTED_LOCAL auto& reader = jsReader->wrapped();
     SUPPRESS_UNCOUNTED_LOCAL if (reader.isReachableFromOpaqueRoots()) {
         if (reason) [[unlikely]]
@@ -431,20 +435,20 @@ bool JSReadableStreamDefaultReaderOwner::isReachableFromOpaqueRoots(JSC::Handle<
 }
 
 template<typename Visitor>
-void ReadableStreamDefaultReader::visitAdditionalChildren(Visitor& visitor)
+void ReadableStreamDefaultReader::visitAdditionalChildrenInGCThread(Visitor& visitor)
 {
     Locker locker { m_streamLock };
     if (m_stream)
-        SUPPRESS_UNCOUNTED_ARG m_stream->visitAdditionalChildren(visitor);
+        SUPPRESS_UNCOUNTED_ARG m_stream->visitAdditionalChildrenInGCThread(visitor);
 }
 
 template<typename Visitor>
-void JSReadableStreamDefaultReader::visitAdditionalChildren(Visitor& visitor)
+void JSReadableStreamDefaultReader::visitAdditionalChildrenInGCThread(Visitor& visitor)
 {
-    // Do not ref `wrapped()` here since this function may get called on the GC thread.
-    SUPPRESS_UNCOUNTED_ARG wrapped().visitAdditionalChildren(visitor);
+    // Do not ref `wrapped()` here since this function may get called on a GC thread.
+    wrapped().visitAdditionalChildrenInGCThread(visitor);
 }
 
-DEFINE_VISIT_ADDITIONAL_CHILDREN(JSReadableStreamDefaultReader);
+DEFINE_VISIT_ADDITIONAL_CHILDREN_IN_GC_THREAD(JSReadableStreamDefaultReader);
 
 } // namespace WebCore

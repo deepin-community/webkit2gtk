@@ -45,8 +45,12 @@ class FilterEffect : public FilterFunction, public CanMakeThreadSafeCheckedPtr<F
 public:
     virtual bool operator==(const FilterEffect&) const;
 
-    const DestinationColorSpace& operatingColorSpace() const { return m_operatingColorSpace; }
+    const DestinationColorSpace& operatingColorSpace() const LIFETIME_BOUND { return m_operatingColorSpace; }
     virtual void setOperatingColorSpace(const DestinationColorSpace& colorSpace) { m_operatingColorSpace = colorSpace; }
+
+    // §16.3: output is tainted (currentColor on flood/lighting, cross-origin feImage, or input propagation).
+    bool taintsOrigin() const { return m_taintsOrigin; }
+    void setTaintsOrigin(bool taintsOrigin) { m_taintsOrigin = taintsOrigin; }
 
     unsigned numberOfImageInputs() const { return filterType() == FilterEffect::Type::SourceGraphic ? 1 : numberOfEffectInputs(); }
     FilterImageVector takeImageInputs(FilterImageVector& stack) const;
@@ -81,7 +85,7 @@ protected:
 
     virtual void transformInputsColorSpace(std::span<const Ref<FilterImage>> inputs) const;
     
-    void correctPremultipliedInputs(std::span<const Ref<FilterImage>> inputs) const;
+    void NODELETE correctPremultipliedInputs(std::span<const Ref<FilterImage>> inputs) const;
 
     std::unique_ptr<FilterEffectApplier> createApplier(const Filter&) const;
 
@@ -93,6 +97,7 @@ protected:
     FilterStyleVector createFilterStyles(GraphicsContext&, const Filter&, const FilterStyle& input) const override;
 
     DestinationColorSpace m_operatingColorSpace { DestinationColorSpace::SRGB() };
+    bool m_taintsOrigin { false };
 };
 
 WEBCORE_EXPORT WTF::TextStream& operator<<(WTF::TextStream&, const FilterEffect&);

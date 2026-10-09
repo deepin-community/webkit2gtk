@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2023 Apple Inc. All rights reserved.
+ * Copyright (C) 2008-2023, 2026 Apple Inc. All rights reserved.
  * Copyright (C) 2008 Cameron Zwarich <cwzwarich@uwaterloo.ca>
  * Copyright (C) 2012 Igalia, S.L.
  *
@@ -37,7 +37,6 @@
 #include "BytecodeGeneratorBaseInlines.h"
 #include "BytecodeGeneratorification.h"
 #include "BytecodeUseDef.h"
-#include "CatchScope.h"
 #include "DefinePropertyAttributes.h"
 #include "Interpreter.h"
 #include "JSAsyncGenerator.h"
@@ -49,6 +48,8 @@
 #include "PrivateFieldPutKind.h"
 #include "StrongInlines.h"
 #include "SuperSampler.h"
+#include "SymbolTableInlines.h"
+#include "TopExceptionScope.h"
 #include "UnlinkedCodeBlock.h"
 #include "UnlinkedEvalCodeBlock.h"
 #include "UnlinkedFunctionCodeBlock.h"
@@ -56,6 +57,7 @@
 #include "UnlinkedModuleProgramCodeBlock.h"
 #include "UnlinkedProgramCodeBlock.h"
 #include "VMTrapsInlines.h"
+#include "VariableEnvironmentInlines.h"
 #include <wtf/BitVector.h>
 #include <wtf/HashSet.h>
 #include <wtf/StdLibExtras.h>
@@ -306,16 +308,25 @@ ParserError BytecodeGenerator::generate(unsigned& size)
         AsyncFuncParametersTryCatchInfo& info = m_asyncFuncParametersTryCatchInfo.value();
         ASSERT(info.catchStartLabel && info.thrownValue);
         emitLabel(*info.catchStartLabel.get());
-        // @rejectPromiseWithFirstResolvingFunctionCallCheck(@promise, thrownValue);
-        // return @promise;
-        RefPtr<RegisterID> rejectPromise = moveLinkTimeConstant(nullptr, LinkTimeConstant::rejectPromiseWithFirstResolvingFunctionCallCheck);
-        CallArguments args(*this, nullptr, 2);
-        emitLoad(args.thisRegister(), jsUndefined());
-        move(args.argumentRegister(0), promiseRegister());
-        move(args.argumentRegister(1), info.thrownValue.get());
         JSTextPosition divot(m_scopeNode->firstLine(), m_scopeNode->startOffset(), m_scopeNode->lineStartOffset());
-        emitCallIgnoreResult(newTemporary(), rejectPromise.get(), NoExpectedFunction, args, divot, divot, divot, DebuggableCall::No);
-        emitReturn(promiseRegister());
+        if (promiseRegister()) {
+            RefPtr<RegisterID> rejectPromise = moveLinkTimeConstant(nullptr, LinkTimeConstant::rejectPromiseWithFirstResolvingFunctionCallCheck);
+            CallArguments args(*this, nullptr, 2);
+            emitLoad(args.thisRegister(), jsUndefined());
+            move(args.argumentRegister(0), promiseRegister());
+            move(args.argumentRegister(1), info.thrownValue.get());
+            emitCallIgnoreResult(newTemporary(), rejectPromise.get(), NoExpectedFunction, args, divot, divot, divot, DebuggableCall::No);
+            emitReturn(promiseRegister());
+        } else {
+            // If we are not creating a promise yet, we can just do `return @newRejectedPromise(thrownValue)`.
+            RefPtr<RegisterID> newRejectedPromise = moveLinkTimeConstant(nullptr, LinkTimeConstant::newRejectedPromise);
+            CallArguments args(*this, nullptr, 1);
+            emitLoad(args.thisRegister(), jsUndefined());
+            move(args.argumentRegister(0), info.thrownValue.get());
+            RefPtr<RegisterID> result = newTemporary();
+            emitCall(result.get(), newRejectedPromise.get(), NoExpectedFunction, args, divot, divot, divot, DebuggableCall::No);
+            emitReturn(result.get());
+        }
     }
 
     m_staticPropertyAnalyzer.kill();
@@ -360,7 +371,8 @@ ParserError BytecodeGenerator::generate(unsigned& size)
 
     RELEASE_ASSERT(m_codeBlock->numCalleeLocals() < static_cast<unsigned>(FirstConstantRegisterIndex));
     size = instructions().size();
-    m_codeBlock->finalize(m_writer.finalize());
+    if (!m_codeBlock->finalize(m_writer.finalize())) [[unlikely]]
+        return ParserError(ParserError::OutOfMemory);
 
     // We limit total bytecode sequence size to int32_t so that we can use int32_t jump offsets.
     // Also, this allows us to use one bit of bytecode for some flag, including "ignore-result-flag".
@@ -429,6 +441,7 @@ BytecodeGenerator::BytecodeGenerator(VM& vm, FunctionNode* functionNode, Unlinke
     , m_usesExceptions(false)
     , m_expressionTooDeep(false)
     , m_isBuiltinFunction(codeBlock->isBuiltinFunction())
+    , m_isBuiltinDefaultClassConstructor(codeBlock->isBuiltinDefaultClassConstructor())
     , m_usesSloppyEval(functionNode->usesEval() && !functionNode->isStrictMode())
     // FIXME: We should be able to have tail call elimination with the profiler
     // enabled. This is currently not possible because the profiler expects
@@ -468,7 +481,21 @@ BytecodeGenerator::BytecodeGenerator(VM& vm, FunctionNode* functionNode, Unlinke
     bool shouldCaptureSomeOfTheThings = shouldEmitDebugHooks() || functionNode->needsActivation() || containsArrowOrEvalButNotInArrowBlock;
 
     bool shouldCaptureAllOfTheThings = shouldEmitDebugHooks() || usesEval();
-    m_needsArguments = ((functionNode->usesArguments() && !codeBlock->isArrowFunction()) || usesEval() || (functionNode->usesArrowFunction() && !codeBlock->isArrowFunction() && isArgumentsUsedInInnerArrowFunction())) && parseMode != SourceParseMode::ClassFieldInitializerMode;
+    m_needsArguments = ([&] () {
+        if (parseMode != SourceParseMode::ClassFieldInitializerMode) {
+            if (!codeBlock->isArrowFunction()) {
+                if (functionNode->usesArrowFunction() && isArgumentsUsedInInnerArrowFunction())
+                    return true;
+                if (functionNode->usesArguments())
+                    return true;
+                if (shouldEmitDebugHooks())
+                    return true;
+            }
+            if (usesEval())
+                return true;
+        }
+        return false;
+    })();
 
     if (isGeneratorOrAsyncFunctionBodyParseMode(parseMode)) {
         m_needsGeneratorification = true;
@@ -822,9 +849,10 @@ IGNORE_GCC_WARNINGS_END
         bool isAsyncFunctionWithoutAwait = m_scopeNode->isAsyncFunctionWithoutAwait();
         // Check if this async function body doesn't use await.
         // If so, we can skip generator creation entirely.
-        if (!isAsyncFunctionWithoutAwait)
+        if (!isAsyncFunctionWithoutAwait) {
             m_generatorRegister = addVar();
-        m_promiseRegister = addVar();
+            m_promiseRegister = addVar();
+        }
 
         bool willEmitToThis = false;
         if (parseMode != SourceParseMode::AsyncArrowFunctionMode) {
@@ -838,14 +866,10 @@ IGNORE_GCC_WARNINGS_END
         if (willEmitToThis)
             emitToThis();
 
-        bool isInternalPromise = false;
-        if (m_isBuiltinFunction)
-            isInternalPromise = !functionNode->ident().string().startsWith("defaultAsync"_s);
-        emitNewPromise(promiseRegister(), isInternalPromise);
-
         if (!isAsyncFunctionWithoutAwait) {
-            emitNewGenerator(m_generatorRegister);
-            emitPutInternalField(generatorRegister(), static_cast<unsigned>(JSGenerator::Field::Context), promiseRegister());
+            emitNewPromise(promiseRegister());
+            emitNewAsyncFunctionGenerator(m_generatorRegister);
+            emitPutInternalField(generatorRegister(), static_cast<unsigned>(JSAsyncFunctionGenerator::Field::Context), promiseRegister());
         }
         break;
     }
@@ -1121,7 +1145,7 @@ BytecodeGenerator::BytecodeGenerator(VM& vm, ModuleProgramNode* moduleProgramNod
     if (shouldEmitTypeProfilerHooks() || moduleProgramNode->usesAwait())
         constantSymbolTable = addConstantValue(moduleEnvironmentSymbolTable);
     else
-        constantSymbolTable = addConstantValue(moduleEnvironmentSymbolTable->cloneScopePart(m_vm));
+        constantSymbolTable = addConstantValue(moduleEnvironmentSymbolTable->cloneScopePart(m_vm, SymbolTable::PropagateCloneInvalidationToOriginal::No));
 
     if (moduleProgramNode->usesAwait()) {
         m_generatorFrameSymbolTable.set(m_vm, moduleEnvironmentSymbolTable);
@@ -2248,7 +2272,7 @@ void BytecodeGenerator::pushLexicalScopeInternal(VariableEnvironment& environmen
             newScope = addVar();
         if (!constantSymbolTable) {
             ASSERT(!shouldEmitTypeProfilerHooks());
-            constantSymbolTable = addConstantValue(symbolTable->cloneScopePart(m_vm));
+            constantSymbolTable = addConstantValue(symbolTable->cloneScopePart(m_vm, SymbolTable::PropagateCloneInvalidationToOriginal::No));
             symbolTableConstantIndex = constantSymbolTable->index();
         }
         if (constantSymbolTableResult)
@@ -2463,9 +2487,9 @@ void BytecodeGenerator::prepareLexicalScopeForNextForLoopIteration(VariableEnvir
     ASSERT(loopScope);
 
     struct SymbolTableNoLocks {
-        auto begin() const { return symbolTable->begin(NoLockingNecessary); }
-        auto end() const { return symbolTable->end(NoLockingNecessary); }
-        size_t size() const { return symbolTable->scopeSize(); }
+        auto NODELETE begin() const { return symbolTable->begin(NoLockingNecessary); }
+        auto NODELETE end() const { return symbolTable->end(NoLockingNecessary); }
+        size_t NODELETE size() const { return symbolTable->scopeSize(); }
         SymbolTable* symbolTable;
     } symbolTableWithoutLocks { symbolTable };
 
@@ -2635,12 +2659,6 @@ std::optional<Variable> BytecodeGenerator::tryResolveVariable(ExpressionNode* ex
     return std::nullopt;
 }
 
-RegisterID* BytecodeGenerator::emitOverridesHasInstance(RegisterID* dst, RegisterID* constructor, RegisterID* hasInstanceValue)
-{
-    OpOverridesHasInstance::emit(this, dst, constructor, hasInstanceValue);
-    return dst;
-}
-
 // Indicates the least upper bound of resolve type based on local scope. The bytecode linker
 // will start with this ResolveType and compute the least upper bound including intercepting scopes.
 ResolveType BytecodeGenerator::resolveType()
@@ -2807,14 +2825,6 @@ RegisterID* BytecodeGenerator::emitInByVal(RegisterID* dst, RegisterID* property
 RegisterID* BytecodeGenerator::emitInById(RegisterID* dst, RegisterID* base, const Identifier& property)
 {
     OpInById::emit(this, dst, base, addConstant(property));
-    return dst;
-}
-
-RegisterID* BytecodeGenerator::emitTryGetById(RegisterID* dst, RegisterID* base, const Identifier& property)
-{
-    ASSERT_WITH_MESSAGE(!parseIndex(property), "Indexed properties are not supported with tryGetById.");
-
-    OpTryGetById::emit(this, kill(dst), base, addConstant(property), nextValueProfileIndex());
     return dst;
 }
 
@@ -3173,15 +3183,15 @@ RegisterID* BytecodeGenerator::emitCreateThis(RegisterID* dst)
     return dst;
 }
 
-RegisterID* BytecodeGenerator::emitCreatePromise(RegisterID* dst, RegisterID* newTarget, bool isInternalPromise)
+RegisterID* BytecodeGenerator::emitCreatePromise(RegisterID* dst, RegisterID* newTarget)
 {
-    OpCreatePromise::emit(this, dst, newTarget, isInternalPromise);
+    OpCreatePromise::emit(this, dst, newTarget);
     return dst;
 }
 
-RegisterID* BytecodeGenerator::emitNewPromise(RegisterID* dst, bool isInternalPromise)
+RegisterID* BytecodeGenerator::emitNewPromise(RegisterID* dst)
 {
-    OpNewPromise::emit(this, dst, isInternalPromise);
+    OpNewPromise::emit(this, dst);
     return dst;
 }
 
@@ -3194,6 +3204,12 @@ RegisterID* BytecodeGenerator::emitCreateGenerator(RegisterID* dst, RegisterID* 
 RegisterID* BytecodeGenerator::emitNewGenerator(RegisterID* dst)
 {
     OpNewGenerator::emit(this, dst);
+    return dst;
+}
+
+RegisterID* BytecodeGenerator::emitNewAsyncFunctionGenerator(RegisterID* dst)
+{
+    OpNewAsyncFunctionGenerator::emit(this, dst);
     return dst;
 }
 
@@ -3256,7 +3272,7 @@ void BytecodeGenerator::emitTDZCheckIfNecessary(const Variable& variable, Regist
 
 void BytecodeGenerator::liftTDZCheckIfPossible(const Variable& variable)
 {
-    RefPtr<UniquedStringImpl> identifier(variable.ident().impl());
+    UniquedStringImpl* identifier = variable.ident().impl();
     for (unsigned i = m_TDZStack.size(); i--;) {
         auto iter = m_TDZStack[i].first.find(identifier);
         if (iter != m_TDZStack[i].first.end()) {
@@ -3407,7 +3423,7 @@ JSValue BytecodeGenerator::addBigIntConstant(const Identifier& identifier, uint8
     return m_bigIntMap.ensure(BigIntMapEntry(identifier.impl(), radix, sign), [&] {
         VM& vm = this->vm();
         DeferTermination deferScope(vm);
-        auto scope = DECLARE_CATCH_SCOPE(vm);
+        auto scope = DECLARE_TOP_EXCEPTION_SCOPE(vm);
         auto parseIntSign = sign ? JSBigInt::ParseIntSign::Signed : JSBigInt::ParseIntSign::Unsigned;
         JSValue bigIntInMap = JSBigInt::parseInt(nullptr, vm, identifier.string(), radix, JSBigInt::ErrorParseMode::ThrowExceptions, parseIntSign);
         scope.assertNoException();
@@ -3480,10 +3496,12 @@ RegisterID* BytecodeGenerator::emitNewArrayWithSpread(RegisterID* dst, ElementNo
         unsigned i = 0;
         for (ElementNode* node = elements; node; node = node->next()) {
             if (node->value()->isSpreadExpression()) {
-                ExpressionNode* expression = static_cast<SpreadExpressionNode*>(node->value())->expression();
+                auto* spread = static_cast<SpreadExpressionNode*>(node->value());
+                ExpressionNode* expression = spread->expression();
                 RefPtr<RegisterID> tmp = newTemporary();
                 emitNode(tmp.get(), expression);
 
+                emitExpressionInfo(spread->divot(), spread->divotStart(), spread->divotEnd());
                 OpSpread::emit(this, argv[i].get(), tmp.get());
             } else {
                 ExpressionNode* expression = node->value();
@@ -3592,7 +3610,7 @@ RegisterID* BytecodeGenerator::emitNewClassFieldInitializerFunction(RegisterID* 
 
     FunctionMetadataNode metadata(parserArena(), JSTokenLocation(), JSTokenLocation(), 0, 0, 0, 0, 0, ImplementationVisibility::Private, StrictModeLexicallyScopedFeature, ConstructorKind::None, superBinding, 0, parseMode, false);
     metadata.finishParsing(m_scopeNode->source(), Identifier(), FunctionMode::MethodDefinition);
-    auto initializer = UnlinkedFunctionExecutable::create(m_vm, m_scopeNode->source(), &metadata, isBuiltinFunction() ? UnlinkedBuiltinFunction : UnlinkedNormalFunction, constructAbility, InlineAttribute::Always, scriptMode(), WTF::move(variablesUnderTDZ), { }, WTF::move(parentPrivateNameEnvironment), newDerivedContextType, NeedsClassFieldInitializer::No, PrivateBrandRequirement::None);
+    auto initializer = UnlinkedFunctionExecutable::create(m_vm, m_scopeNode->source(), &metadata, isBuiltinFunction() ? UnlinkedBuiltinFunction : UnlinkedNormalFunction, constructAbility, InlineAttribute::Always, scriptMode(), WTF::move(variablesUnderTDZ), { }, WTF::move(parentPrivateNameEnvironment), newDerivedContextType, EvalContextType::InstanceFieldEvalContext, NeedsClassFieldInitializer::No, PrivateBrandRequirement::None);
     initializer->setClassElementDefinitions(WTF::move(classElementDefinitions));
 
     unsigned index = m_codeBlock->addFunctionExpr(initializer);
@@ -3648,6 +3666,37 @@ void BytecodeGenerator::emitSetFunctionName(RegisterID* value, RegisterID* name)
     OpSetFunctionName::emit(this, value, name);
 }
 
+void BytecodeGenerator::emitAsyncIteratorOpen(RegisterID* iterator, RegisterID* next, RegisterID* symbolIterator, CallArguments& iterable, const ThrowableExpressionData* node)
+{
+    // Reserve space for call frame. Mirrors emitIteratorOpen.
+    Vector<RefPtr<RegisterID>, CallFrame::headerSizeInRegisters, UnsafeVectorOverflow> callFrame;
+    for (int i = 0; i < CallFrame::headerSizeInRegisters; ++i)
+        callFrame.append(newTemporary());
+
+    if (shouldEmitDebugHooks())
+        emitDebugHook(WillExecuteExpression, node->divotStart());
+
+    emitExpressionInfo(node->divot(), node->divotStart(), node->divotEnd());
+    OpAsyncIteratorOpen::emit(this, iterator, next, symbolIterator, iterable.thisRegister(), iterable.stackOffset(), nextValueProfileIndex(), nextValueProfileIndex(), nextValueProfileIndex());
+}
+
+RegisterID* BytecodeGenerator::emitAsyncIteratorNext(RegisterID* dst, RegisterID* next, RegisterID* iterator, const ThrowableExpressionData* node)
+{
+    CallArguments nextArguments(*this, nullptr);
+    move(nextArguments.thisRegister(), iterator);
+
+    // Reserve space for call frame. Mirrors emitIteratorNext / emitAsyncIteratorOpen; the generic
+    // branch of op_async_iterator_next makes a real next.call(iterator), so numCalleeLocals must
+    // cover the callee frame header sitting below argv.
+    Vector<RefPtr<RegisterID>, CallFrame::headerSizeInRegisters, UnsafeVectorOverflow> callFrame;
+    for (int i = 0; i < CallFrame::headerSizeInRegisters; ++i)
+        callFrame.append(newTemporary());
+
+    emitExpressionInfo(node->divot(), node->divotStart(), node->divotEnd());
+    OpAsyncIteratorNext::emit(this, kill(dst), next, nextArguments.thisRegister(), generatorRegister(), nextArguments.stackOffset(), nextValueProfileIndex());
+    return dst;
+}
+
 RegisterID* BytecodeGenerator::emitCall(RegisterID* dst, RegisterID* func, ExpectedFunction expectedFunction, CallArguments& callArguments, const JSTextPosition& divot, const JSTextPosition& divotStart, const JSTextPosition& divotEnd, DebuggableCall debuggableCall)
 {
     return emitCall<OpCall>(dst, func, expectedFunction, callArguments, divot, divotStart, divotEnd, debuggableCall);
@@ -3676,6 +3725,8 @@ RegisterID* BytecodeGenerator::emitCallDirectEval(RegisterID* dst, RegisterID* f
 
 ExpectedFunction BytecodeGenerator::expectedFunctionForIdentifier(const Identifier& identifier)
 {
+    if (shouldEmitDebugHooks()) [[unlikely]]
+        return NoExpectedFunction;
     if (identifier == propertyNames().Object || identifier == propertyNames().builtinNames().ObjectPrivateName())
         return ExpectObjectConstructor;
     if (identifier == propertyNames().Array || identifier == propertyNames().builtinNames().ArrayPrivateName())
@@ -3764,8 +3815,10 @@ RegisterID* BytecodeGenerator::emitCall(RegisterID* dst, RegisterID* func, Expec
             if (expression->isArrayLiteral()) {
                 auto* elements = static_cast<ArrayNode*>(expression)->elements();
                 if (elements && !elements->next() && elements->value()->isSpreadExpression()) {
-                    ExpressionNode* expression = static_cast<SpreadExpressionNode*>(elements->value())->expression();
+                    auto* spread = static_cast<SpreadExpressionNode*>(elements->value());
+                    ExpressionNode* expression = spread->expression();
                     RefPtr<RegisterID> argumentRegister = tempDestination(emitNode(callArguments.argumentRegister(0), expression));
+                    emitExpressionInfo(spread->divot(), spread->divotStart(), spread->divotEnd());
                     OpSpread::emit(this, argumentRegister.get(), argumentRegister.get());
 
                     return emitCallVarargs<typename VarArgsOp<CallOp>::type>(dst, func, callArguments.thisRegister(), argumentRegister.get(), newTemporary(), 0, divot, divotStart, divotEnd, debuggableCall);
@@ -3773,7 +3826,6 @@ RegisterID* BytecodeGenerator::emitCall(RegisterID* dst, RegisterID* func, Expec
             }
             RefPtr<RegisterID> argumentRegister;
             argumentRegister = expression->emitBytecode(*this, callArguments.argumentRegister(0));
-            RefPtr<RegisterID> thisRegister = move(newTemporary(), callArguments.thisRegister());
             return emitCallVarargs<typename VarArgsOp<CallOp>::type>(dst, func, callArguments.thisRegister(), argumentRegister.get(), newTemporary(), 0, divot, divotStart, divotEnd, debuggableCall);
         }
         for (; n; n = n->m_next)
@@ -3838,13 +3890,6 @@ RegisterID* BytecodeGenerator::emitSuperConstructVarargs(RegisterID* dst, Regist
     return emitCallVarargs<OpSuperConstructVarargs>(dst, func, thisRegister, arguments, firstFreeRegister, firstVarArgOffset, divot, divotStart, divotEnd, debuggableCall);
 }
 
-RegisterID* BytecodeGenerator::emitCallForwardArgumentsInTailPosition(RegisterID* dst, RegisterID* func, RegisterID* thisRegister, RegisterID* firstFreeRegister, int32_t firstVarArgOffset, const JSTextPosition& divot, const JSTextPosition& divotStart, const JSTextPosition& divotEnd, DebuggableCall debuggableCall)
-{
-    // We must emit a tail call here because we did not allocate an arguments object thus we would otherwise have no way to correctly make this call.
-    ASSERT(m_allowTailCallOptimization || !Options::useTailCalls());
-    return emitCallVarargs<OpTailCallForwardArguments>(dst, func, thisRegister, nullptr, firstFreeRegister, firstVarArgOffset, divot, divotStart, divotEnd, debuggableCall);
-}
-    
 template<typename VarargsOp>
 RegisterID* BytecodeGenerator::emitCallVarargs(RegisterID* dst, RegisterID* func, RegisterID* thisRegister, RegisterID* arguments, RegisterID* firstFreeRegister, int32_t firstVarArgOffset, const JSTextPosition& divot, const JSTextPosition& divotStart, const JSTextPosition& divotEnd, DebuggableCall debuggableCall)
 {
@@ -3858,12 +3903,11 @@ RegisterID* BytecodeGenerator::emitCallVarargs(RegisterID* dst, RegisterID* func
     
     // Emit call.
     ASSERT(dst != ignoredResult());
-    if constexpr (VarargsOp::opcodeID == op_tail_call_varargs || VarargsOp::opcodeID == op_tail_call_forward_arguments)
+    if constexpr (VarargsOp::opcodeID == op_tail_call_varargs)
         VarargsOp::emit(this, dst, func, thisRegister, arguments ? arguments : VirtualRegister(0), firstFreeRegister, firstVarArgOffset);
     else
         VarargsOp::emit(this, dst, func, thisRegister, arguments ? arguments : VirtualRegister(0), firstFreeRegister, firstVarArgOffset, nextValueProfileIndex());
-    if (VarargsOp::opcodeID != op_tail_call_forward_arguments)
-        ASSERT(m_codeBlock->hasCheckpoints());
+    ASSERT(m_codeBlock->hasCheckpoints());
     return dst;
 }
 
@@ -3969,21 +4013,15 @@ RegisterID* BytecodeGenerator::emitReturn(RegisterID* src)
     return src;
 }
 
-RegisterID* BytecodeGenerator::emitEnd(RegisterID* src)
-{
-    OpEnd::emit(this, src);
-    return src;
-}
-
 template<typename ConstructOp>
-RegisterID* BytecodeGenerator::emitConstructImpl(RegisterID* dst, RegisterID* func, RegisterID* lazyThis, ExpectedFunction expectedFunction, CallArguments& callArguments, const JSTextPosition& divot, const JSTextPosition& divotStart, const JSTextPosition& divotEnd)
+RegisterID* BytecodeGenerator::emitConstructImpl(RegisterID* dst, RegisterID* func, RegisterID* lazyThis, ExpectedFunction expectedFunction, CallArguments& callArguments, const JSTextPosition& divot, const JSTextPosition& divotStart, const JSTextPosition& divotEnd, bool isDefaultDerivedConstructorCall)
 {
     ASSERT(func->refCount());
 
     // Generate code for arguments.
     unsigned argument = 0;
     if (ArgumentsNode* argumentsNode = callArguments.argumentsNode()) {
-        
+
         ArgumentListNode* n = callArguments.argumentsNode()->m_listNode;
         if (n && n->m_expr->isSpreadExpression()) {
             RELEASE_ASSERT(!n->m_next);
@@ -3991,12 +4029,16 @@ RegisterID* BytecodeGenerator::emitConstructImpl(RegisterID* dst, RegisterID* fu
             if (expression->isArrayLiteral()) {
                 auto* elements = static_cast<ArrayNode*>(expression)->elements();
                 if (elements && !elements->next() && elements->value()->isSpreadExpression()) {
-                    ExpressionNode* expression = static_cast<SpreadExpressionNode*>(elements->value())->expression();
+                    auto* spread = static_cast<SpreadExpressionNode*>(elements->value());
+                    ExpressionNode* expression = spread->expression();
                     RefPtr<RegisterID> argumentRegister = tempDestination(emitNode(callArguments.argumentRegister(0), expression));
-                    OpSpread::emit(this, argumentRegister.get(), argumentRegister.get());
+
+                    if (!isDefaultDerivedConstructorCall) {
+                        emitExpressionInfo(spread->divot(), spread->divotStart(), spread->divotEnd());
+                        OpSpread::emit(this, argumentRegister.get(), argumentRegister.get());
+                    }
 
                     move(callArguments.thisRegister(), lazyThis);
-                    RefPtr<RegisterID> thisRegister = move(newTemporary(), callArguments.thisRegister());
                     return emitCallVarargs<typename VarArgsOp<ConstructOp>::type>(dst, func, callArguments.thisRegister(), argumentRegister.get(), newTemporary(), 0, divot, divotStart, divotEnd, DebuggableCall::No);
                 }
             }
@@ -4032,12 +4074,12 @@ RegisterID* BytecodeGenerator::emitConstructImpl(RegisterID* dst, RegisterID* fu
 
 RegisterID* BytecodeGenerator::emitConstruct(RegisterID* dst, RegisterID* func, RegisterID* lazyThis, ExpectedFunction expectedFunction, CallArguments& callArguments, const JSTextPosition& divot, const JSTextPosition& divotStart, const JSTextPosition& divotEnd)
 {
-    return emitConstructImpl<OpConstruct>(dst, func, lazyThis, expectedFunction, callArguments, divot, divotStart, divotEnd);
+    return emitConstructImpl<OpConstruct>(dst, func, lazyThis, expectedFunction, callArguments, divot, divotStart, divotEnd, false);
 }
 
-RegisterID* BytecodeGenerator::emitSuperConstruct(RegisterID* dst, RegisterID* func, RegisterID* lazyThis, ExpectedFunction expectedFunction, CallArguments& callArguments, const JSTextPosition& divot, const JSTextPosition& divotStart, const JSTextPosition& divotEnd)
+RegisterID* BytecodeGenerator::emitSuperConstruct(RegisterID* dst, RegisterID* func, RegisterID* lazyThis, ExpectedFunction expectedFunction, CallArguments& callArguments, const JSTextPosition& divot, const JSTextPosition& divotStart, const JSTextPosition& divotEnd, bool isDefaultDerivedConstructorCall)
 {
-    return emitConstructImpl<OpSuperConstruct>(dst, func, lazyThis, expectedFunction, callArguments, divot, divotStart, divotEnd);
+    return emitConstructImpl<OpSuperConstruct>(dst, func, lazyThis, expectedFunction, callArguments, divot, divotStart, divotEnd, isDefaultDerivedConstructorCall);
 }
 
 RegisterID* BytecodeGenerator::emitStrcat(RegisterID* dst, RegisterID* src, int count)
@@ -4658,74 +4700,320 @@ void BytecodeGenerator::emitTryWithFinallyThatDoesNotShadowException(FinallyCont
     }
 }
 
-void BytecodeGenerator::emitGenericEnumeration(ThrowableExpressionData* node, ExpressionNode* subjectNode, const ScopedLambda<void(BytecodeGenerator&, RegisterID*)>& callBack, ForOfNode* forLoopNode, RegisterID* forLoopSymbolTable)
+void BytecodeGenerator::emitPrepareDisposable(RegisterID* value, const JSTextPosition& divot, bool isAsync)
 {
-    bool isForAwait = forLoopNode ? forLoopNode->isForAwait() : false;
-    auto shouldEmitAwait = isForAwait ? EmitAwait::Yes : EmitAwait::No;
-    ASSERT(!isForAwait || (isAsyncFunctionParseMode(parseMode()) || isModuleParseMode(parseMode())));
+    auto& usingScope = currentUsingScope();
+    ASSERT(usingScope.nextSlot < usingScope.slots.size());
+    auto& slot = usingScope.slots[usingScope.nextSlot++];
+    slot.isAsync = isAsync;
+    move(slot.value.get(), value);
 
-    RefPtr<RegisterID> subject = newTemporary();
-    emitNode(subject.get(), subjectNode);
-    RefPtr<RegisterID> iterator = isForAwait ? emitGetAsyncIterator(subject.get(), node) : emitGetGenericIterator(subject.get(), node);
-    RefPtr<RegisterID> nextMethod = emitGetById(newTemporary(), iterator.get(), propertyNames().next);
+    RefPtr<RegisterID> getDisposeMethodFunc = moveLinkTimeConstant(nullptr, isAsync ? LinkTimeConstant::getAsyncDisposeMethod : LinkTimeConstant::getDisposeMethod);
+    CallArguments args(*this, nullptr, 1);
+    emitLoad(args.thisRegister(), jsUndefined());
+    move(args.argumentRegister(0), value);
+    emitCall(slot.method.get(), getDisposeMethodFunc.get(), NoExpectedFunction, args, divot, divot, divot, DebuggableCall::No);
 
-    Ref<Label> loopDone = newLabel();
+    // Mark reached only after method lookup succeeds; if the above call threw, reached stays
+    // false so the finally block skips this slot entirely (spec: no resource record is added).
+    if (isAsync) {
+        ASSERT(usingScope.hasAwaitUsing);
+        ASSERT(slot.reached);
+        emitLoad(slot.reached.get(), jsBoolean(true));
+    }
+}
 
-    // RefPtr<Register> iterator's lifetime must be longer than IteratorCloseContext.
+void BytecodeGenerator::emitUsingBodyScope(unsigned usingCount, bool hasAwaitUsing, const ScopedLambda<void(BytecodeGenerator&)>& emitBody)
+{
+    ASSERT(!hasAwaitUsing || isAsyncFunctionParseMode(parseMode()) || isModuleParseMode(parseMode()));
+
+    // Pre-allocate slots and initialize method registers to undefined BEFORE the try block.
+    // This ensures that if an initializer throws, the method register has a known value (undefined)
+    // so the finally block can safely check it.
+    m_usingScopeStack.append(UsingScope { });
+    auto& usingScope = currentUsingScope();
+    usingScope.hasAwaitUsing = hasAwaitUsing;
+    for (unsigned i = 0; i < usingCount; i++) {
+        RefPtr<RegisterID> valueCopy = newTemporary();
+        RefPtr<RegisterID> method = newTemporary();
+        RefPtr<RegisterID> reached;
+        emitLoad(valueCopy.get(), jsUndefined());
+        emitLoad(method.get(), jsUndefined());
+        if (hasAwaitUsing) {
+            reached = newTemporary();
+            emitLoad(reached.get(), jsBoolean(false));
+        }
+        usingScope.slots.append({ valueCopy, method, reached, false });
+    }
+
+    RefPtr<RegisterID> thrownValue = newTemporary();
+    emitLoad(thrownValue.get(), jsUndefined());
+
     Ref<Label> finallyLabel = newLabel();
     FinallyContext finallyContext(*this, finallyLabel.get());
     pushFinallyControlFlowScope(finallyContext);
 
+    Ref<Label> tryStartLabel = newEmittedLabel();
+    TryData* tryData = pushTry(tryStartLabel.get(), *finallyContext.finallyLabel(), HandlerType::SynthesizedFinally);
+    emitBody(*this);
+    Ref<Label> tryEndLabel = newEmittedLabel();
+    popTry(tryData, tryEndLabel.get());
+
+    // Finally block: unrolled dispose calls in reverse order.
     {
-        Ref<LabelScope> scope = newLabelScope(LabelScope::Loop);
-        RefPtr<RegisterID> value = newTemporary();
-        emitLoad(value.get(), jsUndefined());
+        Ref<Label> done = newLabel();
 
-        emitJump(*scope->continueTarget());
+        emitLabel(*finallyContext.finallyLabel());
+        emitOutOfLineExceptionHandler(finallyContext.completionValueRegister(), thrownValue.get(), finallyContext.completionTypeRegister(), tryData);
 
-        Ref<Label> loopStart = newLabel();
-        emitLabel(loopStart.get());
-        emitLoopHint();
+        RefPtr<RegisterID> pendingError = newTemporary();
+        RefPtr<RegisterID> hasError = newTemporary();
+        RefPtr<RegisterID> disposeThrew = newTemporary();
+        emitLoad(pendingError.get(), jsUndefined());
+        emitLoad(hasError.get(), jsBoolean(false));
+        emitLoad(disposeThrew.get(), jsBoolean(false));
 
-        emitTryWithFinallyThatDoesNotShadowException(finallyContext, scopedLambda<void(BytecodeGenerator&)>([&](BytecodeGenerator& generator) {
-            callBack(generator, value.get());
-            generator.emitJump(*scope->continueTarget());
-        }), scopedLambda<void(BytecodeGenerator&)>([&](BytecodeGenerator& generator) {
-            generator.emitIteratorGenericClose(iterator.get(), node, shouldEmitAwait);
-        }));
-
-        emitLabel(*scope->continueTarget());
-        if (forLoopNode) {
-            RELEASE_ASSERT(forLoopNode->isForOfNode());
-            prepareLexicalScopeForNextForLoopIteration(forLoopNode, forLoopSymbolTable);
-            emitDebugHook(forLoopNode->lexpr());
-        }
-
+        // If body threw, seed pendingError with the thrown value.
         {
-            emitIteratorGenericNext(value.get(), nextMethod.get(), iterator.get(), node, shouldEmitAwait);
-
-            emitJumpIfTrue(emitGetById(newTemporary(), value.get(), propertyNames().done), loopDone.get());
-            emitGetById(value.get(), value.get(), propertyNames().value);
-            emitJump(loopStart.get());
+            Ref<Label> afterInit = newLabel();
+            emitJumpIfFalse(emitEqualityOp<OpStricteq>(newTemporary(), finallyContext.completionTypeRegister(), emitLoad(nullptr, CompletionType::Throw)), afterInit.get());
+            move(pendingError.get(), thrownValue.get());
+            emitLoad(hasError.get(), jsBoolean(true));
+            emitLabel(afterInit.get());
         }
 
-        bool breakLabelIsBound = scope->breakTargetMayBeBound();
-        if (breakLabelIsBound)
-            emitLabel(scope->breakTarget());
-        popFinallyControlFlowScope();
-        if (breakLabelIsBound) {
-            // IteratorClose sequence for break-ed control flow.
-            emitIteratorGenericClose(iterator.get(), node, shouldEmitAwait);
+        JSTextPosition divot(m_scopeNode->firstLine(), m_scopeNode->startOffset(), m_scopeNode->lineStartOffset());
+
+        // Async disposal state (per DisposeResources spec): needsAwait / hasAwaited.
+        // Only allocated when this scope contains at least one await using declaration.
+        RefPtr<RegisterID> needsAwait;
+        RefPtr<RegisterID> hasAwaited;
+        if (hasAwaitUsing) {
+            needsAwait = newTemporary();
+            hasAwaited = newTemporary();
+            emitLoad(needsAwait.get(), jsBoolean(false));
+            emitLoad(hasAwaited.get(), jsBoolean(false));
         }
+
+        // Shared temporaries for the catch handler (one pair is enough across all slots).
+        RefPtr<RegisterID> caughtException = newTemporary();
+        RefPtr<RegisterID> caughtValue = newTemporary();
+        RefPtr<RegisterID> suppressedErrorCtor = newTemporary();
+
+        auto emitSuppressedErrorCatch = [&](TryData* trySlotData, Label& catchLabel) {
+            emitLabel(catchLabel);
+            emitOutOfLineExceptionHandler(caughtException.get(), caughtValue.get(), nullptr, trySlotData);
+
+            Ref<Label> afterCatch = newLabel();
+            Ref<Label> firstError = newLabel();
+            emitJumpIfFalse(hasError.get(), firstError.get());
+
+            moveLinkTimeConstant(suppressedErrorCtor.get(), LinkTimeConstant::SuppressedError);
+            CallArguments seArgs(*this, nullptr, 2);
+            move(seArgs.argumentRegister(0), caughtValue.get());
+            move(seArgs.argumentRegister(1), pendingError.get());
+            emitConstruct(pendingError.get(), suppressedErrorCtor.get(), suppressedErrorCtor.get(), NoExpectedFunction, seArgs, divot, divot, divot);
+            emitJump(afterCatch.get());
+
+            emitLabel(firstError.get());
+            move(pendingError.get(), caughtValue.get());
+            emitLoad(hasError.get(), jsBoolean(true));
+
+            emitLabel(afterCatch.get());
+            emitLoad(disposeThrew.get(), jsBoolean(true));
+        };
+
+        auto emitAwaitUndefined = [&]() {
+            RefPtr<RegisterID> tmp = newTemporary();
+            emitLoad(tmp.get(), jsUndefined());
+            emitAwait(tmp.get(), tmp.get(), divot);
+        };
+
+        // Dispose each resource in reverse declaration order.
+        // Track whether we've processed an async slot so far: needsAwait can only become
+        // true after an async slot's null-value case, so Step 3.d before the first async
+        // slot in disposal order is always dead and can be elided at compile time.
+        bool sawAsyncSlotInDisposalOrder = false;
+        for (auto& slot : usingScope.slots | std::views::reverse) {
+            Ref<Label> skipSlot = newLabel();
+
+            if (slot.isAsync) {
+                sawAsyncSlotInDisposalOrder = true;
+                // Async disposal slot.
+                // If the declaration was never reached (reached == false), skip entirely
+                // without setting needsAwait; the spec only adds a resource record on evaluation.
+                emitJumpIfFalse(slot.reached.get(), skipSlot.get());
+
+                Ref<Label> methodDefined = newLabel();
+                emitJumpIfFalse(emitIsUndefined(newTemporary(), slot.method.get()), methodDefined.get());
+
+                // method is undefined (await using x = null/undefined).
+                // Per DisposeResources step 3.f: set needsAwait to true, no call.
+                emitLoad(needsAwait.get(), jsBoolean(true));
+                emitJump(skipSlot.get());
+
+                // method is defined: call it and Await the result.
+                emitLabel(methodDefined.get());
+                Ref<Label> catchLabel = newLabel();
+                Ref<Label> trySlotStart = newEmittedLabel();
+                TryData* trySlotData = pushTry(trySlotStart.get(), catchLabel.get(), HandlerType::SynthesizedCatch);
+
+                RefPtr<RegisterID> result = newTemporary();
+                CallArguments disposeArgs(*this, nullptr, 0);
+                move(disposeArgs.thisRegister(), slot.value.get());
+                emitCall(result.get(), slot.method.get(), NoExpectedFunction, disposeArgs, divot, divot, divot, DebuggableCall::No);
+
+                // Set hasAwaited before Await: emitAwait throws on rejection, but a rejected
+                // Await still implies a microtask boundary has occurred.
+                emitLoad(hasAwaited.get(), jsBoolean(true));
+                emitAwait(result.get(), result.get(), divot);
+
+                Ref<Label> trySlotEnd = newEmittedLabel();
+                popTry(trySlotData, trySlotEnd.get());
+                emitJump(skipSlot.get());
+
+                emitSuppressedErrorCatch(trySlotData, catchLabel.get());
+            } else {
+                // Sync disposal slot.
+                // Per DisposeResources step 3.d: if needsAwait && !hasAwaited, Await(undefined) first.
+                // Only emit if an async slot was already processed (otherwise needsAwait is provably false).
+                if (sawAsyncSlotInDisposalOrder) {
+                    Ref<Label> skipAwaitCheck = newLabel();
+                    emitJumpIfFalse(needsAwait.get(), skipAwaitCheck.get());
+                    emitJumpIfTrue(hasAwaited.get(), skipAwaitCheck.get());
+                    emitAwaitUndefined();
+                    emitLoad(needsAwait.get(), jsBoolean(false));
+                    emitLabel(skipAwaitCheck.get());
+                }
+
+                emitJumpIfTrue(emitIsUndefined(newTemporary(), slot.method.get()), skipSlot.get());
+
+                Ref<Label> catchLabel = newLabel();
+                Ref<Label> trySlotStart = newEmittedLabel();
+                TryData* trySlotData = pushTry(trySlotStart.get(), catchLabel.get(), HandlerType::SynthesizedCatch);
+
+                CallArguments disposeArgs(*this, nullptr, 0);
+                move(disposeArgs.thisRegister(), slot.value.get());
+                emitCallIgnoreResult(newTemporary(), slot.method.get(), NoExpectedFunction, disposeArgs, divot, divot, divot, DebuggableCall::No);
+
+                Ref<Label> trySlotEnd = newEmittedLabel();
+                popTry(trySlotData, trySlotEnd.get());
+                emitJump(skipSlot.get());
+
+                emitSuppressedErrorCatch(trySlotData, catchLabel.get());
+            }
+
+            emitLabel(skipSlot.get());
+        }
+
+        // Per DisposeResources step 6: trailing Await(undefined) if needsAwait && !hasAwaited.
+        // If the first-declared slot is sync, its Step 3.d (above) already consumed any pending
+        // needsAwait, so this trailing check is provably dead and elided.
+        if (hasAwaitUsing && usingScope.slots[0].isAsync) {
+            Ref<Label> skipFinalAwait = newLabel();
+            emitJumpIfFalse(needsAwait.get(), skipFinalAwait.get());
+            emitJumpIfTrue(hasAwaited.get(), skipFinalAwait.get());
+            emitAwaitUndefined();
+            emitLabel(skipFinalAwait.get());
+        }
+
+        // If any dispose threw, throw the pending error (which may be a SuppressedError chain).
+        // This takes priority over break/continue/return completions.
+        {
+            Ref<Label> afterDisposeCheck = newLabel();
+            emitJumpIfFalse(disposeThrew.get(), afterDisposeCheck.get());
+            emitThrow(pendingError.get());
+            emitLabel(afterDisposeCheck.get());
+        }
+
+        emitFinallyCompletion(finallyContext, done.get());
+        emitLabel(done.get());
     }
-    emitLabel(loopDone.get());
+
+    popFinallyControlFlowScope();
+    m_usingScopeStack.removeLast();
 }
 
+void BytecodeGenerator::emitBodyWithUsingIfNeeded(unsigned usingCount, bool hasAwaitUsing, const ScopedLambda<void(BytecodeGenerator&)>& emitBody)
+{
+    if (usingCount)
+        emitUsingBodyScope(usingCount, hasAwaitUsing, emitBody);
+    else
+        emitBody(*this);
+}
 
 void BytecodeGenerator::emitEnumeration(ThrowableExpressionData* node, ExpressionNode* subjectNode, const ScopedLambda<void(BytecodeGenerator&, RegisterID*)>& callBack, ForOfNode* forLoopNode, RegisterID* forLoopSymbolTable)
 {
-    if (!Options::useIterationIntrinsics() || (forLoopNode && forLoopNode->isForAwait())) {
-        emitGenericEnumeration(node, subjectNode, callBack, forLoopNode, forLoopSymbolTable);
+    if (forLoopNode && forLoopNode->isForAwait()) {
+        ASSERT(isAsyncFunctionParseMode(parseMode()) || isModuleParseMode(parseMode()));
+
+        RefPtr<RegisterID> subject = newTemporary();
+        emitNode(subject.get(), subjectNode);
+
+        RefPtr<RegisterID> iterator = newTemporary();
+        RefPtr<RegisterID> nextMethod = newTemporary();
+
+        {
+            emitExpressionInfo(node->divot(), node->divotStart(), node->divotEnd());
+            RefPtr<RegisterID> symbolAsyncIterator = emitGetById(newTemporary(), subject.get(), propertyNames().asyncIteratorSymbol);
+            CallArguments args(*this, nullptr, 0);
+            move(args.thisRegister(), subject.get());
+            emitAsyncIteratorOpen(iterator.get(), nextMethod.get(), symbolAsyncIterator.get(), args, node);
+        }
+
+        Ref<Label> loopDone = newLabel();
+
+        Ref<Label> finallyLabel = newLabel();
+        FinallyContext finallyContext(*this, finallyLabel.get());
+        pushFinallyControlFlowScope(finallyContext);
+
+        {
+            Ref<LabelScope> scope = newLabelScope(LabelScope::Loop);
+            RefPtr<RegisterID> value = newTemporary();
+            emitLoad(value.get(), jsUndefined());
+
+            emitJump(*scope->continueTarget());
+
+            Ref<Label> loopStart = newLabel();
+            emitLabel(loopStart.get());
+            emitLoopHint();
+
+            emitTryWithFinallyThatDoesNotShadowException(finallyContext, scopedLambda<void(BytecodeGenerator&)>([&](BytecodeGenerator& generator) {
+                callBack(generator, value.get());
+                generator.emitJump(*scope->continueTarget());
+            }), scopedLambda<void(BytecodeGenerator&)>([&](BytecodeGenerator& generator) {
+                generator.emitIteratorGenericClose(iterator.get(), node, EmitAwait::Yes);
+            }));
+
+            emitLabel(*scope->continueTarget());
+            RELEASE_ASSERT(forLoopNode->isForOfNode());
+            prepareLexicalScopeForNextForLoopIteration(forLoopNode, forLoopSymbolTable);
+            emitDebugHook(forLoopNode->lexpr());
+
+            {
+                emitAsyncIteratorNext(value.get(), nextMethod.get(), iterator.get(), node);
+                emitAwait(value.get(), value.get(), node->divot());
+
+                Ref<Label> typeIsObject = newLabel();
+                emitJumpIfTrue(emitIsObject(newTemporary(), value.get()), typeIsObject.get());
+                emitThrowTypeError("Iterator result interface is not an object."_s);
+                emitLabel(typeIsObject.get());
+
+                emitJumpIfTrue(emitGetById(newTemporary(), value.get(), propertyNames().done), loopDone.get());
+                emitGetById(value.get(), value.get(), propertyNames().value);
+                emitJump(loopStart.get());
+            }
+
+            bool breakLabelIsBound = scope->breakTargetMayBeBound();
+            if (breakLabelIsBound)
+                emitLabel(scope->breakTarget());
+            popFinallyControlFlowScope();
+            if (breakLabelIsBound) {
+                // IteratorClose sequence for break-ed control flow.
+                emitIteratorGenericClose(iterator.get(), node, EmitAwait::Yes);
+            }
+        }
+        emitLabel(loopDone.get());
         return;
     }
 
@@ -4735,6 +5023,7 @@ void BytecodeGenerator::emitEnumeration(ThrowableExpressionData* node, Expressio
     RefPtr<RegisterID> nextOrIndex = newTemporary();
     RefPtr<RegisterID> iterator = newTemporary();
     {
+        emitExpressionInfo(node->divot(), node->divotStart(), node->divotEnd());
         RefPtr<RegisterID> iteratorSymbol = emitGetById(newTemporary(), iterable.get(), propertyNames().iteratorSymbol);
         CallArguments args(*this, nullptr, 0);
         move(args.thisRegister(), iterable.get());
@@ -5007,10 +5296,7 @@ void BytecodeGenerator::popForInScope(RegisterID* localRegister)
 
 RegisterID* BytecodeGenerator::emitRestParameter(RegisterID* result, unsigned numParametersToSkip)
 {
-    RefPtr<RegisterID> restArrayLength = newTemporary();
-    OpGetRestLength::emit(this, restArrayLength.get(), numParametersToSkip);
-
-    OpCreateRest::emit(this, result, restArrayLength.get(), numParametersToSkip);
+    OpCreateRest::emit(this, result, numParametersToSkip);
 
     return result;
 }
@@ -5081,6 +5367,9 @@ void BytecodeGenerator::emitYieldPoint(RegisterID* argument, JSAsyncGenerator::A
 
 RegisterID* BytecodeGenerator::emitYield(RegisterID* argument)
 {
+    // For async generators the operand is Awaited by the driver (reason Yield), not here, so there is no
+    // extra yield point. `yield*` instead suspends with YieldNoAwait (see emitDelegateYield) so the driver
+    // skips that await.
     emitYieldPoint(argument, JSAsyncGenerator::AsyncGeneratorSuspendReason::Yield);
 
     Ref<Label> normalLabel = newLabel();
@@ -5163,6 +5452,7 @@ void BytecodeGenerator::emitIteratorNext(RegisterID* done, RegisterID* value, Re
 
 RegisterID* BytecodeGenerator::emitGetGenericIterator(RegisterID* argument, ThrowableExpressionData* node)
 {
+    emitExpressionInfo(node->divot(), node->divotStart(), node->divotEnd());
     RefPtr<RegisterID> iterator = emitGetById(newTemporary(), argument, propertyNames().iteratorSymbol);
     emitCallIterator(iterator.get(), argument, node);
 
@@ -5222,6 +5512,7 @@ void BytecodeGenerator::emitIteratorGenericClose(RegisterID* iterator, const Thr
 
 RegisterID* BytecodeGenerator::emitGetAsyncIterator(RegisterID* argument, ThrowableExpressionData* node)
 {
+    emitExpressionInfo(node->divot(), node->divotStart(), node->divotEnd());
     RefPtr<RegisterID> iterator = emitGetById(newTemporary(), argument, propertyNames().asyncIteratorSymbol);
     Ref<Label> asyncIteratorNotFound = newLabel();
     Ref<Label> asyncIteratorFound = newLabel();
@@ -5235,15 +5526,12 @@ RegisterID* BytecodeGenerator::emitGetAsyncIterator(RegisterID* argument, Throwa
     RefPtr<RegisterID> commonIterator = emitGetGenericIterator(argument, node);
     move(iterator.get(), commonIterator.get());
 
-    RefPtr<RegisterID> nextMethod = emitGetById(newTemporary(), iterator.get(), propertyNames().next);
+    RefPtr<RegisterID> createAsyncFromSyncIterator = moveLinkTimeConstant(nullptr, LinkTimeConstant::asyncFromSyncIteratorCreate);
 
-    RefPtr<RegisterID> createAsyncFromSyncIterator = moveLinkTimeConstant(nullptr, LinkTimeConstant::createAsyncFromSyncIterator);
-
-    CallArguments args(*this, nullptr, 2);
+    CallArguments args(*this, nullptr, 1);
     emitLoad(args.thisRegister(), jsUndefined());
 
     move(args.argumentRegister(0), iterator.get());
-    move(args.argumentRegister(1), nextMethod.get());
 
     JSTextPosition divot(m_scopeNode->firstLine(), m_scopeNode->startOffset(), m_scopeNode->lineStartOffset());
     emitCall(iterator.get(), createAsyncFromSyncIterator.get(), NoExpectedFunction, args, divot, divot, divot, DebuggableCall::No);
@@ -5277,7 +5565,10 @@ RegisterID* BytecodeGenerator::emitDelegateYield(RegisterID* argument, Throwable
 
             Ref<Label> branchOnResult = newLabel();
             {
-                emitYieldPoint(value.get(), JSAsyncGenerator::AsyncGeneratorSuspendReason::Yield);
+                // `yield*` delegates the inner iterator's value without an enclosing Await (the iterator
+                // result was already Awaited above). YieldNoAwait tells the async driver not to await it.
+                // (Sync generators ignore the suspend reason.)
+                emitYieldPoint(value.get(), JSAsyncGenerator::AsyncGeneratorSuspendReason::YieldNoAwait);
                 move(value.get(), generatorValueRegister());
 
                 Ref<Label> normalLabel = newLabel();
@@ -5608,6 +5899,11 @@ void BytecodeGenerator::pushOptionalChainTarget()
     m_optionalChainTargetStack.append(newLabel());
 }
 
+void BytecodeGenerator::pushOptionalChainTarget(Label& existingTarget)
+{
+    m_optionalChainTargetStack.append(existingTarget);
+}
+
 void BytecodeGenerator::popOptionalChainTarget()
 {
     ASSERT(m_optionalChainTargetStack.size());
@@ -5623,6 +5919,12 @@ void BytecodeGenerator::popOptionalChainTarget(RegisterID* dst, bool isDelete)
     emitLoad(dst, isDelete ? jsBoolean(true) : jsUndefined());
 
     emitLabel(endLabel.get());
+}
+
+void BytecodeGenerator::discardOptionalChainTarget()
+{
+    ASSERT(m_optionalChainTargetStack.size());
+    m_optionalChainTargetStack.removeLast();
 }
 
 void BytecodeGenerator::emitOptionalCheck(RegisterID* src)

@@ -39,6 +39,7 @@ namespace WebCore {
 
 class DOMMatrix;
 class DOMPoint;
+class Document;
 class ScriptExecutionContext;
 struct DOMPointInit;
 
@@ -50,6 +51,11 @@ public:
     ~DOMMatrixReadOnly();
 
     enum class Is2D : bool { No, Yes };
+
+    struct AbstractMatrix {
+        TransformationMatrix matrix;
+        bool is2D { true };
+    };
     static Ref<DOMMatrixReadOnly> create(const TransformationMatrix& matrix, Is2D is2D)
     {
         return adoptRef(*new DOMMatrixReadOnly(matrix, is2D));
@@ -93,18 +99,17 @@ public:
     double m44() const { return m_matrix.m44(); }
 
     bool is2D() const { return m_is2D; }
-    bool isIdentity() const;
+    bool NODELETE isIdentity() const;
 
-    ExceptionOr<void> setMatrixValue(const String&);
-    ExceptionOr<void> setMatrixValue(const Vector<double>&);
+    ExceptionOr<void> setMatrixValue(Document&, const String&);
 
-    Ref<DOMMatrix> translate(double tx = 0, double ty = 0, double tz = 0);
+    Ref<DOMMatrix> NODELETE translate(double tx = 0, double ty = 0, double tz = 0);
     ExceptionOr<Ref<DOMMatrix>> multiply(DOMMatrixInit&& other) const;
-    Ref<DOMMatrix> flipX();
-    Ref<DOMMatrix> flipY();
-    Ref<DOMMatrix> scale(double scaleX = 1, std::optional<double> scaleY = std::nullopt, double scaleZ = 1, double originX = 0, double originY = 0, double originZ = 0);
-    Ref<DOMMatrix> scale3d(double scale = 1, double originX = 0, double originY = 0, double originZ = 0);
-    Ref<DOMMatrix> scaleNonUniform(double scaleX = 1, double scaleY = 1);
+    Ref<DOMMatrix> NODELETE flipX();
+    Ref<DOMMatrix> NODELETE flipY();
+    Ref<DOMMatrix> NODELETE scale(double scaleX = 1, std::optional<double> scaleY = std::nullopt, double scaleZ = 1, double originX = 0, double originY = 0, double originZ = 0);
+    Ref<DOMMatrix> NODELETE scale3d(double scale = 1, double originX = 0, double originY = 0, double originZ = 0);
+    Ref<DOMMatrix> NODELETE scaleNonUniform(double scaleX = 1, double scaleY = 1);
     Ref<DOMMatrix> rotate(double rotX = 0, std::optional<double> rotY = std::nullopt, std::optional<double> rotZ = std::nullopt); // Angles are in degrees.
     Ref<DOMMatrix> rotateFromVector(double x = 0, double y = 0);
     Ref<DOMMatrix> rotateAxisAngle(double x = 0, double y = 0, double z = 0, double angle = 0); // Angle is in degrees.
@@ -119,7 +124,7 @@ public:
 
     ExceptionOr<String> toString() const;
 
-    const TransformationMatrix& transformationMatrix() const { return m_matrix; }
+    const TransformationMatrix& transformationMatrix() const LIFETIME_BOUND { return m_matrix; }
     
     Ref<DOMMatrix> cloneAsDOMMatrix() const;
 
@@ -128,12 +133,7 @@ protected:
     DOMMatrixReadOnly(const TransformationMatrix&, Is2D);
     DOMMatrixReadOnly(TransformationMatrix&&, Is2D);
 
-    struct AbstractMatrix {
-        TransformationMatrix matrix;
-        bool is2D { true };
-    };
-
-    static ExceptionOr<AbstractMatrix> parseStringIntoAbstractMatrix(const String&);
+    static ExceptionOr<AbstractMatrix> parseStringIntoAbstractMatrix(Document&, const String&);
 
     template <typename T>
     static ExceptionOr<Ref<T>> fromMatrixHelper(DOMMatrixInit&&);

@@ -40,7 +40,9 @@
 #include "ScrollingCoordinator.h"
 #include "Settings.h"
 #include "TiledBacking.h"
+#include <wtf/Borrow.h>
 #include <wtf/TZoneMallocInlines.h>
+#include <ranges>
 
 // FIXME: Someone needs to call didChangeSettings() if we want dynamic updates of layer border/repaint counter settings.
 
@@ -67,8 +69,8 @@ void PageOverlayController::createRootLayersIfNeeded()
 
     m_documentOverlayRootLayer = GraphicsLayer::create(m_page->chrome().client().graphicsLayerFactory(), *this);
     m_viewOverlayRootLayer = GraphicsLayer::create(m_page->chrome().client().graphicsLayerFactory(), *this);
-    protectedDocumentOverlayRootLayer()->setName(MAKE_STATIC_STRING_IMPL("Document overlay Container"));
-    protectedViewOverlayRootLayer()->setName(MAKE_STATIC_STRING_IMPL("View overlay container"));
+    protect(documentOverlayRootLayer())->setName(MAKE_STATIC_STRING_IMPL("Document overlay Container"));
+    protect(viewOverlayRootLayer())->setName(MAKE_STATIC_STRING_IMPL("View overlay container"));
 }
 
 void PageOverlayController::installedPageOverlaysChanged()
@@ -78,7 +80,7 @@ void PageOverlayController::installedPageOverlaysChanged()
     else
         detachViewOverlayLayers();
 
-    if (RefPtr localMainFrame = protectedPage()->localMainFrame()) {
+    if (RefPtr localMainFrame = m_page->localMainFrame()) {
         if (RefPtr frameView = localMainFrame->view())
             frameView->setNeedsCompositingConfigurationUpdate();
     }
@@ -104,20 +106,15 @@ bool PageOverlayController::hasViewOverlays() const
     return false;
 }
 
-Ref<Page> PageOverlayController::protectedPage() const
-{
-    return m_page.get();
-}
-
 void PageOverlayController::attachViewOverlayLayers()
 {
     if (hasViewOverlays())
-        protectedPage()->chrome().client().attachViewOverlayGraphicsLayer(protectedLayerWithViewOverlays().ptr());
+        m_page->chrome().client().attachViewOverlayGraphicsLayer(protect(layerWithViewOverlays()).ptr());
 }
 
 void PageOverlayController::detachViewOverlayLayers()
 {
-    protectedPage()->chrome().client().attachViewOverlayGraphicsLayer(nullptr);
+    m_page->chrome().client().attachViewOverlayGraphicsLayer(nullptr);
 }
 
 GraphicsLayer* PageOverlayController::documentOverlayRootLayer() const
@@ -159,7 +156,7 @@ GraphicsLayer& PageOverlayController::layerWithDocumentOverlays()
         updateOverlayGeometry(overlay, layer.get());
         
         if (!layer->parent())
-            protectedDocumentOverlayRootLayer()->addChild(layer.copyRef());
+            protect(documentOverlayRootLayer())->addChild(layer.copyRef());
     }
 
     return *m_documentOverlayRootLayer;
@@ -183,15 +180,10 @@ GraphicsLayer& PageOverlayController::layerWithViewOverlays()
         updateOverlayGeometry(overlay, layer.get());
         
         if (!layer->parent())
-            protectedViewOverlayRootLayer()->addChild(layer.copyRef());
+            protect(viewOverlayRootLayer())->addChild(layer.copyRef());
     }
 
     return *m_viewOverlayRootLayer;
-}
-
-Ref<GraphicsLayer> PageOverlayController::protectedLayerWithViewOverlays()
-{
-    return layerWithViewOverlays();
 }
 
 void PageOverlayController::installPageOverlay(PageOverlay& overlay, PageOverlay::FadeMode fadeMode)
@@ -204,7 +196,7 @@ void PageOverlayController::installPageOverlay(PageOverlay& overlay, PageOverlay
     m_pageOverlays.append(overlay);
 
     auto layerType = (overlay.alwaysTileOverlayLayer() == PageOverlay::AlwaysTileOverlayLayer::Yes) ? GraphicsLayer::Type::TiledBacking : GraphicsLayer::Type::Normal;
-    Ref layer = GraphicsLayer::create(protectedPage()->chrome().client().graphicsLayerFactory(), *this, layerType);
+    Ref layer = GraphicsLayer::create(m_page->chrome().client().graphicsLayerFactory(), *this, layerType);
     layer->setAnchorPoint({ });
     layer->setBackgroundColor(overlay.backgroundColor());
     layer->setName(MAKE_STATIC_STRING_IMPL("Overlay content"));
@@ -213,18 +205,18 @@ void PageOverlayController::installPageOverlay(PageOverlay& overlay, PageOverlay
 
     switch (overlay.overlayType()) {
     case PageOverlay::OverlayType::View:
-        protectedViewOverlayRootLayer()->addChild(layer.get());
+        protect(viewOverlayRootLayer())->addChild(layer.get());
         break;
     case PageOverlay::OverlayType::Document:
-        protectedDocumentOverlayRootLayer()->addChild(layer.get());
+        protect(documentOverlayRootLayer())->addChild(layer.get());
         break;
     }
 
     m_overlayGraphicsLayers.set(overlay, layer.copyRef());
 
-    overlay.setPage(protectedPage().ptr());
+    overlay.setPage(protect(m_page).ptr());
 
-    if (RefPtr localMainFrame = protectedPage()->localMainFrame()) {
+    if (RefPtr localMainFrame = m_page->localMainFrame()) {
         if (RefPtr frameView = localMainFrame->view())
             frameView->enterCompositingMode();
     }
@@ -265,7 +257,7 @@ void PageOverlayController::updateForceSynchronousScrollLayerPositionUpdates()
             forceSynchronousScrollLayerPositionUpdates = true;
     }
 
-    if (RefPtr scrollingCoordinator = protectedPage()->scrollingCoordinator())
+    if (RefPtr scrollingCoordinator = protect(m_page)->scrollingCoordinator())
         scrollingCoordinator->setForceSynchronousScrollLayerPositionUpdates(forceSynchronousScrollLayerPositionUpdates);
 #endif
 }
@@ -329,8 +321,8 @@ void PageOverlayController::didChangeDeviceScaleFactor()
     if (!m_initialized)
         return;
 
-    protectedDocumentOverlayRootLayer()->noteDeviceOrPageScaleFactorChangedIncludingDescendants();
-    protectedViewOverlayRootLayer()->noteDeviceOrPageScaleFactorChangedIncludingDescendants();
+    protect(documentOverlayRootLayer())->noteDeviceOrPageScaleFactorChangedIncludingDescendants();
+    protect(viewOverlayRootLayer())->noteDeviceOrPageScaleFactorChangedIncludingDescendants();
 
     for (auto overlayAndLayer : m_overlayGraphicsLayers)
         Ref { overlayAndLayer.value }->setNeedsDisplay();
@@ -338,7 +330,7 @@ void PageOverlayController::didChangeDeviceScaleFactor()
 
 void PageOverlayController::didChangeViewExposedRect()
 {
-    protectedPage()->scheduleRenderingUpdate(RenderingUpdateStep::LayerFlush);
+    protect(m_page)->scheduleRenderingUpdate(RenderingUpdateStep::LayerFlush);
 }
 
 void PageOverlayController::didScrollFrame(LocalFrame& frame)
@@ -363,8 +355,8 @@ bool PageOverlayController::handleMouseEvent(const PlatformMouseEvent& mouseEven
     if (m_pageOverlays.isEmpty())
         return false;
 
-    for (auto it = m_pageOverlays.rbegin(), end = m_pageOverlays.rend(); it != end; ++it) {
-        if (Ref { *it }->mouseEvent(mouseEvent))
+    for (Ref overlay : borrow(m_pageOverlays).get() | std::views::reverse) {
+        if (overlay->mouseEvent(mouseEvent))
             return true;
     }
 
@@ -376,8 +368,8 @@ bool PageOverlayController::copyAccessibilityAttributeStringValueForPoint(String
     if (m_pageOverlays.isEmpty())
         return false;
 
-    for (auto it = m_pageOverlays.rbegin(), end = m_pageOverlays.rend(); it != end; ++it) {
-        if (Ref { *it }->copyAccessibilityAttributeStringValueForPoint(attribute, parameter, value))
+    for (Ref overlay : borrow(m_pageOverlays).get() | std::views::reverse) {
+        if (overlay->copyAccessibilityAttributeStringValueForPoint(attribute, parameter, value))
             return true;
     }
 
@@ -389,8 +381,8 @@ bool PageOverlayController::copyAccessibilityAttributeBoolValueForPoint(String a
     if (m_pageOverlays.isEmpty())
         return false;
 
-    for (auto it = m_pageOverlays.rbegin(), end = m_pageOverlays.rend(); it != end; ++it) {
-        if (Ref { *it }->copyAccessibilityAttributeBoolValueForPoint(attribute, parameter, value))
+    for (Ref overlay : borrow(m_pageOverlays).get() | std::views::reverse) {
+        if (overlay->copyAccessibilityAttributeBoolValueForPoint(attribute, parameter, value))
             return true;
     }
 
@@ -432,7 +424,7 @@ float PageOverlayController::deviceScaleFactor() const
 
 void PageOverlayController::notifyFlushRequired(const GraphicsLayer*)
 {
-    protectedPage()->scheduleRenderingUpdate(RenderingUpdateStep::LayerFlush);
+    protect(m_page)->scheduleRenderingUpdate(RenderingUpdateStep::LayerFlush);
 }
 
 void PageOverlayController::didChangeOverlayFrame(PageOverlay& overlay)
@@ -470,17 +462,7 @@ bool PageOverlayController::shouldDumpPropertyForLayer(const GraphicsLayer* laye
 void PageOverlayController::tiledBackingUsageChanged(const GraphicsLayer* graphicsLayer, bool usingTiledBacking)
 {
     if (usingTiledBacking)
-        graphicsLayer->checkedTiledBacking()->setIsInWindow(m_page->isInWindow());
-}
-
-RefPtr<GraphicsLayer> PageOverlayController::protectedDocumentOverlayRootLayer() const
-{
-    return m_documentOverlayRootLayer;
-}
-
-RefPtr<GraphicsLayer> PageOverlayController::protectedViewOverlayRootLayer() const
-{
-    return m_viewOverlayRootLayer;
+        protect(graphicsLayer->tiledBacking())->setIsInWindow(m_page->isInWindow());
 }
 
 } // namespace WebKit

@@ -57,14 +57,16 @@ namespace IPC {
 class Connection;
 }
 
-namespace DDMeshDescriptor {
-struct DDMeshDescriptor;
-}
-
 namespace WebCore {
+class IOSurface;
 class MediaPlayer;
 class NativeImage;
+class ProcessIdentity;
 class VideoFrame;
+}
+
+namespace WebModel {
+struct ImageAsset;
 }
 
 namespace WebKit {
@@ -97,6 +99,9 @@ public:
     void paintNativeImageToImageBuffer(WebCore::NativeImage&, WebCore::RenderingResourceIdentifier);
     RefPtr<GPUConnectionToWebProcess> gpuConnectionToWebProcess() const;
 
+    static Vector<UniqueRef<WebCore::IOSurface>> createRenderBuffers(unsigned width, unsigned height, const WebCore::ProcessIdentity&, bool standardDynamicRange = false);
+    IPC::StreamConnectionWorkQueue& workQueue() const { return m_workQueue; }
+
 private:
     friend class WebGPU::ObjectHeap;
 
@@ -108,15 +113,13 @@ private:
     RemoteGPU& operator=(RemoteGPU&&) = delete;
 
     void initialize();
-    IPC::StreamConnectionWorkQueue& workQueue() const { return m_workQueue; }
-    Ref<IPC::StreamConnectionWorkQueue> protectedWorkQueue() const { return m_workQueue; }
     void workQueueInitialize();
     void workQueueUninitialize();
 
     template<typename T>
     IPC::Error send(T&& message) const
     {
-        return Ref { *m_streamConnection }->send(std::forward<T>(message), m_identifier);
+        return protect(*m_streamConnection)->send(std::forward<T>(message), m_identifier);
     }
 
     // IPC::StreamMessageReceiver overrides.
@@ -126,7 +129,7 @@ private:
 
 
     void requestAdapter(const WebGPU::RequestAdapterOptions&, WebGPUIdentifier, CompletionHandler<void(std::optional<RemoteGPURequestAdapterResponse>&&)>&&);
-    void createModelBacking(unsigned width, unsigned height, const WebCore::DDModel::DDImageAsset& diffuseTexture, const WebCore::DDModel::DDImageAsset& specularTexture, WebKit::DDModelIdentifier, CompletionHandler<void(Vector<MachSendRight>&&)>&&);
+    void NODELETE createModelBacking(unsigned width, unsigned height, WebModel::ImageAsset&& diffuseTexture, WebModel::ImageAsset&& specularTexture, WebKit::WebModelIdentifier, bool standardDynamicRange, CompletionHandler<void(Vector<MachSendRight>&&)>&&);
 
     void createPresentationContext(const WebGPU::PresentationContextDescriptor&, WebGPUIdentifier);
 
@@ -140,7 +143,7 @@ private:
     RefPtr<IPC::StreamServerConnection> m_streamConnection;
     RefPtr<WebCore::WebGPU::GPU> m_backing WTF_GUARDED_BY_CAPABILITY(workQueue());
     Ref<WebGPU::ObjectHeap> m_objectHeap WTF_GUARDED_BY_CAPABILITY(workQueue());
-    Ref<DDModel::ObjectHeap> m_modelObjectHeap WTF_GUARDED_BY_CAPABILITY(workQueue());
+    Ref<ModelObjectHeap> m_modelObjectHeap WTF_GUARDED_BY_CAPABILITY(workQueue());
     const WebGPUIdentifier m_identifier;
     Ref<RemoteRenderingBackend> m_renderingBackend;
 };

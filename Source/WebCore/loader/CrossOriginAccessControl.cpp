@@ -179,14 +179,14 @@ CachedResourceRequest createPotentialAccessControlRequest(ResourceRequest&& requ
         options.storedCredentialsPolicy = StoredCredentialsPolicy::Use;
         break;
     case FetchOptions::Credentials::SameOrigin:
-        options.storedCredentialsPolicy = document.protectedSecurityOrigin()->canRequest(request.url(), OriginAccessPatternsForWebProcess::singleton()) ? StoredCredentialsPolicy::Use : StoredCredentialsPolicy::DoNotUse;
+        options.storedCredentialsPolicy = protect(document.securityOrigin())->canRequest(request.url(), OriginAccessPatternsForWebProcess::singleton()) ? StoredCredentialsPolicy::Use : StoredCredentialsPolicy::DoNotUse;
         break;
     case FetchOptions::Credentials::Omit:
         options.storedCredentialsPolicy = StoredCredentialsPolicy::DoNotUse;
     }
 
     CachedResourceRequest cachedRequest { WTF::move(request), WTF::move(options) };
-    updateRequestForAccessControl(cachedRequest.resourceRequest(), document.protectedSecurityOrigin().get(), options.storedCredentialsPolicy);
+    updateRequestForAccessControl(cachedRequest.resourceRequest(), protect(document.securityOrigin()).get(), options.storedCredentialsPolicy);
     return cachedRequest;
 }
 
@@ -366,7 +366,7 @@ std::optional<ResourceError> validateCrossOriginResourcePolicy(CrossOriginEmbedd
 
 std::optional<ResourceError> validateRangeRequestedFlag(const ResourceRequest& request, const ResourceResponse& response)
 {
-    if (response.isRangeRequested() && (response.httpStatusCode() == httpStatus206PartialContent || response.httpStatusCode() == httpStatus416RangeNotSatisfiable) && response.type() == ResourceResponse::Type::Opaque && !request.hasHTTPHeaderField(HTTPHeaderName::Range))
+    if (response.isRangeRequested() && isHttpRangeStatus(response.httpStatusCode()) && response.type() == ResourceResponse::Type::Opaque && !request.hasHTTPHeaderField(HTTPHeaderName::Range))
         return ResourceError({ }, 0, response.url(), { }, ResourceError::Type::General);
     return std::nullopt;
 }

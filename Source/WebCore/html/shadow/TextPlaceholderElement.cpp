@@ -29,7 +29,6 @@
 #include "CSSPropertyNames.h"
 #include "CSSUnits.h"
 #include "CSSValueKeywords.h"
-#include "HTMLNames.h"
 #include "HTMLTextFormControlElement.h"
 #include "LayoutSize.h"
 #include <wtf/TZoneMallocInlines.h>
@@ -44,7 +43,7 @@ Ref<TextPlaceholderElement> TextPlaceholderElement::create(Document& document, c
 }
 
 TextPlaceholderElement::TextPlaceholderElement(Document& document, const LayoutSize& size)
-    : HTMLDivElement { HTMLNames::divTag, document }
+    : HTMLDivElement(document)
 {
     // FIXME: Move to User Agent stylesheet. See <https://webkit.org/b/208745>.
     setInlineStyleProperty(CSSPropertyDisplay, size.width() ? CSSValueInlineBlock : CSSValueBlock);
@@ -55,22 +54,22 @@ TextPlaceholderElement::TextPlaceholderElement(Document& document, const LayoutS
     setInlineStyleProperty(CSSPropertyHeight, size.height(), CSSUnitType::CSS_PX);
 }
 
-auto TextPlaceholderElement::insertedIntoAncestor(InsertionType insertionType, ContainerNode& parentOfInsertedTree) -> InsertedIntoAncestorResult
+auto TextPlaceholderElement::insertionSteps(InsertionType insertionType, ContainerNode& parentOfInsertedTree) -> NeedsPostConnectionSteps
 {
     if (insertionType.treeScopeChanged) {
         if (RefPtr shadowHost = dynamicDowncast<HTMLTextFormControlElement>(parentOfInsertedTree.shadowHost()))
             shadowHost->setCanShowPlaceholder(false);
     }
-    return HTMLDivElement::insertedIntoAncestor(insertionType, parentOfInsertedTree);
+    return HTMLDivElement::insertionSteps(insertionType, parentOfInsertedTree);
 }
 
-void TextPlaceholderElement::removedFromAncestor(RemovalType removalType, ContainerNode& oldParentOfRemovedTree)
+void TextPlaceholderElement::removingSteps(RemovalType removalType, ContainerNode& oldParentOfRemovedTree)
 {
     if (removalType.treeScopeChanged) {
         if (RefPtr shadowHost = dynamicDowncast<HTMLTextFormControlElement>(oldParentOfRemovedTree.shadowHost()))
             shadowHost->setCanShowPlaceholder(true);
     }
-    HTMLDivElement::removedFromAncestor(removalType, oldParentOfRemovedTree);
+    HTMLDivElement::removingSteps(removalType, oldParentOfRemovedTree);
 }
 
 } // namespace WebCore

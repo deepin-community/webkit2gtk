@@ -63,6 +63,8 @@ public:
     using IconCacheEntry = Variant<RefPtr<WebCore::Icon>, Vector<double>>;
     using IconsCache = HashMap<String, IconCacheEntry>;
     using Resources = HashMap<String, Variant<String, Ref<API::Data>>>;
+    using DataResources = HashMap<String, Ref<API::Data>>;
+    using StringResources = HashMap<String, String>;
 
     template<typename... Args>
     static Ref<WebExtension> create(Args&&... args)
@@ -276,8 +278,8 @@ public:
     bool hasSidePanel();
     bool hasAnySidebar();
     RefPtr<WebCore::Icon> sidebarIcon(WebCore::FloatSize idealSize);
-    const Sring& sidebarDocumentPath();
-    const String& sidebarTitle();
+    const std::optional<String>& sidebarDocumentPath();
+    const std::optional<String>& sidebarTitle();
 #endif
 
     Expected<Ref<WebCore::Icon>, RefPtr<API::Error>> iconForPath(const String&, WebCore::FloatSize sizeForResizing = { }, std::optional<double> displayScale = std::nullopt);
@@ -357,6 +359,9 @@ public:
 #endif
 
 private:
+    static DataResources toDataResources(const Resources&);
+    static StringResources toStringResources(const Resources&);
+
     static String processFileAndExtractZipArchive(const String&);
 
     bool parseManifest(StringView);
@@ -378,8 +383,8 @@ private:
     void populateExternallyConnectableIfNeeded();
 #if ENABLE(WK_WEB_EXTENSIONS_SIDEBAR)
     void populateSidebarPropertiesIfNeeded();
-    void populateSidebarActionProperties(RetainPtr<NSDictionary>);
-    void populateSidePanelProperties(RetainPtr<NSDictionary>);
+    void populateSidebarActionProperties(const JSON::Object&);
+    void populateSidePanelProperties(const JSON::Object&);
 #endif
 
     URL resourceFileURLForPath(const String&);
@@ -407,7 +412,8 @@ private:
     URL m_resourceBaseURL;
     bool m_resourcesAreTemporary { false };
     Ref<const JSON::Value> m_manifestJSON;
-    Resources m_resources;
+    DataResources m_dataResources;
+    StringResources m_stringResources;
 
     String m_defaultLocale;
     Vector<String> m_supportedLocales;
@@ -430,9 +436,9 @@ private:
     String m_actionPopupPath;
 
 #if ENABLE(WK_WEB_EXTENSIONS_SIDEBAR)
-    IconsCache m_sidebarIconsCache;
-    String m_sidebarDocumentPath;
-    String m_sidebarTitle;
+    std::optional<IconsCache> m_sidebarIconsCache;
+    std::optional<String> m_sidebarDocumentPath;
+    std::optional<String> m_sidebarTitle;
 #endif
 
     String m_contentSecurityPolicy;

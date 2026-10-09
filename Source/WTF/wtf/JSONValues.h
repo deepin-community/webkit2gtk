@@ -105,7 +105,10 @@ public:
     RefPtr<const Object> asObject() const;
     RefPtr<Array> asArray();
 
+    enum class ParsingMode : uint8_t { Strict, AllowTrailingCommas };
+
     static RefPtr<Value> parseJSON(StringView);
+    static RefPtr<Value> parseJSON(StringView, ParsingMode);
     static std::optional<Ref<Value>> optionalParseJSON(StringView);
 
     String toJSONString() const;
@@ -202,7 +205,7 @@ protected:
     const_iterator begin() const LIFETIME_BOUND { return m_map.begin(); }
     const_iterator end() const LIFETIME_BOUND { return m_map.end(); }
 
-    OrderStorage keys() const { return m_order; }
+    const OrderStorage& keys() const { return m_order; }
 
     unsigned size() const { return m_map.size(); }
 
@@ -268,7 +271,7 @@ public:
 
     size_t length() const { return m_map.size(); }
 
-    Ref<Value> get(size_t index) const;
+    Ref<Value> NODELETE get(size_t index) const;
 
 protected:
     ~ArrayBase();

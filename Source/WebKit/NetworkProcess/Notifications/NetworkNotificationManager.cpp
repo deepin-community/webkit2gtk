@@ -31,9 +31,12 @@
 #include "DaemonDecoder.h"
 #include "DaemonEncoder.h"
 #include "Logging.h"
+#include "MessageSenderInlines.h"
+#include "NetworkConnectionToWebProcess.h"
 #include "NetworkProcess.h"
 #include "NetworkSession.h"
 #include "PushClientConnectionMessages.h"
+#include "WebPushDaemonConnection.h"
 #include "WebPushDaemonConnectionConfiguration.h"
 #include "WebPushMessage.h"
 #include <WebCore/NotificationData.h>
@@ -57,6 +60,8 @@ NetworkNotificationManager::NetworkNotificationManager(const String& webPushMach
         m_connection = WebPushD::Connection::create(webPushMachServiceName.utf8(), WTF::move(configuration));
 }
 
+NetworkNotificationManager::~NetworkNotificationManager() = default;
+
 void NetworkNotificationManager::setPushAndNotificationsEnabledForOrigin(const SecurityOriginData& origin, bool enabled, CompletionHandler<void()>&& completionHandler)
 {
     RefPtr connection = m_connection;
@@ -75,7 +80,7 @@ void NetworkNotificationManager::getPendingPushMessage(CompletionHandler<void(co
         completionHandler(WTF::move(message));
     };
 
-    protectedConnection()->sendWithAsyncReplyWithoutUsingIPCConnection(Messages::PushClientConnection::GetPendingPushMessage(), WTF::move(replyHandler));
+    protect(m_connection)->sendWithAsyncReplyWithoutUsingIPCConnection(Messages::PushClientConnection::GetPendingPushMessage(), WTF::move(replyHandler));
 }
 
 void NetworkNotificationManager::getPendingPushMessages(CompletionHandler<void(const Vector<WebPushMessage>&)>&& completionHandler)
@@ -85,7 +90,7 @@ void NetworkNotificationManager::getPendingPushMessages(CompletionHandler<void(c
         completionHandler(WTF::move(messages));
     };
 
-    protectedConnection()->sendWithAsyncReplyWithoutUsingIPCConnection(Messages::PushClientConnection::GetPendingPushMessages(), WTF::move(replyHandler));
+    protect(m_connection)->sendWithAsyncReplyWithoutUsingIPCConnection(Messages::PushClientConnection::GetPendingPushMessages(), WTF::move(replyHandler));
 }
 
 void NetworkNotificationManager::showNotification(const WebCore::NotificationData& notification, RefPtr<NotificationResources>&& notificationResources, CompletionHandler<void()>&& completionHandler)
@@ -222,6 +227,17 @@ void NetworkNotificationManager::removePushSubscriptionsForOrigin(WebCore::Secur
     connection->sendWithAsyncReplyWithoutUsingIPCConnection(Messages::PushClientConnection::RemovePushSubscriptionsForOrigin(WTF::move(origin)), WTF::move(completionHandler));
 }
 
+void NetworkNotificationManager::getAllPushSubscriptionOrigins(CompletionHandler<void(Vector<WebCore::SecurityOriginData>&&)>&& completionHandler)
+{
+    RefPtr connection = m_connection;
+    if (!connection) {
+        completionHandler({ });
+        return;
+    }
+
+    connection->sendWithAsyncReplyWithoutUsingIPCConnection(Messages::PushClientConnection::GetAllPushSubscriptionOrigins(), WTF::move(completionHandler));
+}
+
 void NetworkNotificationManager::getAppBadgeForTesting(CompletionHandler<void(std::optional<uint64_t>)>&& completionHandler)
 {
     RefPtr connection = m_connection;
@@ -252,25 +268,20 @@ static void getPushPermissionStateImpl(WebPushD::Connection* connection, WebCore
 
 void NetworkNotificationManager::getPermissionState(WebCore::SecurityOriginData&& origin, CompletionHandler<void(WebCore::PushPermissionState)>&& completionHandler)
 {
-    getPushPermissionStateImpl(protectedConnection().get(), WTF::move(origin), WTF::move(completionHandler));
+    getPushPermissionStateImpl(protect(m_connection).get(), WTF::move(origin), WTF::move(completionHandler));
 }
 
 void NetworkNotificationManager::getPermissionStateSync(WebCore::SecurityOriginData&& origin, CompletionHandler<void(WebCore::PushPermissionState)>&& completionHandler)
 {
-    getPushPermissionStateImpl(protectedConnection().get(), WTF::move(origin), WTF::move(completionHandler));
+    getPushPermissionStateImpl(protect(m_connection).get(), WTF::move(origin), WTF::move(completionHandler));
 }
 
 std::optional<SharedPreferencesForWebProcess> NetworkNotificationManager::sharedPreferencesForWebProcess(const IPC::Connection& connection) const
 {
-    RefPtr webProcessConnection = m_networkProcess->protectedWebProcessConnection(connection);
+    auto* webProcessConnection = m_networkProcess->webProcessConnection(connection);
     if (!webProcessConnection)
         return std::nullopt;
     return webProcessConnection->sharedPreferencesForWebProcess();
-}
-
-RefPtr<WebPushD::Connection> NetworkNotificationManager::protectedConnection() const
-{
-    return m_connection;
 }
 
 } // namespace WebKit

@@ -43,7 +43,6 @@
 #include "HTMLNames.h"
 #include "InspectorHistory.h"
 #include "Node.h"
-#include "Text.h"
 #include "XMLDocument.h"
 #include "XMLDocumentParser.h"
 #include <wtf/Deque.h>
@@ -170,7 +169,7 @@ ExceptionOr<void> DOMPatchSupport::innerPatchNode(Digest& oldDigest, Digest& new
     Ref newNode = *newDigest.node;
 
     if (newNode->nodeType() != oldNode->nodeType() || newNode->nodeName() != oldNode->nodeName())
-        return m_domEditor.replaceChild(*oldNode->protectedParentNode(), newNode.get(), oldNode);
+        return m_domEditor.replaceChild(*protect(oldNode->parentNode()), newNode.get(), oldNode);
 
     if (oldNode->nodeValue() != newNode->nodeValue()) {
         auto result = m_domEditor.setNodeValue(oldNode, newNode->nodeValue());
@@ -418,7 +417,7 @@ std::unique_ptr<DOMPatchSupport::Digest> DOMPatchSupport::createDigest(Node& nod
     addStringToSHA1(sha1, node.nodeName());
     addStringToSHA1(sha1, node.nodeValue());
 
-    if (node.nodeType() == Node::ELEMENT_NODE) {
+    if (node.nodeType() == NodeType::Element) {
         RefPtr child = node.firstChild();
         while (child) {
             std::unique_ptr<Digest> childInfo = createDigest(*child, unusedNodesMap);
@@ -462,7 +461,7 @@ ExceptionOr<void> DOMPatchSupport::removeChildAndMoveToNew(Digest& oldDigest)
 {
     Ref<Node> oldNode = *oldDigest.node;
     ASSERT(oldNode->parentNode());
-    auto result = m_domEditor.removeChild(*oldNode->protectedParentNode(), oldNode);
+    auto result = m_domEditor.removeChild(*protect(oldNode->parentNode()), oldNode);
     if (result.hasException())
         return result.releaseException();
 
@@ -475,7 +474,7 @@ ExceptionOr<void> DOMPatchSupport::removeChildAndMoveToNew(Digest& oldDigest)
     if (it != m_unusedNodesMap.end()) {
         auto& newDigest = *it->value;
         Ref newNode = *newDigest.node;
-        auto result = m_domEditor.replaceChild(*newNode->protectedParentNode(), oldNode.get(), newNode);
+        auto result = m_domEditor.replaceChild(*protect(newNode->parentNode()), oldNode.get(), newNode);
         if (result.hasException())
             return result.releaseException();
         newDigest.node = oldNode.ptr();

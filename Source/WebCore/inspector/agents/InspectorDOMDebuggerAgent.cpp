@@ -37,6 +37,7 @@
 #include "InspectorDOMAgent.h"
 #include "InstrumentingAgents.h"
 #include "JSDOMGlobalObject.h"
+#include "JSDOMWrapperCache.h"
 #include "JSEvent.h"
 #include "JSEventListener.h"
 #include "RegisteredEventListener.h"
@@ -63,7 +64,8 @@ InspectorDOMDebuggerAgent::InspectorDOMDebuggerAgent(WebAgentContext& context, I
     , m_backendDispatcher(Inspector::DOMDebuggerBackendDispatcher::create(context.backendDispatcher, this))
     , m_injectedScriptManager(context.injectedScriptManager)
 {
-    m_debuggerAgent->addListener(*this);
+    if (m_debuggerAgent)
+        m_debuggerAgent->addListener(*this);
 }
 
 InspectorDOMDebuggerAgent::~InspectorDOMDebuggerAgent() = default;
@@ -88,8 +90,7 @@ void InspectorDOMDebuggerAgent::disable()
     m_pauseOnAllTimeoutsBreakpoint = nullptr;
     m_pauseOnAllAnimationFramesBreakpoint = nullptr;
 
-    m_urlTextBreakpoints.clear();
-    m_urlRegexBreakpoints.clear();
+    m_urlBreakpoints.clear();
     m_pauseOnAllURLsBreakpoint = nullptr;
 }
 
@@ -117,7 +118,8 @@ void InspectorDOMDebuggerAgent::willDestroyFrontendAndBackend(Inspector::Disconn
 
 void InspectorDOMDebuggerAgent::discardAgent()
 {
-    m_debuggerAgent->removeListener(*this);
+    if (m_debuggerAgent)
+        m_debuggerAgent->removeListener(*this);
     m_debuggerAgent = nullptr;
 }
 
@@ -274,7 +276,7 @@ void InspectorDOMDebuggerAgent::willHandleEvent(ScriptExecutionContext& scriptEx
     // `scriptExecutionContext` parameter will always match in companion calls to `willHandleEvent` and
     // `didHandleEvent`, and will not be null.
     auto state = globalObjectFor(scriptExecutionContext, registeredEventListener.callback());
-    auto injectedScript = m_injectedScriptManager.injectedScriptFor(state);
+    auto injectedScript = m_injectedScriptManager->injectedScriptFor(state);
     if (injectedScript.hasNoValue())
         return;
 
@@ -289,7 +291,7 @@ void InspectorDOMDebuggerAgent::willHandleEvent(ScriptExecutionContext& scriptEx
         return;
 
     Ref agents = m_instrumentingAgents.get();
-    auto* domAgent = agents->persistentDOMAgent();
+    CheckedPtr domAgent = agents->persistentDOMAgent();
 
     auto breakpoint = m_pauseOnAllListenersBreakpoint;
     if (!breakpoint) {
@@ -302,14 +304,14 @@ void InspectorDOMDebuggerAgent::willHandleEvent(ScriptExecutionContext& scriptEx
         }
     }
     if (!breakpoint && domAgent)
-        breakpoint = domAgent->breakpointForEventListener(*event.currentTarget(), event.type(), registeredEventListener.callback(), registeredEventListener.useCapture());
+        breakpoint = domAgent->breakpointForEventListener(*protect(event.currentTarget()), event.type(), registeredEventListener.callback(), registeredEventListener.useCapture());
     if (!breakpoint)
         return;
 
     Ref<JSON::Object> eventData = JSON::Object::create();
     eventData->setString("eventName"_s, event.type());
     if (domAgent) {
-        int eventListenerId = domAgent->idForEventListener(*event.currentTarget(), event.type(), registeredEventListener.callback(), registeredEventListener.useCapture());
+        int eventListenerId = domAgent->idForEventListener(*protect(event.currentTarget()), event.type(), registeredEventListener.callback(), registeredEventListener.useCapture());
         if (eventListenerId)
             eventData->setInteger("eventListenerId"_s, eventListenerId);
     }
@@ -323,7 +325,7 @@ void InspectorDOMDebuggerAgent::didHandleEvent(ScriptExecutionContext& scriptExe
     // could also be nullptr. The passed `scriptExecutionContext` parameter here will always match in companion calls to
     // `willHandleEvent` and `didHandleEvent`, and will not be null.
     auto state = globalObjectFor(scriptExecutionContext, registeredEventListener.callback());
-    auto injectedScript = m_injectedScriptManager.injectedScriptFor(state);
+    auto injectedScript = m_injectedScriptManager->injectedScriptFor(state);
     if (injectedScript.hasNoValue())
         return;
 
@@ -349,8 +351,8 @@ void InspectorDOMDebuggerAgent::didHandleEvent(ScriptExecutionContext& scriptExe
     }
     if (!breakpoint) {
         Ref agents = m_instrumentingAgents.get();
-        if (auto* domAgent = agents->persistentDOMAgent())
-            breakpoint = domAgent->breakpointForEventListener(*event.currentTarget(), event.type(), registeredEventListener.callback(), registeredEventListener.useCapture());
+        if (CheckedPtr domAgent = agents->persistentDOMAgent())
+            breakpoint = domAgent->breakpointForEventListener(*protect(event.currentTarget()), event.type(), registeredEventListener.callback(), registeredEventListener.useCapture());
     }
     if (!breakpoint)
         return;
@@ -435,13 +437,11 @@ Inspector::Protocol::ErrorStringOr<void> InspectorDOMDebuggerAgent::setURLBreakp
         return { };
     }
 
-    if (isRegex && *isRegex) {
-        if (!m_urlRegexBreakpoints.add(url, breakpoint.releaseNonNull()))
-            return makeUnexpected("Breakpoint for given regex already exists"_s);
-    } else {
-        if (!m_urlTextBreakpoints.add(url, breakpoint.releaseNonNull()))
-            return makeUnexpected("Breakpoint for given URL already exists"_s);
-    }
+    bool isRegexBreakpoint = isRegex && *isRegex;
+    auto searchType = isRegexBreakpoint ? ContentSearchUtilities::SearchType::Regex : ContentSearchUtilities::SearchType::ContainsString;
+    auto searcher = ContentSearchUtilities::createSearcherForString(url, searchType, ContentSearchUtilities::SearchCaseSensitive::No);
+    if (!m_urlBreakpoints.appendIfNotContains(URLBreakpoint { url, isRegexBreakpoint, breakpoint.releaseNonNull(), WTF::move(searcher) }))
+        return makeUnexpected("Breakpoint for given url and given isRegex already exists"_s);
 
     return { };
 }
@@ -455,13 +455,9 @@ Inspector::Protocol::ErrorStringOr<void> InspectorDOMDebuggerAgent::removeURLBre
         return { };
     }
 
-    if (isRegex && *isRegex) {
-        if (!m_urlRegexBreakpoints.remove(url))
-            return makeUnexpected("Missing breakpoint for given regex"_s);
-    } else {
-        if (!m_urlTextBreakpoints.remove(url))
-            return makeUnexpected("Missing breakpoint for given URL"_s);
-    }
+    bool isRegexBreakpoint = isRegex && *isRegex;
+    if (!m_urlBreakpoints.removeFirstMatching([&](auto& existing) { return existing.isRegex == isRegexBreakpoint && existing.url == url; }))
+        return makeUnexpected("Missing breakpoint for given url and isRegex"_s);
 
     return { };
 }
@@ -475,26 +471,13 @@ void InspectorDOMDebuggerAgent::breakOnURLIfNeeded(const String& url)
     if (!ScriptDisallowedScope::isScriptAllowedInMainThread())
         return;
 
-    constexpr auto searchCaseSensitive = ContentSearchUtilities::SearchCaseSensitive::No;
-
     auto breakpointURL = emptyString();
     auto breakpoint = m_pauseOnAllURLsBreakpoint.copyRef();
     if (!breakpoint) {
-        for (auto& [query, textBreakpoint] : m_urlTextBreakpoints) {
-            auto searcher = ContentSearchUtilities::createSearcherForString(query, ContentSearchUtilities::SearchType::ContainsString, searchCaseSensitive);
-            if (ContentSearchUtilities::searcherMatchesText(searcher, url)) {
-                breakpoint = textBreakpoint.copyRef();
-                breakpointURL = query;
-                break;
-            }
-        }
-    }
-    if (!breakpoint) {
-        for (auto& [query, regexBreakpoint] : m_urlRegexBreakpoints) {
-            auto searcher = ContentSearchUtilities::createSearcherForString(query, ContentSearchUtilities::SearchType::Regex, searchCaseSensitive);
-            if (ContentSearchUtilities::searcherMatchesText(searcher, url)) {
-                breakpoint = regexBreakpoint.copyRef();
-                breakpointURL = query;
+        for (auto& urlBreakpoint : m_urlBreakpoints) {
+            if (ContentSearchUtilities::searcherMatchesText(urlBreakpoint.searcher, url)) {
+                breakpoint = urlBreakpoint.specialBreakpoint.copyRef();
+                breakpointURL = urlBreakpoint.url;
                 break;
             }
         }

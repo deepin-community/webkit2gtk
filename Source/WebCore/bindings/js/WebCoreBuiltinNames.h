@@ -139,7 +139,7 @@ namespace WebCore {
     macro(CSSHSL) \
     macro(CSSHWB) \
     macro(CSSImageValue) \
-    macro(CSSKeywordValue) \
+    macro(CSSOMKeywordValue) \
     macro(CSSLCH) \
     macro(CSSLab) \
     macro(CSSMathClamp) \
@@ -285,6 +285,7 @@ namespace WebCore {
     macro(IDBKeyRange) \
     macro(IDBObjectStore) \
     macro(IDBOpenDBRequest) \
+    macro(IDBRecord) \
     macro(IDBRequest) \
     macro(IDBTransaction) \
     macro(IDBVersionChangeEvent) \
@@ -327,6 +328,7 @@ namespace WebCore {
     macro(MediaStreamAudioDestinationNode) \
     macro(MediaStreamAudioSourceNode) \
     macro(MediaStreamTrack) \
+    macro(MediaStreamTrackHandle) \
     macro(MediaStreamTrackProcessor) \
     macro(MerchantValidationEvent) \
     macro(MockRTCRtpTransform) \
@@ -427,7 +429,6 @@ namespace WebCore {
     macro(RemotePlayback) \
     macro(Request) \
     macro(Response) \
-    macro(SFrameTransform) \
     macro(SFrameTransformErrorEvent) \
     macro(SQLError) \
     macro(SQLResultSet) \
@@ -512,7 +513,7 @@ namespace WebCore {
     macro(WebKitMediaKeyNeededEvent) \
     macro(WebKitMediaKeySession) \
     macro(WebKitMediaKeys) \
-    macro(WebKitSerializedNode) \
+    macro(WebKitNodeSnapshot) \
     macro(WebKitJSHandle) \
     macro(WebSocket) \
     macro(WebTransport) \
@@ -524,6 +525,7 @@ namespace WebCore {
     macro(WebTransportSendGroup) \
     macro(WebTransportSendStream) \
     macro(WindowClient) \
+    macro(Worker) \
     macro(Worklet) \
     macro(WorkletGlobalScope) \
     macro(WritableStream) \
@@ -615,6 +617,7 @@ namespace WebCore {
     macro(crossOriginIsolated) \
     macro(customElements) \
     macro(decode) \
+    macro(didDetectExtraBytes) \
     macro(disturbed) \
     macro(document) \
     macro(encode) \
@@ -696,6 +699,7 @@ namespace WebCore {
     macro(onvrdisplaypresentchange) \
     macro(openDatabase) \
     macro(opener) \
+    macro(originAgentCluster) \
     macro(operations) \
     macro(ownerReadableStream) \
     macro(parent) \

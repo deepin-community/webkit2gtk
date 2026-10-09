@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025 Apple Inc. All rights reserved.
+ * Copyright (C) 2025-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -53,7 +53,11 @@ namespace JSC::LOL {
     macro(op_add) \
     macro(op_mul) \
     macro(op_sub) \
+    macro(op_div) \
+    macro(op_mod) \
     macro(op_negate) \
+    macro(op_inc) \
+    macro(op_dec) \
     macro(op_eq) \
     macro(op_neq) \
     macro(op_less) \
@@ -63,24 +67,86 @@ namespace JSC::LOL {
     macro(op_resolve_scope) \
     macro(op_get_from_scope) \
     macro(op_put_to_scope) \
+    macro(op_get_argument) \
+    macro(op_argument_count) \
     macro(op_lshift) \
     macro(op_to_number) \
     macro(op_to_string) \
     macro(op_to_object) \
     macro(op_to_numeric) \
+    macro(op_to_property_key) \
+    macro(op_to_property_key_or_number) \
+    macro(op_to_primitive) \
     macro(op_rshift) \
     macro(op_urshift) \
     macro(op_bitnot) \
     macro(op_bitand) \
     macro(op_bitor) \
     macro(op_bitxor) \
+    macro(op_mov) \
+    macro(op_is_empty) \
+    macro(op_typeof_is_undefined) \
+    macro(op_typeof_is_function) \
+    macro(op_is_undefined_or_null) \
+    macro(op_is_boolean) \
+    macro(op_is_number) \
+    macro(op_is_big_int) \
+    macro(op_is_object) \
+    macro(op_is_cell_with_type) \
+    macro(op_has_structure_with_flags) \
+    macro(op_jmp) \
+    macro(op_jtrue) \
+    macro(op_jfalse) \
+    macro(op_jeq_null) \
+    macro(op_jneq_null) \
+    macro(op_jundefined_or_null) \
+    macro(op_jnundefined_or_null) \
+    macro(op_jeq_ptr) \
+    macro(op_jneq_ptr) \
+    macro(op_jeq) \
+    macro(op_jneq) \
+    macro(op_jless) \
+    macro(op_jlesseq) \
+    macro(op_jgreater) \
+    macro(op_jgreatereq) \
+    macro(op_jnless) \
+    macro(op_jnlesseq) \
+    macro(op_jngreater) \
+    macro(op_jngreatereq) \
+    macro(op_jstricteq) \
+    macro(op_jnstricteq) \
+    macro(op_jbelow) \
+    macro(op_jbeloweq) \
+    macro(op_ret) \
+    macro(op_create_lexical_environment) \
+    macro(op_create_direct_arguments) \
+    macro(op_create_scoped_arguments) \
+    macro(op_create_cloned_arguments) \
+    macro(op_new_array) \
+    macro(op_new_array_with_size) \
+    macro(op_new_func) \
+    macro(op_new_func_exp) \
+    macro(op_new_generator_func) \
+    macro(op_new_generator_func_exp) \
+    macro(op_new_async_func) \
+    macro(op_new_async_func_exp) \
+    macro(op_new_async_generator_func) \
+    macro(op_new_async_generator_func_exp) \
+    macro(op_new_object) \
+    macro(op_new_reg_exp) \
+    macro(op_get_prototype_of) \
+    macro(op_to_this) \
+    macro(op_create_this) \
+    macro(op_throw) \
+    macro(op_switch_imm) \
+    macro(op_switch_char) \
+    macro(op_switch_string) \
 
 
 #define FOR_EACH_OP_WITH_SLOW_CASE(macro) \
     macro(op_add) \
     macro(op_call_direct_eval) \
     macro(op_eq) \
-    macro(op_try_get_by_id) \
     macro(op_in_by_id) \
     macro(op_in_by_val) \
     macro(op_has_private_name) \
@@ -268,8 +334,8 @@ private:
 
     void silentSpill(auto& allocator, const auto& allocations)
     {
-        ScalarRegisterSet uses = RegisterSetBuilder::fromIterable(allocations.uses).buildScalarRegisterSet();
-        ScalarRegisterSet defs = RegisterSetBuilder::fromIterable(allocations.defs).buildScalarRegisterSet();
+        ScalarRegisterSet uses = RegisterSet::fromIterable(allocations.uses).toScalarRegisterSet();
+        ScalarRegisterSet defs = RegisterSet::fromIterable(allocations.defs).toScalarRegisterSet();
         JIT_COMMENT(*this, "Silent spilling");
         for (Reg reg : allocator.allocatedRegisters()) {
             GPRReg gpr = reg.gpr();
@@ -355,11 +421,29 @@ private:
     template <typename EmitCompareFunctor>
     void emitCompareImpl(VirtualRegister op1, JSValueRegs op1Regs, VirtualRegister op2, JSValueRegs op2Regs, RelationalCondition, const EmitCompareFunctor&);
 
+    template<typename Op>
+    void emitCompareAndJump(const JSInstruction*, RelationalCondition);
+
     template<typename Op, typename SlowOperation>
     void emitCompareSlow(const JSInstruction*, DoubleCondition, SlowOperation, Vector<SlowCaseEntry>::iterator&);
     template<typename SlowOperation>
     void emitCompareSlowImpl(const auto& allocations, VirtualRegister op1, JSValueRegs op1Regs, VirtualRegister op2, JSValueRegs op2Regs, JSValueRegs dstRegs, SlowOperation, Vector<SlowCaseEntry>::iterator&, const Invocable<void(FPRReg, FPRReg)> auto&);
 
+    template<typename Op, typename SlowOperation>
+    void emitCompareAndJumpSlow(const JSInstruction*, DoubleCondition, SlowOperation, bool invertOperationResult, Vector<SlowCaseEntry>::iterator&);
+
+    template<typename Op>
+    void emitCompareUnsignedAndJumpImpl(const JSInstruction*, RelationalCondition);
+
+    template<typename Op>
+    void emitStrictEqJumpImpl(const JSInstruction*, RelationalCondition);
+    template<typename Op>
+    void emitStrictEqJumpSlowImpl(const JSInstruction*, ResultCondition, Vector<SlowCaseEntry>::iterator&);
+
+    template<typename Op>
+    void emitNewFuncCommon(const JSInstruction*);
+    template<typename Op>
+    void emitNewFuncExprCommon(const JSInstruction*);
 
     static MacroAssemblerCodeRef<JITThunkPtrTag> slow_op_get_from_scopeGenerator(VM&);
     static MacroAssemblerCodeRef<JITThunkPtrTag> slow_op_resolve_scopeGenerator(VM&);

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -80,6 +80,7 @@ static const uint64_t maxGeneratorValue = 0x20000000000000;
 #define INDEX_INFO_TABLE_SCHEMA_SUFFIX " (id INTEGER NOT NULL ON CONFLICT FAIL, name TEXT NOT NULL ON CONFLICT FAIL, objectStoreID INTEGER NOT NULL ON CONFLICT FAIL, keyPath BLOB NOT NULL ON CONFLICT FAIL, isUnique INTEGER NOT NULL ON CONFLICT FAIL, multiEntry INTEGER NOT NULL ON CONFLICT FAIL)"_s;
 #define BLOB_RECORDS_TABLE_SCHEMA_SUFFIX " (objectStoreRow INTEGER NOT NULL ON CONFLICT FAIL, blobURL TEXT NOT NULL ON CONFLICT FAIL)"_s;
 #define BLOB_FILES_TABLE_SCHEMA_SUFFIX " (blobURL TEXT NOT NULL ON CONFLICT FAIL UNIQUE ON CONFLICT FAIL, fileName TEXT NOT NULL ON CONFLICT FAIL UNIQUE ON CONFLICT FAIL)"_s;
+#define FILE_SYSTEM_HANDLE_RECORDS_TABLE_SCHEMA_SUFFIX " (objectStoreRow INTEGER NOT NULL ON CONFLICT FAIL, globalIdentifier BLOB NOT NULL ON CONFLICT FAIL, kind INTEGER NOT NULL ON CONFLICT FAIL, path TEXT NOT NULL ON CONFLICT FAIL, name TEXT NOT NULL ON CONFLICT FAIL)"_s;
 
 static int idbKeyCollate(std::span<const uint8_t> aBuffer, std::span<const uint8_t> bBuffer)
 {
@@ -223,6 +224,16 @@ static ASCIILiteral blobFilesTableSchemaAlternate()
     return TABLE_SCHEMA_PREFIX "\"BlobFiles\"" BLOB_FILES_TABLE_SCHEMA_SUFFIX;
 }
 
+static ASCIILiteral fileSystemHandleRecordsTableSchema()
+{
+    return TABLE_SCHEMA_PREFIX "FileSystemHandleRecords" FILE_SYSTEM_HANDLE_RECORDS_TABLE_SCHEMA_SUFFIX;
+}
+
+static ASCIILiteral fileSystemHandleRecordsTableSchemaAlternate()
+{
+    return TABLE_SCHEMA_PREFIX "\"FileSystemHandleRecords\"" FILE_SYSTEM_HANDLE_RECORDS_TABLE_SCHEMA_SUFFIX;
+}
+
 static String createV1ObjectStoreInfoSchema(ASCIILiteral tableName)
 {
     return makeString("CREATE TABLE "_s, tableName, " (id INTEGER PRIMARY KEY NOT NULL ON CONFLICT FAIL UNIQUE ON CONFLICT FAIL, name TEXT NOT NULL ON CONFLICT FAIL UNIQUE ON CONFLICT FAIL, keyPath BLOB NOT NULL ON CONFLICT FAIL, autoInc INTEGER NOT NULL ON CONFLICT FAIL, maxIndexID INTEGER NOT NULL ON CONFLICT FAIL)"_s);
@@ -323,6 +334,24 @@ IDBError SQLiteIDBBackingStore::ensureValidBlobTables()
     }
 
     RELEASE_ASSERT(filesTableStatement == blobFilesTableSchema() || filesTableStatement == blobFilesTableSchemaAlternate());
+    return IDBError { };
+}
+
+IDBError SQLiteIDBBackingStore::ensureValidFileSystemHandleRecordsTable()
+{
+    CheckedPtr sqliteDB = m_sqliteDB.get();
+    ASSERT(sqliteDB);
+    ASSERT(sqliteDB->isOpen());
+
+    String tableStatement = sqliteDB->tableSQL("FileSystemHandleRecords"_s);
+    if (tableStatement.isEmpty()) {
+        if (!sqliteDB->executeCommand(fileSystemHandleRecordsTableSchema()))
+            return IDBError { ExceptionCode::UnknownError, makeString("Error creating FileSystemHandleRecords table ("_s, sqliteDB->lastError(), ") - "_s, unsafeSpan(sqliteDB->lastErrorMsg())) };
+
+        tableStatement = fileSystemHandleRecordsTableSchema();
+    }
+
+    RELEASE_ASSERT(tableStatement == fileSystemHandleRecordsTableSchema() || tableStatement == fileSystemHandleRecordsTableSchemaAlternate());
     return IDBError { };
 }
 
@@ -939,6 +968,9 @@ std::optional<IDBDatabaseNameAndVersion> SQLiteIDBBackingStore::databaseNameAndV
         return std::nullopt;
     }
 
+    if (!*databaseVersion)
+        return std::nullopt;
+
     return IDBDatabaseNameAndVersion { databaseName, *databaseVersion };
 }
 
@@ -1003,6 +1035,12 @@ IDBError SQLiteIDBBackingStore::getOrEstablishDatabaseInfo(IDBDatabaseInfo& info
         return error;
     }
 
+    error = ensureValidFileSystemHandleRecordsTable();
+    if (!error.isNull()) {
+        closeSQLiteDB();
+        return error;
+    }
+
     auto result = extractExistingDatabaseInfo();
     if (!result) {
         ASSERT(!result.error().isNull());
@@ -1019,6 +1057,7 @@ IDBError SQLiteIDBBackingStore::getOrEstablishDatabaseInfo(IDBDatabaseInfo& info
 
     m_databaseInfo = WTF::move(databaseInfo);
     info = *m_databaseInfo;
+
     return IDBError { };
 }
 
@@ -1198,6 +1237,9 @@ IDBError SQLiteIDBBackingStore::deleteObjectStore(const IDBResourceIdentifier& t
         return IDBError { ExceptionCode::UnknownError, "Attempt to delete an object store in a non-version-change transaction"_s };
     }
 
+    if (auto fsHandleError = deleteFileSystemHandleRecordsForObjectStore(objectStoreIdentifier); !fsHandleError.isNull())
+        return fsHandleError;
+
     // Delete the ObjectStore record
     {
         auto sql = cachedStatement(SQL::DeleteObjectStoreInfo, "DELETE FROM ObjectStoreInfo WHERE id = ?;"_s);
@@ -1335,6 +1377,9 @@ IDBError SQLiteIDBBackingStore::clearObjectStore(const IDBResourceIdentifier& tr
         return IDBError { ExceptionCode::UnknownError, "Attempt to clear an object store in a read-only transaction"_s };
     }
 
+    if (auto fsHandleError = deleteFileSystemHandleRecordsForObjectStore(objectStoreID); !fsHandleError.isNull())
+        return fsHandleError;
+
     {
         auto sql = cachedStatement(SQL::ClearObjectStoreRecords, "DELETE FROM Records WHERE objectStoreID = ?;"_s);
         CheckedPtr statement = sql.get();
@@ -1364,17 +1409,17 @@ IDBError SQLiteIDBBackingStore::clearObjectStore(const IDBResourceIdentifier& tr
     return IDBError { };
 }
 
-IDBError SQLiteIDBBackingStore::uncheckedHasIndexRecord(const IDBIndexInfo& info, const IDBKeyData& indexKey, bool& hasRecord)
+IDBError SQLiteIDBBackingStore::uncheckedGetExistingPrimaryKeyForIndexKey(const IDBIndexInfo& info, const IDBKeyData& indexKey, std::optional<IDBKeyData>& existingPrimaryKey)
 {
-    hasRecord = false;
+    existingPrimaryKey = std::nullopt;
 
     auto indexKeyBuffer = serializeIDBKeyData(indexKey);
     if (!indexKeyBuffer) {
-        LOG_ERROR("Unable to serialize index key to be stored in the database");
+        LOG_ERROR("Unable to serialize index key to be checked in the database");
         return IDBError { ExceptionCode::UnknownError, "Unable to serialize IDBKey to check for index record in database"_s };
     }
 
-    auto sql = cachedStatement(SQL::HasIndexRecord, "SELECT rowid FROM IndexRecords WHERE indexID = ? AND key = CAST(? AS TEXT);"_s);
+    auto sql = cachedStatement(SQL::GetExistingPrimaryKeyForIndexKey, "SELECT value FROM IndexRecords WHERE indexID = ? AND key = CAST(? AS TEXT);"_s);
     CheckedPtr statement = sql.get();
     if (!statement
         || statement->bindInt64(1, info.identifier().toRawValue()) != SQLITE_OK
@@ -1394,7 +1439,80 @@ IDBError SQLiteIDBBackingStore::uncheckedHasIndexRecord(const IDBIndexInfo& info
         return IDBError { ExceptionCode::UnknownError, "Error checking for existence of IDBKey in index"_s };
     }
 
-    hasRecord = true;
+    IDBKeyData primaryKey;
+    if (!deserializeIDBKeyData(statement->columnBlobAsSpan(0), primaryKey)) {
+        LOG_ERROR("Unable to deserialize primary key referenced by index record");
+        return IDBError { ExceptionCode::UnknownError, "Unable to deserialize primary key referenced by index record"_s };
+    }
+
+    existingPrimaryKey = primaryKey;
+    return IDBError { };
+}
+
+// https://w3c.github.io/IndexedDB/#object-store-storage-operation
+IDBError SQLiteIDBBackingStore::overwriteRecord(const IDBResourceIdentifier& transactionIdentifier, const IDBObjectStoreInfo& objectStoreInfo, const IDBKeyData& keyData, const IndexIDToIndexKeyMap& indexKeys, const IDBValue& value)
+{
+    LOG(IndexedDB, "SQLiteIDBBackingStore::overwriteRecord - key %s, object store %" PRIu64, keyData.loggingString().utf8().data(), objectStoreInfo.identifier().toRawValue());
+
+    // Before mutating anything, verify the record does not violate a unique index constraint. Otherwise deleting
+    // the record being overwritten below would leave the store with neither the old nor the new record if adding
+    // the new record then failed. A failed put() must leave the store unchanged.
+    auto error = checkIndexConstraintsForPut(transactionIdentifier, objectStoreInfo, keyData, indexKeys);
+    if (!error.isNull())
+        return error;
+
+    // If a record already exists in store, then remove the record from store using the steps for deleting records
+    // from an object store. This is important because formally deleting it from the object store also removes it
+    // from the appropriate indexes.
+    error = deleteRange(transactionIdentifier, objectStoreInfo.identifier(), keyData);
+    if (!error.isNull())
+        return error;
+
+    return addRecord(transactionIdentifier, objectStoreInfo, keyData, indexKeys, value);
+}
+
+IDBError SQLiteIDBBackingStore::checkIndexConstraintsForPut(const IDBResourceIdentifier& transactionIdentifier, const IDBObjectStoreInfo& objectStoreInfo, const IDBKeyData& keyData, const IndexIDToIndexKeyMap& indexKeys)
+{
+    LOG(IndexedDB, "SQLiteIDBBackingStore::checkIndexConstraintsForPut - object store %" PRIu64, objectStoreInfo.identifier().toRawValue());
+
+    ASSERT(m_sqliteDB);
+    ASSERT(m_sqliteDB->isOpen());
+
+    CheckedPtr transaction = m_transactions.get(transactionIdentifier);
+    if (!transaction || !transaction->inProgress())
+        return IDBError { ExceptionCode::UnknownError, "Attempt to check index constraints without an in-progress transaction"_s };
+
+    const auto& indexMap = objectStoreInfo.indexMap();
+    for (const auto& [indexID, indexKey] : indexKeys) {
+        auto indexIterator = indexMap.find(indexID);
+        ASSERT(indexIterator != indexMap.end());
+        if (indexIterator == indexMap.end())
+            return IDBError { ExceptionCode::InvalidStateError, "Missing index metadata"_s };
+
+        const auto& indexInfo = indexIterator->value;
+        if (!indexInfo.unique())
+            continue;
+
+        Vector<IDBKeyData> keys;
+        if (indexInfo.multiEntry())
+            keys = indexKey.multiEntry();
+        else
+            keys.append(indexKey.asOneKey());
+
+        for (auto& key : keys) {
+            if (!key.isValid())
+                continue;
+
+            std::optional<IDBKeyData> existingPrimaryKey;
+            auto error = uncheckedGetExistingPrimaryKeyForIndexKey(indexInfo, key, existingPrimaryKey);
+            if (!error.isNull())
+                return error;
+
+            if (existingPrimaryKey && *existingPrimaryKey != keyData)
+                return IDBError { ExceptionCode::ConstraintError, "Unable to store record in object store because it does not satisfy the uniqueness requirements of an index"_s };
+        }
+    }
+
     return IDBError { };
 }
 
@@ -1409,15 +1527,15 @@ IDBError SQLiteIDBBackingStore::uncheckedPutIndexKey(const IDBIndexInfo& info, c
         indexKeys.append(indexKey.asOneKey());
 
     if (info.unique()) {
-        bool hasRecord;
+        std::optional<IDBKeyData> existingPrimaryKey;
         IDBError error;
         for (auto& indexKey : indexKeys) {
             if (!indexKey.isValid())
                 continue;
-            error = uncheckedHasIndexRecord(info, indexKey, hasRecord);
+            error = uncheckedGetExistingPrimaryKeyForIndexKey(info, indexKey, existingPrimaryKey);
             if (!error.isNull())
                 return error;
-            if (hasRecord)
+            if (existingPrimaryKey)
                 return IDBError { ExceptionCode::ConstraintError, "Index key is not unique"_s };
         }
     }
@@ -1722,6 +1840,9 @@ IDBError SQLiteIDBBackingStore::deleteRecord(SQLiteIDBTransaction& transaction, 
     if (!error.isNull())
         return error;
 
+    if (auto fsHandleError = deleteFileSystemHandleRecordsForObjectStoreRecord(recordID); !fsHandleError.isNull())
+        return fsHandleError;
+
     // Delete record from object store
     {
         auto sql = cachedStatement(SQL::DeleteObjectStoreRecord, "DELETE FROM Records WHERE objectStoreID = ? AND key = CAST(? AS TEXT);"_s);
@@ -1961,6 +2082,9 @@ IDBError SQLiteIDBBackingStore::addRecord(const IDBResourceIdentifier& transacti
         transaction->addBlobFile(blobFiles[i], storedFilename);
     }
 
+    if (auto fsHandleError = addFileSystemHandleRecordsForObjectStoreRecord(recordID, value.fileSystemHandleRecords()); !fsHandleError.isNull())
+        return fsHandleError;
+
     transaction->notifyCursorsOfChanges(objectStoreInfo.identifier());
 
     return error;
@@ -2024,6 +2148,118 @@ IDBError SQLiteIDBBackingStore::getBlobRecordsForObjectStoreRecord(int64_t objec
     return IDBError { };
 }
 
+IDBError SQLiteIDBBackingStore::addFileSystemHandleRecordsForObjectStoreRecord(int64_t recordID, const Vector<FileSystemHandleRecord>& records)
+{
+    for (auto& record : records) {
+        auto sql = cachedStatement(SQL::AddFileSystemHandleRecord, "INSERT INTO FileSystemHandleRecords VALUES (?, ?, ?, ?, ?);"_s);
+        CheckedPtr statement = sql.get();
+        auto rawIdentifier = record.identifier.toRawValue();
+        if (!statement
+            || statement->bindInt64(1, recordID) != SQLITE_OK
+            || statement->bindBlob(2, rawIdentifier.span()) != SQLITE_OK
+            || statement->bindInt(3, static_cast<int>(record.kind)) != SQLITE_OK
+            || statement->bindText(4, record.path) != SQLITE_OK
+            || statement->bindText(5, record.name) != SQLITE_OK
+            || statement->step() != SQLITE_DONE) {
+            CheckedRef sqliteDB = *m_sqliteDB;
+            LOG_ERROR("Could not insert FileSystemHandleRecord (%i) - %s", sqliteDB->lastError(), sqliteDB->lastErrorMsg());
+            return IDBError { ExceptionCode::UnknownError, "Failed to record FileSystemHandle in database"_s };
+        }
+    }
+
+    return IDBError { };
+}
+
+IDBError SQLiteIDBBackingStore::deleteFileSystemHandleRecordsForObjectStoreRecord(int64_t recordID)
+{
+    auto sql = cachedStatement(SQL::DeleteFileSystemHandleRecordsByObjectStoreRow, "DELETE FROM FileSystemHandleRecords WHERE objectStoreRow = ?;"_s);
+    CheckedPtr statement = sql.get();
+    if (!statement
+        || statement->bindInt64(1, recordID) != SQLITE_OK
+        || statement->step() != SQLITE_DONE) {
+        CheckedRef sqliteDB = *m_sqliteDB;
+        LOG_ERROR("Could not delete FileSystemHandleRecords (%i) - %s", sqliteDB->lastError(), sqliteDB->lastErrorMsg());
+        return IDBError { ExceptionCode::UnknownError, "Failed to delete FileSystemHandleRecords"_s };
+    }
+    return IDBError { };
+}
+
+IDBError SQLiteIDBBackingStore::deleteFileSystemHandleRecordsForObjectStore(IDBObjectStoreIdentifier objectStoreID)
+{
+    auto sql = cachedStatement(SQL::DeleteFileSystemHandleRecordsByObjectStoreID, "DELETE FROM FileSystemHandleRecords WHERE objectStoreRow IN (SELECT recordID FROM Records WHERE objectStoreID = ?);"_s);
+    CheckedPtr statement = sql.get();
+    if (!statement
+        || statement->bindInt64(1, objectStoreID.toRawValue()) != SQLITE_OK
+        || statement->step() != SQLITE_DONE) {
+        CheckedRef sqliteDB = *m_sqliteDB;
+        LOG_ERROR("Could not delete FileSystemHandleRecords for object store (%i) - %s", sqliteDB->lastError(), sqliteDB->lastErrorMsg());
+        return IDBError { ExceptionCode::UnknownError, "Failed to delete FileSystemHandleRecords"_s };
+    }
+    return IDBError { };
+}
+
+IDBError SQLiteIDBBackingStore::getFileSystemHandleRecordsForObjectStoreRecord(int64_t recordID, Vector<FileSystemHandleRecord>& records)
+{
+    auto sql = cachedStatement(SQL::GetFileSystemHandleRecordsByObjectStoreRow, "SELECT globalIdentifier, kind, path, name FROM FileSystemHandleRecords WHERE objectStoreRow = ? ORDER BY rowid;"_s);
+    CheckedPtr statement = sql.get();
+    if (!statement
+        || statement->bindInt64(1, recordID) != SQLITE_OK) {
+        CheckedRef sqliteDB = *m_sqliteDB;
+        LOG_ERROR("Could not prepare statement to fetch FileSystemHandleRecords (%i) - %s", sqliteDB->lastError(), sqliteDB->lastErrorMsg());
+        return IDBError { ExceptionCode::UnknownError, "Failed to look up FileSystemHandleRecords"_s };
+    }
+
+    int result = statement->step();
+    while (result == SQLITE_ROW) {
+        auto blob = statement->columnBlob(0);
+        auto kindInt = statement->columnInt(1);
+        auto path = statement->columnText(2);
+        auto name = statement->columnText(3);
+        if (blob.size() != 16) {
+            LOG_ERROR("FileSystemHandleRecords row has invalid identifier blob size %zu", blob.size());
+            return IDBError { ExceptionCode::UnknownError, "FileSystemHandleRecords row corrupt"_s };
+        }
+        auto uuid = WTF::UUID(blob.span());
+        if (!uuid) {
+            LOG_ERROR("FileSystemHandleRecords row has empty UUID");
+            return IDBError { ExceptionCode::UnknownError, "FileSystemHandleRecords row corrupt"_s };
+        }
+        if (kindInt != static_cast<int>(FileSystemHandleKind::File) && kindInt != static_cast<int>(FileSystemHandleKind::Directory)) {
+            LOG_ERROR("FileSystemHandleRecords row has invalid kind %d", kindInt);
+            return IDBError { ExceptionCode::UnknownError, "FileSystemHandleRecords row corrupt"_s };
+        }
+        records.append(FileSystemHandleRecord {
+            FileSystemHandleGlobalIdentifier { uuid },
+            static_cast<FileSystemHandleKind>(kindInt),
+            WTF::move(path),
+            WTF::move(name),
+        });
+        result = statement->step();
+    }
+
+    if (result != SQLITE_DONE) {
+        CheckedRef sqliteDB = *m_sqliteDB;
+        LOG_ERROR("Could not fetch FileSystemHandleRecords (%i) - %s", sqliteDB->lastError(), sqliteDB->lastErrorMsg());
+        return IDBError { ExceptionCode::UnknownError, "Failed to look up FileSystemHandleRecords"_s };
+    }
+
+    return IDBError { };
+}
+
+Expected<IDBValue, IDBError> SQLiteIDBBackingStore::buildIDBValueForRecord(int64_t recordID, const ThreadSafeDataBuffer& data, Vector<String>&& blobURLs, Vector<String>&& blobFilePaths)
+{
+    Vector<FileSystemHandleRecord> fileSystemHandleRecords;
+    if (auto error = getFileSystemHandleRecordsForObjectStoreRecord(recordID, fileSystemHandleRecords); !error.isNull())
+        return makeUnexpected(WTF::move(error));
+
+    Vector<FileSystemHandleGlobalIdentifier> handleGlobalIdentifiers = fileSystemHandleRecords.map([](auto& record) {
+        return record.identifier;
+    });
+    IDBValue value { data, WTF::move(blobURLs), WTF::move(blobFilePaths), WTF::move(handleGlobalIdentifiers) };
+    value.setFileSystemHandleRecords(WTF::move(fileSystemHandleRecords));
+    return value;
+}
+
 IDBError SQLiteIDBBackingStore::getRecord(const IDBResourceIdentifier& transactionIdentifier, IDBObjectStoreIdentifier objectStoreID, const IDBKeyRangeData& keyRange, IDBGetRecordDataType type, IDBGetResult& resultValue)
 {
     LOG(IndexedDB, "SQLiteIDBBackingStore::getRecord - key range %s, object store %" PRIu64, keyRange.loggingString().utf8().data(), objectStoreID.toRawValue());
@@ -2066,27 +2302,27 @@ IDBError SQLiteIDBBackingStore::getRecord(const IDBResourceIdentifier& transacti
         case IDBGetRecordDataType::KeyAndValue:
             if (keyRange.lowerOpen) {
                 if (keyRange.upperOpen)
-                    statement = cachedStatement(SQL::GetValueRecordsLowerOpenUpperOpen, "SELECT key, value, ROWID FROM Records WHERE objectStoreID = ? AND key > CAST(? AS TEXT) AND key < CAST(? AS TEXT) ORDER BY key;"_s);
+                    statement = cachedStatement(SQL::GetAllValueRecordsLowerOpenUpperOpen, "SELECT key, value, ROWID FROM Records WHERE objectStoreID = ? AND key > CAST(? AS TEXT) AND key < CAST(? AS TEXT) ORDER BY key;"_s);
                 else
-                    statement = cachedStatement(SQL::GetValueRecordsLowerOpenUpperClosed, "SELECT key, value, ROWID FROM Records WHERE objectStoreID = ? AND key > CAST(? AS TEXT) AND key <= CAST(? AS TEXT) ORDER BY key;"_s);
+                    statement = cachedStatement(SQL::GetAllValueRecordsLowerOpenUpperClosed, "SELECT key, value, ROWID FROM Records WHERE objectStoreID = ? AND key > CAST(? AS TEXT) AND key <= CAST(? AS TEXT) ORDER BY key;"_s);
             } else {
                 if (keyRange.upperOpen)
-                    statement = cachedStatement(SQL::GetValueRecordsLowerClosedUpperOpen, "SELECT key, value, ROWID FROM Records WHERE objectStoreID = ? AND key >= CAST(? AS TEXT) AND key < CAST(? AS TEXT) ORDER BY key;"_s);
+                    statement = cachedStatement(SQL::GetAllValueRecordsLowerClosedUpperOpen, "SELECT key, value, ROWID FROM Records WHERE objectStoreID = ? AND key >= CAST(? AS TEXT) AND key < CAST(? AS TEXT) ORDER BY key;"_s);
                 else
-                    statement = cachedStatement(SQL::GetValueRecordsLowerClosedUpperClosed, "SELECT key, value, ROWID FROM Records WHERE objectStoreID = ? AND key >= CAST(? AS TEXT) AND key <= CAST(? AS TEXT) ORDER BY key;"_s);
+                    statement = cachedStatement(SQL::GetAllValueRecordsLowerClosedUpperClosed, "SELECT key, value, ROWID FROM Records WHERE objectStoreID = ? AND key >= CAST(? AS TEXT) AND key <= CAST(? AS TEXT) ORDER BY key;"_s);
             }
             break;
         case IDBGetRecordDataType::KeyOnly:
             if (keyRange.lowerOpen) {
                 if (keyRange.upperOpen)
-                    statement = cachedStatement(SQL::GetKeyRecordsLowerOpenUpperOpen, "SELECT key FROM Records WHERE objectStoreID = ? AND key > CAST(? AS TEXT) AND key < CAST(? AS TEXT) ORDER BY key;"_s);
+                    statement = cachedStatement(SQL::GetAllKeyRecordsLowerOpenUpperOpen, "SELECT key FROM Records WHERE objectStoreID = ? AND key > CAST(? AS TEXT) AND key < CAST(? AS TEXT) ORDER BY key;"_s);
                 else
-                    statement = cachedStatement(SQL::GetKeyRecordsLowerOpenUpperClosed, "SELECT key FROM Records WHERE objectStoreID = ? AND key > CAST(? AS TEXT) AND key <= CAST(? AS TEXT) ORDER BY key;"_s);
+                    statement = cachedStatement(SQL::GetAllKeyRecordsLowerOpenUpperClosed, "SELECT key FROM Records WHERE objectStoreID = ? AND key > CAST(? AS TEXT) AND key <= CAST(? AS TEXT) ORDER BY key;"_s);
             } else {
                 if (keyRange.upperOpen)
-                    statement = cachedStatement(SQL::GetKeyRecordsLowerClosedUpperOpen, "SELECT key FROM Records WHERE objectStoreID = ? AND key >= CAST(? AS TEXT) AND key < CAST(? AS TEXT) ORDER BY key;"_s);
+                    statement = cachedStatement(SQL::GetAllKeyRecordsLowerClosedUpperOpen, "SELECT key FROM Records WHERE objectStoreID = ? AND key >= CAST(? AS TEXT) AND key < CAST(? AS TEXT) ORDER BY key;"_s);
                 else
-                    statement = cachedStatement(SQL::GetKeyRecordsLowerClosedUpperClosed, "SELECT key FROM Records WHERE objectStoreID = ? AND key >= CAST(? AS TEXT) AND key <= CAST(? AS TEXT) ORDER BY key;"_s);
+                    statement = cachedStatement(SQL::GetAllKeyRecordsLowerClosedUpperClosed, "SELECT key FROM Records WHERE objectStoreID = ? AND key >= CAST(? AS TEXT) AND key <= CAST(? AS TEXT) ORDER BY key;"_s);
             }
         }
 
@@ -2145,7 +2381,10 @@ IDBError SQLiteIDBBackingStore::getRecord(const IDBResourceIdentifier& transacti
     if (!error.isNull())
         return error;
 
-    resultValue = { keyData, { valueResultBuffer, WTF::move(blobURLs), WTF::move(blobFilePaths) }, objectStoreInfo->keyPath() };
+    auto valueResult = buildIDBValueForRecord(recordID, valueResultBuffer, WTF::move(blobURLs), WTF::move(blobFilePaths));
+    if (!valueResult)
+        return WTF::move(valueResult.error());
+    resultValue = { keyData, WTF::move(*valueResult), objectStoreInfo->keyPath() };
     return IDBError { };
 }
 
@@ -2156,27 +2395,49 @@ IDBError SQLiteIDBBackingStore::getAllRecords(const IDBResourceIdentifier& trans
 
 SQLiteStatementAutoResetScope SQLiteIDBBackingStore::cachedStatementForGetAllObjectStoreRecords(const IDBGetAllRecordsData& getAllRecordsData)
 {
+    bool next = getAllRecordsData.cursorDirection == IndexedDB::CursorDirection::Next || getAllRecordsData.cursorDirection == IndexedDB::CursorDirection::Nextunique;
+
     if (getAllRecordsData.getAllType == IndexedDB::GetAllType::Keys) {
         if (getAllRecordsData.keyRangeData.lowerOpen) {
-            if (getAllRecordsData.keyRangeData.upperOpen)
-                return cachedStatement(SQL::GetAllKeyRecordsLowerOpenUpperOpen, "SELECT key FROM Records WHERE objectStoreID = ? AND key > CAST(? AS TEXT) AND key < CAST(? AS TEXT) ORDER BY key;"_s);
-            return cachedStatement(SQL::GetAllKeyRecordsLowerOpenUpperClosed, "SELECT key FROM Records WHERE objectStoreID = ? AND key > CAST(? AS TEXT) AND key <= CAST(? AS TEXT) ORDER BY key;"_s);
+            if (getAllRecordsData.keyRangeData.upperOpen) {
+                if (next)
+                    return cachedStatement(SQL::GetAllKeyRecordsLowerOpenUpperOpen, "SELECT key FROM Records WHERE objectStoreID = ? AND key > CAST(? AS TEXT) AND key < CAST(? AS TEXT) ORDER BY key;"_s);
+                return cachedStatement(SQL::GetAllKeyRecordsLowerOpenUpperOpenDesc, "SELECT key FROM Records WHERE objectStoreID = ? AND key > CAST(? AS TEXT) AND key < CAST(? AS TEXT) ORDER BY key DESC;"_s);
+            }
+            if (next)
+                return cachedStatement(SQL::GetAllKeyRecordsLowerOpenUpperClosed, "SELECT key FROM Records WHERE objectStoreID = ? AND key > CAST(? AS TEXT) AND key <= CAST(? AS TEXT) ORDER BY key;"_s);
+            return cachedStatement(SQL::GetAllKeyRecordsLowerOpenUpperClosedDesc, "SELECT key FROM Records WHERE objectStoreID = ? AND key > CAST(? AS TEXT) AND key <= CAST(? AS TEXT) ORDER BY key DESC;"_s);
         }
 
-        if (getAllRecordsData.keyRangeData.upperOpen)
-            return cachedStatement(SQL::GetAllKeyRecordsLowerClosedUpperOpen, "SELECT key FROM Records WHERE objectStoreID = ? AND key >= CAST(? AS TEXT) AND key < CAST(? AS TEXT) ORDER BY key;"_s);
-        return cachedStatement(SQL::GetAllKeyRecordsLowerClosedUpperClosed, "SELECT key FROM Records WHERE objectStoreID = ? AND key >= CAST(? AS TEXT) AND key <= CAST(? AS TEXT) ORDER BY key;"_s);
+        if (getAllRecordsData.keyRangeData.upperOpen) {
+            if (next)
+                return cachedStatement(SQL::GetAllKeyRecordsLowerClosedUpperOpen, "SELECT key FROM Records WHERE objectStoreID = ? AND key >= CAST(? AS TEXT) AND key < CAST(? AS TEXT) ORDER BY key;"_s);
+            return cachedStatement(SQL::GetAllKeyRecordsLowerClosedUpperOpenDesc, "SELECT key FROM Records WHERE objectStoreID = ? AND key >= CAST(? AS TEXT) AND key < CAST(? AS TEXT) ORDER BY key DESC;"_s);
+        }
+        if (next)
+            return cachedStatement(SQL::GetAllKeyRecordsLowerClosedUpperClosed, "SELECT key FROM Records WHERE objectStoreID = ? AND key >= CAST(? AS TEXT) AND key <= CAST(? AS TEXT) ORDER BY key;"_s);
+        return cachedStatement(SQL::GetAllKeyRecordsLowerClosedUpperClosedDesc, "SELECT key FROM Records WHERE objectStoreID = ? AND key >= CAST(? AS TEXT) AND key <= CAST(? AS TEXT) ORDER BY key DESC;"_s);
     }
 
     if (getAllRecordsData.keyRangeData.lowerOpen) {
-        if (getAllRecordsData.keyRangeData.upperOpen)
-            return cachedStatement(SQL::GetValueRecordsLowerOpenUpperOpen, "SELECT key, value, ROWID FROM Records WHERE objectStoreID = ? AND key > CAST(? AS TEXT) AND key < CAST(? AS TEXT) ORDER BY key;"_s);
-        return cachedStatement(SQL::GetValueRecordsLowerOpenUpperClosed, "SELECT key, value, ROWID FROM Records WHERE objectStoreID = ? AND key > CAST(? AS TEXT) AND key <= CAST(? AS TEXT) ORDER BY key;"_s);
+        if (getAllRecordsData.keyRangeData.upperOpen) {
+            if (next)
+                return cachedStatement(SQL::GetAllValueRecordsLowerOpenUpperOpen, "SELECT key, value, ROWID FROM Records WHERE objectStoreID = ? AND key > CAST(? AS TEXT) AND key < CAST(? AS TEXT) ORDER BY key;"_s);
+            return cachedStatement(SQL::GetAllValueRecordsLowerOpenUpperOpenDesc, "SELECT key, value, ROWID FROM Records WHERE objectStoreID = ? AND key > CAST(? AS TEXT) AND key < CAST(? AS TEXT) ORDER BY key DESC;"_s);
+        }
+        if (next)
+            return cachedStatement(SQL::GetAllValueRecordsLowerOpenUpperClosed, "SELECT key, value, ROWID FROM Records WHERE objectStoreID = ? AND key > CAST(? AS TEXT) AND key <= CAST(? AS TEXT) ORDER BY key;"_s);
+        return cachedStatement(SQL::GetAllValueRecordsLowerOpenUpperClosedDesc, "SELECT key, value, ROWID FROM Records WHERE objectStoreID = ? AND key > CAST(? AS TEXT) AND key <= CAST(? AS TEXT) ORDER BY key DESC;"_s);
     }
 
-    if (getAllRecordsData.keyRangeData.upperOpen)
-        return cachedStatement(SQL::GetValueRecordsLowerClosedUpperOpen, "SELECT key, value, ROWID FROM Records WHERE objectStoreID = ? AND key >= CAST(? AS TEXT) AND key < CAST(? AS TEXT) ORDER BY key;"_s);
-    return cachedStatement(SQL::GetValueRecordsLowerClosedUpperClosed, "SELECT key, value, ROWID FROM Records WHERE objectStoreID = ? AND key >= CAST(? AS TEXT) AND key <= CAST(? AS TEXT) ORDER BY key;"_s);
+    if (getAllRecordsData.keyRangeData.upperOpen) {
+        if (next)
+            return cachedStatement(SQL::GetAllValueRecordsLowerClosedUpperOpen, "SELECT key, value, ROWID FROM Records WHERE objectStoreID = ? AND key >= CAST(? AS TEXT) AND key < CAST(? AS TEXT) ORDER BY key;"_s);
+        return cachedStatement(SQL::GetAllValueRecordsLowerClosedUpperOpenDesc, "SELECT key, value, ROWID FROM Records WHERE objectStoreID = ? AND key >= CAST(? AS TEXT) AND key < CAST(? AS TEXT) ORDER BY key DESC;"_s);
+    }
+    if (next)
+        return cachedStatement(SQL::GetAllValueRecordsLowerClosedUpperClosed, "SELECT key, value, ROWID FROM Records WHERE objectStoreID = ? AND key >= CAST(? AS TEXT) AND key <= CAST(? AS TEXT) ORDER BY key;"_s);
+    return cachedStatement(SQL::GetAllValueRecordsLowerClosedUpperClosedDesc, "SELECT key, value, ROWID FROM Records WHERE objectStoreID = ? AND key >= CAST(? AS TEXT) AND key <= CAST(? AS TEXT) ORDER BY key DESC;"_s);
 }
 
 IDBError SQLiteIDBBackingStore::getAllObjectStoreRecords(const IDBResourceIdentifier& transactionIdentifier, const IDBGetAllRecordsData& getAllRecordsData, IDBGetAllResult& result)
@@ -2241,9 +2502,13 @@ IDBError SQLiteIDBBackingStore::getAllObjectStoreRecords(const IDBResourceIdenti
             LOG_ERROR("Unable to deserialize key data from database while getting all records");
             return IDBError { ExceptionCode::UnknownError, "Unable to deserialize key data while getting all records"_s };
         }
+
+        if (getAllRecordsData.getAllType == IndexedDB::GetAllType::Records)
+            result.addPrimaryKey(IDBKeyData(keyData));
+
         result.addKey(WTF::move(keyData));
 
-        if (getAllRecordsData.getAllType == IndexedDB::GetAllType::Values) {
+        if (getAllRecordsData.getAllType == IndexedDB::GetAllType::Values || getAllRecordsData.getAllType == IndexedDB::GetAllType::Records) {
             ThreadSafeDataBuffer valueResultBuffer = ThreadSafeDataBuffer::create(statement->columnBlob(1));
 
             auto recordID = statement->columnInt64(2);
@@ -2256,7 +2521,10 @@ IDBError SQLiteIDBBackingStore::getAllObjectStoreRecords(const IDBResourceIdenti
             if (!error.isNull())
                 return error;
 
-            result.addValue({ valueResultBuffer, WTF::move(blobURLs), WTF::move(blobFilePaths) });
+            auto valueResult = buildIDBValueForRecord(recordID, valueResultBuffer, WTF::move(blobURLs), WTF::move(blobFilePaths));
+            if (!valueResult)
+                return WTF::move(valueResult.error());
+            result.addValue(WTF::move(*valueResult));
         }
 
         ++returnedResults;
@@ -2285,7 +2553,7 @@ IDBError SQLiteIDBBackingStore::getAllIndexRecords(const IDBResourceIdentifier& 
     if (!transaction || !transaction->inProgressOrReadOnly())
         return IDBError { ExceptionCode::UnknownError, "Attempt to get all index records from database without an in-progress transaction"_s };
 
-    auto cursor = transaction->maybeOpenBackingStoreCursor(getAllRecordsData.objectStoreIdentifier, getAllRecordsData.indexIdentifier, getAllRecordsData.keyRangeData);
+    auto cursor = transaction->maybeOpenBackingStoreCursor(getAllRecordsData.objectStoreIdentifier, getAllRecordsData.indexIdentifier, getAllRecordsData.keyRangeData, getAllRecordsData.cursorDirection);
     if (!cursor) {
         LOG_ERROR("Cannot open cursor to perform index gets in database");
         return IDBError { ExceptionCode::UnknownError, "Cannot open cursor to perform index gets in database"_s };
@@ -2307,10 +2575,20 @@ IDBError SQLiteIDBBackingStore::getAllIndexRecords(const IDBResourceIdentifier& 
     if (!targetCount)
         targetCount = std::numeric_limits<uint32_t>::max();
     while (!cursor->didComplete() && !cursor->didError() && currentCount < targetCount) {
-        IDBKeyData keyCopy = cursor->currentPrimaryKey();
-        result.addKey(WTF::move(keyCopy));
-        if (getAllRecordsData.getAllType == IndexedDB::GetAllType::Values)
+        switch (getAllRecordsData.getAllType) {
+        case IndexedDB::GetAllType::Keys:
+            result.addKey(IDBKeyData(cursor->currentPrimaryKey()));
+            break;
+        case IndexedDB::GetAllType::Values:
+            result.addKey(IDBKeyData(cursor->currentPrimaryKey()));
             result.addValue(IDBValue(cursor->currentValue()));
+            break;
+        case IndexedDB::GetAllType::Records:
+            result.addKey(IDBKeyData(cursor->currentKey()));
+            result.addPrimaryKey(IDBKeyData(cursor->currentPrimaryKey()));
+            result.addValue(IDBValue(cursor->currentValue()));
+            break;
+        };
 
         ++currentCount;
         cursor->advance(1);
@@ -2424,7 +2702,10 @@ IDBError SQLiteIDBBackingStore::uncheckedGetIndexRecordForOneKey(IDBIndexIdentif
         RELEASE_LOG_ERROR(IndexedDB, "%p - SQLiteIDBBackingStore::uncheckedGetIndexRecordForOneKey: object store cannot be found in database", this);
         return IDBError { ExceptionCode::UnknownError, "Object store cannot be found in the database"_s };
     }
-    getResult = { objectStoreKey, objectStoreKey, { ThreadSafeDataBuffer::create(WTF::move(valueVector)), WTF::move(blobURLs), WTF::move(blobFilePaths) }, objectStoreInfo->keyPath() };
+    auto valueResult = buildIDBValueForRecord(recordID, ThreadSafeDataBuffer::create(WTF::move(valueVector)), WTF::move(blobURLs), WTF::move(blobFilePaths));
+    if (!valueResult)
+        return WTF::move(valueResult.error());
+    getResult = { objectStoreKey, objectStoreKey, WTF::move(*valueResult), objectStoreInfo->keyPath() };
     return IDBError { };
 }
 
@@ -2496,7 +2777,7 @@ IDBError SQLiteIDBBackingStore::getCount(const IDBResourceIdentifier& transactio
     if (statement->step() != SQLITE_ROW)
         return IDBError { ExceptionCode::UnknownError, "Unable to count records"_s };
 
-    outCount = statement->columnInt(0);
+    outCount = statement->columnInt64(0);
     return IDBError { };
 }
 
@@ -2782,6 +3063,16 @@ void SQLiteIDBBackingStore::closeSQLiteDB()
     m_sqliteDB = nullptr;
 }
 
+void SQLiteIDBBackingStore::setSqliteDB(std::unique_ptr<SQLiteDatabase>&& db)
+{
+    m_sqliteDB = WTF::move(db);
+}
+
+void SQLiteIDBBackingStore::setDatabaseInfo(std::unique_ptr<IDBDatabaseInfo>&& info)
+{
+    m_databaseInfo = WTF::move(info);
+}
+
 bool SQLiteIDBBackingStore::hasTransaction(const IDBResourceIdentifier& transactionIdentifier) const
 {
     ASSERT(isMainThread());
@@ -2898,6 +3189,7 @@ void SQLiteIDBBackingStore::forEachObjectStoreRecord(const IDBResourceIdentifier
 #undef INDEX_INFO_TABLE_SCHEMA_SUFFIX
 #undef BLOB_RECORDS_TABLE_SCHEMA_SUFFIX
 #undef BLOB_FILES_TABLE_SCHEMA_SUFFIX
+#undef FILE_SYSTEM_HANDLE_RECORDS_TABLE_SCHEMA_SUFFIX
 
 } // namespace IDBServer
 } // namespace WebCore

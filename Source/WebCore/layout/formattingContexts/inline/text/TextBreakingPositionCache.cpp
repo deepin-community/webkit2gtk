@@ -26,8 +26,7 @@
 #include "config.h"
 #include "TextBreakingPositionCache.h"
 
-#include "RenderStyle.h"
-#include "RenderStyle+GettersInlines.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
@@ -95,7 +94,7 @@ void TextBreakingPositionCache::clear()
     m_cachedContentSize = 0;
 }
 
-void add(Hasher& hasher, const TextBreakingPositionContext& context)
+void NODELETE add(Hasher& hasher, const TextBreakingPositionContext& context)
 {
     add(hasher, context.whitespaceCollapseBehavior, context.overflowWrap, context.lineBreak, context.wordBreak, context.nbspMode, context.locale);
 }

@@ -60,10 +60,7 @@ private:
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(FormAttributeTargetObserver);
 
-FormListedElement::FormListedElement(HTMLFormElement* form)
-    : FormAssociatedElement(form)
-{
-}
+FormListedElement::FormListedElement() = default;
 
 FormListedElement::~FormListedElement() = default;
 
@@ -184,7 +181,7 @@ void FormListedElement::resetFormOwner()
     setForm(findAssociatedForm(element.get(), originalForm.get()));
     RefPtr newForm = form();
     if (newForm && newForm != originalForm && newForm->isConnected())
-        element->protectedDocument()->didAssociateFormControl(element.get());
+        protect(element->document())->didAssociateFormControl(element.get());
 }
 
 void FormListedElement::parseAttribute(const QualifiedName& name, const AtomString& value)
@@ -205,7 +202,7 @@ void FormListedElement::parseFormAttribute(const AtomString& value)
         setForm(HTMLFormElement::findClosestFormAncestor(element.get()));
         RefPtr newForm = form();
         if (newForm && newForm != originalForm && newForm->isConnected())
-            element->protectedDocument()->didAssociateFormControl(element.get());
+            protect(element->document())->didAssociateFormControl(element.get());
         m_formAttributeTargetObserver = nullptr;
     } else {
         resetFormOwner();
@@ -289,7 +286,7 @@ void FormListedElement::setCustomValidity(const String& error)
 void FormListedElement::resetFormAttributeTargetObserver()
 {
     ASSERT_WITH_SECURITY_IMPLICATION(asHTMLElement().isConnected());
-    m_formAttributeTargetObserver = makeUnique<FormAttributeTargetObserver>(asProtectedHTMLElement()->attributeWithoutSynchronization(formAttr), *this);
+    m_formAttributeTargetObserver = makeUnique<FormAttributeTargetObserver>(asHTMLElement().attributeWithoutSynchronization(formAttr), *this);
 }
 
 void FormListedElement::formAttributeTargetChanged()
@@ -299,12 +296,12 @@ void FormListedElement::formAttributeTargetChanged()
 
 const AtomString& FormListedElement::name() const
 {
-    const AtomString& name = asProtectedHTMLElement()->getNameAttribute();
+    const AtomString& name = asHTMLElement().getNameAttribute();
     return name.isNull() ? emptyAtom() : name;
 }
 
 FormAttributeTargetObserver::FormAttributeTargetObserver(const AtomString& id, FormListedElement& element)
-    : IdTargetObserver(element.asProtectedHTMLElement()->protectedTreeScope()->idTargetObserverRegistry(), id)
+    : IdTargetObserver(protect(element.asHTMLElement().treeScope())->idTargetObserverRegistry(), id)
     , m_element(element)
 {
 }

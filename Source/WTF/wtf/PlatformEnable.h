@@ -124,28 +124,20 @@
 #define ENABLE_ACCESSIBILITY_NON_BLINKING_CURSOR 0
 #endif
 
+#if !defined(ENABLE_ACCESSIBILITY_VIDEO_AUTOPLAY_CONTROL)
+#define ENABLE_ACCESSIBILITY_VIDEO_AUTOPLAY_CONTROL 0
+#endif
+
+#if !defined(ENABLE_ACCESSIBILITY_THREAD_DISPATCHING)
+#define ENABLE_ACCESSIBILITY_THREAD_DISPATCHING 0
+#endif
+
 #if !defined(ENABLE_ADVANCED_PRIVACY_PROTECTIONS)
 #define ENABLE_ADVANCED_PRIVACY_PROTECTIONS 0
 #endif
 
 #if !defined(ENABLE_AIRPLAY_PICKER)
 #define ENABLE_AIRPLAY_PICKER 0
-#endif
-
-#if !defined(ARKIT_INLINE_PREVIEW)
-#define ARKIT_INLINE_PREVIEW 0
-#endif
-
-#if !defined(ENABLE_ARKIT_INLINE_PREVIEW_CAMERA_TRANSFORM)
-#define ENABLE_ARKIT_INLINE_PREVIEW_CAMERA_TRANSFORM 0
-#endif
-
-#if !defined(ENABLE_ARKIT_INLINE_PREVIEW_ANIMATIONS_CONTROL)
-#define ENABLE_ARKIT_INLINE_PREVIEW_ANIMATIONS_CONTROL 0
-#endif
-
-#if !defined(ENABLE_ARKIT_INLINE_PREVIEW_AUDIO_CONTROL)
-#define ENABLE_ARKIT_INLINE_PREVIEW_AUDIO_CONTROL 0
 #endif
 
 #if !defined(ENABLE_APP_HIGHLIGHTS)
@@ -178,6 +170,10 @@
 
 #if !defined(ENABLE_CONTENT_CHANGE_OBSERVER)
 #define ENABLE_CONTENT_CHANGE_OBSERVER 0
+#endif
+
+#if !defined(ENABLE_TWO_PHASE_CLICKS)
+#define ENABLE_TWO_PHASE_CLICKS 0
 #endif
 
 #if !defined(ENABLE_CONTENT_EXTENSIONS)
@@ -244,10 +240,6 @@
 #define ENABLE_FILE_REPLACEMENT 0
 #endif
 
-#if !defined(ENABLE_FTPDIR)
-#define ENABLE_FTPDIR 1
-#endif
-
 #if !defined(ENABLE_FULL_KEYBOARD_ACCESS)
 #define ENABLE_FULL_KEYBOARD_ACCESS 0
 #endif
@@ -284,16 +276,8 @@
 #define ENABLE_IMAGE_ANALYSIS 0
 #endif
 
-#if !defined(ENABLE_IMAGE_ANALYSIS_ENHANCEMENTS)
-#define ENABLE_IMAGE_ANALYSIS_ENHANCEMENTS 0
-#endif
-
 #if !defined(ENABLE_IMAGE_ANALYSIS_FOR_MACHINE_READABLE_CODES)
 #define ENABLE_IMAGE_ANALYSIS_FOR_MACHINE_READABLE_CODES 0
-#endif
-
-#if !defined(ENABLE_INLINE_PATH_DATA)
-#define ENABLE_INLINE_PATH_DATA 0
 #endif
 
 #if !defined(ENABLE_INPUT_TYPE_WEEK_PICKER)
@@ -308,9 +292,15 @@
 #define ENABLE_IOS_TOUCH_EVENTS 0
 #endif
 
+#if !defined(ENABLE_ISO18013_DOCUMENT_REQUEST_INFO)
+#define ENABLE_ISO18013_DOCUMENT_REQUEST_INFO 0
+#endif
+
 #if !defined(ENABLE_IPC_TESTING_API)
-/* Enable IPC testing on all ASAN builds and debug builds. */
-#if (ASAN_ENABLED || !defined(NDEBUG)) && PLATFORM(COCOA)
+/* Enable IPC testing on all ASAN builds and debug builds. Enable it in GLib ports when assertions are enabled. */
+/* In GLib ports, only enable for GCC builds, as this is what we currently test in EWS and clang-18 is significantly */
+/* slow to build when IPC testing is enabled. */
+#if ((ASAN_ENABLED || !defined(NDEBUG)) && PLATFORM(COCOA)) || (ASSERT_ENABLED && (PLATFORM(GTK) || PLATFORM(WPE)) && COMPILER(GCC))
 #define ENABLE_IPC_TESTING_API 1
 #endif
 #endif
@@ -329,6 +319,10 @@
 
 #if !defined(ENABLE_KINETIC_SCROLLING)
 #define ENABLE_KINETIC_SCROLLING 0
+#endif
+
+#if !defined(ENABLE_RESPONSIVE_LIVE_RESIZE_UPDATE)
+#define ENABLE_RESPONSIVE_LIVE_RESIZE_UPDATE 0
 #endif
 
 #if !defined(ENABLE_LLVM_PROFILE_GENERATION)
@@ -545,6 +539,10 @@
 #define ENABLE_SEPARATED_WX_HEAP 0
 #endif
 
+#if !defined(ENABLE_SPATIAL_PORTAL)
+#define ENABLE_SPATIAL_PORTAL 0
+#endif
+
 #if !defined(ENABLE_SPEECH_SYNTHESIS)
 #define ENABLE_SPEECH_SYNTHESIS 0
 #endif
@@ -577,6 +575,10 @@
 #define ENABLE_TOUCH_EVENTS 0
 #endif
 
+#if !defined(ENABLE_CSS_TAP_HIGHLIGHT_COLOR) && ENABLE(TOUCH_EVENTS)
+#define ENABLE_CSS_TAP_HIGHLIGHT_COLOR 1
+#endif
+
 #if !defined(ENABLE_TOUCH_ACTION_REGIONS)
 #define ENABLE_TOUCH_ACTION_REGIONS 0
 #endif
@@ -595,10 +597,6 @@
 
 #if !defined(ENABLE_WEBGL)
 #define ENABLE_WEBGL 0
-#endif
-
-#if !defined(ENABLE_WEBPROCESS_NSRUNLOOP)
-#define ENABLE_WEBPROCESS_NSRUNLOOP 0
 #endif
 
 #if !defined(ENABLE_WEB_ARCHIVE)
@@ -625,6 +623,10 @@
 #define ENABLE_WEBXR 0
 #endif
 
+#if !defined(ENABLE_WEBXR_AR)
+#define ENABLE_WEBXR_AR 0
+#endif
+
 #if !defined(ENABLE_WEBXR_HANDS)
 #define ENABLE_WEBXR_HANDS 0
 #endif
@@ -637,12 +639,16 @@
 #define ENABLE_WEBGPU PLATFORM(COCOA)
 #endif
 
+#if !defined(ENABLE_WEBGPU_BY_DEFAULT) && ((PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 260000) || PLATFORM(IOS) || PLATFORM(VISION))
+#define ENABLE_WEBGPU_BY_DEFAULT 1
+#endif
+
 #if !defined(ENABLE_WEBXR_HIT_TEST)
 #define ENABLE_WEBXR_HIT_TEST 0
 #endif
 
 #if !defined(ENABLE_WEBXR_LAYERS)
-#define ENABLE_WEBXR_LAYERS (PLATFORM(VISION) && __VISION_OS_VERSION_MIN_REQUIRED >= 20200)
+#define ENABLE_WEBXR_LAYERS PLATFORM(VISION)
 #endif
 
 #if !defined(ENABLE_WHEEL_EVENT_LATCHING)
@@ -714,27 +720,14 @@
 #endif
 #endif
 
-/* wyhash-based StringHasher */
-#if !defined(ENABLE_WYHASH_STRING_HASHER) && PLATFORM(MAC)
-#define ENABLE_WYHASH_STRING_HASHER 1
-#endif
-
 /* The JIT is enabled by default on all x86-64 & ARM64 platforms. */
 #if !defined(ENABLE_JIT) && (CPU(X86_64) || (CPU(ARM64) && CPU(ADDRESS64)))
 #define ENABLE_JIT 1
 #endif
 
 #if USE(JSVALUE32_64)
-#if CPU(ARM_THUMB2) && CPU(ARM_HARDFP) && OS(LINUX)
-/* On ARMv7 Linux the JIT is enabled unless explicitly disabled. */
-#if !defined(ENABLE_JIT)
-#define ENABLE_JIT 1
-#endif
-#else
-/* Disable JIT on all other 32bit architectures. */
 #undef ENABLE_JIT
 #define ENABLE_JIT 0
-#endif
 #endif
 
 #if CPU(RISCV64)
@@ -765,6 +758,8 @@
 #if USE(JSVALUE32_64)
 #undef ENABLE_FTL_JIT
 #define ENABLE_FTL_JIT 0
+#undef ENABLE_DFG_JIT
+#define ENABLE_DFG_JIT 0
 #endif
 
 /* If possible, try to enable a disassembler. This is optional. We proceed in two
@@ -793,13 +788,7 @@
 #define ENABLE_DFG_JIT 1
 #endif
 
-/* Enable the DFG JIT on ARMv7.  Only tested on iOS, Linux, and FreeBSD. */
-#if (CPU(ARM_THUMB2) || CPU(ARM64)) && (OS(DARWIN) || OS(LINUX) || OS(FREEBSD))
-#define ENABLE_DFG_JIT 1
-#endif
-
-/* Enable the DFG JIT on MIPS. */
-#if CPU(MIPS)
+#if CPU(ARM64) && (OS(DARWIN) || OS(LINUX) || OS(FREEBSD))
 #define ENABLE_DFG_JIT 1
 #endif
 
@@ -834,13 +823,15 @@
 #define ENABLE_B3_JIT 1
 #endif
 
-#if ENABLE(WEBASSEMBLY) && ENABLE(JIT) && CPU(ARM)
+#if CPU(ARM)
+#undef ENABLE_WEBASSEMBLY
+#define ENABLE_WEBASSEMBLY 0
 #undef ENABLE_B3_JIT
-#define ENABLE_B3_JIT 1
+#define ENABLE_B3_JIT 0
 #undef ENABLE_WEBASSEMBLY_OMGJIT
 #define ENABLE_WEBASSEMBLY_OMGJIT 0
 #undef ENABLE_WEBASSEMBLY_BBQJIT
-#define ENABLE_WEBASSEMBLY_BBQJIT 1
+#define ENABLE_WEBASSEMBLY_BBQJIT 0
 #endif
 
 #if !defined(ENABLE_WEBASSEMBLY) && (ENABLE(B3_JIT) && PLATFORM(COCOA) && CPU(ADDRESS64))
@@ -851,6 +842,12 @@
 
 #if !defined(ENABLE_WEBASSEMBLY) && CPU(ADDRESS64) && PLATFORM(COCOA) && !ENABLE(C_LOOP)
 #define ENABLE_WEBASSEMBLY 1
+#endif
+
+/* WebAssembly Debugger - GDB Remote Protocol debugging for WebAssembly.
+ * Restricted to macOS only. Supports JSC shell TCP socket mode and WebKit RWI integration. */
+#if !defined(ENABLE_WEBASSEMBLY_DEBUGGER) && PLATFORM(MAC) && ENABLE(WEBASSEMBLY)
+#define ENABLE_WEBASSEMBLY_DEBUGGER 1
 #endif
 
 /* The SamplingProfiler is the probabilistic and low-overhead profiler used by
@@ -888,13 +885,7 @@
 #define ENABLE_COMPUTED_GOTO_OPCODES 1
 #endif
 
-#if (PLATFORM(MAC) && __MAC_OS_X_VERSION_MAX_ALLOWED >= 150000) \
-    || (PLATFORM(MACCATALYST) && __IPHONE_OS_VERSION_MAX_ALLOWED >= 180000) \
-    || (PLATFORM(IOS) && __IPHONE_OS_VERSION_MAX_ALLOWED >= 180000) \
-    || (PLATFORM(APPLETV) && __TV_OS_VERSION_MAX_ALLOWED >= 180000) \
-    || (PLATFORM(WATCHOS) && __WATCH_OS_VERSION_MAX_ALLOWED >= 110000) \
-    || (PLATFORM(VISION) && __VISION_OS_VERSION_MAX_ALLOWED >= 20000)
-// Linkers from older SDKs causes wrong linking. ref: rdar://96556827
+#if PLATFORM(COCOA)
 #define ENABLE_OFFLINE_ASM_ALT_ENTRY 1
 #endif
 
@@ -1064,6 +1055,10 @@
 #error "ENABLE(PREDEFINED_COLOR_SPACE_DISPLAY_P3) requires ENABLE(DESTINATION_COLOR_SPACE_DISPLAY_P3)"
 #endif
 
+#if ENABLE(WEBXR_AR) && !ENABLE(WEBXR)
+#error "ENABLE(WEBXR_AR) requires ENABLE(WEBXR)"
+#endif
+
 #if ENABLE(WEBXR_HANDS) && !ENABLE(WEBXR)
 #error "ENABLE(WEBXR_HANDS) requires ENABLE(WEBXR)"
 #endif
@@ -1080,8 +1075,7 @@
 #define ENABLE_WEBPROCESS_CACHE 0
 #endif
 
-#if !defined(ENABLE_FEATURE_DEFAULT_VALIDATION) \
-    && (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 140000)
+#if !defined(ENABLE_FEATURE_DEFAULT_VALIDATION) && PLATFORM(MAC)
 // FIXME: Check feature flag default values on other platforms once it's
 // possible to make feature status conditional.
 #define ENABLE_FEATURE_DEFAULT_VALIDATION 1
@@ -1102,10 +1096,6 @@
 #define ENABLE_WRITING_SUGGESTIONS 1
 #endif
 
-#if !defined(ENABLE_COOKIE_STORE_API_BY_DEFAULT)
-#define ENABLE_COOKIE_STORE_API_BY_DEFAULT 0
-#endif
-
 #if !defined(ENABLE_ALL_LEGACY_REGISTERED_SPECIAL_URL_SCHEMES) && !PLATFORM(COCOA)
 #define ENABLE_ALL_LEGACY_REGISTERED_SPECIAL_URL_SCHEMES 1
 #endif
@@ -1120,9 +1110,25 @@
 
 #if !defined(ENABLE_TLS_1_2_DEFAULT_MINIMUM) \
     && ((PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 260000) \
-    || ((PLATFORM(IOS) || PLATFORM(MACCATALYST)) && __IPHONE_OS_VERSION_MIN_REQUIRED >= 260000) \
-    || (PLATFORM(VISION) && __VISION_OS_VERSION_MIN_REQUIRED >= 260000) \
-    || (PLATFORM(WATCHOS) && __WATCH_OS_VERSION_MIN_REQUIRED >= 260000) \
-    || (PLATFORM(APPLETV) && __TV_OS_VERSION_MIN_REQUIRED >= 260000))
+    || PLATFORM(IOS) || PLATFORM(MACCATALYST) || PLATFORM(VISION) \
+    || PLATFORM(WATCHOS) || PLATFORM(APPLETV))
 #define ENABLE_TLS_1_2_DEFAULT_MINIMUM 1
+#endif
+
+#if !defined(ENABLE_IPC_TESTING_SWIFT) \
+    && (PLATFORM(MAC) && __MAC_OS_X_VERSION_MAX_ALLOWED >= 260500)
+#define ENABLE_IPC_TESTING_SWIFT 1
+#endif
+
+#if PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 270000
+#define ENABLE_SCROLL_POCKET_IN_FULLSCREEN 1
+#endif
+
+#if !defined(ENABLE_BACK_FORWARD_LIST_SWIFT) \
+    && ((PLATFORM(MAC) && __MAC_OS_X_VERSION_MAX_ALLOWED >= 260500) \
+    || ((PLATFORM(IOS) || PLATFORM(MACCATALYST)) && __IPHONE_OS_VERSION_MAX_ALLOWED >= 270000) \
+    || (PLATFORM(VISION) && __VISION_OS_VERSION_MAX_ALLOWED >= 270000) \
+    || (PLATFORM(WATCHOS) && __WATCH_OS_VERSION_MAX_ALLOWED >= 270000) \
+    || (PLATFORM(APPLETV) && __TV_OS_VERSION_MAX_ALLOWED >= 270000))
+#define ENABLE_BACK_FORWARD_LIST_SWIFT 1
 #endif

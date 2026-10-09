@@ -25,6 +25,8 @@
 
 #pragma once
 
+#include <wtf/Platform.h>
+
 #if ENABLE(ASYNC_SCROLLING)
 
 #include <WebCore/ScrollingTreeScrollingNode.h>
@@ -44,7 +46,7 @@ public:
     
     bool visualViewportIsSmallerThanLayoutViewport() const { return m_visualViewportIsSmallerThanLayoutViewport; }
 
-    FloatSize viewToContentsOffset(const FloatPoint& scrollPosition) const;
+    FloatSize NODELETE viewToContentsOffset(const FloatPoint& scrollPosition) const;
 
     FloatRect layoutViewport() const { return m_layoutViewport; };
     void setLayoutViewport(const FloatRect& r) { m_layoutViewport = r; };
@@ -55,11 +57,18 @@ public:
     int headerHeight() const { return m_headerHeight; }
     int footerHeight() const { return m_footerHeight; }
     FloatBoxExtent obscuredContentInsets() const { return m_obscuredContentInsets; }
+#if HAVE(NSREFRESHCONTROLLER)
+    float topScrollStretchForRefreshController() const { return m_topScrollStretchForRefreshController; }
+#endif
     virtual void viewWillStartLiveResize() { }
     virtual void viewWillEndLiveResize() { }
     virtual void viewSizeDidChange() { }
 
     virtual bool isScrollingTreeFrameScrollingNodeMac() const { return false; };
+
+#if PLATFORM(IOS_FAMILY)
+    virtual bool isScrollingTreeFrameScrollingNodeIOS() const { return false; }
+#endif
 
 protected:
     ScrollingTreeFrameScrollingNode(ScrollingTree&, ScrollingNodeType, ScrollingNodeID);
@@ -72,7 +81,7 @@ protected:
 
 private:
     void updateViewportForCurrentScrollPosition(std::optional<FloatRect>) override;
-    bool scrollPositionAndLayoutViewportMatch(const FloatPoint& position, std::optional<FloatRect> overrideLayoutViewport) override;
+    bool NODELETE scrollPositionAndLayoutViewportMatch(const FloatPoint& position, std::optional<FloatRect> overrideLayoutViewport) override;
     FloatRect layoutViewportForScrollPosition(const FloatPoint&, float scale, ScrollBehaviorForFixedElements = ScrollBehaviorForFixedElements::StickToDocumentBounds) const;
 
     void dumpProperties(WTF::TextStream&, OptionSet<ScrollingStateTreeAsTextBehavior>) const override;
@@ -85,6 +94,9 @@ private:
     
     float m_frameScaleFactor { 1 };
     FloatBoxExtent m_obscuredContentInsets;
+#if HAVE(NSREFRESHCONTROLLER)
+    float m_topScrollStretchForRefreshController { 0 };
+#endif
 
     int m_headerHeight { 0 };
     int m_footerHeight { 0 };

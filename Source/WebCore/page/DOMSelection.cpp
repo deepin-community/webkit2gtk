@@ -39,7 +39,6 @@
 #include "LocalFrame.h"
 #include "LocalFrameInlines.h"
 #include "NodeDocument.h"
-#include "NodeInlines.h"
 #include "Range.h"
 #include "ShadowRoot.h"
 #include "StaticRange.h"
@@ -47,12 +46,12 @@
 
 namespace WebCore {
 
-static RefPtr<Node> selectionShadowAncestor(LocalFrame& frame)
+static Node* NODELETE selectionShadowAncestor(LocalFrame& frame)
 {
-    RefPtr node = frame.selection().selection().base().anchorNode();
+    auto* node = frame.selection().selection().base().anchorNode();
     if (!node || !node->isInShadowTree())
         return nullptr;
-    return node->protectedDocument()->ancestorNodeInThisScope(node.get());
+    return node->document().ancestorNodeInThisScope(node);
 }
 
 DOMSelection::DOMSelection(LocalDOMWindow& window)
@@ -156,7 +155,7 @@ unsigned DOMSelection::rangeCount() const
     RefPtr frame = this->frame();
     if (!frame)
         return 0;
-    if (frame->checkedSelection()->associatedLiveRange())
+    if (protect(frame->selection())->associatedLiveRange())
         return 1;
     if (selectionShadowAncestor(*frame))
         return 1;
@@ -281,7 +280,7 @@ void DOMSelection::modify(const String& alterString, const String& directionStri
         return;
 
     if (RefPtr frame = this->frame())
-        frame->checkedSelection()->modify(alter, direction, granularity);
+        protect(frame->selection())->modify(alter, direction, granularity);
 }
 
 ExceptionOr<void> DOMSelection::extend(Node& node, unsigned offset)
@@ -318,7 +317,7 @@ ExceptionOr<Ref<Range>> DOMSelection::getRangeAt(unsigned index)
     if (index >= rangeCount())
         return Exception { ExceptionCode::IndexSizeError };
     Ref frame = this->frame().releaseNonNull();
-    if (RefPtr liveRange = frame->checkedSelection()->associatedLiveRange())
+    if (RefPtr liveRange = protect(frame->selection())->associatedLiveRange())
         return liveRange.releaseNonNull();
     return createLiveRangeBeforeShadowHostWithSelection(frame.get()).releaseNonNull();
 }
@@ -328,7 +327,7 @@ void DOMSelection::removeAllRanges()
     RefPtr frame = this->frame();
     if (!frame)
         return;
-    frame->checkedSelection()->clear();
+    protect(frame->selection())->clear();
 }
 
 void DOMSelection::addRange(Range& liveRange)
@@ -346,13 +345,13 @@ ExceptionOr<void> DOMSelection::removeRange(Range& liveRange)
     RefPtr frame = this->frame();
     if (!frame)
         return { };
-    if (&liveRange != frame->checkedSelection()->associatedLiveRange())
+    if (&liveRange != protect(frame->selection())->associatedLiveRange())
         return Exception { ExceptionCode::NotFoundError };
     removeAllRanges();
     return { };
 }
 
-Vector<Ref<StaticRange>> DOMSelection::getComposedRanges(std::optional<Variant<RefPtr<ShadowRoot>, GetComposedRangesOptions>>&& firstShadowRootOrOptions, FixedVector<std::reference_wrapper<ShadowRoot>>&& remainingShadowRoots)
+Vector<Ref<StaticRange>> DOMSelection::getComposedRanges(Variant<Ref<ShadowRoot>, GetComposedRangesOptions>&& firstShadowRootOrOptions, FixedVector<std::reference_wrapper<ShadowRoot>>&& remainingShadowRoots)
 {
     RefPtr frame = this->frame();
     if (!frame)
@@ -361,24 +360,23 @@ Vector<Ref<StaticRange>> DOMSelection::getComposedRanges(std::optional<Variant<R
     if (!range)
         return { };
 
-    HashSet<Ref<ShadowRoot>> shadowRootSet;
-    if (firstShadowRootOrOptions) {
-        if (auto* firstShadowRoot = std::get_if<RefPtr<ShadowRoot>>(&*firstShadowRootOrOptions)) {
+    auto shadowRootSet = WTF::switchOn(WTF::move(firstShadowRootOrOptions),
+        [&](Ref<ShadowRoot>&& firstShadowRoot) {
+            HashSet<Ref<ShadowRoot>> shadowRootSet;
             shadowRootSet.reserveInitialCapacity(remainingShadowRoots.size() + 1);
-            shadowRootSet.add(firstShadowRoot->releaseNonNull());
+            shadowRootSet.add(WTF::move(firstShadowRoot));
             for (auto& root : remainingShadowRoots)
                 shadowRootSet.add(root.get());
-        } else {
-            auto* options = std::get_if<GetComposedRangesOptions>(&*firstShadowRootOrOptions);
-            RELEASE_ASSERT(options);
-            for (auto& shadowRoot : options->shadowRoots)
-                shadowRootSet.add(WTF::move(shadowRoot));
+            return shadowRootSet;
+        },
+        [](GetComposedRangesOptions&& options) {
+            return HashSet<Ref<ShadowRoot>> { WTF::move(options.shadowRoots) };
         }
-    }
+    );
 
     Ref startNode = range->startContainer();
     unsigned startOffset = range->startOffset();
-    while (startNode->isInShadowTree() && !shadowRootSet.contains(startNode->protectedContainingShadowRoot().get())) {
+    while (startNode->isInShadowTree() && !shadowRootSet.contains(startNode->containingShadowRoot())) {
         RefPtr host = startNode->shadowHost();
         ASSERT(host && host->parentNode());
         startNode = *host->parentNode();
@@ -387,7 +385,7 @@ Vector<Ref<StaticRange>> DOMSelection::getComposedRanges(std::optional<Variant<R
 
     Ref endNode = range->endContainer();
     unsigned endOffset = range->endOffset();
-    while (endNode->isInShadowTree() && !shadowRootSet.contains(endNode->protectedContainingShadowRoot().get())) {
+    while (endNode->isInShadowTree() && !shadowRootSet.contains(endNode->containingShadowRoot())) {
         RefPtr host = endNode->shadowHost();
         ASSERT(host && host->parentNode());
         endNode = *host->parentNode();
@@ -402,7 +400,7 @@ void DOMSelection::deleteFromDocument()
     RefPtr frame = this->frame();
     if (!frame)
         return;
-    if (RefPtr range = frame->checkedSelection()->associatedLiveRange())
+    if (RefPtr range = protect(frame->selection())->associatedLiveRange())
         range->deleteContents();
 }
 
@@ -426,20 +424,20 @@ String DOMSelection::toString() const
         return String();
 
     OptionSet<TextIteratorBehavior> options;
-    if (!frame->protectedDocument()->quirks().needsToCopyUserSelectNoneQuirk())
+    if (!protect(frame->document())->quirks().needsToCopyUserSelectNoneQuirk())
         options.add(TextIteratorBehavior::IgnoresUserSelectNone);
 
     auto range = frame->selection().selection().range();
     return range ? plainText(*range, options) : emptyString();
 }
 
-RefPtr<Node> DOMSelection::shadowAdjustedNode(const Position& position) const
+Node* DOMSelection::shadowAdjustedNode(const Position& position) const
 {
     if (position.isNull())
         return nullptr;
 
-    RefPtr containerNode = position.containerNode();
-    RefPtr adjustedNode = frame()->protectedDocument()->ancestorNodeInThisScope(containerNode.get());
+    auto* containerNode = position.containerNode();
+    auto* adjustedNode = LocalDOMWindowProperty::frame()->document()->ancestorNodeInThisScope(containerNode);
     if (!adjustedNode)
         return nullptr;
 
@@ -455,7 +453,7 @@ unsigned DOMSelection::shadowAdjustedOffset(const Position& position) const
         return 0;
 
     RefPtr containerNode = position.containerNode();
-    RefPtr adjustedNode = frame()->protectedDocument()->ancestorNodeInThisScope(containerNode.get());
+    RefPtr adjustedNode = frame()->document()->ancestorNodeInThisScope(containerNode);
     if (!adjustedNode)
         return 0;
 

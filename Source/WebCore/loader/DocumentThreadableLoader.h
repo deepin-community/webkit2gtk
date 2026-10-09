@@ -109,17 +109,13 @@ class CachedRawResource;
 
         Ref<SecurityOrigin> topOrigin() const;
         SecurityOrigin& securityOrigin() const;
-        Ref<SecurityOrigin> protectedSecurityOrigin() const;
         const ContentSecurityPolicy& contentSecurityPolicy() const;
-        CheckedRef<const ContentSecurityPolicy> checkedContentSecurityPolicy() const;
-        const CrossOriginEmbedderPolicy& crossOriginEmbedderPolicy() const;
+        const CrossOriginEmbedderPolicy& NODELETE crossOriginEmbedderPolicy() const;
 
-        Document& document() { return *m_document; }
-        Ref<Document> protectedDocument();
-        Ref<const Document> protectedDocument() const;
+        Document* document() { return m_document; }
 
-        const ThreadableLoaderOptions& options() const { return m_options; }
-        const String& referrer() const { return m_referrer; }
+        const ThreadableLoaderOptions& options() const LIFETIME_BOUND { return m_options; }
+        const String& referrer() const LIFETIME_BOUND { return m_referrer; }
         bool isLoading() { return m_resource || m_preflightChecker; }
 
         void reportRedirectionWithBadScheme(const URL&);
@@ -130,8 +126,6 @@ class CachedRawResource;
 
         bool shouldSetHTTPHeadersToKeep() const;
         bool checkURLSchemeAsCORSEnabled(const URL&);
-
-        CachedResourceHandle<CachedRawResource> protectedResource() const;
 
         CachedResourceHandle<CachedRawResource> m_resource;
         WeakPtr<ThreadableLoaderClient> m_client;

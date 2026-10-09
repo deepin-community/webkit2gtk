@@ -103,7 +103,7 @@ void CachedResourceRequest::updateForAccessControl(Document& document)
 {
     ASSERT(m_options.mode == FetchOptions::Mode::Cors);
 
-    m_origin = document.securityOrigin();
+    m_origin = protect(document)->securityOrigin();
     updateRequestForAccessControl(m_resourceRequest, *m_origin, m_options.storedCredentialsPolicy);
 }
 
@@ -112,7 +112,7 @@ void upgradeInsecureResourceRequestIfNeeded(ResourceRequest& request, Document& 
     URL url = request.url();
 
     ASSERT(document.contentSecurityPolicy());
-    document.checkedContentSecurityPolicy()->upgradeInsecureRequestIfNeeded(url, ContentSecurityPolicy::InsecureRequestType::Load, alwaysUpgradeRequest);
+    protect(document.contentSecurityPolicy())->upgradeInsecureRequestIfNeeded(url, ContentSecurityPolicy::InsecureRequestType::Load, alwaysUpgradeRequest);
 
     if (url == request.url())
         return;
@@ -123,16 +123,6 @@ void upgradeInsecureResourceRequestIfNeeded(ResourceRequest& request, Document& 
 void CachedResourceRequest::upgradeInsecureRequestIfNeeded(Document& document, ContentSecurityPolicy::AlwaysUpgradeRequest alwaysUpgradeRequest)
 {
     upgradeInsecureResourceRequestIfNeeded(m_resourceRequest, document, alwaysUpgradeRequest);
-}
-
-void CachedResourceRequest::setDomainForCachePartition(Document& document)
-{
-    m_resourceRequest.setDomainForCachePartition(document.domainForCachePartition());
-}
-
-void CachedResourceRequest::setDomainForCachePartition(const String& domain)
-{
-    m_resourceRequest.setDomainForCachePartition(domain);
 }
 
 static inline void appendAdditionalSupportedImageMIMETypes(StringBuilder& acceptHeader)

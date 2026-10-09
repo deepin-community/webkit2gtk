@@ -34,7 +34,8 @@
 #include "RenderListItem.h"
 #include "RenderListMarker.h"
 #include "RenderObjectInlines.h"
-#include "RenderStyle+GettersInlines.h"
+#include "StyleComputedStyle+GettersInlines.h"
+#include "StylePrimitiveNumericTypes+Evaluation.h"
 #include "SurrogatePairAwareTextIterator.h"
 #include "TextIterator.h"
 #include "VisibleUnits.h"
@@ -784,7 +785,7 @@ AccessibilityObjectAtspi::TextAttributes AccessibilityObjectAtspi::textAttribute
             addAttributeIfNeeded("fg-color"_s, makeString(r, ',', g, ',', b));
         }
 
-        addAttributeIfNeeded("family-name"_s, style.fontCascade().firstFamily());
+        addAttributeIfNeeded("family-name"_s, style.fontCascade().firstFamily().name);
         addAttributeIfNeeded("size"_s, makeString(std::round(style.computedFontSize() * 72 / WebCore::fontDPI()), "pt"_s));
         addAttributeIfNeeded("weight"_s, makeString(static_cast<float>(style.fontCascade().weight())));
         addAttributeIfNeeded("style"_s, style.fontCascade().fontStyleSlope() ? "italic"_s : "normal"_s);
@@ -793,7 +794,7 @@ AccessibilityObjectAtspi::TextAttributes AccessibilityObjectAtspi::textAttribute
         addAttributeIfNeeded("invisible"_s, style.visibility() == Visibility::Hidden ? "true"_s : "false"_s);
         addAttributeIfNeeded("editable"_s, m_coreObject->canSetValueAttribute() ? "true"_s : "false"_s);
         addAttributeIfNeeded("direction"_s, style.writingMode().isBidiLTR() ? "ltr"_s : "rtl"_s);
-        addAttributeIfNeeded("indent"_s, makeString(Style::evaluate<float>(style.textIndent().length, m_coreObject->size().width(), style.usedZoomForLength())));
+        addAttributeIfNeeded("indent"_s, makeString(Style::evaluate<float>(style.textIndent().amount, m_coreObject->size().width(), style.usedZoomForLength())));
 
         switch (style.textAlign()) {
         case Style::TextAlign::Start:
@@ -908,8 +909,8 @@ AccessibilityObjectAtspi::TextAttributes AccessibilityObjectAtspi::textAttribute
         endPosition = lastPositionInOrAfterNode(endRenderer->node());
     }
 
-    auto startOffset = adjustOutputOffset(m_coreObject->indexForVisiblePosition(startPosition), m_hasListMarkerAtStart);
-    auto endOffset = adjustOutputOffset(m_coreObject->indexForVisiblePosition(endPosition), m_hasListMarkerAtStart);
+    auto startOffset = adjustOutputOffset(m_coreObject->indexForVisiblePosition(VisiblePosition(startPosition, VisiblePosition::defaultAffinity, AllowUserSelectNone::Yes)), m_hasListMarkerAtStart);
+    auto endOffset = adjustOutputOffset(m_coreObject->indexForVisiblePosition(VisiblePosition(endPosition, VisiblePosition::defaultAffinity, AllowUserSelectNone::Yes)), m_hasListMarkerAtStart);
     if (!includeDefault)
         return { WTF::move(attributes), startOffset, endOffset };
 
@@ -976,7 +977,7 @@ bool AccessibilityObjectAtspi::scrollToMakeVisible(int startOffset, int endOffse
 
     IntRect rect = m_coreObject->doAXBoundsForRange(CharacterRange(utf16StartOffset, utf16EndOffset - utf16StartOffset));
 
-    if (m_coreObject->isScrollView()) {
+    if (m_coreObject->isScrollArea()) {
         if (auto* parent = m_coreObject->parentObject())
             parent->scrollToMakeVisible();
     }

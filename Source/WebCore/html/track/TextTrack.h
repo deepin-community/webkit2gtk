@@ -56,6 +56,7 @@ public:
     void ref() const override { TrackBase::ref(); }
     void deref() const override { TrackBase::deref(); }
     USING_CAN_MAKE_WEAKPTR(EventTarget);
+    WebCoreOpaqueRoot opaqueRoot() const final { return TrackBase::opaqueRoot(); }
 
     void didMoveToNewDocument(Document& newDocument) final;
 
@@ -65,7 +66,7 @@ public:
 
     static bool isValidKindKeyword(const AtomString&);
 
-    TextTrackList* textTrackList() const;
+    TextTrackList* NODELETE textTrackList() const;
 
     enum class Kind { Subtitles, Captions, Descriptions, Chapters, Metadata, Forced };
     Kind kind() const;
@@ -87,11 +88,9 @@ public:
     void setReadinessState(ReadinessState state) { m_readinessState = state; }
 
     TextTrackCueList* cues();
-    RefPtr<TextTrackCueList> protectedCues();
     TextTrackCueList* activeCues() const LIFETIME_BOUND;
 
     TextTrackCueList* cuesInternal() const { return m_cues.get(); }
-    inline RefPtr<TextTrackCueList> protectedCues() const;
 
     void addClient(TextTrackClient&);
     void clearClient(TextTrackClient&);
@@ -100,7 +99,6 @@ public:
     virtual ExceptionOr<void> removeCue(TextTrackCue&);
 
     VTTRegionList* regions();
-    RefPtr<VTTRegionList> protectedRegions();
 
     void cueWillChange(TextTrackCue&);
     void cueDidChange(TextTrackCue&, bool);
@@ -113,6 +111,7 @@ public:
     virtual bool containsOnlyForcedSubtitles() const;
     virtual bool isMainProgramContent() const;
     virtual bool isEasyToRead() const { return false; }
+    virtual bool isMachineGenerated() const { return false; }
 
     int trackIndex();
     void invalidateTrackIndex()
@@ -121,9 +120,9 @@ public:
         m_renderedTrackIndex = std::nullopt;
     }
 
-    bool isRendered();
-    bool isSpoken();
-    int trackIndexRelativeToRenderedTracks();
+    bool NODELETE isRendered();
+    bool NODELETE isSpoken();
+    int NODELETE trackIndexRelativeToRenderedTracks();
 
     bool hasBeenConfigured() const { return m_hasBeenConfigured; }
     void setHasBeenConfigured(bool flag) { m_hasBeenConfigured = flag; }
@@ -141,13 +140,12 @@ public:
 
     virtual MediaTime startTimeVariance() const { return MediaTime::zeroTime(); }
 
-    const std::optional<Vector<String>>& styleSheets() const { return m_styleSheets; }
+    const std::optional<Vector<String>>& styleSheets() const LIFETIME_BOUND { return m_styleSheets; }
 
     virtual bool shouldPurgeCuesFromUnbufferedRanges() const { return false; }
     virtual void removeCuesNotInTimeRanges(const PlatformTimeRanges&);
 
     ScriptExecutionContext* scriptExecutionContext() const final;
-    RefPtr<ScriptExecutionContext> protectedScriptExecutionContext() const;
 
 protected:
     TextTrack(ScriptExecutionContext*, const AtomString& kind, TrackID, const AtomString& label, const AtomString& language, TextTrackType);
@@ -179,7 +177,6 @@ private:
     RefPtr<VTTRegionList> m_regions;
 
     TextTrackCueList& ensureTextTrackCueList();
-    Ref<TextTrackCueList> ensureProtectedTextTrackCueList();
     Kind convertKind(const AtomString&);
 
     Mode m_mode { Mode::Disabled };

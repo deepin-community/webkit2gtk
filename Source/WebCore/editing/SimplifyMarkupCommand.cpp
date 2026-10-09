@@ -27,11 +27,13 @@
 #include "SimplifyMarkupCommand.h"
 
 #include "ContainerNodeInlines.h"
+#include "HTMLElement.h"
+#include "HTMLNames.h"
 #include "NodeRenderStyle.h"
 #include "NodeTraversal.h"
 #include "RenderInline.h"
 #include "RenderObject.h"
-#include "RenderStyle.h"
+#include "StyleComputedStyle.h"
 #include "StyleDifference.h"
 
 namespace WebCore {
@@ -59,7 +61,7 @@ void SimplifyMarkupCommand::doApply()
             continue;
         
         RefPtr startingNode = node->parentNode();
-        auto* startingStyle = startingNode->renderStyle();
+        CheckedPtr startingStyle = startingNode->renderStyle();
         if (!startingStyle)
             continue;
         RefPtr currentNode = startingNode;

@@ -27,25 +27,21 @@
 #include "StyleComputedStyleBase+SettersInlines.h"
 
 #include "AutosizeStatus.h"
-#include "FontCascade.h"
+#include "FontCascadeInlines.h"
 #include "FontSelector.h"
 #include "Logging.h"
-#include "RenderStyle.h"
-#include "RenderStyle+GettersInlines.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include "StyleComputedStyle+DifferenceLogging.h"
 #include "StyleCustomProperty.h"
-#include "StylePrimitiveKeyword+Logging.h"
+#include "StyleKeyword+Logging.h"
 #include "StylePrimitiveNumericTypes+Evaluation.h"
 #include "StyleTextDecorationLine.h"
 #include "StyleTextTransform.h"
+#include "StyleZoom.h"
 #include <algorithm>
 #include <wtf/MathExtras.h>
 #include <wtf/StdLibExtras.h>
 #include <wtf/text/TextStream.h>
-
-#if ENABLE(TEXT_AUTOSIZING)
-#include <wtf/text/StringHash.h>
-#endif
 
 #define SET_VAR(group, variable, value) do { \
         if (!compareEqual(group->variable, value)) \
@@ -64,7 +60,7 @@ static_assert(PublicPseudoIDBits == allPublicPseudoElementTypes.size());
 static_assert(!(static_cast<unsigned>(maxTextTransformValue) >> TextTransformBits));
 
 // Value zero is used to indicate no pseudo-element.
-static_assert(!((enumToUnderlyingType(PseudoElementType::HighestEnumValue) + 1) >> PseudoElementTypeBits));
+static_assert(!((std::to_underlying(PseudoElementType::HighestEnumValue) + 1) >> PseudoElementTypeBits));
 
 DEFINE_ALLOCATOR_WITH_HEAP_IDENTIFIER(ComputedStyleBase);
 
@@ -101,12 +97,12 @@ std::optional<PseudoElementIdentifier> ComputedStyleBase::pseudoElementIdentifie
     return PseudoElementIdentifier { *pseudoElementType(), pseudoElementNameArgument() };
 }
 
-RenderStyle* ComputedStyleBase::getCachedPseudoStyle(const PseudoElementIdentifier& pseudoElementIdentifier) const
+Style::ComputedStyle* ComputedStyleBase::pseudoElementStyle(const PseudoElementIdentifier& pseudoElementIdentifier) const
 {
-    return m_cachedPseudoStyles.get(pseudoElementIdentifier);
+    return m_pseudoElementStyles.get(pseudoElementIdentifier);
 }
 
-RenderStyle* ComputedStyleBase::addCachedPseudoStyle(std::unique_ptr<RenderStyle> pseudo)
+Style::ComputedStyle* ComputedStyleBase::addPseudoElementStyle(std::unique_ptr<Style::ComputedStyle> pseudo)
 {
     if (!pseudo)
         return nullptr;
@@ -114,7 +110,7 @@ RenderStyle* ComputedStyleBase::addCachedPseudoStyle(std::unique_ptr<RenderStyle
     ASSERT(pseudo->pseudoElementType());
 
     auto* result = pseudo.get();
-    m_cachedPseudoStyles.add(*result->pseudoElementIdentifier(), WTF::move(pseudo));
+    m_pseudoElementStyles.add(*result->pseudoElementIdentifier(), WTF::move(pseudo));
     return result;
 }
 
@@ -184,11 +180,6 @@ void ComputedStyleBase::addCustomPaintWatchProperty(const AtomString& name)
 }
 
 // MARK: - FontCascade support.
-
-CheckedRef<const FontCascade> ComputedStyleBase::checkedFontCascade() const
-{
-    return fontCascade();
-}
 
 FontCascade& ComputedStyleBase::mutableFontCascadeWithoutUpdate()
 {
@@ -303,6 +294,21 @@ void ComputedStyleBase::setWordSpacingFromAnimation(WordSpacing&& value)
     }
 }
 
+void ComputedStyleBase::setZoomFromAnimation(Zoom value)
+{
+    // Match StyleBuilderCustom::applyValueZoom: treat zoom: 0 as 1.
+    if (evaluate<float>(value) < Zoom::minEffective)
+        value = Zoom { 1.0f };
+
+    // Replay StyleBuilderCustom::resetUsedZoom: recover parent.usedZoom from (zoom, usedZoom) so setUsedZoom below ends at parent.usedZoom * specifiedZoom.
+    auto currentSpecified = evaluate<float>(m_nonInheritedData->rareData->zoom);
+    auto parentUsedZoom = currentSpecified < Zoom::minEffective ? 1.0f : usedZoom() / currentSpecified;
+    setUsedZoom(clampTo<float>(parentUsedZoom * evaluate<float>(value), Zoom::minEffective, Zoom::maxEffective));
+
+    if (value != m_nonInheritedData->rareData->zoom)
+        m_nonInheritedData.access().rareData.access().zoom = value;
+}
+
 void ComputedStyleBase::synchronizeLetterSpacingWithFontCascade()
 {
     auto& fontCascade = mutableFontCascadeWithoutUpdate();
@@ -383,7 +389,7 @@ void ComputedStyleBase::updateUsedCounterIncrementDirectives()
 
     for (auto& counterIncrementValue : m_nonInheritedData->rareData->counterIncrement) {
         auto& directives = map.add(counterIncrementValue.name.value, CounterDirectives { }).iterator->value;
-        directives.incrementValue = saturatedSum(directives.incrementValue.value_or(0), counterIncrementValue.value.value);
+        directives.incrementValue = saturatingSum(directives.incrementValue.value_or(0), counterIncrementValue.value.value);
     }
 }
 
@@ -421,8 +427,8 @@ void ComputedStyleBase::NonInheritedFlags::dumpDifferences(TextStream& ts, const
     if (*this == other)
         return;
 
-    LOG_IF_DIFFERENT_WITH_CAST(DisplayType, effectiveDisplay);
-    LOG_IF_DIFFERENT_WITH_CAST(DisplayType, originalDisplay);
+    LOG_IF_DIFFERENT_WITH_CAST(Style::DisplayType, display);
+    LOG_IF_DIFFERENT_WITH_CAST(Style::DisplayType, originalDisplay);
     LOG_IF_DIFFERENT_WITH_CAST(Overflow, overflowX);
     LOG_IF_DIFFERENT_WITH_CAST(Overflow, overflowY);
     LOG_IF_DIFFERENT_WITH_CAST(Clear, clear);
@@ -431,7 +437,7 @@ void ComputedStyleBase::NonInheritedFlags::dumpDifferences(TextStream& ts, const
     LOG_IF_DIFFERENT_WITH_CAST(Float, floating);
 
     LOG_IF_DIFFERENT(usesViewportUnits);
-    LOG_IF_DIFFERENT(usesContainerUnits);
+    LOG_IF_DIFFERENT(isContainerDependent);
     LOG_IF_DIFFERENT(useTreeCountingFunctions);
 
     LOG_IF_DIFFERENT_WITH_FROM_RAW(TextDecorationLine, textDecorationLine);
@@ -439,7 +445,6 @@ void ComputedStyleBase::NonInheritedFlags::dumpDifferences(TextStream& ts, const
     LOG_IF_DIFFERENT(hasExplicitlyInheritedProperties);
     LOG_IF_DIFFERENT(disallowsFastPathInheritance);
 
-    LOG_IF_DIFFERENT(emptyState);
     LOG_IF_DIFFERENT(firstChildState);
     LOG_IF_DIFFERENT(lastChildState);
     LOG_IF_DIFFERENT(isLink);

@@ -63,28 +63,20 @@ CoordinatedPlatformLayerBufferHolePunch::CoordinatedPlatformLayerBufferHolePunch
 
 CoordinatedPlatformLayerBufferHolePunch::~CoordinatedPlatformLayerBufferHolePunch() = default;
 
+#if USE(GSTREAMER)
+void CoordinatedPlatformLayerBufferHolePunch::setHolePunchVideoRectangle(const IntRect& rect)
+{
+    if (m_videoSink && m_quirksManager)
+        m_quirksManager->setHolePunchVideoRectangle(m_videoSink.get(), rect);
+}
+#endif
+
 void CoordinatedPlatformLayerBufferHolePunch::paintToTextureMapper(TextureMapper& textureMapper, const FloatRect& targetRect, const TransformationMatrix& modelViewMatrix, float)
 {
 #if USE(GSTREAMER)
     if (m_videoSink && m_quirksManager)
-        m_quirksManager->setHolePunchVideoRectangle(m_videoSink.get(), enclosingIntRect(modelViewMatrix.mapRect(targetRect)));
+        setHolePunchVideoRectangle(enclosingIntRect(modelViewMatrix.mapRect(targetRect)));
 #endif
-    textureMapper.drawSolidColor(targetRect, modelViewMatrix, Color::transparentBlack, false);
-}
-
-void CoordinatedPlatformLayerBufferHolePunch::notifyVideoPosition(const FloatRect& targetRect, const TransformationMatrix& modelViewMatrix)
-{
-#if USE(GSTREAMER)
-    if (m_videoSink && m_quirksManager)
-        m_quirksManager->setHolePunchVideoRectangle(m_videoSink.get(), enclosingIntRect(modelViewMatrix.mapRect(targetRect)));
-#else
-    UNUSED_PARAM(targetRect);
-    UNUSED_PARAM(modelViewMatrix);
-#endif
-}
-
-void CoordinatedPlatformLayerBufferHolePunch::paintTransparentRectangle(TextureMapper& textureMapper, const FloatRect& targetRect, const TransformationMatrix& modelViewMatrix)
-{
     textureMapper.drawSolidColor(targetRect, modelViewMatrix, Color::transparentBlack, false);
 }
 

@@ -31,8 +31,9 @@
 #include "ArrayPrototype.h"
 #include "ClonedArguments.h"
 #include "DFGArgumentsUtilities.h"
-#include "DFGBlockMapInlines.h"
+#include <wtf/IndexMap.h>
 #include "DFGClobberize.h"
+#include "DFGCombinedLiveness.h"
 #include "DFGForAllKills.h"
 #include "DFGGraph.h"
 #include "DFGInsertionSet.h"
@@ -503,7 +504,7 @@ private:
         m_graph.initializeNodeOwners();
         CombinedLiveness combinedLiveness(m_graph);
 
-        BlockMap<Operands<bool>> clobberedByBlock(m_graph);
+        IndexMap<BasicBlock*, Operands<bool>> clobberedByBlock(m_graph.numBlocks());
         for (BasicBlock* block : m_graph.blocksInNaturalOrder()) {
             Operands<bool>& clobberedByThisBlock = clobberedByBlock[block];
             clobberedByThisBlock = Operands<bool>(OperandsLike, m_graph.block(0)->variablesAtHead);
@@ -722,7 +723,16 @@ private:
             }
 
             if (clobberStack) {
-                for (Node* node : combinedLiveness.liveAtTail[block])
+                // liveAtTail is the union of the CFG successors' liveAtHead, but a candidate can be kept
+                // alive solely by an exceptional exit to a catch entrypoint, which the DFG models as a
+                // non-CFG successor. Such a candidate is OSR-live at the terminal yet absent from
+                // liveAtTail, so a clobber of its source slots in this block would otherwise go
+                // unnoticed. Cover that gap with the nodes live at the terminal but dead on the tail.
+                // FIXME: If this is ever too conservative we can just calculate the locals used by
+                // the catch block for the terminal.
+                NodeSet possiblyLiveOut = bytecodeLivenessAtTerminal(m_graph, block);
+                possiblyLiveOut.addAll(combinedLiveness.liveAtTail[block]);
+                for (Node* node : possiblyLiveOut)
                     removeViaKill(block, block->size(), node);
 
                 for (unsigned nodeIndex = 0; nodeIndex < block->size(); ++nodeIndex) {
@@ -796,15 +806,7 @@ private:
                         break;
 
                     ASSERT(node->origin.exitOK);
-                    ASSERT(node->child1().useKind() == Int32Use);
-                    insertionSet.insertNode(
-                        nodeIndex, SpecNone, Check, node->origin,
-                        node->child1()); 
-
                     node->setOpAndDefaultFlags(PhantomCreateRest);
-                    // We don't need this parameter for OSR exit, we can find out all the information
-                    // we need via the static parameter count and the dynamic argument count.
-                    node->child1() = Edge(); 
                     break;
                     
                 case CreateClonedArguments:

@@ -131,8 +131,8 @@ public:
     // Clear the client, and clear the RefPtr, but leave parented.
     WEBCORE_EXPORT static void clear(RefPtr<GraphicsLayer>&);
 
-    WEBCORE_EXPORT void clearClient();
-    WEBCORE_EXPORT void setClient(GraphicsLayerClient&);
+    WEBCORE_EXPORT void NODELETE clearClient();
+    WEBCORE_EXPORT void NODELETE setClient(GraphicsLayerClient&);
 
     Type type() const { return m_type; }
 
@@ -144,19 +144,18 @@ public:
     GraphicsLayerClient& client() const { return *m_client; }
 
     // Layer name. Only used to identify layers in debug output
-    const String& name() const { return m_name; }
+    const String& name() const LIFETIME_BOUND { return m_name; }
     virtual void setName(const String& name) { m_name = name; }
     WEBCORE_EXPORT virtual String debugName() const;
 
-    GraphicsLayer* parent() const { return m_parent.get(); }
-    RefPtr<GraphicsLayer> protectedParent() const { return m_parent.get(); }
-    void setParent(GraphicsLayer*); // Internal use only.
+    GraphicsLayer* parent() const { return m_parent; }
+    void NODELETE setParent(GraphicsLayer*); // Internal use only.
     
     // Returns true if the layer has the given layer as an ancestor (excluding self).
-    bool hasAncestor(GraphicsLayer*) const;
+    bool NODELETE hasAncestor(GraphicsLayer*) const;
     
-    const Vector<Ref<GraphicsLayer>>& children() const { return m_children; }
-    Vector<Ref<GraphicsLayer>>& children() { return m_children; }
+    const Vector<Ref<GraphicsLayer>>& children() const LIFETIME_BOUND { return m_children; }
+    Vector<Ref<GraphicsLayer>>& children() LIFETIME_BOUND { return m_children; }
 
     // Returns true if the child list changed.
     WEBCORE_EXPORT virtual bool setChildren(Vector<Ref<GraphicsLayer>>&&);
@@ -188,7 +187,7 @@ public:
     // The layer that replicates this layer (if any).
     GraphicsLayer* replicaLayer() const { return m_replicaLayer.get(); }
 
-    const FloatPoint& replicatedLayerPosition() const { return m_replicatedLayerPosition; }
+    const FloatPoint& replicatedLayerPosition() const LIFETIME_BOUND { return m_replicatedLayerPosition; }
     void setReplicatedLayerPosition(const FloatPoint& p) { m_replicatedLayerPosition = p; }
 
     // Offset is origin of the renderer minus origin of the graphics layer.
@@ -205,7 +204,7 @@ public:
 #endif
 
     // The position of the layer (the location of its top-left corner in its parent)
-    const FloatPoint& position() const { return m_position; }
+    const FloatPoint& position() const LIFETIME_BOUND { return m_position; }
     virtual void setPosition(const FloatPoint& p) { m_approximatePosition = std::nullopt; m_position = p; }
 
     // approximatePosition, if set, overrides position() and is used during coverage rect computation.
@@ -217,25 +216,25 @@ public:
 
     // Anchor point: (0, 0) is top left, (1, 1) is bottom right. The anchor point
     // affects the origin of the transforms.
-    const FloatPoint3D& anchorPoint() const { return m_anchorPoint; }
+    const FloatPoint3D& anchorPoint() const LIFETIME_BOUND { return m_anchorPoint; }
     virtual void setAnchorPoint(const FloatPoint3D& p) { m_anchorPoint = p; }
 
     // The size of the layer.
-    const FloatSize& size() const { return m_size; }
+    const FloatSize& size() const LIFETIME_BOUND { return m_size; }
     WEBCORE_EXPORT virtual void setSize(const FloatSize&);
 
     // The boundOrigin affects the offset at which content is rendered, and sublayers are positioned.
-    const FloatPoint& boundsOrigin() const { return m_boundsOrigin; }
+    const FloatPoint& boundsOrigin() const LIFETIME_BOUND { return m_boundsOrigin; }
     virtual void setBoundsOrigin(const FloatPoint& origin) { m_boundsOrigin = origin; }
 
     // For platforms that move underlying platform layers on a different thread for scrolling; just update the GraphicsLayer state.
     virtual void syncBoundsOrigin(const FloatPoint& origin) { m_boundsOrigin = origin; }
 
-    WEBCORE_EXPORT const TransformationMatrix& transform() const;
+    WEBCORE_EXPORT const TransformationMatrix& NODELETE transform() const;
     WEBCORE_EXPORT virtual void setTransform(const TransformationMatrix&);
     bool hasNonIdentityTransform() const { return m_transform && !m_transform->isIdentity(); }
 
-    WEBCORE_EXPORT const TransformationMatrix& childrenTransform() const;
+    WEBCORE_EXPORT const TransformationMatrix& NODELETE childrenTransform() const;
     WEBCORE_EXPORT virtual void setChildrenTransform(const TransformationMatrix&);
     bool hasNonIdentityChildrenTransform() const { return m_childrenTransform && !m_childrenTransform->isIdentity(); }
 
@@ -288,12 +287,12 @@ public:
     virtual void setAppleVisualEffectData(AppleVisualEffectData effectData) { m_appleVisualEffectData = effectData; }
 #endif
 
-    bool needsBackdrop() const;
+    bool NODELETE needsBackdrop() const;
 
     // The color used to paint the layer background. Pass an invalid color to remove it.
     // Note that this covers the entire layer. Use setContentsToSolidColor() if the color should
     // only cover the contentsRect.
-    const Color& backgroundColor() const { return m_backgroundColor; }
+    const Color& backgroundColor() const LIFETIME_BOUND { return m_backgroundColor; }
     WEBCORE_EXPORT virtual void setBackgroundColor(const Color&);
 
     // opaque means that we know the layer contents have no alpha
@@ -306,15 +305,15 @@ public:
     float opacity() const { return m_opacity; }
     WEBCORE_EXPORT virtual void setOpacity(float);
 
-    const FilterOperations& filters() const { return m_filters; }
+    const FilterOperations& filters() const LIFETIME_BOUND { return m_filters; }
     // Returns true if filter can be rendered by the compositor.
     WEBCORE_EXPORT virtual bool setFilters(const FilterOperations&);
 
-    const FilterOperations& backdropFilters() const { return m_backdropFilters; }
+    const FilterOperations& backdropFilters() const LIFETIME_BOUND { return m_backdropFilters; }
     virtual bool setBackdropFilters(const FilterOperations& filters) { m_backdropFilters = filters; return true; }
 
     virtual void setBackdropFiltersRect(const FloatRoundedRect& backdropFiltersRect) { m_backdropFiltersRect = backdropFiltersRect; }
-    const FloatRoundedRect& backdropFiltersRect() const { return m_backdropFiltersRect; }
+    const FloatRoundedRect& backdropFiltersRect() const LIFETIME_BOUND { return m_backdropFiltersRect; }
 
     BlendMode blendMode() const { return m_blendMode; }
     virtual void setBlendMode(BlendMode blendMode) { m_blendMode = blendMode; }
@@ -351,16 +350,16 @@ public:
     virtual void setContentsRectClipsDescendants(bool b) { m_contentsRectClipsDescendants = b; }
 
     // Used to lay out video contents within a video layer.
-    MediaPlayerVideoGravity videoGravity() const;
+    MediaPlayerVideoGravity NODELETE videoGravity() const;
     WEBCORE_EXPORT virtual void setVideoGravity(MediaPlayerVideoGravity);
 
     Path shapeLayerPath() const;
     WEBCORE_EXPORT virtual void setShapeLayerPath(const Path&);
 
-    WindRule shapeLayerWindRule() const;
+    WindRule NODELETE shapeLayerWindRule() const;
     WEBCORE_EXPORT virtual void setShapeLayerWindRule(WindRule);
 
-    const EventRegion& eventRegion() const { return m_eventRegion; }
+    const EventRegion& eventRegion() const LIFETIME_BOUND { return m_eventRegion; }
     WEBCORE_EXPORT virtual void setEventRegion(EventRegion&&);
 
     // Transitions are identified by a special animation name that cannot clash with a keyframe identifier.
@@ -378,6 +377,7 @@ public:
         String property;
         double speed;
         bool isThreaded;
+        bool hasHighImpact;
     };
     virtual Vector<AcceleratedAnimationForTesting> acceleratedAnimationsForTesting() const { return { }; }
 
@@ -418,9 +418,6 @@ public:
 
     // For hosting this GraphicsLayer in a native layer hierarchy.
     virtual PlatformLayer* platformLayer() const { return nullptr; }
-#if PLATFORM(COCOA)
-    WEBCORE_EXPORT RetainPtr<CALayer> protectedPlatformLayer() const;
-#endif
 
     // Flippedness of the contents of this layer. Does not affect sublayer geometry.
     virtual void setContentsOrientation(CompositingCoordinatesOrientation orientation) { m_contentsOrientation = orientation; }
@@ -513,14 +510,13 @@ public:
     virtual bool backingStoreAttachedForTesting() const { return backingStoreAttached(); }
 
     virtual TiledBacking* tiledBacking() const { return 0; }
-    CheckedPtr<TiledBacking> checkedTiledBacking() const { return tiledBacking(); }
     WEBCORE_EXPORT virtual void setTileCoverage(TileCoverage);
 
     void resetTrackedRepaints();
     WEBCORE_EXPORT void addRepaintRect(const FloatRect&);
 
-    static bool supportsLayerType(Type);
-    static bool supportsContentsTiling();
+    static bool NODELETE supportsLayerType(Type);
+    static bool NODELETE supportsContentsTiling();
 
     WEBCORE_EXPORT void updateDebugIndicators();
 
@@ -535,7 +531,7 @@ public:
     bool renderingIsSuppressedIncludingDescendants() const { return m_renderingIsSuppressedIncludingDescendants; }
     void setRenderingIsSuppressedIncludingDescendants(bool suppressed) { m_renderingIsSuppressedIncludingDescendants = suppressed; }
 
-    const std::optional<FloatRect>& animationExtent() const { return m_animationExtent; }
+    const std::optional<FloatRect>& animationExtent() const LIFETIME_BOUND { return m_animationExtent; }
     void setAnimationExtent(std::optional<FloatRect> animationExtent) { m_animationExtent = animationExtent; }
 
     static void traverse(GraphicsLayer&, NOESCAPE const Function<void(GraphicsLayer&)>&);
@@ -543,7 +539,7 @@ public:
     virtual void markFrontBufferVolatileForTesting() { }
 
 #if ENABLE(THREADED_ANIMATIONS)
-    AcceleratedEffectStack* acceleratedEffectStack() const { return m_effectStack.get(); }
+    const AcceleratedEffectStack* acceleratedEffectStack() const { return m_effectStack.get(); }
     WEBCORE_EXPORT virtual void setAcceleratedEffectsAndBaseValues(AcceleratedEffects&&, AcceleratedEffectValues&&);
 #endif
 
@@ -700,6 +696,9 @@ protected:
 #if USE(CA)
     Path m_shadowPath;
     MediaPlayerVideoGravity m_videoGravity { MediaPlayerVideoGravity::ResizeAspect };
+#endif
+
+#if USE(CA) || USE(COORDINATED_GRAPHICS)
     WindRule m_shapeLayerWindRule { WindRule::NonZero };
     Path m_shapeLayerPath;
 #endif

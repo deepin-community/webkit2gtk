@@ -31,6 +31,7 @@
 #include "CSSUnits.h"
 #include "LayoutUnit.h"
 #include "WebAnimationUtilities.h"
+#include <wtf/ReducedResolutionSeconds.h>
 
 namespace WebCore {
 
@@ -53,6 +54,12 @@ WebAnimationTime::WebAnimationTime(const Seconds& value)
 {
 }
 
+WebAnimationTime::WebAnimationTime(const ReducedResolutionSeconds& value)
+    : m_type(Type::Time)
+    , m_value(value.seconds())
+{
+}
+
 WebAnimationTime::WebAnimationTime(Type type, double value)
     : m_type(type)
     , m_value(value)
@@ -67,8 +74,8 @@ WebAnimationTime::WebAnimationTime(const CSSNumberish& value)
         return;
     }
 
-    ASSERT(std::holds_alternative<RefPtr<CSSNumericValue>>(value));
-    auto numericValue = std::get<RefPtr<CSSNumericValue>>(value);
+    ASSERT(std::holds_alternative<Ref<CSSNumericValue>>(value));
+    auto numericValue = std::get<Ref<CSSNumericValue>>(value);
     if (RefPtr unitValue = dynamicDowncast<CSSUnitValue>(numericValue.get())) {
         if (unitValue->unitEnum() == CSSUnitType::CSS_NUMBER) {
             m_type = Type::Time;

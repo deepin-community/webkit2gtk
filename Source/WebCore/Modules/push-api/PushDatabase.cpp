@@ -334,7 +334,7 @@ SQLiteStatementAutoResetScope PushDatabase::cachedStatementOnQueue(ASCIILiteral 
     }
 
     auto statementRef = makeUniqueRefFromNonNullUniquePtr(WTF::move(statement));
-    auto statementPtr = statementRef.ptr();
+    CheckedPtr statementPtr = statementRef.ptr();
     m_statements.add(query, WTF::move(statementRef));
     return SQLiteStatementAutoResetScope(statementPtr);
 }
@@ -351,7 +351,7 @@ WebCore::SQLiteStatementAutoResetScope PushDatabase::bindStatementOnQueue(ASCIIL
     return sql;
 }
 
-static std::span<const uint8_t> uuidToSpan(const std::optional<WTF::UUID>& uuid)
+static std::span<const uint8_t> NODELETE uuidToSpan(const std::optional<WTF::UUID>& uuid)
 {
     if (!uuid) {
         // We store a null UUID as a zero-length blob rather than a SQL NULL. This is because the
@@ -690,6 +690,22 @@ void PushDatabase::getPushSubscriptionSetRecords(CompletionHandler<void(Vector<P
         }
 
         completeOnMainQueue(WTF::move(completionHandler), WTF::move(result));
+    });
+}
+
+void PushDatabase::getAllPushSubscriptionOrigins(CompletionHandler<void(Vector<String>&&)>&& completionHandler)
+{
+    dispatchOnWorkQueue([this, completionHandler = WTF::move(completionHandler)]() mutable {
+        Vector<String> origins;
+
+        auto sql = cachedStatementOnQueue("SELECT DISTINCT securityOrigin FROM SubscriptionSets WHERE state = 0"_s);
+        if (!sql)
+            return completeOnMainQueue(WTF::move(completionHandler), WTF::move(origins));
+
+        while (sql->step() == SQLITE_ROW)
+            origins.append(sql->columnText(0));
+
+        completeOnMainQueue(WTF::move(completionHandler), WTF::move(origins));
     });
 }
 

@@ -9,7 +9,7 @@ Index: webkitgtk/Source/WTF/wtf/PlatformCPU.h
 ===================================================================
 --- webkitgtk.orig/Source/WTF/wtf/PlatformCPU.h
 +++ webkitgtk/Source/WTF/wtf/PlatformCPU.h
-@@ -118,10 +118,12 @@
+@@ -113,10 +113,12 @@
  /* CPU(X86_64) - AMD64 / Intel64 / x86_64 64-bit */
  #if   defined(__x86_64__) \
      || defined(_M_X64)
@@ -21,12 +21,12 @@ Index: webkitgtk/Source/WTF/wtf/PlatformCPU.h
 +#endif
  
  /* CPU(ARM64) */
- #if defined(__arm64__) || defined(__aarch64__)
+ #if defined(__arm64__) || defined(__aarch64__) || defined(_M_ARM64)
 Index: webkitgtk/Source/cmake/WebKitCommon.cmake
 ===================================================================
 --- webkitgtk.orig/Source/cmake/WebKitCommon.cmake
 +++ webkitgtk/Source/cmake/WebKitCommon.cmake
-@@ -111,6 +111,8 @@ if (NOT HAS_RUN_WEBKIT_COMMON)
+@@ -168,6 +168,8 @@ if (NOT HAS_RUN_WEBKIT_COMMON)
          set(WTF_CPU_MIPS64 1)
      elseif (LOWERCASE_CMAKE_SYSTEM_PROCESSOR MATCHES "^mips")
          set(WTF_CPU_MIPS 1)

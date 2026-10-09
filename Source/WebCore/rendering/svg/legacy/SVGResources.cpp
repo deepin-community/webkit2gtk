@@ -20,15 +20,19 @@
 #include "config.h"
 #include "SVGResources.h"
 
+#include "Document.h"
+#include "DocumentInlines.h"
 #include "FilterOperation.h"
+#include "IsolatedSVGDocumentContext.h"
 #include "LegacyRenderSVGResourceClipperInlines.h"
+#include "LegacyRenderSVGResourceContainerInlines.h"
 #include "LegacyRenderSVGResourceFilterInlines.h"
 #include "LegacyRenderSVGResourceMarkerInlines.h"
 #include "LegacyRenderSVGResourceMaskerInlines.h"
 #include "LegacyRenderSVGRoot.h"
 #include "PathOperation.h"
-#include "ReferenceFilterOperation.h"
 #include "RenderElementInlines.h"
+#include "SVGDocumentExtensions.h"
 #include "SVGElementTypeHelpers.h"
 #include "SVGFilterElement.h"
 #include "SVGGradientElement.h"
@@ -36,6 +40,7 @@
 #include "SVGNames.h"
 #include "SVGPatternElement.h"
 #include "SVGURIReference.h"
+#include "Settings.h"
 #include "StyleCachedImage.h"
 #include <wtf/RobinHoodHashSet.h>
 #include <wtf/SetForScope.h>
@@ -49,9 +54,7 @@ namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(SVGResources);
 
-SVGResources::SVGResources()
-{
-}
+SVGResources::SVGResources() = default;
 
 static MemoryCompactLookupOnlyRobinHoodHashSet<AtomString> tagSet(std::span<decltype(SVGNames::aTag)* const> tags)
 {
@@ -88,7 +91,7 @@ static const MemoryCompactLookupOnlyRobinHoodHashSet<AtomString>& clipperFilterM
 
         // Not listed in the definitions is the clipPath element, the SVG spec says though:
         // The "clipPath" element or any of its children can specify property "clip-path".
-        // So we have to add clipPathTag here, otherwhise clip-path on clipPath will fail.
+        // So we have to add clipPathTag here, otherwise clip-path on clipPath will fail.
         // (Already mailed SVG WG, waiting for a solution)
         &SVGNames::clipPathTag,
 
@@ -167,10 +170,10 @@ static inline String targetReferenceFromResource(SVGElement& element)
     else
         ASSERT_NOT_REACHED();
 
-    return SVGURIReference::fragmentIdentifierFromIRIString(target, element.protectedDocument());
+    return SVGURIReference::fragmentIdentifierFromIRIString(target, protect(element.document()));
 }
 
-static inline bool isChainableResource(const SVGElement& element, const SVGElement& linkedResource)
+static inline bool NODELETE isChainableResource(const SVGElement& element, const SVGElement& linkedResource)
 {
     if (is<SVGPatternElement>(element))
         return is<SVGPatternElement>(linkedResource);
@@ -185,16 +188,12 @@ static inline bool isChainableResource(const SVGElement& element, const SVGEleme
     return false;
 }
 
-static inline CheckedPtr<LegacyRenderSVGResourceContainer> paintingResourceFromSVGPaint(TreeScope& treeScope, const Style::SVGPaint& paint, AtomString& id, bool& hasPendingResource)
+static CheckedPtr<LegacyRenderSVGResourceContainer> paintingResourceFromTreeScopeAndId(TreeScope& treeScope, const AtomString& id, bool* hasPendingResource)
 {
-    auto paintURL = paint.tryAnyURL();
-    if (!paintURL)
-        return nullptr;
-
-    id = SVGURIReference::fragmentIdentifierFromIRIString(*paintURL, treeScope.protectedDocumentScope());
     CheckedPtr container = getRenderSVGResourceContainerById(treeScope, id);
     if (!container) {
-        hasPendingResource = true;
+        if (hasPendingResource)
+            *hasPendingResource = true;
         return nullptr;
     }
 
@@ -205,7 +204,50 @@ static inline CheckedPtr<LegacyRenderSVGResourceContainer> paintingResourceFromS
     return container;
 }
 
-std::unique_ptr<SVGResources> SVGResources::buildCachedResources(const RenderElement& renderer, const RenderStyle& style)
+// The return value is tri-state because callers need to distinguish whether the reference is external at
+// all, and if so whether it's loaded yet: nullopt = not an external/data reference (resolve locally);
+// null RefPtr = external but not loaded yet (resolve to nothing); non-null = the isolated document to
+// resolve in.
+// FIXME: The external-or-not classification could be computed once at style-build time on Style::URL.
+static std::optional<RefPtr<SVGDocument>> externalSVGResourceDocument(Document& document, const WTF::URL& url)
+{
+    if (!document.settings().svgExternalResourcesEnabled())
+        return std::nullopt;
+
+    if (!url.protocolIsData() && !SVGURIReference::isExternalURIReference(url.string(), document))
+        return std::nullopt;
+
+    auto documentURL = url;
+    documentURL.removeFragmentIdentifier();
+
+    RefPtr isolatedContext = document.svgExtensions().isolatedSVGDocumentContext(documentURL);
+    return RefPtr { isolatedContext ? isolatedContext->document() : nullptr };
+}
+
+static inline CheckedPtr<LegacyRenderSVGResourceContainer> paintingResourceFromSVGPaint(TreeScope& treeScope, const Style::SVGPaint& paint, AtomString& id, bool& hasPendingResource)
+{
+    auto paintURL = paint.tryAnyURL();
+    if (!paintURL)
+        return nullptr;
+
+    Ref document = treeScope.documentScope();
+
+    if (auto externalDocument = externalSVGResourceDocument(document, paintURL->resolved)) {
+        id = paintURL->resolved.fragmentIdentifier().toAtomString();
+        RefPtr resolvedDocument = *externalDocument;
+        if (id.isEmpty() || !resolvedDocument)
+            return nullptr;
+
+        // The resource lives in the isolated document, which is realized separately and does not use
+        // this document's pending-resource mechanism so no hasPendingResource.
+        return paintingResourceFromTreeScopeAndId(*resolvedDocument, id, nullptr);
+    }
+
+    id = SVGURIReference::fragmentIdentifierFromIRIString(*paintURL, document);
+    return paintingResourceFromTreeScopeAndId(treeScope, id, &hasPendingResource);
+}
+
+std::unique_ptr<SVGResources> SVGResources::buildCachedResources(const RenderElement& renderer, const Style::ComputedStyle& style)
 {
     ASSERT(renderer.element());
     if (!renderer.element())
@@ -230,8 +272,14 @@ std::unique_ptr<SVGResources> SVGResources::buildCachedResources(const RenderEle
     if (clipperFilterMaskerTags().contains(tagName)) {
         WTF::switchOn(style.clipPath(),
             [&](const Style::ReferencePath& clipPath) {
-                // FIXME: -webkit-clip-path should support external resources
-                // https://bugs.webkit.org/show_bug.cgi?id=127032
+                if (auto externalDocument = externalSVGResourceDocument(document, clipPath.url().resolved)) {
+                    if (RefPtr resolvedDocument = *externalDocument) {
+                        auto id = clipPath.url().resolved.fragmentIdentifier().toAtomString();
+                        if (auto* clipper = getRenderSVGResourceById<LegacyRenderSVGResourceClipper>(*resolvedDocument, id))
+                            ensureResources(foundResources).setClipper(clipper);
+                    }
+                    return;
+                }
                 if (auto* clipper = getRenderSVGResourceById<LegacyRenderSVGResourceClipper>(treeScope, clipPath.fragment()))
                     ensureResources(foundResources).setClipper(clipper);
                 else
@@ -240,17 +288,24 @@ std::unique_ptr<SVGResources> SVGResources::buildCachedResources(const RenderEle
             [&](const auto&) { }
         );
 
-        if (style.hasFilter()) {
-            const auto& filterOperations = style.filter();
-            if (filterOperations.size() == 1) {
-                if (RefPtr referenceFilterOperation = dynamicDowncast<Style::ReferenceFilterOperation>(filterOperations[0].platform())) {
-                    auto id = referenceFilterOperation->fragment();
+        if (style.filter().size() == 1) {
+            WTF::switchOn(style.filter().first(),
+                [&](const Style::FilterReference& filterReference) {
+                    auto& id = filterReference.cachedFragment;
+                    if (auto externalDocument = externalSVGResourceDocument(document, filterReference.url.resolved)) {
+                        if (RefPtr resolvedDocument = *externalDocument) {
+                            if (auto* filter = getRenderSVGResourceById<LegacyRenderSVGResourceFilter>(*resolvedDocument, id))
+                                ensureResources(foundResources).setFilter(filter);
+                        }
+                        return;
+                    }
                     if (auto* filter = getRenderSVGResourceById<LegacyRenderSVGResourceFilter>(treeScope, id))
                         ensureResources(foundResources).setFilter(filter);
                     else
                         treeScope->addPendingSVGResource(id, element);
-                }
-            }
+                },
+                []<CSSValueID C, typename T>(const FunctionNotation<C, T>&) { }
+            );
         }
 
         if (style.hasPositionedMask()) {
@@ -267,6 +322,16 @@ std::unique_ptr<SVGResources> SVGResources::buildCachedResources(const RenderEle
 
     if (markerTags().contains(tagName) && style.hasMarkers()) {
         auto buildCachedMarkerResource = [&](const Style::SVGMarkerResource& markerResource, bool (SVGResources::*setMarker)(LegacyRenderSVGResourceMarker*)) {
+            if (auto markerURL = markerResource.tryURL()) {
+                if (auto externalDocument = externalSVGResourceDocument(document, markerURL->resolved)) {
+                    if (RefPtr resolvedDocument = *externalDocument) {
+                        auto markerId = markerURL->resolved.fragmentIdentifier().toAtomString();
+                        if (auto* marker = getRenderSVGResourceById<LegacyRenderSVGResourceMarker>(*resolvedDocument, markerId))
+                            (ensureResources(foundResources).*setMarker)(marker);
+                    }
+                    return;
+                }
+            }
             auto markerId = SVGURIReference::fragmentIdentifierFromIRIString(markerResource, document);
             if (auto* marker = getRenderSVGResourceById<LegacyRenderSVGResourceMarker>(treeScope, markerId))
                 (ensureResources(foundResources).*setMarker)(marker);
@@ -279,7 +344,7 @@ std::unique_ptr<SVGResources> SVGResources::buildCachedResources(const RenderEle
     }
 
     if (fillAndStrokeTags().contains(tagName)) {
-        if (style.hasFill()) {
+        if (!style.fill().isNone()) {
             bool hasPendingResource = false;
             AtomString id;
             if (CheckedPtr fill = paintingResourceFromSVGPaint(treeScope, style.fill(), id, hasPendingResource))
@@ -288,7 +353,7 @@ std::unique_ptr<SVGResources> SVGResources::buildCachedResources(const RenderEle
                 treeScope->addPendingSVGResource(id, element);
         }
 
-        if (style.hasStroke()) {
+        if (!style.stroke().isNone()) {
             bool hasPendingResource = false;
             AtomString id;
             if (CheckedPtr stroke = paintingResourceFromSVGPaint(treeScope, style.stroke(), id, hasPendingResource))
@@ -303,7 +368,7 @@ std::unique_ptr<SVGResources> SVGResources::buildCachedResources(const RenderEle
         auto* linkedResource = getRenderSVGResourceContainerById(document, id);
         if (!linkedResource)
             treeScope->addPendingSVGResource(id, element);
-        else if (isChainableResource(element, linkedResource->protectedElement()))
+        else if (isChainableResource(element, linkedResource->element()))
             ensureResources(foundResources).setLinkedResource(linkedResource);
     }
 
@@ -352,7 +417,7 @@ bool SVGResources::markerReverseStart() const
 {
     return m_markerData
         && m_markerData->markerStart
-        && m_markerData->markerStart->markerElement().orientType() == SVGMarkerOrientAutoStartReverse;
+        && protect(m_markerData->markerStart->markerElement())->orientType() == SVGMarkerOrientAutoStartReverse;
 }
 
 void SVGResources::removeClientFromCacheAndMarkForInvalidation(RenderElement& renderer, bool markForInvalidation) const

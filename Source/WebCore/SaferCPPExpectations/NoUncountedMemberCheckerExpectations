@@ -19,22 +19,21 @@ dom/Node.cpp
 dom/Node.h
 dom/TreeScope.h
 layout/formattingContexts/inline/InlineItemsBuilder.h
-[ iOS ] page/ios/ContentChangeObserver.h
+[ iOS ] page/cocoa/ContentChangeObserver.h
 platform/PODInterval.h
 [ iOS ] platform/audio/ios/AudioSessionIOS.mm
 platform/graphics/filters/software/FEConvolveMatrixSoftwareApplier.h
 platform/graphics/filters/software/FELightingSoftwareApplier.h
-platform/graphics/filters/software/FEMorphologySoftwareApplier.h
 platform/graphics/filters/software/FETurbulenceSoftwareApplier.h
 [ iOS ] platform/graphics/ios/DisplayRefreshMonitorIOS.mm
 [ iOS ] platform/ios/wak/WAKWindow.h
-rendering/PaintInfo.h
+[ iOS ] platform/mediastream/ios/CoreAudioCaptureSourceIOS.mm
 rendering/RenderLayer.h
 rendering/RenderLayerBacking.cpp
 rendering/RenderLayerBacking.h
 rendering/RenderLayerCompositor.cpp
 rendering/RenderLayerScrollableArea.h
-rendering/style/StyleGeneratedImage.cpp
+rendering/RenderQuote.cpp
 rendering/updating/RenderTreeUpdater.h
 style/ClassChangeInvalidation.cpp
 style/ElementRuleCollector.cpp
@@ -46,6 +45,7 @@ style/StyleResolver.cpp
 style/StyleScope.h
 style/StyleScopeRuleSets.h
 style/Styleable.h
+style/values/images/kinds/StyleGeneratedImage.cpp
 svg/properties/SVGPropertyOwnerRegistry.h
 xml/XPathGrammar.cpp
 xml/XPathGrammar.h

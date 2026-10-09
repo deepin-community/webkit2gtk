@@ -53,16 +53,16 @@ public:
         static_assert(maxPageCount < UINT_MAX, "We rely on this here.");
     }
 
-    PageCount(uint32_t pageCount)
+    PageCount(uint64_t pageCount)
         : m_pageCount(pageCount)
     { }
 
     void dump(WTF::PrintStream&) const;
 
-    uint64_t bytes() const { return static_cast<uint64_t>(m_pageCount) * static_cast<uint64_t>(pageSize); }
-    uint32_t pageCount() const { return m_pageCount; }
+    uint64_t bytes() const { return m_pageCount * static_cast<uint64_t>(pageSize); }
+    uint64_t pageCount() const { return m_pageCount; }
 
-    static bool isValid(uint32_t pageCount)
+    static bool isValid(uint64_t pageCount)
     {
         return pageCount <= maxPageCount;
     }
@@ -74,10 +74,15 @@ public:
 
     static PageCount fromBytes(uint64_t bytes)
     {
+        PageCount count = fromBytesUnchecked(bytes);
+        RELEASE_ASSERT(count.isValid());
+        return count;
+    }
+
+    static PageCount fromBytesUnchecked(uint64_t bytes)
+    {
         RELEASE_ASSERT(bytes % pageSize == 0);
-        uint32_t numPages = bytes / pageSize;
-        RELEASE_ASSERT(PageCount::isValid(numPages));
-        return PageCount(numPages);
+        return PageCount(bytes / pageSize);
     }
 
     static PageCount fromBytesWithRoundUp(uint64_t bytes)
@@ -99,9 +104,9 @@ public:
 
     PageCount operator+(const PageCount& other) const
     {
-        if (sumOverflows<uint32_t>(m_pageCount, other.m_pageCount))
+        if (sumOverflows<uint64_t>(m_pageCount, other.m_pageCount))
             return PageCount();
-        uint32_t newCount = m_pageCount + other.m_pageCount;
+        uint64_t newCount = m_pageCount + other.m_pageCount;
         if (!PageCount::isValid(newCount))
             return PageCount();
         return PageCount(newCount);
@@ -116,7 +121,7 @@ private:
     // be able to parse such a memory and instantiate it with a smaller initial size.
     static constexpr uint32_t maxPageCount = std::max<uint32_t>(64*1024, MAX_ARRAY_BUFFER_SIZE / static_cast<uint64_t>(pageSize));
 
-    uint32_t m_pageCount;
+    uint64_t m_pageCount;
 };
 
 } // namespace JSC

@@ -30,6 +30,7 @@
 #include <WebCore/RenderStyleConstants.h>
 #include <WebCore/ScrollAxis.h>
 #include <WebCore/ScrollTimelineOptions.h>
+#include <WebCore/StyleScrollFunction.h>
 #include <WebCore/Styleable.h>
 #include <wtf/Ref.h>
 #include <wtf/WeakHashSet.h>
@@ -40,8 +41,12 @@ namespace WebCore {
 class AnimationTimelinesController;
 class Document;
 class Element;
-class RenderStyle;
 class ScrollableArea;
+struct ResolvableTimelineRange;
+
+namespace Style {
+class ComputedStyle;
+}
 
 class ScrollTimeline : public AnimationTimeline {
 public:
@@ -50,7 +55,7 @@ public:
     static Ref<ScrollTimeline> create(Scroller, ScrollAxis);
     static Ref<ScrollTimeline> createInactiveStyleOriginatedTimeline(const AtomString& name);
 
-    const WeakStyleable& sourceStyleable() const { return m_source; }
+    const WeakStyleable& sourceStyleable() const LIFETIME_BOUND { return m_source; }
     virtual RefPtr<Element> bindingsSource() const;
     virtual RefPtr<Element> source() const;
     void setSource(Element*);
@@ -59,10 +64,12 @@ public:
     ScrollAxis axis() const { return m_axis; }
     void setAxis(ScrollAxis axis) { m_axis = axis; }
 
-    const AtomString& name() const { return m_name; }
+    const AtomString& name() const LIFETIME_BOUND { return m_name; }
     void setName(const AtomString& name) { m_name = name; }
 
     bool isInactiveStyleOriginatedTimeline() const { return m_isInactiveStyleOriginatedTimeline; }
+
+    bool NODELETE matchesAnonymousScrollFunctionForSource(const Style::ScrollFunction&, const Styleable&) const;
 
     AnimationTimeline::ShouldUpdateAnimationsAndSendEvents documentWillUpdateAnimationsAndSendEvents() override;
     void updateCurrentTimeIfStale();
@@ -75,7 +82,7 @@ public:
     void setTimelineScopeElement(const Element&);
     void clearTimelineScopeDeclaredElement() { m_timelineScopeElement = nullptr; }
 
-    virtual std::pair<WebAnimationTime, WebAnimationTime> intervalForAttachmentRange(const Style::SingleAnimationRange&) const;
+    virtual std::pair<WebAnimationTime, WebAnimationTime> intervalForAttachmentRange(const ResolvableTimelineRange&) const;
 
     void removeTimelineFromDocument(Element*);
 
@@ -87,6 +94,7 @@ public:
 #if ENABLE(THREADED_ANIMATIONS)
     WEBCORE_EXPORT std::optional<ScrollingNodeID> scrollingNodeIDForTesting() const;
     void updateAcceleratedRepresentation();
+    bool canBeAccelerated() const final;
 #endif
 
 protected:
@@ -102,6 +110,7 @@ protected:
     static ScrollableArea* scrollableAreaForSourceRenderer(const RenderElement*, Document&);
     ResolvedScrollDirection resolvedScrollDirection() const;
     void sourceMetricsDidChange();
+    bool isStyleOriginated() const { return m_isStyleOriginated; }
 
 #if ENABLE(THREADED_ANIMATIONS)
     void scheduleAcceleratedRepresentationUpdate();
@@ -113,7 +122,6 @@ private:
 
     bool isScrollTimeline() const final { return true; }
 #if ENABLE(THREADED_ANIMATIONS)
-    bool computeCanBeAccelerated() const final;
     Ref<AcceleratedTimeline> createAcceleratedRepresentation() const final;
 #endif
 
@@ -137,6 +145,7 @@ private:
     WeakPtr<Element, WeakPtrImplWithEventTargetData> m_timelineScopeElement;
     CurrentTimeData m_cachedCurrentTimeData { };
     bool m_isInactiveStyleOriginatedTimeline { false };
+    bool m_isStyleOriginated { false };
 };
 
 WTF::TextStream& operator<<(WTF::TextStream&, const ScrollTimeline&);

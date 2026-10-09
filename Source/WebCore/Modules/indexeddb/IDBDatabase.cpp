@@ -119,11 +119,6 @@ Ref<DOMStringList> IDBDatabase::objectStoreNames() const
     return objectStoreNames;
 }
 
-RefPtr<IDBTransaction> IDBDatabase::protectedVersionChangeTransaction() const
-{
-    return m_versionChangeTransaction;
-}
-
 void IDBDatabase::renameObjectStore(IDBObjectStore& objectStore, const String& newName)
 {
     ASSERT(canCurrentThreadAccessThreadLocalData(originThread()));
@@ -132,7 +127,7 @@ void IDBDatabase::renameObjectStore(IDBObjectStore& objectStore, const String& n
 
     m_info.renameObjectStore(objectStore.info().identifier(), newName);
 
-    protectedVersionChangeTransaction()->renameObjectStore(objectStore, newName);
+    protect(m_versionChangeTransaction)->renameObjectStore(objectStore, newName);
 }
 
 void IDBDatabase::renameIndex(IDBIndex& index, const String& newName)
@@ -144,7 +139,7 @@ void IDBDatabase::renameIndex(IDBIndex& index, const String& newName)
 
     m_info.infoForExistingObjectStore(index.objectStore().info().name())->infoForExistingIndex(index.info().identifier())->rename(newName);
 
-    protectedVersionChangeTransaction()->renameIndex(index, newName);
+    protect(m_versionChangeTransaction)->renameIndex(index, newName);
 }
 
 ScriptExecutionContext* IDBDatabase::scriptExecutionContext() const
@@ -433,7 +428,7 @@ void IDBDatabase::didCommitOrAbortTransaction(IDBTransaction& transaction)
     if (m_versionChangeTransaction == &transaction)
         m_versionChangeTransaction = nullptr;
 
-#ifndef NDBEBUG
+#if ASSERT_ENABLED
     unsigned count = 0;
     if (m_activeTransactions.contains(transaction.info().identifier()))
         ++count;
@@ -442,7 +437,7 @@ void IDBDatabase::didCommitOrAbortTransaction(IDBTransaction& transaction)
     if (m_abortingTransactions.contains(transaction.info().identifier()))
         ++count;
 
-    ASSERT_UNUSED(count, count == 1);
+    ASSERT(count == 1);
 #endif
 
     m_activeTransactions.remove(transaction.info().identifier());
@@ -504,7 +499,7 @@ void IDBDatabase::didDeleteIndexInfo(const IDBIndexInfo& info)
 
 std::optional<ScriptExecutionContextIdentifier> IDBDatabase::scriptExecutionContextIdentifier() const
 {
-    if (RefPtr context = scriptExecutionContext())
+    if (auto* context = scriptExecutionContext())
         return context->identifier();
 
     return std::nullopt;

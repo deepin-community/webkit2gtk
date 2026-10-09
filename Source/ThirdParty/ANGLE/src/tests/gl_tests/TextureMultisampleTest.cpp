@@ -6,10 +6,9 @@
 
 // TextureMultisampleTest: Tests of multisampled texture
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
+#include <array>
 
+#include "common/unsafe_buffers.h"
 #include "test_utils/ANGLETest.h"
 
 #include "test_utils/gl_raii.h"
@@ -768,6 +767,9 @@ TEST_P(TextureMultisampleTest, ResolveToDefaultFramebuffer)
 // ANGLE_texture_multisample not enabled, the feature isn't supported.
 TEST_P(NegativeTextureMultisampleTest, Negative)
 {
+    // Enums such as GL_SAMPLE_MASK are core in ES 3.1.
+    ANGLE_SKIP_TEST_IF(isAtLeastClientVersion(3, 1));
+
     // The extension must have been disabled in test init.
     ASSERT_FALSE(IsGLExtensionEnabled("GL_ANGLE_texture_multisample"));
 
@@ -1053,6 +1055,25 @@ TEST_P(TextureMultisampleArrayTest, InvalidTexParameteri)
     // Only valid base level on GL_TEXTURE_2D_MULTISAMPLE_ARRAY_OES is 0.
     glTexParameteri(GL_TEXTURE_2D_MULTISAMPLE_ARRAY_OES, GL_TEXTURE_BASE_LEVEL, 1);
     EXPECT_GL_ERROR(GL_INVALID_OPERATION);
+
+    if (EnsureGLExtensionEnabled("GL_EXT_texture_filter_anisotropic"))
+    {
+        glTexParameteri(GL_TEXTURE_2D_MULTISAMPLE_ARRAY_OES, GL_TEXTURE_MAX_ANISOTROPY_EXT, 1);
+        EXPECT_GL_ERROR(GL_INVALID_ENUM);
+    }
+
+    if (EnsureGLExtensionEnabled("GL_EXT_texture_sRGB_decode"))
+    {
+        glTexParameteri(GL_TEXTURE_2D_MULTISAMPLE_ARRAY_OES, GL_TEXTURE_SRGB_DECODE_EXT,
+                        GL_DECODE_EXT);
+        EXPECT_GL_ERROR(GL_INVALID_ENUM);
+    }
+
+    if (EnsureGLExtensionEnabled("GL_QCOM_texture_lod_bias"))
+    {
+        glTexParameteri(GL_TEXTURE_2D_MULTISAMPLE_ARRAY_OES, GL_TEXTURE_LOD_BIAS_QCOM, 0);
+        EXPECT_GL_ERROR(GL_INVALID_ENUM);
+    }
 }
 
 // Test a valid TexStorage3DMultisample call and check that the queried texture level parameters
@@ -1476,7 +1497,7 @@ void main()
 
     const uint32_t *ptr = reinterpret_cast<uint32_t *>(
         glMapBufferRange(GL_SHADER_STORAGE_BUFFER, 0, kBufferSize, GL_MAP_READ_BIT));
-    constexpr GLColor kExpectedColors[4] = {
+    constexpr std::array<GLColor, 4> kExpectedColors = {
         GLColor(96, 32, 0, 255),
         GLColor(223, 96, 0, 255),
         GLColor(32, 159, 0, 255),
@@ -1486,7 +1507,8 @@ void main()
     {
         for (GLsizei channel = 0; channel < kPixelChannels; ++channel)
         {
-            EXPECT_NEAR(ptr[pixel * kPixelChannels + channel], kExpectedColors[pixel][channel], 1)
+            ANGLE_UNSAFE_TODO(EXPECT_NEAR(ptr[pixel * kPixelChannels + channel],
+                                          kExpectedColors[pixel][channel], 1))
                 << pixel << " " << channel;
         }
     }

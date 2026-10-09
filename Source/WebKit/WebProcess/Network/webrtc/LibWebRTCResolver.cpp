@@ -50,7 +50,7 @@ void LibWebRTCResolver::sendOnMainThread(Function<void(IPC::Connection&)>&& call
 
 LibWebRTCResolver::~LibWebRTCResolver()
 {
-    WebProcess::singleton().libWebRTCNetwork().checkedSocketFactory()->removeResolver(identifier());
+    protect(WebProcess::singleton().libWebRTCNetwork().socketFactory())->removeResolver(identifier());
     sendOnMainThread([identifier = this->identifier()](IPC::Connection& connection) {
         connection.send(Messages::NetworkRTCProvider::StopResolver(identifier), 0);
     });
@@ -103,13 +103,16 @@ bool LibWebRTCResolver::GetResolvedAddress(int family, webrtc::SocketAddress* ad
 void LibWebRTCResolver::setResolvedAddress(Vector<webrtc::IPAddress>&& addresses)
 {
     m_addresses = WTF::move(addresses);
-    m_callback();
 }
 
 void LibWebRTCResolver::setError(int error)
 {
     m_error = error;
-    m_callback();
+}
+
+Function<void()> LibWebRTCResolver::takeCallback()
+{
+    return std::exchange(m_callback, { });
 }
 
 } // namespace WebKit

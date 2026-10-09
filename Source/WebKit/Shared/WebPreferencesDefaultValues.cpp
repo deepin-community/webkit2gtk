@@ -30,6 +30,7 @@
 
 #if PLATFORM(COCOA)
 #include "DefaultWebBrowserChecks.h"
+#include "NetworkSoftLink.h"
 #include <wtf/NumberOfCores.h>
 #include <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
 #if PLATFORM(IOS_FAMILY)
@@ -75,7 +76,7 @@ bool defaultShouldPrintBackgrounds()
 
 #if ENABLE(FULLSCREEN_API)
 
-bool defaultVideoFullscreenRequiresElementFullscreen()
+SUPPRESS_NODELETE bool defaultVideoFullscreenRequiresElementFullscreen()
 {
 #if USE(APPLE_INTERNAL_SDK)
     if (videoFullscreenRequiresElementFullscreenFromAdditions())
@@ -123,7 +124,7 @@ bool defaultCaptureAudioInGPUProcessEnabled()
 #endif
 }
 
-bool defaultManageCaptureStatusBarInGPUProcessEnabled()
+SUPPRESS_NODELETE bool defaultManageCaptureStatusBarInGPUProcessEnabled()
 {
 #if PLATFORM(IOS_FAMILY)
     // FIXME: Enable by default for all applications.
@@ -133,7 +134,7 @@ bool defaultManageCaptureStatusBarInGPUProcessEnabled()
 #endif
 }
 
-double defaultInactiveMediaCaptureStreamRepromptWithoutUserGestureIntervalInMinutes()
+SUPPRESS_NODELETE double defaultInactiveMediaCaptureStreamRepromptWithoutUserGestureIntervalInMinutes()
 {
     constexpr double inactiveMediaCaptureStreamRepromptIntervalForDesktop = 10;
 
@@ -243,7 +244,7 @@ bool defaultShowModalDialogEnabled()
 #if ENABLE(GAMEPAD)
 bool defaultGamepadVibrationActuatorEnabled()
 {
-#if HAVE(WIDE_GAMECONTROLLER_SUPPORT)
+#if HAVE(WIDE_GAMECONTROLLER_SUPPORT) || ENABLE(WPE_PLATFORM) || PLATFORM(GTK)
     return true;
 #else
     return false;
@@ -252,7 +253,7 @@ bool defaultGamepadVibrationActuatorEnabled()
 #endif
 
 #if ENABLE(WEB_AUTHN)
-bool defaultDigitalCredentialsEnabled()
+SUPPRESS_NODELETE bool defaultDigitalCredentialsEnabled()
 {
 #if HAVE(DIGITAL_CREDENTIALS_UI)
     static bool enabled = [] {
@@ -270,7 +271,7 @@ bool defaultDigitalCredentialsEnabled()
 }
 #endif
 
-bool defaultShouldEnableScreenOrientationAPI()
+SUPPRESS_NODELETE bool defaultShouldEnableScreenOrientationAPI()
 {
 #if PLATFORM(MAC)
     return true;
@@ -343,7 +344,7 @@ bool defaultBuiltInNotificationsEnabled()
 #endif
 
 #if ENABLE(DEVICE_ORIENTATION)
-bool defaultDeviceOrientationPermissionAPIEnabled()
+SUPPRESS_NODELETE bool defaultDeviceOrientationPermissionAPIEnabled()
 {
 #if PLATFORM(IOS_FAMILY)
     return linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::SupportsDeviceOrientationAndMotionPermissionAPI);
@@ -384,6 +385,17 @@ bool defaultIFrameResourceMonitoringEnabled()
 #endif
 }
 #endif
+
+bool defaultSearchInputResultsAttributeEnabled()
+{
+#if PLATFORM(COCOA)
+    static bool result = !isFullWebBrowserOrRunningTest()
+        && !linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::DisableNonStandardSearchInputResultsAttribute);
+    return result;
+#else
+    return false;
+#endif
+}
 
 #if HAVE(SPATIAL_AUDIO_EXPERIENCE)
 bool defaultPreferSpatialAudioExperience()
@@ -434,7 +446,7 @@ bool defaultTrustedTypesEnabled()
 #endif
 }
 
-bool defaultGetBoundingClientRectZoomedEnabled()
+SUPPRESS_NODELETE bool defaultGetBoundingClientRectZoomedEnabled()
 {
 #if PLATFORM(IOS_FAMILY)
     return linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::GetBoundingClientRectZoomed);
@@ -443,7 +455,7 @@ bool defaultGetBoundingClientRectZoomedEnabled()
 #endif
 }
 
-bool defaultFacebookLiveRecordingQuirkEnabled()
+SUPPRESS_NODELETE bool defaultFacebookLiveRecordingQuirkEnabled()
 {
 #if PLATFORM(MAC)
     return true;
@@ -509,5 +521,29 @@ bool defaultCaptionDisplaySettingsEnabled()
     return false;
 }
 #endif
+
+#if ENABLE(MEDIA_STREAM)
+bool defaultShouldEnableScreenCapture()
+{
+#if USE(APPLE_INTERNAL_SDK)
+    return defaultShouldEnableScreenCaptureFromAdditions();
+#endif
+
+#if USE(GSTREAMER) || PLATFORM(MAC)
+    return true;
+#endif
+
+    return false;
+}
+#endif
+
+bool defaultWebTransportEnabled()
+{
+#if PLATFORM(COCOA)
+    return canLoad_Network_nw_webtransport_options_set_allow_joining_before_ready();
+#else
+    return false;
+#endif
+}
 
 } // namespace WebKit

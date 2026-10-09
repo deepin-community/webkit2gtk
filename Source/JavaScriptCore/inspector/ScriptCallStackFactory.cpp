@@ -42,6 +42,7 @@
 #include "ScriptArguments.h"
 #include "ScriptCallFrame.h"
 #include "ScriptExecutable.h"
+#include "TopExceptionScope.h"
 #include <wtf/text/WTFString.h>
 
 namespace Inspector {
@@ -144,7 +145,7 @@ Ref<ScriptCallStack> createScriptCallStackForConsole(JSC::JSGlobalObject* global
 static bool extractSourceInformationFromException(JSC::JSGlobalObject* globalObject, JSObject* exceptionObject, LineColumn* lineColumn, String* sourceURL)
 {
     VM& vm = globalObject->vm();
-    auto scope = DECLARE_CATCH_SCOPE(vm);
+    auto scope = DECLARE_TOP_EXCEPTION_SCOPE(vm);
 
     // FIXME: <http://webkit.org/b/115087> Web Inspector: Should not need to evaluate JavaScript handling exceptions
     JSValue lineValue = exceptionObject->getDirect(vm, Identifier::fromString(vm, "line"_s));
@@ -158,7 +159,7 @@ static bool extractSourceInformationFromException(JSC::JSGlobalObject* globalObj
         lineColumn->column = columnValue && columnValue.isNumber() ? int(columnValue.toNumber(globalObject)) : 0;
         *sourceURL = sourceURLValue.toWTFString(globalObject);
         result = true;
-    } else if (ErrorInstance* error = jsDynamicCast<ErrorInstance*>(exceptionObject))
+    } else if (ErrorInstance* error = dynamicDowncast<ErrorInstance>(exceptionObject))
         result = getLineColumnAndSource(vm, error->stackTrace(), *lineColumn, *sourceURL);
 
     if (sourceURL->isEmpty())

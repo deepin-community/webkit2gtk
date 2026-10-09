@@ -28,9 +28,9 @@
 #include <wtf/Assertions.h>
 
 // Called from the AXObjectCache constructor.
-void setAccessibilityLogChannelEnabled(bool);
+void NODELETE setAccessibilityLogChannelEnabled(bool);
 
-bool isAccessibilityLogChannelEnabled();
+bool NODELETE isAccessibilityLogChannelEnabled();
 
 // Use AX_BROKEN_ASSERT when a non-fatal assertion is failing even though it should never happen.
 // It will change it to a release log, but only if the accessibility log channel is enabled. On macOS:
@@ -42,6 +42,7 @@ bool isAccessibilityLogChannelEnabled();
         RELEASE_LOG_ERROR_IF(!(assertion), Accessibility, "BROKEN ASSERTION FAILED in %s(%d) : %s\n", __FILE__, __LINE__, WTF_PRETTY_FUNCTION); \
     } \
 } while (0)
+#define AX_BROKEN_ASSERT_NOT_REACHED() AX_BROKEN_ASSERT(false)
 
 #ifndef AX_ASSERTS_ENABLED
 #define AX_ASSERTS_ENABLED 0

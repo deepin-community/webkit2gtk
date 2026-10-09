@@ -30,6 +30,7 @@
 #include "Document.h"
 #include "Logging.h"
 #include "TrackListBase.h"
+#include "TrackOpaqueRoot.h"
 #include "TrackPrivateBase.h"
 #include "TrackPrivateBaseClient.h"
 #include <JavaScriptCore/ConsoleTypes.h>
@@ -89,7 +90,19 @@ TrackBase::~TrackBase() = default;
 
 void TrackBase::didMoveToNewDocument(Document& newDocument)
 {
-    observeContext(newDocument.protectedContextDocument().ptr());
+    observeContext(protect(newDocument.contextDocument()).ptr());
+}
+
+void TrackBase::setOpaqueRoot(TrackOpaqueRoot& opaqueRoot)
+{
+    m_trackOpaqueRoot = opaqueRoot;
+}
+
+WebCoreOpaqueRoot TrackBase::opaqueRoot() const
+{
+    if (RefPtr trackOpaqueRoot = m_trackOpaqueRoot)
+        return trackOpaqueRoot->opaqueRoot();
+    return WebCoreOpaqueRoot { const_cast<TrackBase*>(this) };
 }
 
 #if ENABLE(MEDIA_SOURCE)
@@ -107,13 +120,13 @@ void TrackBase::setSourceBuffer(SourceBuffer* buffer)
 void TrackBase::setTrackList(TrackListBase& trackList)
 {
     m_trackList = trackList;
-    m_opaqueRoot = WebCoreOpaqueRoot { &trackList };
+    m_trackOpaqueRoot = trackList.trackOpaqueRoot();
 }
 
 void TrackBase::clearTrackList()
 {
     m_trackList = nullptr;
-    m_opaqueRoot = WebCoreOpaqueRoot { this };
+    m_trackOpaqueRoot = nullptr;
 }
 
 TrackListBase* TrackBase::trackList() const
@@ -121,16 +134,8 @@ TrackListBase* TrackBase::trackList() const
     return m_trackList.get();
 }
 
-WebCoreOpaqueRoot TrackBase::opaqueRoot() const
-{
-    // Runs on GC thread.
-    if (SUPPRESS_UNCOUNTED_LOCAL auto* trackList = this->trackList())
-        return trackList->opaqueRoot();
-    return WebCoreOpaqueRoot { const_cast<TrackBase*>(this) };
-}
-
 // See: https://tools.ietf.org/html/bcp47#section-2.1
-static bool isValidBCP47LanguageTag(const String& languageTag)
+static bool NODELETE isValidBCP47LanguageTag(const String& languageTag)
 {
     auto const length = languageTag.length();
 

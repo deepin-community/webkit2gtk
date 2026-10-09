@@ -77,7 +77,7 @@ void BiquadFilterNode::setType(BiquadFilterType type)
     // Synchronize with any graph changes or changes to channel configuration since
     // BiquadProcessor::setType() may iterate the processor's kernels via reset().
     Locker contextLocker { context().graphLock() };
-    checkedBiquadProcessor()->setType(type);
+    protect(biquadProcessor())->setType(type);
 }
 
 ExceptionOr<void> BiquadFilterNode::getFrequencyResponse(const Ref<Float32Array>& frequencyHz, const Ref<Float32Array>& magResponse, const Ref<Float32Array>& phaseResponse)
@@ -87,7 +87,7 @@ ExceptionOr<void> BiquadFilterNode::getFrequencyResponse(const Ref<Float32Array>
         return Exception { ExceptionCode::InvalidAccessError, "The arrays passed as arguments must have the same length"_s };
 
     if (length)
-        checkedBiquadProcessor()->getFrequencyResponse(length, frequencyHz->typedSpan(), magResponse->typedMutableSpan(), phaseResponse->typedMutableSpan());
+        protect(biquadProcessor())->getFrequencyResponse(length, frequencyHz->typedSpan(), magResponse->typedMutableSpan(), phaseResponse->typedMutableSpan());
     return { };
 }
 

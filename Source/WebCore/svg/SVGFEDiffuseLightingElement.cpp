@@ -25,11 +25,11 @@
 #include "FEDiffuseLighting.h"
 #include "NodeName.h"
 #include "RenderElement.h"
-#include "RenderStyle+GettersInlines.h"
 #include "SVGFELightElement.h"
 #include "SVGNames.h"
 #include "SVGParserUtilities.h"
 #include "SVGPropertyOwnerRegistry.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
@@ -63,15 +63,15 @@ void SVGFEDiffuseLightingElement::attributeChanged(const QualifiedName& name, co
         Ref { m_in1 }->setBaseValInternal(newValue);
         break;
     case AttributeNames::surfaceScaleAttr:
-        Ref { m_surfaceScale }->setBaseValInternal(newValue.toFloat());
+        m_surfaceScale->setBaseValInternal(newValue.toFloat());
         break;
     case AttributeNames::diffuseConstantAttr:
-        Ref { m_diffuseConstant }->setBaseValInternal(newValue.toFloat());
+        m_diffuseConstant->setBaseValInternal(newValue.toFloat());
         break;
     case AttributeNames::kernelUnitLengthAttr:
         if (auto result = parseNumberOptionalNumber(newValue)) {
-            Ref { m_kernelUnitLengthX }->setBaseValInternal(result->first);
-            Ref { m_kernelUnitLengthY }->setBaseValInternal(result->second);
+            m_kernelUnitLengthX->setBaseValInternal(result->first);
+            m_kernelUnitLengthY->setBaseValInternal(result->second);
         }
         break;
     default:
@@ -90,7 +90,7 @@ bool SVGFEDiffuseLightingElement::setFilterEffectAttribute(FilterEffect& filterE
 
     switch (attrName.nodeName()) {
     case AttributeNames::lighting_colorAttr:
-        return effect.setLightingColor(renderer()->checkedStyle()->lightingColorResolvingCurrentColorApplyingColorFilter());
+        return effect.setLightingColor(protect(renderer()->style())->lightingColorResolvingCurrentColorApplyingColorFilter());
     case AttributeNames::surfaceScaleAttr:
         return effect.setSurfaceScale(surfaceScale());
     case AttributeNames::diffuseConstantAttr:
@@ -163,7 +163,16 @@ RefPtr<FilterEffect> SVGFEDiffuseLightingElement::createFilterEffect(const Filte
         return nullptr;
 
     Ref lightSource = lightElement->lightSource();
-    return FEDiffuseLighting::create(renderer->checkedStyle()->lightingColorResolvingCurrentColorApplyingColorFilter(), surfaceScale(), diffuseConstant(), kernelUnitLengthX(), kernelUnitLengthY(), WTF::move(lightSource));
+    return FEDiffuseLighting::create(protect(renderer->style())->lightingColorResolvingCurrentColorApplyingColorFilter(), surfaceScale(), diffuseConstant(), kernelUnitLengthX(), kernelUnitLengthY(), WTF::move(lightSource));
+}
+
+bool SVGFEDiffuseLightingElement::taintsOrigin() const
+{
+    // §16.3: tainted when lighting-color depends on currentColor.
+    CheckedPtr renderer = this->renderer();
+    if (!renderer)
+        return false;
+    return renderer->style().lightingColor().containsCurrentColor();
 }
 
 } // namespace WebCore

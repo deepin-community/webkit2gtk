@@ -62,26 +62,26 @@ class WebExtensionAPIRuntime : public WebExtensionAPIObject, public WebExtension
 
 public:
     WebExtensionAPIRuntime& runtime() const final { return const_cast<WebExtensionAPIRuntime&>(*this); }
-    Ref<WebExtensionAPIRuntime> protectedRuntime() const { return runtime(); }
 
 #if PLATFORM(COCOA)
     bool isPropertyAllowed(const ASCIILiteral& propertyName, WebPage*);
 
     NSURL *getURL(const String& resourcePath, NSString **outExceptionString);
-    NSDictionary *getManifest();
+    NSDictionary *NODELETE getManifest();
     String getVersion();
     void getPlatformInfo(Ref<WebExtensionCallbackHandler>&&);
     void getBackgroundPage(Ref<WebExtensionCallbackHandler>&&);
     double getFrameId(JSValue *);
+    String getDocumentId(JSValue *, NSString **outExceptionString);
 
     void setUninstallURL(URL, Ref<WebExtensionCallbackHandler>&&);
 
     void openOptionsPage(Ref<WebExtensionCallbackHandler>&&);
     void reload();
 
-    String runtimeIdentifier();
+    String NODELETE runtimeIdentifier();
 
-    JSValue *lastError();
+    JSValue *NODELETE lastError();
 
     void sendMessage(WebPageProxyIdentifier, WebFrame&, const String& extensionID, const String& messageJSON, NSDictionary *options, Ref<WebExtensionCallbackHandler>&&, NSString **outExceptionString);
     RefPtr<WebExtensionAPIPort> connect(WebPageProxyIdentifier, WebFrame&, JSContextRef, const String& extensionID, NSDictionary *options, NSString **outExceptionString);
@@ -115,7 +115,6 @@ class WebExtensionAPIWebPageRuntime : public WebExtensionAPIObject, public WebEx
 
 public:
     WebExtensionAPIWebPageRuntime& runtime() const final { return const_cast<WebExtensionAPIWebPageRuntime&>(*this); }
-    Ref<WebExtensionAPIWebPageRuntime> protectedRuntime() const { return runtime(); }
 
 #if PLATFORM(COCOA)
     void sendMessage(WebPage&, WebFrame&, const String& extensionID, const String& messageJSON, NSDictionary *options, Ref<WebExtensionCallbackHandler>&&, NSString **outExceptionString);

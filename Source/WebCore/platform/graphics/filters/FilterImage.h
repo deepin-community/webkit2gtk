@@ -25,7 +25,6 @@
 
 #pragma once
 
-#include <JavaScriptCore/Forward.h>
 #include <WebCore/FloatRect.h>
 #include <WebCore/ImageBuffer.h>
 #include <WebCore/IntRect.h>
@@ -54,6 +53,7 @@ class FilterImage : public RefCounted<FilterImage> {
 public:
     static RefPtr<FilterImage> create(const FloatRect& primitiveSubregion, const FloatRect& imageRect, const IntRect& absoluteImageRect, bool isAlphaImage, bool isValidPremultiplied, RenderingMode, const DestinationColorSpace&, ImageBufferAllocator&);
     static RefPtr<FilterImage> create(const FloatRect& primitiveSubregion, const FloatRect& imageRect, const IntRect& absoluteImageRect, Ref<ImageBuffer>&&, ImageBufferAllocator&);
+    static RefPtr<FilterImage> create(const FloatRect& primitiveSubregion, FilterImage& other, ImageBufferAllocator&);
 
     // The return values are in filter coordinates.
     FloatRect primitiveSubregion() const { return m_primitiveSubregion; }
@@ -62,12 +62,12 @@ public:
 
     // The return values are in user-space coordinates.
     IntRect absoluteImageRect() const { return m_absoluteImageRect; }
-    IntRect absoluteImageRectRelativeTo(const FilterImage& origin) const;
+    IntRect NODELETE absoluteImageRectRelativeTo(const FilterImage& origin) const;
     FloatPoint mappedAbsolutePoint(const FloatPoint&) const;
 
     bool isAlphaImage() const { return m_isAlphaImage; }
     RenderingMode renderingMode() const { return m_renderingMode; }
-    const DestinationColorSpace& colorSpace() const { return m_colorSpace; }
+    const DestinationColorSpace& colorSpace() const LIFETIME_BOUND { return m_colorSpace; }
 
     size_t memoryCost() const;
 
@@ -77,8 +77,8 @@ public:
     RefPtr<PixelBuffer> getPixelBuffer(AlphaPremultiplication, const IntRect& sourceRect, std::optional<DestinationColorSpace> = std::nullopt);
     bool copyPixelBuffer(PixelBuffer& destinationPixelBuffer, const IntRect& sourceRect);
 
-    void correctPremultipliedPixelBuffer();
-    void transformToColorSpace(const DestinationColorSpace&);
+    void NODELETE correctPremultipliedPixelBuffer();
+    void NODELETE transformToColorSpace(const DestinationColorSpace&);
 
 #if USE(CORE_IMAGE)
     ImageBuffer* filterResultImageBuffer(const Filter&);
@@ -92,7 +92,7 @@ private:
     FilterImage(const FloatRect& primitiveSubregion, const FloatRect& imageRect, const IntRect& absoluteImageRect, bool isAlphaImage, bool isValidPremultiplied, RenderingMode, const DestinationColorSpace&, ImageBufferAllocator&);
     FilterImage(const FloatRect& primitiveSubregion, const FloatRect& imageRect, const IntRect& absoluteImageRect, Ref<ImageBuffer>&&, ImageBufferAllocator&);
 
-    RefPtr<PixelBuffer>& pixelBufferSlot(AlphaPremultiplication);
+    RefPtr<PixelBuffer>& NODELETE pixelBufferSlot(AlphaPremultiplication);
 
     ImageBuffer* imageBufferFromPixelBuffer();
 

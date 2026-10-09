@@ -26,6 +26,7 @@
 #pragma once
 
 #include "DownloadID.h"
+#include "NetworkProcessProxy.h"
 #include <wtf/HashMap.h>
 #include <wtf/Noncopyable.h>
 #include <wtf/RetainPtr.h>
@@ -47,7 +48,6 @@ class ResourceRequest;
 namespace WebKit {
 
 class DownloadProxy;
-class NetworkProcessProxy;
 class ProcessAssertion;
 class WebPageProxy;
 class WebsiteDataStore;
@@ -66,17 +66,17 @@ public:
     bool isEmpty() const { return m_downloads.isEmpty(); }
     void invalidate();
 
-    void ref() const;
+    void NODELETE ref() const;
     void deref() const;
 
 private:
-    Ref<NetworkProcessProxy> protectedProcess();
+    NetworkProcessProxy& process() const { return m_process; }
 
-    void platformCreate();
-    void platformDestroy();
+    void NODELETE platformCreate();
+    void NODELETE platformDestroy();
 
     WeakRef<NetworkProcessProxy> m_process;
-    HashMap<DownloadID, RefPtr<DownloadProxy>> m_downloads;
+    HashMap<DownloadID, Ref<DownloadProxy>> m_downloads;
 
     bool m_shouldTakeAssertion { false };
     RefPtr<ProcessAssertion> m_downloadUIAssertion;

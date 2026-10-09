@@ -26,7 +26,7 @@
 #pragma once
 
 #include <WebCore/MDNSRegisterError.h>
-#include <WebCore/MediaCapabilitiesInfo.h>
+#include <WebCore/PlatformMediaCapabilitiesInfo.h>
 #include <WebCore/RTCDataChannelRemoteHandlerConnection.h>
 #include <WebCore/RTCRtpCapabilities.h>
 #include <WebCore/ScriptExecutionContextIdentifier.h>
@@ -39,11 +39,11 @@
 namespace WebCore {
 
 class ContentType;
-struct VideoConfiguration;
-struct MediaCapabilitiesDecodingInfo;
-struct MediaCapabilitiesEncodingInfo;
-struct MediaDecodingConfiguration;
-struct MediaEncodingConfiguration;
+struct PlatformMediaCapabilitiesVideoConfiguration;
+struct PlatformMediaCapabilitiesDecodingInfo;
+struct PlatformMediaCapabilitiesEncodingInfo;
+struct PlatformMediaDecodingConfiguration;
+struct PlatformMediaEncodingConfiguration;
 
 class WEBCORE_EXPORT WebRTCProvider {
     WTF_MAKE_TZONE_ALLOCATED_EXPORT(WebRTCProvider, WEBCORE_EXPORT);
@@ -56,20 +56,20 @@ public:
 
     virtual RefPtr<RTCDataChannelRemoteHandlerConnection> createRTCDataChannelRemoteHandlerConnection();
 
-    using DecodingConfigurationCallback = Function<void(MediaCapabilitiesDecodingInfo&&)>;
-    using EncodingConfigurationCallback = Function<void(MediaCapabilitiesEncodingInfo&&)>;
-    void createDecodingConfiguration(MediaDecodingConfiguration&&, DecodingConfigurationCallback&&);
-    void createEncodingConfiguration(MediaEncodingConfiguration&&, EncodingConfigurationCallback&&);
+    using DecodingConfigurationCallback = Function<void(PlatformMediaCapabilitiesDecodingInfo&&)>;
+    using EncodingConfigurationCallback = Function<void(PlatformMediaCapabilitiesEncodingInfo&&)>;
+    void createDecodingConfiguration(PlatformMediaDecodingConfiguration&&, DecodingConfigurationCallback&&);
+    void createEncodingConfiguration(PlatformMediaEncodingConfiguration&&, EncodingConfigurationCallback&&);
 
     void setAV1Support(bool);
     void setH265Support(bool);
     void setVP9Support(bool supportsVP9Profile0, bool supportsVP9Profile2);
-    bool isSupportingAV1() const;
-    bool isSupportingH265() const;
-    bool isSupportingVP9Profile0() const;
-    bool isSupportingVP9Profile2() const;
+    bool NODELETE isSupportingAV1() const;
+    bool NODELETE isSupportingH265() const;
+    bool NODELETE isSupportingVP9Profile0() const;
+    bool NODELETE isSupportingVP9Profile2() const;
 
-    bool isSupportingMDNS() const;
+    bool NODELETE isSupportingMDNS() const;
 
 #if ENABLE(WEB_RTC)
     virtual std::optional<RTCRtpCapabilities> receiverCapabilities(const String&);
@@ -80,10 +80,12 @@ public:
     virtual void clearFactory();
 
     void setPortAllocatorRange(StringView);
-    std::optional<std::pair<int, int>> portAllocatorRange() const;
+    std::optional<std::pair<int, int>> NODELETE portAllocatorRange() const;
 
     virtual bool isLibWebRTCProvider() const { return false; }
     virtual bool isWebCoreLibWebRTCProvider() const { return false; }
+
+    virtual bool isWebCoreGStreamerWebRTCProvider() const;
 
 protected:
 #if ENABLE(WEB_RTC)
@@ -92,7 +94,7 @@ protected:
     std::optional<RTCRtpCapabilities>& audioEncodingCapabilities();
     std::optional<RTCRtpCapabilities>& videoEncodingCapabilities();
 
-    std::optional<RTCRtpCodecCapability> codecCapability(const ContentType&, const std::optional<RTCRtpCapabilities>&);
+    std::optional<RTCRtpCodec> codecCapability(const ContentType&, const std::optional<RTCRtpCapabilities>&);
 
     std::optional<RTCRtpCapabilities> m_audioDecodingCapabilities;
     std::optional<RTCRtpCapabilities> m_videoDecodingCapabilities;
@@ -100,10 +102,10 @@ protected:
     std::optional<RTCRtpCapabilities> m_videoEncodingCapabilities;
 #endif
 
-    virtual std::optional<MediaCapabilitiesInfo> computeVPParameters(const VideoConfiguration&);
-    virtual bool isVPSoftwareDecoderSmooth(const VideoConfiguration&);
-    virtual bool isVPXEncoderSmooth(const VideoConfiguration&);
-    virtual bool isH264EncoderSmooth(const VideoConfiguration&);
+    virtual std::optional<PlatformMediaCapabilitiesInfo> computeVPParameters(const PlatformMediaCapabilitiesVideoConfiguration&);
+    virtual bool isVPSoftwareDecoderSmooth(const PlatformMediaCapabilitiesVideoConfiguration&);
+    virtual bool isVPXEncoderSmooth(const PlatformMediaCapabilitiesVideoConfiguration&);
+    virtual bool isH264EncoderSmooth(const PlatformMediaCapabilitiesVideoConfiguration&);
 
     bool m_supportsAV1 { false };
     bool m_supportsH265 { false };
@@ -119,8 +121,8 @@ private:
     virtual void initializeAudioEncodingCapabilities();
     virtual void initializeVideoEncodingCapabilities();
 
-    virtual std::optional<MediaCapabilitiesDecodingInfo> videoDecodingCapabilitiesOverride(const VideoConfiguration&);
-    virtual std::optional<MediaCapabilitiesEncodingInfo> videoEncodingCapabilitiesOverride(const VideoConfiguration&);
+    virtual std::optional<PlatformMediaCapabilitiesDecodingInfo> videoDecodingCapabilitiesOverride(const PlatformMediaCapabilitiesVideoConfiguration&);
+    virtual std::optional<PlatformMediaCapabilitiesEncodingInfo> videoEncodingCapabilitiesOverride(const PlatformMediaCapabilitiesVideoConfiguration&);
 };
 
 } // namespace WebCore

@@ -52,10 +52,10 @@ class TextFieldInputType : public InputType, protected SpinButtonOwner, protecte
     WTF_MAKE_TZONE_ALLOCATED(TextFieldInputType);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(TextFieldInputType);
 public:
+    bool valueMissing(StringView) const final;
+
     void ref() const override { InputType::ref(); }
     void deref() const override { InputType::deref(); }
-
-    bool valueMissing(const String&) const final;
 
 protected:
     explicit TextFieldInputType(Type, HTMLInputElement&);
@@ -64,12 +64,12 @@ protected:
     void handleKeydownEventForSpinButton(KeyboardEvent&);
     void handleClickEvent(MouseEvent&) final;
 
-    HTMLElement* containerElement() const final;
-    HTMLElement* innerBlockElement() const final;
+    HTMLElement* NODELETE containerElement() const final;
+    HTMLElement* NODELETE innerBlockElement() const final;
     RefPtr<TextControlInnerTextElement> innerTextElement() const final;
-    HTMLElement* innerSpinButtonElement() const final;
-    HTMLElement* autoFillButtonElement() const final;
-    HTMLElement* dataListButtonElement() const final;
+    HTMLElement* NODELETE innerSpinButtonElement() const final;
+    HTMLElement* NODELETE autoFillButtonElement() const final;
+    HTMLElement* NODELETE dataListButtonElement() const final;
 
     virtual bool needsContainer() const { return false; }
     void createShadowSubtree() override;
@@ -94,10 +94,10 @@ private:
     void handleBeforeTextInsertedEvent(BeforeTextInsertedEvent&) override;
     void forwardEvent(Event&) final;
     bool shouldSubmitImplicitly(Event&) final;
-    RenderPtr<RenderElement> createInputRenderer(RenderStyle&&) override;
+    RenderPtr<RenderElement> createInputRenderer(Style::ComputedStyle&&) override;
     bool shouldUseInputMethod() const override { return true; }
     bool shouldRespectListAttribute() override;
-    HTMLElement* placeholderElement() const final;
+    HTMLElement* NODELETE placeholderElement() const final;
     void updatePlaceholderText() final;
     bool appendFormData(DOMFormData&) const final;
     void subtreeHasChanged() final;
@@ -136,6 +136,7 @@ private:
     // DataListSuggestionsClient
     IntRect elementRectInRootViewCoordinates() const final;
     Vector<DataListSuggestion> suggestions() final;
+    std::optional<FrameIdentifier> rootFrameID() const final;
     void didSelectDataListOption(const String&) final;
     void didCloseSuggestions() final;
 

@@ -68,7 +68,7 @@ using namespace WebCore;
 Ref<RemoteRenderingBackendProxy> RemoteRenderingBackendProxy::create(WebPage& webPage)
 {
     Ref instance = adoptRef(*new RemoteRenderingBackendProxy(RunLoop::mainSingleton()));
-    RELEASE_LOG_FORWARDABLE(RemoteLayerBuffers, REMOTE_RENDERING_BACKEND_PROXY_CREATED_RENDERING_BACKEND, instance->renderingBackendIdentifier().toUInt64(),  webPage.webPageProxyIdentifier().toUInt64(), webPage.identifier().toUInt64());
+    RELEASE_LOG_FORWARDABLE(RemoteLayerBuffers, RemoteRenderingBackendProxyCreatedRenderingBackend, instance->renderingBackendIdentifier().toUInt64(),  webPage.webPageProxyIdentifier().toUInt64(), webPage.identifier().toUInt64());
     return instance;
 }
 
@@ -244,7 +244,7 @@ void RemoteRenderingBackendProxy::disconnectGPUProcess()
     m_getPixelBufferSharedMemory = nullptr;
     m_renderingUpdateID = { };
     m_didRenderingUpdateID = { };
-    protectedConnection()->invalidate();
+    protect(m_connection)->invalidate();
     m_connection = nullptr;
     m_isResponsive = false;
     m_gpuProcessConnection = nullptr;
@@ -428,6 +428,18 @@ void RemoteRenderingBackendProxy::releaseNativeImage(RenderingResourceIdentifier
     send(Messages::RemoteRenderingBackend::ReleaseNativeImage(identifier));
 }
 
+void RemoteRenderingBackendProxy::cachePathImpl(Ref<PathImpl>&& path, RemotePathImplIdentifier identifier)
+{
+    send(Messages::RemoteRenderingBackend::CachePathImpl(WTF::move(path), identifier));
+}
+
+void RemoteRenderingBackendProxy::releasePathImpl(RemotePathImplIdentifier identifier)
+{
+    if (!m_connection)
+        return;
+    send(Messages::RemoteRenderingBackend::ReleasePathImpl(identifier));
+}
+
 void RemoteRenderingBackendProxy::cacheFont(const WebCore::Font::Attributes& fontAttributes, const WebCore::FontPlatformDataAttributes& platformData, std::optional<WebCore::RenderingResourceIdentifier> ident)
 {
     send(Messages::RemoteRenderingBackend::CacheFont(fontAttributes, platformData, ident));
@@ -567,7 +579,7 @@ void RemoteRenderingBackendProxy::markSurfacesVolatile(Vector<std::pair<Ref<Remo
     Vector<std::pair<ImageBufferSetIdentifier, OptionSet<BufferInSetType>>> identifiers;
     for (auto& pair : bufferSets) {
         identifiers.append(std::make_pair(pair.first->identifier(), pair.second));
-        Ref { pair.first }->addRequestedVolatility(pair.second);
+        pair.first->addRequestedVolatility(pair.second);
     }
     auto requestIdentifier = MarkSurfacesAsVolatileRequestIdentifier::generate();
     auto result = send(Messages::RemoteRenderingBackend::MarkSurfacesVolatile(requestIdentifier, identifiers, forcePurge));
@@ -670,13 +682,11 @@ void RemoteRenderingBackendProxy::didInitialize(IPC::Semaphore&& wakeUp, IPC::Se
     connection->setSemaphores(WTF::move(wakeUp), WTF::move(clientWait));
 }
 
-bool RemoteRenderingBackendProxy::isCached(const ImageBuffer& imageBuffer) const
+RefPtr<RemoteImageBufferProxy> RemoteRenderingBackendProxy::cachedImageBuffer(const ImageBuffer& imageBuffer) const
 {
-    if (RefPtr cachedImageBuffer = m_imageBuffers.get(imageBuffer.renderingResourceIdentifier()).get()) {
-        ASSERT_UNUSED(cachedImageBuffer, cachedImageBuffer == &imageBuffer);
-        return true;
-    }
-    return false;
+    RefPtr cached = m_imageBuffers.get(imageBuffer.renderingResourceIdentifier()).get();
+    ASSERT(!cached || cached == &imageBuffer);
+    return cached;
 }
 
 #if USE(GRAPHICS_LAYER_WC)

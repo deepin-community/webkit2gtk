@@ -29,12 +29,18 @@
 #include <WebCore/CoordinatedCompositionReason.h>
 #include <WebCore/Damage.h>
 #include <WebCore/DisplayUpdate.h>
+#include <WebCore/FloatRect.h>
 #include <WebCore/GLContext.h>
+#include <WebCore/IntRect.h>
 #include <WebCore/IntSize.h>
 #include <WebCore/RunLoopObserver.h>
 #include <WebCore/TextureMapperDamageVisualizer.h>
 #include <atomic>
 #include <optional>
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
+#include <skia/gpu/ganesh/GrContextThreadSafeProxy.h>
+#include <skia/gpu/ganesh/GrDirectContext.h>
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
 #include <wtf/Atomics.h>
 #include <wtf/CheckedPtr.h>
 #include <wtf/Noncopyable.h>
@@ -42,16 +48,25 @@
 #include <wtf/TZoneMalloc.h>
 #include <wtf/ThreadSafeRefCounted.h>
 #include <wtf/WorkQueue.h>
+#include <wtf/text/CString.h>
+
+class SkCanvas;
 
 namespace WebCore {
 class TextureMapper;
 class TransformationMatrix;
 }
 
+namespace WTF {
+enum class Critical : bool;
+}
+
 namespace WebKit {
 class AcceleratedSurface;
+enum class TargetContents : bool;
 class CoordinatedSceneState;
 class LayerTreeHost;
+class WebPage;
 struct RenderProcessInfo;
 
 class ThreadedCompositor : public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<ThreadedCompositor>, public CanMakeThreadSafeCheckedPtr<ThreadedCompositor> {
@@ -59,7 +74,7 @@ class ThreadedCompositor : public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPt
     WTF_MAKE_NONCOPYABLE(ThreadedCompositor);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(ThreadedCompositor);
 public:
-    static Ref<ThreadedCompositor> create(LayerTreeHost&);
+    static Ref<ThreadedCompositor> create(WebPage&, LayerTreeHost&, CoordinatedSceneState&);
     virtual ~ThreadedCompositor();
 
     uint64_t surfaceID() const;
@@ -89,23 +104,30 @@ public:
         Unified = 1 << 0,
         UseForCompositing = 1 << 1
     };
-    void setDamagePropagationFlags(std::optional<OptionSet<DamagePropagationFlags>>);
+    void setDamagePropagationSettings(std::optional<OptionSet<DamagePropagationFlags>>, unsigned rectangleThreshold);
     void enableFrameDamageNotificationForTesting();
 #endif
 
     void fillGLInformation(RenderProcessInfo&&, CompletionHandler<void(RenderProcessInfo&&)>&&);
 
+    void releaseMemory(WTF::Critical);
+
+    sk_sp<GrContextThreadSafeProxy> threadSafeGrContext() const { return m_threadSafeGrContext; }
+
 private:
-    explicit ThreadedCompositor(LayerTreeHost&);
+    ThreadedCompositor(WebPage&, LayerTreeHost&, CoordinatedSceneState&);
 
     void startRenderTimer();
     void stopRenderTimer();
+    void updateRenderTimer();
     bool isOnlyRenderingUpdatePendingAndWaitingForTiles() const;
 
     void scheduleUpdateLocked();
     void flushCompositingState(const OptionSet<WebCore::CompositionReason>&);
     void renderLayerTree();
-    void paintToCurrentGLContext(const WebCore::TransformationMatrix&, const WebCore::IntSize&, const OptionSet<WebCore::CompositionReason>&);
+    TargetContents paintToCurrentGLContext(const WebCore::TransformationMatrix&, const WebCore::IntSize&, const OptionSet<WebCore::CompositionReason>&);
+    void paintToTextureMapper(const WebCore::TransformationMatrix&, const WebCore::IntSize&, const OptionSet<WebCore::CompositionReason>&);
+    TargetContents paintToSkiaCanvas(const WebCore::TransformationMatrix&, const WebCore::IntSize&, const OptionSet<WebCore::CompositionReason>&);
     void frameComplete();
 
     void didCompositeRunLoopObserverFired();
@@ -114,12 +136,24 @@ private:
 
     void initializeFPSCounter();
     void updateFPSCounter();
+    void updateFPSCounterGeometry();
+    WebCore::FloatRect fpsCounterRect() const;
+    void drawFPSCounter(SkCanvas&);
+#if ENABLE(DAMAGE_TRACKING)
+    bool drawsOverlay() const;
+
+    WebCore::IntRect takeFPSCounterDamage();
+    void recordFrameDamage(WebCore::Damage&&);
+    bool damageUsedForCompositing() const;
+#endif
 
     const Ref<WorkQueue> m_workQueue;
     CheckedPtr<LayerTreeHost> m_layerTreeHost;
+    bool m_useSkia { false };
     RefPtr<AcceleratedSurface> m_surface;
     RefPtr<CoordinatedSceneState> m_sceneState;
     std::unique_ptr<WebCore::GLContext> m_context;
+    sk_sp<GrContextThreadSafeProxy> m_threadSafeGrContext;
 
     bool m_flipY { false };
     int m_maxTextureSize { 0 };
@@ -129,7 +163,8 @@ private:
         Idle,
         Scheduled,
         InProgress,
-        ScheduledWhileInProgress
+        ScheduledWhileInProgress,
+        Invalidated
     };
     static ASCIILiteral stateToString(State);
 
@@ -153,16 +188,27 @@ private:
 
     struct {
         bool exposesFPS { false };
+        bool drawsFPS { false };
         Seconds calculationInterval { 1_s };
         MonotonicTime lastCalculationTimestamp;
         unsigned frameCountSinceLastCalculation { 0 };
+        int lastFPS { 0 };
         std::atomic<std::optional<float>> fps;
+
+        // On-screen overlay state, only used when drawsFPS is set.
+        int displayedFPS { -1 };
+        CString fpsString;
+        float backgroundWidth { 0 };
+        float backgroundHeight { 0 };
+        float textBaseline { 0 };
+        WebCore::IntRect lastDrawnRect;
     } m_fpsCounter;
 
 #if ENABLE(DAMAGE_TRACKING)
     struct {
         std::optional<OptionSet<DamagePropagationFlags>> flags;
         std::unique_ptr<WebCore::TextureMapperDamageVisualizer> visualizer;
+        bool showAccumulatedDamageOverlay { false };
         std::atomic<bool> shouldNotifyFrameDamageForTesting { false };
     } m_damage;
 #endif

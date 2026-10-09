@@ -47,8 +47,6 @@ static JSC_DECLARE_HOST_FUNCTION(reflectObjectSetPrototypeOf);
 
 namespace JSC {
 
-const ASCIILiteral ReflectOwnKeysNonObjectArgumentError { "Reflect.ownKeys requires the first argument be an object"_s };
-
 STATIC_ASSERT_IS_TRIVIALLY_DESTRUCTIBLE(ReflectObject);
 
 const ClassInfo ReflectObject::s_info = { "Reflect"_s, &Base::s_info, &reflectObjectTable, nullptr, CREATE_METHOD_TABLE(ReflectObject) };
@@ -107,7 +105,7 @@ JSC_DEFINE_HOST_FUNCTION(reflectObjectConstruct, (JSGlobalObject* globalObject, 
     }
 
     MarkedArgumentBuffer arguments;
-    JSObject* argumentsObject = jsDynamicCast<JSObject*>(callFrame->argument(1));
+    JSObject* argumentsObject = dynamicDowncast<JSObject>(callFrame->argument(1));
     if (!argumentsObject)
         return JSValue::encode(throwTypeError(globalObject, scope, "Reflect.construct requires the second argument be an object"_s));
 

@@ -22,11 +22,12 @@
 #include "config.h"
 #include "SVGDocumentExtensions.h"
 
+#include "CachedImage.h"
+#include "Document.h"
 #include "DocumentPage.h"
-#include "EventListener.h"
 #include "FrameDestructionObserverInlines.h"
 #include "FrameLoader.h"
-#include "LocalDOMWindow.h"
+#include "IsolatedSVGDocumentContext.h"
 #include "LocalFrame.h"
 #include "SMILTimeContainer.h"
 #include "SVGElement.h"
@@ -35,18 +36,17 @@
 #include "SVGSMILElement.h"
 #include "SVGSVGElement.h"
 #include "SVGUseElement.h"
-#include "ScriptableDocumentParser.h"
-#include "ShadowRoot.h"
 #include <JavaScriptCore/ConsoleTypes.h>
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/AtomString.h>
 #include <wtf/text/MakeString.h>
+#include <wtf/text/StringHash.h>
 
 namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(SVGDocumentExtensions);
 
-static bool animationsPausedForDocument(Document& document)
+static bool NODELETE animationsPausedForDocument(Document& document)
 {
     return !document.page() || !document.page()->isVisible() || !document.page()->imageAnimationEnabled();
 }
@@ -85,7 +85,7 @@ void SVGDocumentExtensions::startAnimations()
     // In the future we should refactor the use-element to avoid this. See https://webkit.org/b/53704
     auto timeContainers = copyToVectorOf<Ref<SVGSVGElement>>(m_timeContainers);
     for (auto& element : timeContainers)
-        element->protectedTimeContainer()->begin();
+        protect(element->timeContainer())->begin();
 }
 
 void SVGDocumentExtensions::pauseAnimations()
@@ -95,15 +95,10 @@ void SVGDocumentExtensions::pauseAnimations()
     m_areAnimationsPaused = true;
 }
 
-Ref<Document> SVGDocumentExtensions::protectedDocument() const
-{
-    return m_document.get();
-}
-
 void SVGDocumentExtensions::unpauseAnimations()
 {
     // If animations are paused at the document level, don't allow `this` to be unpaused.
-    if (animationsPausedForDocument(protectedDocument()))
+    if (animationsPausedForDocument(m_document))
         return;
 
     for (Ref container : m_timeContainers)
@@ -129,12 +124,12 @@ static void reportMessage(Document& document, MessageLevel level, const String& 
 
 void SVGDocumentExtensions::reportWarning(const String& message)
 {
-    reportMessage(protectedDocument(), MessageLevel::Warning, makeString("Warning: "_s, message));
+    reportMessage(protect(m_document), MessageLevel::Warning, makeString("Warning: "_s, message));
 }
 
 void SVGDocumentExtensions::reportError(const String& message)
 {
-    reportMessage(protectedDocument(), MessageLevel::Error, makeString("Error: "_s, message));
+    reportMessage(protect(m_document), MessageLevel::Error, makeString("Error: "_s, message));
 }
 
 void SVGDocumentExtensions::addElementToRebuild(SVGElement& element)
@@ -177,6 +172,22 @@ void SVGDocumentExtensions::unregisterSVGFontFaceElement(SVGFontFaceElement& ele
 {
     ASSERT(m_svgFontFaceElements.contains(element));
     m_svgFontFaceElements.remove(element);
+}
+
+bool SVGDocumentExtensions::hasExternalSVGResource(const URL& url) const
+{
+    return m_externalSVGDocuments.contains(url);
+}
+
+void SVGDocumentExtensions::addExternalSVGResource(const URL& url, CachedImage& cachedImage, Document& document)
+{
+    m_externalSVGDocuments.set(url, IsolatedSVGDocumentContext::create(cachedImage, document));
+}
+
+IsolatedSVGDocumentContext* SVGDocumentExtensions::isolatedSVGDocumentContext(const URL& url) const
+{
+    auto it = m_externalSVGDocuments.find(url);
+    return it != m_externalSVGDocuments.end() ? it->value.ptr() : nullptr;
 }
 
 }

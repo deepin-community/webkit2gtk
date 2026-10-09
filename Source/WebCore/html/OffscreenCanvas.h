@@ -68,12 +68,12 @@ template<typename> class ExceptionOr;
 
 using OffscreenRenderingContext = Variant<
 #if ENABLE(WEBGL)
-    RefPtr<WebGLRenderingContext>,
-    RefPtr<WebGL2RenderingContext>,
+    Ref<WebGLRenderingContext>,
+    Ref<WebGL2RenderingContext>,
 #endif
-    RefPtr<GPUCanvasContext>,
-    RefPtr<ImageBitmapRenderingContext>,
-    RefPtr<OffscreenCanvasRenderingContext2D>
+    Ref<GPUCanvasContext>,
+    Ref<ImageBitmapRenderingContext>,
+    Ref<OffscreenCanvasRenderingContext2D>
 >;
 
 class PlaceholderRenderingContext;
@@ -87,10 +87,10 @@ class DetachedOffscreenCanvas {
 public:
     DetachedOffscreenCanvas(const IntSize&, bool originClean, RefPtr<PlaceholderRenderingContextSource>&&);
     WEBCORE_EXPORT ~DetachedOffscreenCanvas();
-    const IntSize& size() const { return m_size; }
+    const IntSize& size() const LIFETIME_BOUND { return m_size; }
     bool originClean() const { return m_originClean; }
-    const RefPtr<PlaceholderRenderingContextSource>& placeholderSource() const { return m_placeholderSource; }
-    RefPtr<PlaceholderRenderingContextSource> takePlaceholderSource();
+    const RefPtr<PlaceholderRenderingContextSource>& placeholderSource() const LIFETIME_BOUND { return m_placeholderSource; }
+    RefPtr<PlaceholderRenderingContextSource> NODELETE takePlaceholderSource();
 
 private:
     RefPtr<PlaceholderRenderingContextSource> m_placeholderSource;
@@ -145,7 +145,7 @@ public:
 
     SecurityOrigin* securityOrigin() const final;
 
-    bool canDetach() const;
+    bool NODELETE canDetach() const;
     std::unique_ptr<DetachedOffscreenCanvas> detach();
 
     void commitToPlaceholderCanvas();

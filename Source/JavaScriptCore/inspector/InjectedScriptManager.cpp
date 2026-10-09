@@ -32,11 +32,11 @@
 #include "InjectedScriptManager.h"
 
 #include "BuiltinNames.h"
-#include "CatchScope.h"
 #include "InjectedScriptHost.h"
 #include "JSLock.h"
 #include "JSObjectInlines.h"
 #include "SourceCode.h"
+#include "TopExceptionScope.h"
 #include <wtf/JSONValues.h>
 #include <wtf/TZoneMallocInlines.h>
 
@@ -140,11 +140,11 @@ Expected<JSObject*, NakedPtr<Exception>> InjectedScriptManager::createInjectedSc
 {
     VM& vm = globalObject->vm();
     JSLockHolder lock(vm);
-    auto scope = DECLARE_CATCH_SCOPE(vm);
+    auto scope = DECLARE_TOP_EXCEPTION_SCOPE(vm);
 
     JSValue globalThisValue = globalObject->globalThis();
 
-    auto* functionValue = jsCast<JSFunction*>(globalObject->linkTimeConstant(LinkTimeConstant::createInspectorInjectedScript));
+    auto* functionValue = uncheckedDowncast<JSFunction>(globalObject->linkTimeConstant(LinkTimeConstant::createInspectorInjectedScript));
     RETURN_IF_EXCEPTION(scope, makeUnexpected(scope.exception()));
     if (!functionValue)
         return nullptr;
@@ -173,7 +173,7 @@ InjectedScript InjectedScriptManager::injectedScriptFor(JSGlobalObject* globalOb
             return it1->value;
     }
 
-    if (!checkedInspectorEnvironment()->canAccessInspectedScriptState(globalObject))
+    if (!protect(inspectorEnvironment())->canAccessInspectedScriptState(globalObject))
         return InjectedScript();
 
     int id = injectedScriptIdFor(globalObject);

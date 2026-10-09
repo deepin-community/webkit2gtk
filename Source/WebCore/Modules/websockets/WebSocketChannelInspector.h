@@ -47,7 +47,8 @@ public:
     ~WebSocketChannelInspector();
 
     void didCreateWebSocket(const URL&) const;
-    void willSendWebSocketHandshakeRequest(const ResourceRequest&) const;
+    void willSendWebSocketHandshakeRequest(ResourceRequest&) const;
+    void didSendWebSocketHandshakeRequest(const ResourceRequest&) const;
     void didReceiveWebSocketHandshakeResponse(const ResourceResponse&) const;
     void didCloseWebSocket() const;
     void didReceiveWebSocketFrame(const WebSocketFrame&) const;
@@ -56,7 +57,7 @@ public:
     
     WebSocketChannelIdentifier progressIdentifier() const { return m_progressIdentifier; }
 
-    static WebSocketFrame createFrame(std::span<const uint8_t> data, WebSocketFrame::OpCode);
+    static WebSocketFrame NODELETE createFrame(std::span<const uint8_t> data, WebSocketFrame::OpCode);
 
 private:
     WeakPtr<Document, WeakPtrImplWithEventTargetData> m_document;

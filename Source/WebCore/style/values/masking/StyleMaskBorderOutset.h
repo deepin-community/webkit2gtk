@@ -28,11 +28,16 @@
 #include <WebCore/StylePrimitiveNumericTypes.h>
 
 namespace WebCore {
+
+namespace CSS {
+struct MaskBorderOutset;
+}
+
 namespace Style {
 
 // <mask-border-outset-value> = <length [0,∞]> | <number [0,∞]>
 struct MaskBorderOutsetValue {
-    using Length = Style::Length<CSS::Nonnegative, float>;
+    using Length = Style::Length<CSS::NonnegativeUnzoomed, float>;
     using Number = Style::Number<CSS::Nonnegative, float>;
 
     constexpr MaskBorderOutsetValue(Length length)
@@ -123,14 +128,17 @@ DEFINE_TYPE_WRAPPER_GET(MaskBorderOutset, values);
 
 // MARK: - Conversion
 
+template<> struct ToCSS<MaskBorderOutset> { auto operator()(const MaskBorderOutset&, const Style::ComputedStyle&) -> CSS::MaskBorderOutset; };
+template<> struct ToStyle<CSS::MaskBorderOutset> { auto operator()(const CSS::MaskBorderOutset&, const BuilderState&) -> MaskBorderOutset; };
+
 template<> struct CSSValueConversion<MaskBorderOutset> { auto operator()(BuilderState&, const CSSValue&) -> MaskBorderOutset; };
-template<> struct CSSValueCreation<MaskBorderOutset> { auto operator()(CSSValuePool&, const RenderStyle&, const MaskBorderOutset&) -> Ref<CSSValue>; };
+template<> struct CSSValueCreation<MaskBorderOutset> { auto operator()(CSSValuePool&, const Style::ComputedStyle&, const MaskBorderOutset&) -> Ref<CSSValue>; };
 
 // MARK: - Blending
 
 template<> struct Blending<MaskBorderOutsetValue> {
-    auto canBlend(const MaskBorderOutsetValue&, const MaskBorderOutsetValue&) -> bool;
-    auto requiresInterpolationForAccumulativeIteration(const MaskBorderOutsetValue&, const MaskBorderOutsetValue&) -> bool;
+    bool NODELETE canBlend(const MaskBorderOutsetValue&, const MaskBorderOutsetValue&);
+    bool NODELETE requiresInterpolationForAccumulativeIteration(const MaskBorderOutsetValue&, const MaskBorderOutsetValue&);
     auto blend(const MaskBorderOutsetValue&, const MaskBorderOutsetValue&, const BlendingContext&) -> MaskBorderOutsetValue;
 };
 

@@ -40,6 +40,7 @@ namespace WebCore {
 
 class DOMPromise;
 class DeferredPromise;
+class JSDOMGlobalObject;
 class ReadableStream;
 class ReadableStreamReadIntoRequest;
 
@@ -52,13 +53,13 @@ public:
     ~ReadableStreamBYOBReader();
 
     struct ReadOptions {
-        size_t min { 1 };
+        uint64_t min { 1 };
     };
 
     void readForBindings(JSDOMGlobalObject&, JSC::ArrayBufferView&, ReadOptions, Ref<DeferredPromise>&&);
     void releaseLock(JSDOMGlobalObject&);
 
-    DOMPromise& closedPromise();
+    DOMPromise& NODELETE closedPromise();
 
     Ref<DOMPromise> cancel(JSDOMGlobalObject&, JSC::JSValue);
 
@@ -73,10 +74,10 @@ public:
     using ClosedCallback = Function<void(JSDOMGlobalObject&, JSC::JSValue)>;
     void onClosedPromiseRejection(ClosedCallback&&);
 
-    void read(JSDOMGlobalObject&, JSC::ArrayBufferView&, size_t, Ref<ReadableStreamReadIntoRequest>&&);
+    void read(JSDOMGlobalObject&, JSC::ArrayBufferView&, uint64_t, Ref<ReadableStreamReadIntoRequest>&&);
 
     bool isReachableFromOpaqueRoots() const;
-    template<typename Visitor> void visitAdditionalChildren(Visitor&);
+    template<typename Visitor> void visitAdditionalChildrenInGCThread(Visitor&);
 
 private:
     explicit ReadableStreamBYOBReader(Ref<DOMPromise>&&, Ref<DeferredPromise>&&);
@@ -97,6 +98,6 @@ private:
     ClosedCallback m_closedCallback;
 };
 
-WebCoreOpaqueRoot root(ReadableStreamBYOBReader*);
+WebCoreOpaqueRoot NODELETE root(ReadableStreamBYOBReader*);
 
 } // namespace WebCore

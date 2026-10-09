@@ -106,7 +106,7 @@ NetworkDataTask::NetworkDataTask(NetworkSession& session, NetworkDataTaskClient&
         return;
     }
 
-    checkedNetworkSession()->registerNetworkDataTask(*this);
+    protect(networkSession())->registerNetworkDataTask(*this);
 }
 
 NetworkDataTask::~NetworkDataTask()
@@ -219,7 +219,7 @@ void NetworkDataTask::restrictRequestReferrerToOriginIfNeeded(WebCore::ResourceR
 
 String NetworkDataTask::attributedBundleIdentifier(WebPageProxyIdentifier pageID)
 {
-    if (CheckedPtr session = m_session.get())
+    if (auto* session = m_session.get())
         return session->attributedBundleIdentifierFromPageIdentifier(pageID);
     return { };
 }

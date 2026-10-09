@@ -43,7 +43,7 @@ public:
         unsigned callCount { 0 };
         Seconds maxDuration;
         
-        Seconds meanDuration() const { return totalDuration / callCount; }
+        Seconds NODELETE meanDuration() const { return totalDuration / callCount; }
     };
 
     State() = default;
@@ -78,4 +78,4 @@ void TimingScope::scopeDidEnd()
         WTFLogAlways("%s: %u calls, mean duration: %.6fms, total duration: %.6fms, max duration %.6fms", m_name.characters(), data.callCount, data.meanDuration().milliseconds(), data.totalDuration.milliseconds(), data.maxDuration.milliseconds());
 }
 
-} // namespace WebCore
+} // namespace WTF

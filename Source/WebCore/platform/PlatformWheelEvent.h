@@ -27,6 +27,7 @@
 
 #include <WebCore/FloatPoint.h>
 #include <WebCore/IntPoint.h>
+#include <WebCore/MouseEventTypes.h>
 #include <WebCore/PlatformEvent.h>
 #include <wtf/Platform.h>
 #include <wtf/WindowsExtras.h>
@@ -141,10 +142,13 @@ public:
 
     bool directionInvertedFromDevice() const { return m_directionInvertedFromDevice; }
 
-    const FloatSize& scrollingVelocity() const { return m_scrollingVelocity; }
+    const FloatSize& scrollingVelocity() const LIFETIME_BOUND { return m_scrollingVelocity; }
 
     bool hasPreciseScrollingDeltas() const { return m_hasPreciseScrollingDeltas; }
     void setHasPreciseScrollingDeltas(bool hasPreciseScrollingDeltas) { m_hasPreciseScrollingDeltas = hasPreciseScrollingDeltas; }
+
+    MouseEventInputSource inputSource() const { return m_inputSource; }
+    void setInputSource(MouseEventInputSource inputSource) { m_inputSource = inputSource; }
 
 #if PLATFORM(COCOA)
     unsigned scrollCount() const { return m_scrollCount; }
@@ -188,6 +192,7 @@ protected:
     PlatformWheelEventGranularity m_granularity { PlatformWheelEventGranularity::ScrollByPixelWheelEvent };
     bool m_directionInvertedFromDevice { false };
     bool m_hasPreciseScrollingDeltas { false };
+    MouseEventInputSource m_inputSource { MouseEventInputSource::UserDriven };
 
     IntPoint m_position;
     IntPoint m_globalPosition;

@@ -1,6 +1,6 @@
 fix-ftbfs-riscv64.patch
-fix-ftbfs-sparc64.patch
 fix-ftbfs-x32.patch
 disable-nvidia-dmabuf.patch
 no-must-tail.patch
-0001-deepin-sw_64-support.diff
+fix-eclipse-crash.patch
+fix-web-process-abort.patch

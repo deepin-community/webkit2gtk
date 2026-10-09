@@ -62,7 +62,7 @@ SPDX-License-Identifier: BSD, LGPL-2.1
         <h3><a href="index.html">WebKit</a></h3>
         <p>API Version: 6.0</p>
         
-        <p>Library Version: 2.52.5</p>
+        <p>Library Version: 2.54.0</p>
         
       </div>
       
@@ -172,15 +172,15 @@ SPDX-License-Identifier: BSD, LGPL-2.1
         Description
         <a class="anchor" href="#description"></a>
         
-        <a class="srclink" title="go to source location" href="https://github.com/WebKit/WebKit/tree/main/Source/WebKit/UIProcess/API/glib/WebKitWebExtension.cpp#L781">[src]</a>
+        <a class="srclink" title="go to source location" href="https://github.com/WebKit/WebKit/tree/main/Source/WebKit/UIProcess/API/glib/WebKitWebExtension.cpp#L782">[src]</a>
         
       </h4>
 
       <div class="docblock">
         <p>Returns the extension&#8217;s default action icon image for the specified size.
 This icon serves as a default and should be used to represent the extension in contexts like action sheets or toolbars prior to
-the extension being loaded into an extension context. Once the extension is loaded, use the
-<code>actionForTab:</code> <span class="caps">API</span> to get the tab-specific icon.
+the extension being loaded into an extension context. Once the extension is loaded, a tab-specific
+icon may be used instead.
 The returned image will be the best match for the specified size that is available in the extension&#8217;s action icon set. If no matching icon is available,
 the method will fall back to the extension&#8217;s&nbsp;icon.</p>
       </div>

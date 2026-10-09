@@ -109,9 +109,11 @@ IntRect ScrollbarThemeAdwaita::trackRect(Scrollbar& scrollbar, bool)
 bool ScrollbarThemeAdwaita::paint(Scrollbar& scrollbar, GraphicsContext& graphicsContext, const IntRect& damageRect)
 {
 #if USE(COORDINATED_GRAPHICS_ASYNC_SCROLLBAR)
-    if (scrollbar.checkedScrollableArea()->usesCompositedScrolling()) {
-        // Painting is done by ScrollerCoordinated in the scrolling thread.
-        return true;
+    if (auto scrollableArea = protect(scrollbar.scrollableArea())) {
+        if (scrollableArea->usesCompositedScrolling()) {
+            // Painting is done by ScrollerCoordinated in the scrolling thread.
+            return true;
+        }
     }
 #endif
 
@@ -211,13 +213,11 @@ ScrollerImpAdwaita* ScrollbarThemeAdwaita::scrollerImpForScrollbar(Scrollbar& sc
 }
 #endif
 
-#if !PLATFORM(GTK) || USE(GTK4) || USE(SKIA)
 ScrollbarTheme& ScrollbarTheme::nativeTheme()
 {
     static ScrollbarThemeAdwaita theme;
     return theme;
 }
-#endif
 
 } // namespace WebCore
 

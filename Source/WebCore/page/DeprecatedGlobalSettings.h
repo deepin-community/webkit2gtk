@@ -44,17 +44,17 @@ public:
     static bool isGStreamerEnabled() { return singleton().m_GStreamerEnabled; }
 #endif
 
-    WEBCORE_EXPORT static void setMockScrollbarsEnabled(bool);
+    WEBCORE_EXPORT static void NODELETE setMockScrollbarsEnabled(bool);
     static bool mockScrollbarsEnabled() { return singleton().m_mockScrollbarsEnabled; }
 
-    WEBCORE_EXPORT static void setUsesOverlayScrollbars(bool);
+    WEBCORE_EXPORT static void NODELETE setUsesOverlayScrollbars(bool);
     static bool usesOverlayScrollbars() { return singleton().m_usesOverlayScrollbars; }
 
     static bool lowPowerVideoAudioBufferSizeEnabled() { return singleton().m_lowPowerVideoAudioBufferSizeEnabled; }
     static void setLowPowerVideoAudioBufferSizeEnabled(bool flag) { singleton().m_lowPowerVideoAudioBufferSizeEnabled = flag; }
 
     static bool trackingPreventionEnabled() { return singleton().m_trackingPreventionEnabled; }
-    WEBCORE_EXPORT static void setTrackingPreventionEnabled(bool);
+    WEBCORE_EXPORT static void NODELETE setTrackingPreventionEnabled(bool);
 
 #if PLATFORM(IOS_FAMILY)
     WEBCORE_EXPORT static void setAudioSessionCategoryOverride(unsigned);
@@ -71,12 +71,12 @@ public:
 #endif
 
 #if USE(AUDIO_SESSION)
-    WEBCORE_EXPORT static void setShouldManageAudioSessionCategory(bool);
-    WEBCORE_EXPORT static bool shouldManageAudioSessionCategory();
+    WEBCORE_EXPORT static void NODELETE setShouldManageAudioSessionCategory(bool);
+    WEBCORE_EXPORT static bool NODELETE shouldManageAudioSessionCategory();
 #endif
 
-    WEBCORE_EXPORT static void setAllowsAnySSLCertificate(bool);
-    WEBCORE_EXPORT static bool allowsAnySSLCertificate();
+    WEBCORE_EXPORT static void NODELETE setAllowsAnySSLCertificate(bool);
+    WEBCORE_EXPORT static bool NODELETE allowsAnySSLCertificate();
 
     static void setCustomPasteboardDataEnabled(bool isEnabled) { singleton().m_isCustomPasteboardDataEnabled = isEnabled; }
     static bool customPasteboardDataEnabled() { return singleton().m_isCustomPasteboardDataEnabled; }
@@ -103,20 +103,18 @@ public:
     static bool isAccessibilityIsolatedTreeEnabled() { return singleton().m_accessibilityIsolatedTree; }
 #endif
 
-#if ENABLE(AX_THREAD_TEXT_APIS)
-    static void setAccessibilityThreadTextApisEnabled(bool isEnabled) { singleton().m_accessibilityThreadTextApis = isEnabled; }
-    static bool accessibilityThreadTextApisEnabled() { return singleton().m_accessibilityThreadTextApis; }
-#endif
-
     static void setAccessibilityTextStitchingEnabled(bool isEnabled) { singleton().m_accessibilityTextStitchingEnabled = isEnabled; }
     static bool accessibilityTextStitchingEnabled() { return singleton().m_accessibilityTextStitchingEnabled; }
+
+    static void setAccessibilityThreadHitTestingEnabled(bool isEnabled) { singleton().m_accessibilityThreadHitTestingEnabled = isEnabled; }
+    static bool accessibilityThreadHitTestingEnabled() { return singleton().m_accessibilityThreadHitTestingEnabled; }
 
     static void setArePDFImagesEnabled(bool isEnabled) { singleton().m_arePDFImagesEnabled = isEnabled; }
     static bool arePDFImagesEnabled() { return singleton().m_arePDFImagesEnabled; }
 
 #if ENABLE(WEB_PUSH_NOTIFICATIONS)
     static void setBuiltInNotificationsEnabled(bool isEnabled) { singleton().m_builtInNotificationsEnabled = isEnabled; }
-    WEBCORE_EXPORT static bool builtInNotificationsEnabled();
+    WEBCORE_EXPORT static bool NODELETE builtInNotificationsEnabled();
 #endif
 
 #if ENABLE(MODEL_ELEMENT)
@@ -124,8 +122,13 @@ public:
     static bool modelDocumentEnabled() { return singleton().m_modelDocumentEnabled; }
 #endif
 
+#if HAVE(WEBCONTENTRESTRICTIONS_TRANSITIVE_TRUST)
+    static void setWebContentRestrictionsTransitiveTrustEnabled(bool isEnabled) { singleton().m_webContentRestrictionsTransitiveTrustEnabled = isEnabled; }
+    static bool webContentRestrictionsTransitiveTrustEnabled() { return singleton().m_webContentRestrictionsTransitiveTrustEnabled; }
+#endif
+
 private:
-    WEBCORE_EXPORT static DeprecatedGlobalSettings& singleton();
+    WEBCORE_EXPORT static DeprecatedGlobalSettings& NODELETE singleton();
     DeprecatedGlobalSettings() = default;
     ~DeprecatedGlobalSettings() = default;
 
@@ -166,10 +169,8 @@ private:
     bool m_accessibilityIsolatedTree { false };
 #endif
 
-#if ENABLE(AX_THREAD_TEXT_APIS)
-    bool m_accessibilityThreadTextApis { false };
-#endif
     bool m_accessibilityTextStitchingEnabled { false };
+    bool m_accessibilityThreadHitTestingEnabled { false };
 
     bool m_arePDFImagesEnabled { true };
 
@@ -179,6 +180,10 @@ private:
 
 #if ENABLE(MODEL_ELEMENT)
     bool m_modelDocumentEnabled { false };
+#endif
+
+#if HAVE(WEBCONTENTRESTRICTIONS_TRANSITIVE_TRUST)
+    bool m_webContentRestrictionsTransitiveTrustEnabled { true };
 #endif
 
     friend class NeverDestroyed<DeprecatedGlobalSettings>;

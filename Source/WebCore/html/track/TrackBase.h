@@ -37,8 +37,11 @@
 
 namespace WebCore {
 
+class Document;
 class SourceBuffer;
 class TrackListBase;
+class WeakPtrImplWithEventTargetData;
+class TrackOpaqueRoot;
 class TrackPrivateBase;
 class TrackPrivateBaseClient;
 using TrackID = uint64_t;
@@ -72,21 +75,21 @@ public:
     virtual int uniqueId() const { return m_uniqueId; }
 
 #if ENABLE(MEDIA_SOURCE)
-    SourceBuffer* sourceBuffer() const;
-    void setSourceBuffer(SourceBuffer*);
+    SourceBuffer* NODELETE sourceBuffer() const;
+    void NODELETE setSourceBuffer(SourceBuffer*);
 #endif
 
     void setTrackList(TrackListBase&);
     void clearTrackList();
-    TrackListBase* trackList() const;
-    WebCoreOpaqueRoot opaqueRoot() const;
+    TrackListBase* NODELETE trackList() const;
+    void setOpaqueRoot(TrackOpaqueRoot&);
+    WebCoreOpaqueRoot NODELETE opaqueRoot() const;
 
     virtual bool enabled() const = 0;
 
 #if !RELEASE_LOG_DISABLED
     virtual void setLogger(const Logger&, uint64_t);
     const Logger& logger() const final { ASSERT(m_logger); return *m_logger.get(); }
-    Ref<const Logger> protectedLogger() const { return logger(); }
     uint64_t logIdentifier() const final { return m_logIdentifier; }
     WTFLogChannel& logChannel() const final;
 #endif
@@ -122,14 +125,14 @@ private:
     uint64_t m_logIdentifier { 0 };
 #endif
     WeakPtr<TrackListBase, WeakPtrImplWithEventTargetData> m_trackList;
-    std::atomic<WebCoreOpaqueRoot> m_opaqueRoot { WebCoreOpaqueRoot { this } };
-    size_t m_clientRegistrationId;
+    RefPtr<TrackOpaqueRoot> m_trackOpaqueRoot;
+    size_t m_clientRegistrationId { 0 };
 };
 
 class MediaTrackBase : public TrackBase {
     WTF_MAKE_TZONE_ALLOCATED(MediaTrackBase);
 public:
-    const AtomString& kind() const { return m_kind; }
+    const AtomString& kind() const LIFETIME_BOUND { return m_kind; }
     virtual void setKind(const AtomString&);
 
 protected:

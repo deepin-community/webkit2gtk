@@ -83,9 +83,9 @@ public:
     id<MTLLibrary> library() const { return m_library; }
 
     Device& device() const { return m_device; }
-    const String& defaultVertexEntryPoint() const;
-    const String& defaultFragmentEntryPoint() const;
-    const String& defaultComputeEntryPoint() const;
+    const String& NODELETE defaultVertexEntryPoint() const;
+    const String& NODELETE defaultFragmentEntryPoint() const;
+    const String& NODELETE defaultComputeEntryPoint() const;
 
     using VertexStageIn = HashMap<uint32_t, WGPUVertexFormat, DefaultHash<uint32_t>, WTF::UnsignedWithZeroKeyHashTraits<uint32_t>>;
     using FragmentOutputs = HashMap<uint32_t, MTLDataType, DefaultHash<uint32_t>, WTF::UnsignedWithZeroKeyHashTraits<uint32_t>>;
@@ -104,6 +104,10 @@ public:
     bool usesSampleMaskInInput(const String&) const;
     bool usesSampleMaskInOutput(const String&) const;
     bool usesFragDepth(const String&) const;
+    bool usesPrimitiveIndexInInput(const String&) const;
+    bool usesSubgroupInvocationIdInInput(const String&) const;
+    bool usesSubgroupSizeInInput(const String&) const;
+    uint32_t clipDistancesCount(const String&) const;
 
 private:
     ShaderModule(Variant<WGSL::SuccessfulCheck, WGSL::FailedCheck>&&, HashMap<String, Ref<PipelineLayout>>&&, HashMap<String, WGSL::Reflection::EntryPointInformation>&&, id<MTLLibrary>, Device&);
@@ -116,14 +120,12 @@ private:
     const HashMap<String, WGSL::Reflection::EntryPointInformation> m_entryPointInformation;
     const id<MTLLibrary> m_library { nil }; // This is only non-null if we could compile the module early.
     void populateFragmentInputs(const WGSL::Type&, ShaderModule::FragmentInputs&, const String&);
-    FragmentInputs parseFragmentInputs(const WGSL::AST::Function&);
+    FragmentInputs parseFragmentInputs(const WGSL::AST::Function&, const String& entryPointName);
     void populateOutputState(const String&, WGSL::Builtin);
 
     ShaderModule::FragmentOutputs parseFragmentReturnType(const WGSL::Type&, const WGSL::CallGraph::EntryPoint&);
 
     const Ref<Device> m_device;
-    // FIXME: https://bugs.webkit.org/show_bug.cgi?id=250441 - this needs to be populated from the compiler
-    HashMap<String, String> m_constantIdentifiersToNames;
     HashMap<String, FragmentOutputs> m_fragmentReturnTypeForEntryPoint;
     HashMap<String, FragmentInputs> m_fragmentInputsForEntryPoint;
     HashMap<String, VertexOutputs> m_vertexReturnTypeForEntryPoint;
@@ -139,6 +141,10 @@ private:
         bool usesSampleMaskInInput { false };
         bool usesSampleMaskInOutput { false };
         bool usesFragDepth { false };
+        bool usesPrimitiveIndexInInput { false };
+        bool usesSubgroupInvocationIdInInput { false };
+        bool usesSubgroupSizeInInput { false };
+        uint32_t clipDistancesCount { 0 }; // Number of clip distances (0 if not used)
     };
     const ShaderModuleState* shaderModuleState(const String&) const;
     ShaderModuleState& populateShaderModuleState(const String&);

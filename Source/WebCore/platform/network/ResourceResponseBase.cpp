@@ -31,6 +31,7 @@
 #include "DataURLDecoder.h"
 #include "HTTPHeaderNames.h"
 #include "HTTPParsers.h"
+#include "HTTPStatusCodes.h"
 #include "IPAddressSpace.h"
 #include "MIMETypeRegistry.h"
 #include "ParsedContentRange.h"
@@ -57,9 +58,7 @@ bool isScriptAllowedByNosniff(const ResourceResponse& response)
     return MIMETypeRegistry::isSupportedJavaScriptMIMEType(mimeType);
 }
 
-ResourceResponseBase::ResourceResponseBase()
-{
-}
+ResourceResponseBase::ResourceResponseBase() = default;
 
 ResourceResponseBase::ResourceResponseBase(URL&& url, String&& mimeType, long long expectedLength, String&& textEncodingName)
     : m_url(WTF::move(url))
@@ -367,8 +366,7 @@ bool ResourceResponseBase::isNosniff() const
 
 bool ResourceResponseBase::isSuccessful() const
 {
-    int code = httpStatusCode();
-    return code >= 200 && code < 300;
+    return isHttpOkStatus(httpStatusCode());
 }
 
 int ResourceResponseBase::httpStatusCode() const
@@ -390,7 +388,7 @@ void ResourceResponseBase::setHTTPStatusCode(int statusCode)
 
 bool ResourceResponseBase::isRedirection() const
 {
-    return isRedirectionStatusCode(m_httpStatusCode);
+    return isHttpRedirectStatus(m_httpStatusCode);
 }
 
 const String& ResourceResponseBase::httpStatusText() const
@@ -425,7 +423,7 @@ void ResourceResponseBase::setHTTPVersion(String&& versionText)
     // FIXME: Should invalidate or update platform response if present.
 }
 
-static bool isSafeRedirectionResponseHeader(HTTPHeaderName name)
+static bool NODELETE isSafeRedirectionResponseHeader(HTTPHeaderName name)
 {
     // WebCore needs to keep location and cache related headers as it does caching.
     // We also keep CORS/ReferrerPolicy headers until CORS checks/Referrer computation are done in NetworkProcess.
@@ -455,7 +453,7 @@ static bool isSafeRedirectionResponseHeader(HTTPHeaderName name)
         || name == HTTPHeaderName::TimingAllowOrigin;
 }
 
-static bool isSafeCrossOriginResponseHeader(HTTPHeaderName name)
+static bool NODELETE isSafeCrossOriginResponseHeader(HTTPHeaderName name)
 {
     // All known response headers used in WebProcesses.
     return name == HTTPHeaderName::AcceptRanges
@@ -701,6 +699,13 @@ bool ResourceResponseBase::cacheControlContainsNoStore() const
     if (!m_haveParsedCacheControlHeader)
         parseCacheControlDirectives();
     return m_cacheControlDirectives.noStore;
+}
+
+bool ResourceResponseBase::cacheControlContainsPublic() const
+{
+    if (!m_haveParsedCacheControlHeader)
+        parseCacheControlDirectives();
+    return m_cacheControlDirectives.isPublic;
 }
 
 bool ResourceResponseBase::cacheControlContainsMustRevalidate() const

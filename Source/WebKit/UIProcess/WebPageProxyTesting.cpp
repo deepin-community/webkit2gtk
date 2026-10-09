@@ -26,15 +26,17 @@
 #include "config.h"
 #include "WebPageProxyTesting.h"
 
+#include "BrowsingContextGroup.h"
 #include "Connection.h"
 #include "MessageSenderInlines.h"
 #include "NetworkProcessMessages.h"
-#include "NetworkProcessProxy.h"
 #include "WebBackForwardList.h"
 #include "WebFrameProxy.h"
 #include "WebPageMessages.h"
 #include "WebPageProxy.h"
 #include "WebPageTestingMessages.h"
+#include "WebProcessMessages.h"
+#include "WebProcessPool.h"
 #include "WebProcessProxy.h"
 #include <WebCore/IntPoint.h>
 #include <wtf/CallbackAggregator.h>
@@ -56,27 +58,27 @@ WebPageProxyTesting::WebPageProxyTesting(WebPageProxy& page)
 
 bool WebPageProxyTesting::sendMessage(UniqueRef<IPC::Encoder>&& encoder, OptionSet<IPC::SendOption> sendOptions)
 {
-    return protectedPage()->protectedLegacyMainFrameProcess()->sendMessage(WTF::move(encoder), sendOptions);
+    return protect(protect(page())->legacyMainFrameProcess())->sendMessage(WTF::move(encoder), sendOptions);
 }
 
 bool WebPageProxyTesting::sendMessageWithAsyncReply(UniqueRef<IPC::Encoder>&& encoder, AsyncReplyHandler handler, OptionSet<IPC::SendOption> sendOptions)
 {
-    return protectedPage()->protectedLegacyMainFrameProcess()->sendMessage(WTF::move(encoder), sendOptions, WTF::move(handler));
+    return protect(protect(page())->legacyMainFrameProcess())->sendMessage(WTF::move(encoder), sendOptions, WTF::move(handler));
 }
 
 IPC::Connection* WebPageProxyTesting::messageSenderConnection() const
 {
-    return &protectedPage()->legacyMainFrameProcess().connection();
+    return &page().legacyMainFrameProcess().connection();
 }
 
 uint64_t WebPageProxyTesting::messageSenderDestinationID() const
 {
-    return protectedPage()->webPageIDInMainFrameProcess().toUInt64();
+    return page().webPageIDInMainFrameProcess().toUInt64();
 }
 
 void WebPageProxyTesting::dispatchActivityStateUpdate()
 {
-    RunLoop::currentSingleton().dispatch([protectedPage = protectedPage()] {
+    RunLoop::currentSingleton().dispatch([protectedPage = protect(page())] {
         protectedPage->updateActivityState();
         protectedPage->dispatchActivityStateChange();
     });
@@ -87,14 +89,19 @@ void WebPageProxyTesting::isLayerTreeFrozen(CompletionHandler<void(bool)>&& comp
     sendWithAsyncReply(Messages::WebPageTesting::IsLayerTreeFrozen(), WTF::move(completionHandler));
 }
 
+void WebPageProxyTesting::numberOfLiveDocuments(CompletionHandler<void(uint64_t)>&& completionHandler)
+{
+    sendWithAsyncReply(Messages::WebPageTesting::NumberOfLiveDocuments(), WTF::move(completionHandler));
+}
+
 void WebPageProxyTesting::setCrossSiteLoadWithLinkDecorationForTesting(const URL& fromURL, const URL& toURL, bool wasFiltered, CompletionHandler<void()>&& completionHandler)
 {
-    protectedPage()->protectedWebsiteDataStore()->protectedNetworkProcess()->setCrossSiteLoadWithLinkDecorationForTesting(protectedPage()->sessionID(), WebCore::RegistrableDomain { fromURL }, WebCore::RegistrableDomain { toURL }, wasFiltered, WTF::move(completionHandler));
+    protect(protect(protect(page())->websiteDataStore())->networkProcess())->setCrossSiteLoadWithLinkDecorationForTesting(protect(page())->sessionID(), WebCore::RegistrableDomain { fromURL }, WebCore::RegistrableDomain { toURL }, wasFiltered, WTF::move(completionHandler));
 }
 
 void WebPageProxyTesting::setPermissionLevel(const String& origin, bool allowed)
 {
-    protectedPage()->forEachWebContentProcess([&](auto& webProcess, auto pageID) {
+    protect(page())->forEachWebContentProcess([&](auto& webProcess, auto pageID) {
         webProcess.send(Messages::WebPageTesting::SetPermissionLevel(origin, allowed), pageID);
     });
 }
@@ -103,7 +110,7 @@ bool WebPageProxyTesting::isEditingCommandEnabled(const String& commandName)
 {
     RefPtr focusedOrMainFrame = m_page->focusedOrMainFrame();
     auto targetFrameID = focusedOrMainFrame ? std::optional(focusedOrMainFrame->frameID()) : std::nullopt;
-    auto sendResult = protectedPage()->sendSyncToProcessContainingFrame(targetFrameID, Messages::WebPageTesting::IsEditingCommandEnabled(commandName), Seconds::infinity());
+    auto sendResult = protect(page())->sendSyncToProcessContainingFrame(targetFrameID, Messages::WebPageTesting::IsEditingCommandEnabled(commandName), Seconds::infinity());
     if (!sendResult.succeeded())
         return false;
     auto [result] = sendResult.takeReply();
@@ -112,62 +119,62 @@ bool WebPageProxyTesting::isEditingCommandEnabled(const String& commandName)
 
 void WebPageProxyTesting::dumpPrivateClickMeasurement(CompletionHandler<void(const String&)>&& completionHandler)
 {
-    protectedPage()->protectedWebsiteDataStore()->protectedNetworkProcess()->sendWithAsyncReply(Messages::NetworkProcess::DumpPrivateClickMeasurement(m_page->websiteDataStore().sessionID()), WTF::move(completionHandler));
+    protect(protect(protect(page())->websiteDataStore())->networkProcess())->sendWithAsyncReply(Messages::NetworkProcess::DumpPrivateClickMeasurement(m_page->websiteDataStore().sessionID()), WTF::move(completionHandler));
 }
 
 void WebPageProxyTesting::clearPrivateClickMeasurement(CompletionHandler<void()>&& completionHandler)
 {
-    protectedPage()->protectedWebsiteDataStore()->protectedNetworkProcess()->sendWithAsyncReply(Messages::NetworkProcess::ClearPrivateClickMeasurement(m_page->websiteDataStore().sessionID()), WTF::move(completionHandler));
+    protect(protect(protect(page())->websiteDataStore())->networkProcess())->sendWithAsyncReply(Messages::NetworkProcess::ClearPrivateClickMeasurement(m_page->websiteDataStore().sessionID()), WTF::move(completionHandler));
 }
 
 void WebPageProxyTesting::setPrivateClickMeasurementOverrideTimer(bool value, CompletionHandler<void()>&& completionHandler)
 {
-    protectedPage()->protectedWebsiteDataStore()->protectedNetworkProcess()->sendWithAsyncReply(Messages::NetworkProcess::SetPrivateClickMeasurementOverrideTimerForTesting(m_page->websiteDataStore().sessionID(), value), WTF::move(completionHandler));
+    protect(protect(protect(page())->websiteDataStore())->networkProcess())->sendWithAsyncReply(Messages::NetworkProcess::SetPrivateClickMeasurementOverrideTimerForTesting(m_page->websiteDataStore().sessionID(), value), WTF::move(completionHandler));
 }
 
 void WebPageProxyTesting::markAttributedPrivateClickMeasurementsAsExpired(CompletionHandler<void()>&& completionHandler)
 {
-    protectedPage()->protectedWebsiteDataStore()->protectedNetworkProcess()->sendWithAsyncReply(Messages::NetworkProcess::MarkAttributedPrivateClickMeasurementsAsExpiredForTesting(m_page->websiteDataStore().sessionID()), WTF::move(completionHandler));
+    protect(protect(protect(page())->websiteDataStore())->networkProcess())->sendWithAsyncReply(Messages::NetworkProcess::MarkAttributedPrivateClickMeasurementsAsExpiredForTesting(m_page->websiteDataStore().sessionID()), WTF::move(completionHandler));
 }
 
 void WebPageProxyTesting::setPrivateClickMeasurementEphemeralMeasurement(bool value, CompletionHandler<void()>&& completionHandler)
 {
-    protectedPage()->protectedWebsiteDataStore()->protectedNetworkProcess()->sendWithAsyncReply(Messages::NetworkProcess::SetPrivateClickMeasurementEphemeralMeasurementForTesting(m_page->websiteDataStore().sessionID(), value), WTF::move(completionHandler));
+    protect(protect(protect(page())->websiteDataStore())->networkProcess())->sendWithAsyncReply(Messages::NetworkProcess::SetPrivateClickMeasurementEphemeralMeasurementForTesting(m_page->websiteDataStore().sessionID(), value), WTF::move(completionHandler));
 }
 
 void WebPageProxyTesting::simulatePrivateClickMeasurementSessionRestart(CompletionHandler<void()>&& completionHandler)
 {
-    protectedPage()->protectedWebsiteDataStore()->protectedNetworkProcess()->sendWithAsyncReply(Messages::NetworkProcess::SimulatePrivateClickMeasurementSessionRestart(m_page->websiteDataStore().sessionID()), WTF::move(completionHandler));
+    protect(protect(protect(page())->websiteDataStore())->networkProcess())->sendWithAsyncReply(Messages::NetworkProcess::SimulatePrivateClickMeasurementSessionRestart(m_page->websiteDataStore().sessionID()), WTF::move(completionHandler));
 }
 
 void WebPageProxyTesting::setPrivateClickMeasurementTokenPublicKeyURL(const URL& url, CompletionHandler<void()>&& completionHandler)
 {
-    protectedPage()->protectedWebsiteDataStore()->protectedNetworkProcess()->sendWithAsyncReply(Messages::NetworkProcess::SetPrivateClickMeasurementTokenPublicKeyURLForTesting(m_page->websiteDataStore().sessionID(), url), WTF::move(completionHandler));
+    protect(protect(protect(page())->websiteDataStore())->networkProcess())->sendWithAsyncReply(Messages::NetworkProcess::SetPrivateClickMeasurementTokenPublicKeyURLForTesting(m_page->websiteDataStore().sessionID(), url), WTF::move(completionHandler));
 }
 
 void WebPageProxyTesting::setPrivateClickMeasurementTokenSignatureURL(const URL& url, CompletionHandler<void()>&& completionHandler)
 {
-    protectedPage()->protectedWebsiteDataStore()->protectedNetworkProcess()->sendWithAsyncReply(Messages::NetworkProcess::SetPrivateClickMeasurementTokenSignatureURLForTesting(m_page->websiteDataStore().sessionID(), url), WTF::move(completionHandler));
+    protect(protect(protect(page())->websiteDataStore())->networkProcess())->sendWithAsyncReply(Messages::NetworkProcess::SetPrivateClickMeasurementTokenSignatureURLForTesting(m_page->websiteDataStore().sessionID(), url), WTF::move(completionHandler));
 }
 
 void WebPageProxyTesting::setPrivateClickMeasurementAttributionReportURLs(const URL& sourceURL, const URL& destinationURL, CompletionHandler<void()>&& completionHandler)
 {
-    protectedPage()->protectedWebsiteDataStore()->protectedNetworkProcess()->sendWithAsyncReply(Messages::NetworkProcess::SetPrivateClickMeasurementAttributionReportURLsForTesting(m_page->websiteDataStore().sessionID(), sourceURL, destinationURL), WTF::move(completionHandler));
+    protect(protect(protect(page())->websiteDataStore())->networkProcess())->sendWithAsyncReply(Messages::NetworkProcess::SetPrivateClickMeasurementAttributionReportURLsForTesting(m_page->websiteDataStore().sessionID(), sourceURL, destinationURL), WTF::move(completionHandler));
 }
 
 void WebPageProxyTesting::markPrivateClickMeasurementsAsExpired(CompletionHandler<void()>&& completionHandler)
 {
-    protectedPage()->protectedWebsiteDataStore()->protectedNetworkProcess()->sendWithAsyncReply(Messages::NetworkProcess::MarkPrivateClickMeasurementsAsExpiredForTesting(m_page->websiteDataStore().sessionID()), WTF::move(completionHandler));
+    protect(protect(protect(page())->websiteDataStore())->networkProcess())->sendWithAsyncReply(Messages::NetworkProcess::MarkPrivateClickMeasurementsAsExpiredForTesting(m_page->websiteDataStore().sessionID()), WTF::move(completionHandler));
 }
 
 void WebPageProxyTesting::setPCMFraudPreventionValues(const String& unlinkableToken, const String& secretToken, const String& signature, const String& keyID, CompletionHandler<void()>&& completionHandler)
 {
-    protectedPage()->protectedWebsiteDataStore()->protectedNetworkProcess()->sendWithAsyncReply(Messages::NetworkProcess::SetPCMFraudPreventionValuesForTesting(m_page->websiteDataStore().sessionID(), unlinkableToken, secretToken, signature, keyID), WTF::move(completionHandler));
+    protect(protect(protect(page())->websiteDataStore())->networkProcess())->sendWithAsyncReply(Messages::NetworkProcess::SetPCMFraudPreventionValuesForTesting(m_page->websiteDataStore().sessionID(), unlinkableToken, secretToken, signature, keyID), WTF::move(completionHandler));
 }
 
 void WebPageProxyTesting::setPrivateClickMeasurementAppBundleID(const String& appBundleIDForTesting, CompletionHandler<void()>&& completionHandler)
 {
-    protectedPage()->protectedWebsiteDataStore()->protectedNetworkProcess()->sendWithAsyncReply(Messages::NetworkProcess::SetPrivateClickMeasurementAppBundleIDForTesting(m_page->websiteDataStore().sessionID(), appBundleIDForTesting), WTF::move(completionHandler));
+    protect(protect(protect(page())->websiteDataStore())->networkProcess())->sendWithAsyncReply(Messages::NetworkProcess::SetPrivateClickMeasurementAppBundleIDForTesting(m_page->websiteDataStore().sessionID(), appBundleIDForTesting), WTF::move(completionHandler));
 }
 
 #if ENABLE(NOTIFICATIONS)
@@ -179,9 +186,27 @@ void WebPageProxyTesting::clearNotificationPermissionState()
 
 void WebPageProxyTesting::clearWheelEventTestMonitor()
 {
-    if (!protectedPage()->hasRunningProcess())
+    if (!page().hasRunningProcess())
         return;
     send(Messages::WebPageTesting::ClearWheelEventTestMonitor());
+}
+
+void WebPageProxyTesting::startMonitoringWheelEventsForTesting(CompletionHandler<void()>&& completionHandler)
+{
+    if (!page().hasRunningProcess()) {
+        completionHandler();
+        return;
+    }
+    sendWithAsyncReply(Messages::WebPageTesting::StartMonitoringWheelEventsForTesting(), WTF::move(completionHandler));
+}
+
+void WebPageProxyTesting::waitForWheelEventsToCompleteForTesting(CompletionHandler<void()>&& completionHandler)
+{
+    if (!page().hasRunningProcess()) {
+        completionHandler();
+        return;
+    }
+    sendWithAsyncReply(Messages::WebPageTesting::WaitForWheelEventsToCompleteForTesting(), WTF::move(completionHandler));
 }
 
 #if PLATFORM(COCOA) && ENABLE(MEDIA_STREAM)
@@ -201,27 +226,25 @@ void WebPageProxyTesting::setObscuredContentInsets(float top, float right, float
     sendWithAsyncReply(Messages::WebPageTesting::SetObscuredContentInsets(top, right, bottom, left), WTF::move(completionHandler));
 }
 
-Ref<WebPageProxy> WebPageProxyTesting::protectedPage() const
-{
-    return m_page.get();
-}
-
 void WebPageProxyTesting::resetStateBetweenTests()
 {
-    protectedPage()->protectedLegacyMainFrameProcess()->resetState();
+    Ref page = m_page;
+    page->legacyMainFrameProcess().resetState();
 
-    if (RefPtr mainFrame = m_page->mainFrame())
+    if (auto* mainFrame = page->mainFrame())
         mainFrame->disownOpener();
 
-    protectedPage()->forEachWebContentProcess([&](auto& webProcess, auto pageID) {
+    page->forEachWebContentProcess([&](auto& webProcess, auto pageID) {
         webProcess.send(Messages::WebPageTesting::ResetStateBetweenTests(), pageID);
     });
+
+    protect(page->browsingContextGroup())->clearBrowsingContextGroupForTesting();
 }
 
 void WebPageProxyTesting::clearBackForwardList(CompletionHandler<void()>&& completionHandler)
 {
     Ref page = m_page.get();
-    Ref { page->backForwardList() }->clear();
+    protect(page->backForwardListWrapper())->clear();
 
     Ref callbackAggregator = CallbackAggregator::create(WTF::move(completionHandler));
     page->forEachWebContentProcess([&](auto& webProcess, auto pageID) {
@@ -232,7 +255,7 @@ void WebPageProxyTesting::clearBackForwardList(CompletionHandler<void()>&& compl
 void WebPageProxyTesting::setTracksRepaints(bool trackRepaints, CompletionHandler<void()>&& completionHandler)
 {
     Ref callbackAggregator = CallbackAggregator::create(WTF::move(completionHandler));
-    protectedPage()->forEachWebContentProcess([&](auto& webProcess, auto pageID) {
+    protect(page())->forEachWebContentProcess([&](auto& webProcess, auto pageID) {
         webProcess.sendWithAsyncReply(Messages::WebPageTesting::SetTracksRepaints(trackRepaints), [callbackAggregator] { }, pageID);
     });
 }
@@ -240,9 +263,29 @@ void WebPageProxyTesting::setTracksRepaints(bool trackRepaints, CompletionHandle
 void WebPageProxyTesting::displayAndTrackRepaints(CompletionHandler<void()>&& completionHandler)
 {
     Ref callbackAggregator = CallbackAggregator::create(WTF::move(completionHandler));
-    protectedPage()->forEachWebContentProcess([&](auto& webProcess, auto pageID) {
+    protect(page())->forEachWebContentProcess([&](auto& webProcess, auto pageID) {
         webProcess.sendWithAsyncReply(Messages::WebPageTesting::DisplayAndTrackRepaints(), [callbackAggregator] { }, pageID);
     });
+}
+
+void WebPageProxyTesting::storageAreaMapCount(CompletionHandler<void(uint64_t)>&& completionHandler)
+{
+    Ref processPool = page().legacyMainFrameProcess().processPool();
+
+    struct TotalCount : RefCounted<TotalCount> {
+        uint64_t value { 0 };
+    };
+    Ref totalCount = adoptRef(*new TotalCount);
+    Ref callbackAggregator = CallbackAggregator::create([totalCount, completionHandler = WTF::move(completionHandler)]() mutable {
+        completionHandler(totalCount->value);
+    });
+    for (auto& process : processPool->processes()) {
+        if (!process->pageCount())
+            continue;
+        process->sendWithAsyncReply(Messages::WebProcess::GetStorageAreaMapCountForTesting(), [totalCount, callbackAggregator](uint64_t count) {
+            totalCount->value += count;
+        });
+    }
 }
 
 } // namespace WebKit

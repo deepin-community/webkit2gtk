@@ -73,7 +73,7 @@ static void updateHasDirAutoFlagForSubtree(Node& firstNode, TextDirectionState t
     firstNode.setSelfOrPrecedingNodesAffectDirAuto(dirIsAuto);
 
     for (RefPtr node = firstNode.firstChild(); node; ) {
-        auto* element = dynamicDowncast<Element>(*node);
+        RefPtr element = dynamicDowncast<Element>(*node);
 
         if (element && (is<HTMLBDIElement>(*element) || elementHasValidTextDirectionState(*element))) {
             node = NodeTraversal::nextSkippingChildren(*node, &firstNode);
@@ -88,7 +88,7 @@ static void updateHasDirAutoFlagForSubtree(Node& firstNode, TextDirectionState t
 static void updateElementHasDirAutoFlag(Element& element, TextDirectionState textDirectionState)
 {
     RefPtr parent = element.parentOrShadowHostElement();
-    element.protectedDocument()->setIsDirAttributeDirty();
+    element.document().setIsDirAttributeDirty();
 
     switch (textDirectionState) {
     case TextDirectionState::LTR:
@@ -162,7 +162,7 @@ static std::optional<TextDirection> computeContainedTextAutoDirection(const Elem
             continue;
         }
 
-        if (auto* childElement = dynamicDowncast<Element>(*child)) {
+        if (RefPtr childElement = dynamicDowncast<Element>(*child)) {
             // Specs: Skip text form controls
             // Specs: Skip the element whose dir attribute is not in the undefined state
             if (childElement->isTextField() || elementHasValidTextDirectionState(*childElement)) {
@@ -173,7 +173,7 @@ static std::optional<TextDirection> computeContainedTextAutoDirection(const Elem
 
         // Specs: If child is a slot element whose root is a shadow root,
         // then return the directionality of that shadow root's host.
-        if (auto* childSlotElement = dynamicDowncast<HTMLSlotElement>(*child)) {
+        if (RefPtr childSlotElement = dynamicDowncast<HTMLSlotElement>(*child)) {
             if (RefPtr childHost = childSlotElement->shadowHost())
                 return computeTextDirection(*childHost, elementTextDirectionState(*childHost));
         }
@@ -212,7 +212,7 @@ static std::optional<TextDirection> computeTextDirectionOfSlotElement(const HTML
                 return direction;
         }
 
-        if (auto* element = dynamicDowncast<Element>(child.get())) {
+        if (RefPtr element = dynamicDowncast<Element>(child.get())) {
             // Specs: If child direction is not null, then return child direction.
             if (auto direction = computeAutoDirectionality(*element))
                 return direction;
@@ -226,7 +226,7 @@ static std::optional<TextDirection> computeTextDirectionOfSlotElement(const HTML
 std::optional<TextDirection> computeAutoDirectionality(const Element& element)
 {
     if (auto* textFormControl = dynamicDowncast<HTMLTextFormControlElement>(element)) {
-        if (!textFormControl->dirAutoUsesValue())
+        if (!textFormControl->dirAutoUsesValue() || !elementHasAutoTextDirectionState(element))
             return computeContainedTextAutoDirection(*textFormControl);
 
         // Specs: The directionality of the auto-directionality form-associated
@@ -319,7 +319,16 @@ void updateEffectiveTextDirectionOfDescendants(Element& element, std::optional<T
     for (auto it = descendantsOfType<Element>(element).begin(); it; ) {
         Ref child = *it;
 
-        if (child.ptr() == initiator || elementHasValidTextDirectionState(child)) {
+        if (child.ptr() == initiator) {
+            it.traverseNextSkippingChildren();
+            continue;
+        }
+
+        if (elementHasValidTextDirectionState(child)) {
+            // Slot elements with dir=auto depend on slotted light DOM content,
+            // so recompute their direction when propagating changes through the shadow tree.
+            if (RefPtr slotElement = dynamicDowncast<HTMLSlotElement>(child.get()); slotElement && slotElement->isInShadowTree() && elementHasAutoTextDirectionState(child))
+                updateEffectiveTextDirectionOfElementAndDescendants(child, TextDirectionState::Auto);
             it.traverseNextSkippingChildren();
             continue;
         }

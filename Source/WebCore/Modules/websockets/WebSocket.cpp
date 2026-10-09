@@ -54,7 +54,6 @@
 #include "ResourceLoadObserver.h"
 #include "ScriptController.h"
 #include "ScriptExecutionContext.h"
-#include "SecurityOrigin.h"
 #include "SocketProvider.h"
 #include "ThreadableWebSocketChannel.h"
 #include "WebSocketChannelInspector.h"
@@ -86,7 +85,7 @@ Lock WebSocket::s_allActiveWebSocketsLock;
 
 const size_t maxReasonSizeInBytes = 123;
 
-static inline bool isValidProtocolCharacter(char16_t character)
+static inline bool NODELETE isValidProtocolCharacter(char16_t character)
 {
     // Hybi-10 says "(Subprotocol string must consist of) characters in the range U+0021 to U+007E not including
     // separator characters as defined in [RFC2616]."
@@ -99,7 +98,7 @@ static inline bool isValidProtocolCharacter(char16_t character)
         && character != '{' && character != '}';
 }
 
-static bool isValidProtocolString(StringView protocol)
+static bool NODELETE isValidProtocolString(StringView protocol)
 {
     if (protocol.isEmpty())
         return false;
@@ -135,7 +134,7 @@ static String joinStrings(const Vector<String>& strings, ASCIILiteral separator)
     return builder.toString();
 }
 
-static unsigned saturateAdd(unsigned a, unsigned b)
+static unsigned NODELETE saturateAdd(unsigned a, unsigned b)
 {
     if (std::numeric_limits<unsigned>::max() - a < b)
         return std::numeric_limits<unsigned>::max();
@@ -180,7 +179,7 @@ ExceptionOr<Ref<WebSocket>> WebSocket::create(ScriptExecutionContext& context, c
     auto socket = adoptRef(*new WebSocket(context));
     socket->suspendIfNeeded();
 
-    auto result = socket->connect(context.completeURL(url, ScriptExecutionContext::ForceUTF8::Yes).string(), protocols);
+    auto result = socket->connect(context.parseURL(url).string(), protocols);
     if (result.hasException())
         return result.releaseException();
 
@@ -189,7 +188,7 @@ ExceptionOr<Ref<WebSocket>> WebSocket::create(ScriptExecutionContext& context, c
 
 ExceptionOr<Ref<WebSocket>> WebSocket::create(ScriptExecutionContext& context, const String& url, const String& protocol)
 {
-    return create(context, url, Vector<String> { 1, protocol });
+    return create(context, url, Vector<String> { FillWith { }, 1, protocol });
 }
 
 HashSet<CheckedPtr<WebSocket>>& WebSocket::allActiveWebSockets()
@@ -210,7 +209,7 @@ ExceptionOr<void> WebSocket::connect(const String& url)
 
 ExceptionOr<void> WebSocket::connect(const String& url, const String& protocol)
 {
-    return connect(url, Vector<String> { 1, protocol });
+    return connect(url, Vector<String> { FillWith { }, 1, protocol });
 }
 
 void WebSocket::failAsynchronously()
@@ -274,7 +273,11 @@ ExceptionOr<void> WebSocket::connect(const String& url, const Vector<String>& pr
     }
 
     // FIXME: Convert this to check the isolated world's Content Security Policy once webkit.org/b/104520 is solved.
-    if (!context->shouldBypassMainWorldContentSecurityPolicy() && !contentSecurityPolicy->allowConnectToSource(m_url)) {
+    std::optional<TextPosition> sourcePosition;
+    if (RefPtr document = dynamicDowncast<Document>(context))
+        sourcePosition = document->currentParserSourcePosition();
+
+    if (!context->shouldBypassMainWorldContentSecurityPolicy() && !contentSecurityPolicy->allowConnectToSource(m_url, WTF::move(sourcePosition))) {
         m_state = CLOSED;
 
         // FIXME: Should this be throwing an exception?
@@ -428,7 +431,7 @@ ExceptionOr<void> WebSocket::close(std::optional<unsigned short> optionalCode, c
             return Exception { ExceptionCode::InvalidAccessError };
         CString utf8 = reason.utf8(StrictConversionReplacingUnpairedSurrogatesWithFFFD);
         if (utf8.length() > maxReasonSizeInBytes) {
-            protectedScriptExecutionContext()->addConsoleMessage(MessageSource::JS, MessageLevel::Error, "WebSocket close message is too long."_s);
+            protect(scriptExecutionContext())->addConsoleMessage(MessageSource::JS, MessageLevel::Error, "WebSocket close message is too long."_s);
             return Exception { ExceptionCode::SyntaxError };
         }
     }
@@ -582,7 +585,7 @@ void WebSocket::didReceiveBinaryData(Vector<uint8_t>&& binaryData)
         switch (socket.m_binaryType) {
         case BinaryType::Blob:
             // FIXME: We just received the data from NetworkProcess, and are sending it back. This is inefficient.
-            socket.dispatchEvent(MessageEvent::create(Blob::create(socket.protectedScriptExecutionContext().get(), WTF::move(binaryData), emptyString()), socket.m_origin.copyRef()));
+            socket.dispatchEvent(MessageEvent::create(Blob::create(protect(socket.scriptExecutionContext()).get(), WTF::move(binaryData), emptyString()), socket.m_origin.copyRef()));
             break;
         case BinaryType::Arraybuffer:
             socket.dispatchEvent(MessageEvent::create(ArrayBuffer::create(binaryData), socket.m_origin.copyRef()));

@@ -26,18 +26,29 @@
 #include "config.h"
 #include "WebInspectorBackend.h"
 
+#include "FrameNetworkAgentProxy.h"
+#include "PageAgentProxy.h"
 #include "WebFrame.h"
 #include "WebInspectorBackendMessages.h"
 #include "WebInspectorBackendProxyMessages.h"
 #include "WebInspectorUIMessages.h"
 #include "WebPage.h"
 #include "WebProcess.h"
+#include <JavaScriptCore/ContentSearchUtilities.h>
+#include <JavaScriptCore/InspectorProtocolObjects.h>
+#include <JavaScriptCore/RegularExpression.h>
+#include <WebCore/CachedResource.h>
 #include <WebCore/Chrome.h>
+#include <WebCore/Document.h>
+#include <WebCore/DocumentLoader.h>
 #include <WebCore/DocumentView.h>
+#include <WebCore/FrameInspectorController.h>
 #include <WebCore/FrameLoadRequest.h>
 #include <WebCore/FrameLoader.h>
 #include <WebCore/InspectorFrontendClient.h>
+#include <WebCore/InspectorIdentifierRegistry.h>
 #include <WebCore/InspectorPageAgent.h>
+#include <WebCore/InspectorResourceUtilities.h>
 #include <WebCore/LocalFrame.h>
 #include <WebCore/LocalFrameInlines.h>
 #include <WebCore/LocalFrameView.h>
@@ -46,7 +57,13 @@
 #include <WebCore/Page.h>
 #include <WebCore/PageInspectorController.h>
 #include <WebCore/ScriptController.h>
+#include <WebCore/Settings.h>
+#include <WebCore/WebInjectedScriptManager.h>
 #include <WebCore/WindowFeatures.h>
+#include <wtf/Borrow.h>
+#include <wtf/HashSet.h>
+#include <wtf/URL.h>
+#include <wtf/text/StringHash.h>
 
 static const float minimumAttachedHeight = 250;
 static const float maximumAttachedHeightRatio = 0.75;
@@ -62,11 +79,14 @@ Ref<WebInspectorBackend> WebInspectorBackend::create(WebPage& page)
 
 WebInspectorBackend::WebInspectorBackend(WebPage& page)
     : m_page(page)
+    , m_resourceDataStore(makeUniqueRef<BackendResourceDataStore>(BackendResourceDataStore::Settings { }))
 {
 }
 
 WebInspectorBackend::~WebInspectorBackend()
 {
+    disableNetworkInstrumentation();
+
     if (RefPtr frontendConnection = m_frontendConnection)
         frontendConnection->invalidate();
 }
@@ -78,7 +98,7 @@ WebPage* WebInspectorBackend::page() const
 
 void WebInspectorBackend::openLocalInspectorFrontend()
 {
-    WebProcess::singleton().protectedParentProcessConnection()->send(Messages::WebInspectorBackendProxy::RequestOpenLocalInspectorFrontend(), m_page->identifier());
+    protect(WebProcess::singleton().parentProcessConnection())->send(Messages::WebInspectorBackendProxy::RequestOpenLocalInspectorFrontend(), m_page->identifier());
 }
 
 void WebInspectorBackend::setFrontendConnection(IPC::Connection::Handle&& connectionHandle)
@@ -95,14 +115,14 @@ void WebInspectorBackend::setFrontendConnection(IPC::Connection::Handle&& connec
     m_frontendConnection = frontendConnection.copyRef();
     frontendConnection->open(*this);
 
-    for (auto& callback : m_frontendConnectionActions)
+    for (auto& callback : borrow(m_frontendConnectionActions).get())
         callback(frontendConnection.get());
     m_frontendConnectionActions.clear();
 }
 
 void WebInspectorBackend::closeFrontendConnection()
 {
-    WebProcess::singleton().protectedParentProcessConnection()->send(Messages::WebInspectorBackendProxy::DidClose(), m_page->identifier());
+    protect(WebProcess::singleton().parentProcessConnection())->send(Messages::WebInspectorBackendProxy::DidClose(), m_page->identifier());
 
     // If we tried to close the frontend before it was created, then no connection exists yet.
     if (RefPtr frontendConnection = m_frontendConnection) {
@@ -118,7 +138,7 @@ void WebInspectorBackend::closeFrontendConnection()
 
 void WebInspectorBackend::bringToFront()
 {
-    WebProcess::singleton().protectedParentProcessConnection()->send(Messages::WebInspectorBackendProxy::BringToFront(), m_page->identifier());
+    protect(WebProcess::singleton().parentProcessConnection())->send(Messages::WebInspectorBackendProxy::BringToFront(), m_page->identifier());
 }
 
 void WebInspectorBackend::whenFrontendConnectionEstablished(Function<void(IPC::Connection&)>&& callback)
@@ -132,13 +152,15 @@ void WebInspectorBackend::whenFrontendConnectionEstablished(Function<void(IPC::C
 }
 
 // Called by WebInspectorBackend messages
-void WebInspectorBackend::show(CompletionHandler<void()>&& completionHandler)
+void WebInspectorBackend::show(CompletionHandler<void(bool success)>&& completionHandler)
 {
-    if (!m_page->corePage())
+    if (!m_page->corePage()) {
+        completionHandler(false);
         return;
+    }
 
     m_page->corePage()->inspectorController().show();
-    completionHandler();
+    completionHandler(true);
 }
 
 void WebInspectorBackend::close()
@@ -190,7 +212,7 @@ void WebInspectorBackend::showMainResourceForFrame(WebCore::FrameIdentifier fram
     if (!m_page->corePage())
         return;
 
-    String inspectorFrameIdentifier = CheckedRef { m_page->corePage()->inspectorController().ensurePageAgent() }->frameId(frame->protectedCoreLocalFrame().get());
+    String inspectorFrameIdentifier = CheckedRef { m_page->corePage()->inspectorController().ensurePageAgent() }->frameId(protect(frame->coreLocalFrame()).get());
 
     whenFrontendConnectionEstablished([inspectorFrameIdentifier](auto& frontendConnection) {
         frontendConnection.send(Messages::WebInspectorUI::ShowMainResourceForFrame(inspectorFrameIdentifier), 0);
@@ -239,24 +261,24 @@ void WebInspectorBackend::stopElementSelection()
 
 void WebInspectorBackend::elementSelectionChanged(bool active)
 {
-    WebProcess::singleton().protectedParentProcessConnection()->send(Messages::WebInspectorBackendProxy::ElementSelectionChanged(active), m_page->identifier());
+    protect(WebProcess::singleton().parentProcessConnection())->send(Messages::WebInspectorBackendProxy::ElementSelectionChanged(active), m_page->identifier());
 }
 
 void WebInspectorBackend::timelineRecordingChanged(bool active)
 {
-    WebProcess::singleton().protectedParentProcessConnection()->send(Messages::WebInspectorBackendProxy::TimelineRecordingChanged(active), m_page->identifier());
+    protect(WebProcess::singleton().parentProcessConnection())->send(Messages::WebInspectorBackendProxy::TimelineRecordingChanged(active), m_page->identifier());
 }
 
 void WebInspectorBackend::setDeveloperPreferenceOverride(InspectorBackendClient::DeveloperPreference developerPreference, std::optional<bool> overrideValue)
 {
-    WebProcess::singleton().protectedParentProcessConnection()->send(Messages::WebInspectorBackendProxy::SetDeveloperPreferenceOverride(developerPreference, overrideValue), m_page->identifier());
+    protect(WebProcess::singleton().parentProcessConnection())->send(Messages::WebInspectorBackendProxy::SetDeveloperPreferenceOverride(developerPreference, overrideValue), m_page->identifier());
 }
 
 #if ENABLE(INSPECTOR_NETWORK_THROTTLING)
 
 void WebInspectorBackend::setEmulatedConditions(std::optional<int64_t>&& bytesPerSecondLimit)
 {
-    WebProcess::singleton().protectedParentProcessConnection()->send(Messages::WebInspectorBackendProxy::SetEmulatedConditions(WTF::move(bytesPerSecondLimit)), m_page->identifier());
+    protect(WebProcess::singleton().parentProcessConnection())->send(Messages::WebInspectorBackendProxy::SetEmulatedConditions(WTF::move(bytesPerSecondLimit)), m_page->identifier());
 }
 
 #endif // ENABLE(INSPECTOR_NETWORK_THROTTLING)
@@ -280,8 +302,8 @@ bool WebInspectorBackend::canAttachWindow()
     RefPtr localMainFrame = RefPtr { m_page.get() }->localMainFrame();
     if (!localMainFrame)
         return false;
-    unsigned inspectedPageHeight = localMainFrame->protectedView()->visibleHeight();
-    unsigned inspectedPageWidth = localMainFrame->protectedView()->visibleWidth();
+    unsigned inspectedPageHeight = protect(localMainFrame->view())->visibleHeight();
+    unsigned inspectedPageWidth = protect(localMainFrame->view())->visibleWidth();
     unsigned maximumAttachedHeight = inspectedPageHeight * maximumAttachedHeightRatio;
     return minimumAttachedHeight <= maximumAttachedHeight && minimumAttachedWidth <= inspectedPageWidth;
 }
@@ -297,7 +319,447 @@ void WebInspectorBackend::updateDockingAvailability()
 
     m_previousCanAttach = canAttachWindow;
 
-    WebProcess::singleton().protectedParentProcessConnection()->send(Messages::WebInspectorBackendProxy::AttachAvailabilityChanged(canAttachWindow), m_page->identifier());
+    protect(WebProcess::singleton().parentProcessConnection())->send(Messages::WebInspectorBackendProxy::AttachAvailabilityChanged(canAttachWindow), m_page->identifier());
+}
+
+void WebInspectorBackend::ensureInstrumentationForFrame(LocalFrame& frame)
+{
+    ensureNetworkInstrumentationForFrame(frame);
+    ensurePageInstrumentationForFrame(frame);
+}
+
+void WebInspectorBackend::ensureNetworkInstrumentationForFrame(LocalFrame& frame)
+{
+    if (!m_networkInstrumentationEnabled)
+        return;
+
+    auto frameID = frame.frameID();
+    if (m_frameNetworkAgentProxies.contains(frameID))
+        return;
+
+    RefPtr page = m_page.get();
+    if (!page)
+        return;
+
+    RefPtr corePage = page->corePage();
+    if (!corePage)
+        return;
+
+    auto& pageInspectorController = corePage->inspectorController();
+    auto& frameController = frame.inspectorController();
+    Inspector::AgentContext baseContext = {
+        frameController,
+        pageInspectorController.injectedScriptManager(),
+        pageInspectorController.frontendRouter(),
+        pageInspectorController.backendDispatcher()
+    };
+    Ref instrumentingAgents = frameController.instrumentingAgents();
+    WebAgentContext webContext = {
+        baseContext,
+        instrumentingAgents.get()
+    };
+
+    CheckedRef resourceDataStore = m_resourceDataStore.get();
+    auto proxy = makeUnique<FrameNetworkAgentProxy>(webContext, *page, resourceDataStore.get(), m_extraRequestHeaders);
+    proxy->enable();
+    m_frameNetworkAgentProxies.add(frameID, WTF::move(proxy));
+}
+
+void WebInspectorBackend::enableNetworkInstrumentation()
+{
+    if (!m_page)
+        return;
+
+    RefPtr corePage = m_page->corePage();
+    if (!corePage)
+        return;
+
+    if (!m_networkInstrumentationEnabled) {
+        m_networkInstrumentationEnabled = true;
+        corePage->settings().setDeveloperExtrasEnabled(true);
+        corePage->inspectorController().connectRemoteInstrumentation();
+    }
+
+    corePage->forEachLocalFrame([&](LocalFrame& frame) {
+        ensureNetworkInstrumentationForFrame(frame);
+    });
+}
+
+void WebInspectorBackend::disableNetworkInstrumentation()
+{
+    if (!m_networkInstrumentationEnabled)
+        return;
+
+    m_frameNetworkAgentProxies.clear();
+    m_networkInstrumentationEnabled = false;
+
+    // Reset latched Network overrides so nothing persists past inspection. The caching flag lives
+    // on the Page and would otherwise stay disabled with no inspector attached. Mirrors
+    // InspectorNetworkAgent::disable().
+    m_extraRequestHeaders.clear();
+    m_resourceCachingDisabled = false;
+
+    if (!m_page)
+        return;
+
+    if (RefPtr corePage = m_page->corePage()) {
+        corePage->setResourceCachingDisabledByWebInspector(false);
+        corePage->inspectorController().disconnectRemoteInstrumentation();
+    }
+}
+
+void WebInspectorBackend::removeInstrumentationForFrame(FrameIdentifier frameID)
+{
+    m_frameNetworkAgentProxies.remove(frameID);
+    m_framePageAgentProxies.remove(frameID);
+}
+
+void WebInspectorBackend::getResponseBody(ResourceLoaderIdentifier resourceID, CompletionHandler<void(String content, bool base64Encoded, String errorString)>&& completionHandler)
+{
+    CheckedRef resourceDataStore = m_resourceDataStore.get();
+    auto result = resourceDataStore->getResponseBody(resourceID);
+    if (result.has_value()) {
+        auto& [content, base64Encoded] = result.value();
+        completionHandler(content, base64Encoded, String());
+    } else
+        completionHandler(String(), false, result.error());
+}
+
+// Convert the JSON protocol matches from ContentSearchUtilities::searchInTextByLines into the plain
+// typed-IPC mirror, so the UIProcess rebuilds the protocol objects on its side (as with FrameResource).
+static Vector<Inspector::SearchMatch> convertSearchMatches(JSON::ArrayOf<Inspector::Protocol::GenericTypes::SearchMatch>& matches)
+{
+    Vector<Inspector::SearchMatch> result;
+    auto length = matches.length();
+    result.reserveInitialCapacity(length);
+    for (size_t i = 0; i < length; ++i) {
+        RefPtr object = matches.get(i)->asObject();
+        if (!object)
+            continue;
+        Inspector::SearchMatch match;
+        if (auto lineNumber = object->getInteger("lineNumber"_s))
+            match.lineNumber = *lineNumber;
+        match.lineContent = object->getString("lineContent"_s);
+        result.append(WTF::move(match));
+    }
+    return result;
+}
+
+void WebInspectorBackend::searchInRequest(WebCore::ResourceLoaderIdentifier resourceID, const String& query, bool caseSensitive, bool isRegex, CompletionHandler<void(Vector<Inspector::SearchMatch>&&, String errorString)>&& completionHandler)
+{
+    // Mirrors InspectorNetworkAgent::searchInRequest, reading from this process's
+    // BackendResourceDataStore (the Site Isolation analog of NetworkResourcesData).
+    CheckedRef resourceDataStore = m_resourceDataStore.get();
+    auto const* resourceData = resourceDataStore->data(resourceID);
+    if (!resourceData) {
+        completionHandler({ }, "Missing resource for given requestId"_s);
+        return;
+    }
+
+    if (!resourceData->hasContent()) {
+        completionHandler({ }, "Missing content of resource for given requestId"_s);
+        return;
+    }
+
+    if (resourceData->base64Encoded()) {
+        completionHandler({ }, "Search not supported on base64-encoded resource"_s);
+        return;
+    }
+
+    auto matches = Inspector::ContentSearchUtilities::searchInTextByLines(resourceData->content(), query, caseSensitive, isRegex);
+    completionHandler(convertSearchMatches(matches.get()), String());
+}
+
+void WebInspectorBackend::searchInFrameResource(WebCore::FrameIdentifier frameID, const String& url, const String& query, bool caseSensitive, bool isRegex, CompletionHandler<void(Vector<Inspector::SearchMatch>&&, String errorString)>&& completionHandler)
+{
+    // Mirrors the frame+URL half of InspectorPageAgent::searchInResource: find the resource by URL
+    // (main resource vs. cached resource) in this process's copy of the frame, then search its text.
+    RefPtr webFrame = WebProcess::singleton().webFrame(frameID);
+    if (!webFrame) {
+        completionHandler({ }, "Frame not found in this process"_s);
+        return;
+    }
+    RefPtr localFrame = webFrame->coreLocalFrame();
+    if (!localFrame) {
+        completionHandler({ }, "Frame is not local to this process"_s);
+        return;
+    }
+
+    RefPtr loader = localFrame->loader().documentLoader();
+    if (!loader) {
+        completionHandler({ }, "No document loader for frame"_s);
+        return;
+    }
+
+    URL parsedURL({ }, url);
+
+    String content;
+    bool success = false;
+    if (equalIgnoringFragmentIdentifier(parsedURL, loader->url()))
+        success = Inspector::ResourceUtilities::mainResourceContent(localFrame.get(), false, &content);
+
+    if (!success) {
+        if (RefPtr resource = Inspector::ResourceUtilities::cachedResource(localFrame.get(), parsedURL)) {
+            if (auto textContent = Inspector::ResourceUtilities::textContentForCachedResource(*resource)) {
+                content = *textContent;
+                success = true;
+            }
+        }
+    }
+
+    if (!success) {
+        completionHandler({ }, String());
+        return;
+    }
+
+    auto matches = Inspector::ContentSearchUtilities::searchInTextByLines(content, query, caseSensitive, isRegex);
+    completionHandler(convertSearchMatches(matches.get()), String());
+}
+
+void WebInspectorBackend::searchInFramesAndRequests(Vector<WebCore::FrameIdentifier>&& frameIDs, const String& query, bool caseSensitive, bool isRegex, CompletionHandler<void(Vector<Inspector::SearchResult>&&)>&& completionHandler)
+{
+    // Combines both halves of InspectorPageAgent::searchInResources for the frames this process
+    // hosts: match each frame's cached subresources, and also this process's BackendResourceDataStore
+    // (XHR/Fetch bodies). Consolidating them here collapses the legacy Page->Network cross-agent call.
+    Vector<Inspector::SearchResult> results;
+
+    // Track URLs seen in the cached-resource walk so the data-store walk can skip them: a resource
+    // that is both a CachedResource and a tracked request is reported once. This intentionally
+    // diverges from the legacy path, which double-counts it.
+    // Caveat: the join key is a URL string, and a redirected resource has different URLs in the two
+    // walks (request vs. final URL), so it can still be counted twice.
+    HashSet<String> cachedResourceURLs;
+
+    auto searchType = isRegex ? Inspector::ContentSearchUtilities::SearchType::Regex : Inspector::ContentSearchUtilities::SearchType::ContainsString;
+    auto searchCaseSensitive = caseSensitive ? Inspector::ContentSearchUtilities::SearchCaseSensitive::Yes : Inspector::ContentSearchUtilities::SearchCaseSensitive::No;
+    auto regex = Inspector::ContentSearchUtilities::createRegularExpressionForString(query, searchType, searchCaseSensitive);
+
+    for (auto frameID : frameIDs) {
+        RefPtr webFrame = WebProcess::singleton().webFrame(frameID);
+        if (!webFrame)
+            continue;
+        RefPtr localFrame = webFrame->coreLocalFrame();
+        if (!localFrame)
+            continue;
+
+        for (RefPtr cachedResource : Inspector::ResourceUtilities::cachedResourcesForFrame(localFrame.get())) {
+            auto textContent = Inspector::ResourceUtilities::textContentForCachedResource(*cachedResource);
+            if (!textContent)
+                continue;
+            auto urlString = cachedResource->url().string();
+            cachedResourceURLs.add(urlString);
+            int matchesCount = Inspector::ContentSearchUtilities::countRegularExpressionMatches(regex, *textContent);
+            if (!matchesCount)
+                continue;
+            Inspector::SearchResult result;
+            result.url = urlString;
+            result.frameID = frameID;
+            result.matchesCount = matchesCount;
+            results.append(WTF::move(result));
+        }
+    }
+
+    CheckedRef resourceDataStore = m_resourceDataStore.get();
+    resourceDataStore->forEach([&](const BackendResourceDataStore::ResourceData& entry) {
+        if (!entry.hasContent() || entry.base64Encoded())
+            return;
+        // Skip entries already emitted by the cached-resource walk to avoid double-counting
+        // (e.g. a stylesheet is both a CachedResource and a buffered data-store entry).
+        if (cachedResourceURLs.contains(entry.url()))
+            return;
+        int matchesCount = Inspector::ContentSearchUtilities::countRegularExpressionMatches(regex, entry.content());
+        if (!matchesCount)
+            return;
+        Inspector::SearchResult result;
+        result.url = entry.url();
+        if (auto frameID = entry.frameID())
+            result.frameID = *frameID;
+        result.matchesCount = matchesCount;
+        result.resourceID = entry.resourceID();
+        results.append(WTF::move(result));
+    });
+
+    completionHandler(WTF::move(results));
+}
+
+void WebInspectorBackend::setExtraHTTPHeaders(WebCore::HTTPHeaderMap&& headers)
+{
+    // Each FrameNetworkAgentProxy reads this in willSendRequest, so frames created after this
+    // arrives also apply it.
+    m_extraRequestHeaders = WTF::move(headers);
+}
+
+void WebInspectorBackend::setResourceCachingDisabled(bool disabled)
+{
+    m_resourceCachingDisabled = disabled;
+
+    // The flag lives on the Page, so one application covers every frame in this process.
+    RefPtr page = m_page.get();
+    if (RefPtr corePage = page ? page->corePage() : nullptr)
+        corePage->setResourceCachingDisabledByWebInspector(disabled);
+}
+
+void WebInspectorBackend::ensurePageInstrumentationForFrame(LocalFrame& frame)
+{
+    if (!m_pageInstrumentationEnabled)
+        return;
+
+    auto frameID = frame.frameID();
+    if (m_framePageAgentProxies.contains(frameID))
+        return;
+
+    RefPtr page = m_page.get();
+    if (!page)
+        return;
+
+    RefPtr corePage = page->corePage();
+    if (!corePage)
+        return;
+
+    // Register the PageAgentProxy on the frame's OWN InstrumentingAgents (mirroring
+    // FrameNetworkAgentProxy in ensureNetworkInstrumentationForFrame), rather than the page's.
+    // The frame's first commit dispatches frameNavigated via instrumentingAgents(frame),
+    // which resolves the frame's own InstrumentingAgents; setting the slot there fires
+    // the proxy directly without depending on the frame->page fallback. Under Site
+    // Isolation a cross-origin child loads in a brand-new process whose page-level slot
+    // is set up too late / via a fallback that doesn't fire, so the page-level + fallback
+    // model never delivered the child's initial frameNavigated. See webkit.org/b/308896.
+    auto& pageInspectorController = corePage->inspectorController();
+    auto& frameController = frame.inspectorController();
+    Inspector::AgentContext baseContext = {
+        frameController,
+        pageInspectorController.injectedScriptManager(),
+        pageInspectorController.frontendRouter(),
+        pageInspectorController.backendDispatcher()
+    };
+    Ref instrumentingAgents = frameController.instrumentingAgents();
+    WebAgentContext webContext = {
+        baseContext,
+        instrumentingAgents.get()
+    };
+
+    auto proxy = makeUnique<PageAgentProxy>(webContext, *page);
+    proxy->enable();
+    m_framePageAgentProxies.add(frameID, WTF::move(proxy));
+}
+
+void WebInspectorBackend::enablePageInstrumentation()
+{
+    if (!m_page || !m_page->corePage())
+        return;
+
+    if (m_pageInstrumentationEnabled)
+        return;
+
+    m_pageInstrumentationEnabled = true;
+
+    RefPtr corePage = m_page->corePage();
+    corePage->settings().setDeveloperExtrasEnabled(true);
+
+    corePage->forEachLocalFrame([&](LocalFrame& frame) {
+        ensurePageInstrumentationForFrame(frame);
+    });
+}
+
+void WebInspectorBackend::disablePageInstrumentation()
+{
+    if (!m_pageInstrumentationEnabled)
+        return;
+
+    // Clearing the map destroys each PageAgentProxy, whose destructor (via disable())
+    // clears the enabledPageProxy slot on its frame's InstrumentingAgents. Without that,
+    // a later frame commit in this process would dereference a freed pointer from
+    // InspectorInstrumentation. The page is still alive here (this is an explicit
+    // DisablePageInstrumentation IPC, not process teardown).
+    m_framePageAgentProxies.clear();
+    m_pageInstrumentationEnabled = false;
+}
+
+
+void WebInspectorBackend::getFrameResourceData(Vector<WebCore::FrameIdentifier>&& frameIDs, CompletionHandler<void(Vector<std::pair<WebCore::FrameIdentifier, Inspector::FrameResourceData>>&&)>&& completionHandler)
+{
+    // Return, for each requested frame that is local to this WebContent process, its committed
+    // document's loaderId (as a ScriptExecutionContextIdentifier) and cached subresources. The
+    // UIProcess ProxyingPageAgent walks the authoritative cross-process frame tree, groups frame
+    // IDs by hosting process, and asks each process only for the frames it hosts; it then builds
+    // the Page.getResourceTree protocol objects from this typed data under Site Isolation. Frames
+    // not local to this process are silently skipped (another process answers for them).
+    // See webkit.org/b/308896.
+    Vector<std::pair<WebCore::FrameIdentifier, Inspector::FrameResourceData>> resourcesByFrame;
+    resourcesByFrame.reserveInitialCapacity(frameIDs.size());
+
+    for (auto frameID : frameIDs) {
+        RefPtr webFrame = WebProcess::singleton().webFrame(frameID);
+        if (!webFrame)
+            continue;
+        RefPtr localFrame = webFrame->coreLocalFrame();
+        if (!localFrame)
+            continue;
+
+        Inspector::FrameResourceData frameData;
+        if (RefPtr document = localFrame->document())
+            frameData.loaderId = document->identifier();
+        frameData.resources = Inspector::ResourceUtilities::buildResourceDataForFrame(*localFrame);
+        resourcesByFrame.append({ frameID, WTF::move(frameData) });
+    }
+
+    completionHandler(WTF::move(resourcesByFrame));
+}
+
+void WebInspectorBackend::getFrameResourceContent(WebCore::FrameIdentifier frameID, String url, CompletionHandler<void(String content, bool base64Encoded, String errorString)>&& completionHandler)
+{
+    // Return the content of a resource hosted by this WebContent process, for the UIProcess
+    // ProxyingPageAgent to serve Page.getResourceContent cross-process under Site Isolation.
+    // The UIProcess routes this message to the frame's hosting process (parsed from the
+    // process-qualified protocol frameId), so the frame is expected to be local here; a null
+    // WebFrame / LocalFrame / DocumentLoader means the frame swapped or detached between the
+    // request and this reply, which we surface as an errorString (unlike a lookup miss below,
+    // this case has no InspectorPageAgent precedent to mimic).
+    // Frame resolution mirrors searchInFrameResource() / getFrameResourceData().
+    // See webkit.org/b/171780776.
+    RefPtr webFrame = WebProcess::singleton().webFrame(frameID);
+    if (!webFrame) {
+        completionHandler(String(), false, "Frame not found in this process"_s);
+        return;
+    }
+    RefPtr localFrame = webFrame->coreLocalFrame();
+    if (!localFrame) {
+        completionHandler(String(), false, "Frame is not local to this process"_s);
+        return;
+    }
+    RefPtr loader = localFrame->loader().documentLoader();
+    if (!loader) {
+        completionHandler(String(), false, "No document loader for frame"_s);
+        return;
+    }
+
+    // Serve the frame's committed main document, else a cached subresource matched by url --
+    // the same two-step lookup as WebCore's ResourceUtilities::resourceContent (which is not
+    // WEBCORE_EXPORT and so can't be linked from WebKit), composed here from the exported
+    // primitives, the same way searchInFrameResource() does above. Runs on the main thread (same
+    // dispatch as getFrameResourceData) because it touches Document / CachedResourceLoader /
+    // DocumentLoader.
+    URL parsedURL({ }, url);
+    URL loaderURL = loader->url();
+
+    String content;
+    // Initialize before use: the cached-subresource branch (cachedResourceContent) has a
+    // return-false path that leaves base64Encoded untouched, and this reply serializes it across
+    // IPC unconditionally, so an uninitialized bool would be undefined behavior.
+    bool base64Encoded = false;
+    bool success = false;
+
+    if (equalIgnoringFragmentIdentifier(parsedURL, loaderURL))
+        success = Inspector::ResourceUtilities::mainResourceContent(localFrame.get(), false, &content);
+
+    if (!success) {
+        if (RefPtr resource = Inspector::ResourceUtilities::cachedResource(localFrame.get(), parsedURL))
+            Inspector::ResourceUtilities::cachedResourceContent(*resource, &content, &base64Encoded);
+    }
+
+    // Matches InspectorPageAgent::getResourceContent: on a lookup miss, report success with
+    // empty content rather than an error -- the frontend already tolerates empty content here.
+    completionHandler(content, base64Encoded, String());
 }
 
 } // namespace WebKit

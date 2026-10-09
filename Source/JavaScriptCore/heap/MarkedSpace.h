@@ -26,11 +26,9 @@
 #include <JavaScriptCore/MarkedBlockSet.h>
 #include <JavaScriptCore/PreciseAllocation.h>
 #include <array>
-#include <wtf/Bag.h>
 #include <wtf/HashSet.h>
 #include <wtf/IterationStatus.h>
 #include <wtf/Noncopyable.h>
-#include <wtf/RetainPtr.h>
 #include <wtf/SentinelLinkedList.h>
 #include <wtf/SinglyLinkedListWithTail.h>
 #include <wtf/Vector.h>
@@ -110,7 +108,7 @@ public:
     template<typename Visitor>
     Ref<SharedTask<void(Visitor&)>> forEachWeakInParallel(Visitor&);
 
-    MarkedBlockSet& blocks() { return m_blocks; }
+    MarkedBlockSet& blocks() LIFETIME_BOUND { return m_blocks; }
 
     void willStartIterating();
     bool isIterating() const { return m_isIterating; }
@@ -120,7 +118,7 @@ public:
     void stopAllocatingForGood();
     void resumeAllocating(); // If we just stopped allocation but we didn't do a collection, we need to resume allocation.
     
-    void prepareForMarking();
+    void NODELETE prepareForMarking();
     
     void prepareForConservativeScan();
 
@@ -136,7 +134,7 @@ public:
 
     void didAddBlock(MarkedBlock::Handle*);
     void didConsumeFreeList(MarkedBlock::Handle*);
-    void didAllocateInBlock(MarkedBlock::Handle*);
+    void NODELETE didAllocateInBlock(MarkedBlock::Handle*);
 
     // FIXME: rdar://139998916
     MarkedBlock::Handle* findMarkedBlockHandleDebug(MarkedBlock*);
@@ -150,7 +148,7 @@ public:
     void assertNoUnswept();
     size_t objectCount();
     size_t size();
-    size_t capacity();
+    size_t NODELETE capacity();
 
     bool isPagedOut();
     
@@ -159,10 +157,10 @@ public:
     HeapVersion edenVersion() const { return m_edenVersion; }
 
     void registerPreciseAllocation(PreciseAllocation*, bool isNewAllocation);
-    const Vector<PreciseAllocation*>& preciseAllocations() const { return m_preciseAllocations; }
+    const Vector<PreciseAllocation*>& preciseAllocations() const LIFETIME_BOUND { return m_preciseAllocations; }
     unsigned preciseAllocationsNurseryOffset() const { return m_preciseAllocationsNurseryOffset; }
     unsigned preciseAllocationsOffsetForThisCollection() const { return m_preciseAllocationsOffsetForThisCollection; }
-    std::optional<UncheckedKeyHashSet<HeapCell*>>& preciseAllocationSet() { return m_preciseAllocationSet; }
+    std::optional<UncheckedKeyHashSet<HeapCell*>>& preciseAllocationSet() LIFETIME_BOUND { return m_preciseAllocationSet; }
 
     void enablePreciseAllocationTracking();
     
@@ -172,9 +170,9 @@ public:
     PreciseAllocation** preciseAllocationsForThisCollectionEnd() const { return m_preciseAllocationsForThisCollectionEnd; }
     unsigned preciseAllocationsForThisCollectionSize() const { return m_preciseAllocationsForThisCollectionSize; }
     
-    BlockDirectory* firstDirectory() const { return m_directories.first(); }
+    BlockDirectory* firstDirectory() const LIFETIME_BOUND { return m_directories.first(); }
     
-    Lock& directoryLock() { return m_directoryLock; }
+    Lock& directoryLock() LIFETIME_BOUND { return m_directoryLock; }
     void addBlockDirectory(const AbstractLocker&, BlockDirectory*);
     
     // When this is true it means that we have flipped but the mark bits haven't converged yet.
@@ -202,7 +200,7 @@ private:
 
     template<typename Functor> inline void forEachDirectory(const Functor&);
     
-    void addActiveWeakSet(WeakSet*);
+    void NODELETE addActiveWeakSet(WeakSet*);
 
     Vector<Subspace*> m_subspaces;
 
@@ -221,6 +219,7 @@ private:
     HeapVersion m_edenVersion { initialVersion };
     bool m_isIterating { false };
     bool m_isMarking { false };
+    bool m_conservativeScanIsPrepared { false };
     Lock m_directoryLock;
     MarkedBlockSet m_blocks;
     

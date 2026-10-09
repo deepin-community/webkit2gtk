@@ -32,11 +32,11 @@
 #include "RenderMultiColumnSet.h"
 #include "RenderMultiColumnSpannerPlaceholder.h"
 #include "RenderObjectInlines.h"
-#include "RenderStyle+GettersInlines.h"
 #include "RenderTextControl.h"
 #include "RenderTreeBuilder.h"
 #include "RenderTreeBuilderBlock.h"
 #include "RenderView.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include <wtf/SetForScope.h>
 #include <wtf/TZoneMallocInlines.h>
 
@@ -150,7 +150,7 @@ RenderTreeBuilder::MultiColumn::MultiColumn(RenderTreeBuilder& builder)
 
 void RenderTreeBuilder::MultiColumn::updateAfterDescendants(RenderBlockFlow& flow)
 {
-    bool needsFragmentedFlow = flow.requiresColumns(flow.style().columnCount().tryValue().value_or(1).value);
+    bool needsFragmentedFlow = flow.requiresFragmentedFlow();
     bool hasFragmentedFlow = flow.multiColumnFlow();
 
     if (!hasFragmentedFlow && needsFragmentedFlow) {
@@ -300,7 +300,7 @@ void RenderTreeBuilder::MultiColumn::createFragmentedFlow(RenderBlockFlow& flow)
     if (auto* enclosingflow = dynamicDowncast<RenderMultiColumnFlow>(flow.enclosingFragmentedFlow()))
         restoreColumnSpannersForContainer(*enclosingflow, flow);
 
-    auto newFragmentedFlow = WebCore::createRenderer<RenderMultiColumnFlow>(flow.document(), RenderStyle::createAnonymousStyleWithDisplay(flow.style(), DisplayType::Block));
+    auto newFragmentedFlow = WebCore::createRenderer<RenderMultiColumnFlow>(flow.document(), Style::ComputedStyle::createAnonymousStyleWithDisplay(flow.style(), Style::DisplayType::BlockFlow));
     newFragmentedFlow->initializeStyle();
     auto& fragmentedFlow = *newFragmentedFlow;
     m_builder.blockBuilder().attach(flow, WTF::move(newFragmentedFlow), nullptr);
@@ -432,7 +432,7 @@ RenderObject* RenderTreeBuilder::MultiColumn::processPossibleSpannerDescendant(R
     // Need to create a new column set when there's no set already created. We also always insert
     // another column set after a spanner. Even if it turns out that there are no renderers
     // following the spanner, there may be bottom margins there, which take up space.
-    auto newSet = createRenderer<RenderMultiColumnSet>(flow, RenderStyle::createAnonymousStyleWithDisplay(multicolContainer->style(), DisplayType::Block));
+    auto newSet = createRenderer<RenderMultiColumnSet>(flow, Style::ComputedStyle::createAnonymousStyleWithDisplay(multicolContainer->style(), Style::DisplayType::BlockFlow));
     newSet->initializeStyle();
     auto& set = *newSet;
     m_builder.blockBuilder().attach(*multicolContainer, WTF::move(newSet), insertBeforeMulticolChild);
@@ -465,4 +465,4 @@ void RenderTreeBuilder::MultiColumn::handleSpannerRemoval(RenderMultiColumnFlow&
     }
 }
 
-} // namespace Webcore
+} // namespace WebCore

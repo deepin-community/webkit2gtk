@@ -30,6 +30,7 @@
 #include <wtf/HashMap.h>
 #include <wtf/PriorityQueue.h>
 #include <wtf/Vector.h>
+#include <wtf/text/StringHash.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
@@ -49,7 +50,7 @@ public:
     bool tryAccess(const String& host, ContinuousApproximateTime);
     void clearAllData();
 
-    void setCountPerDuration(size_t count, Seconds duration);
+    void NODELETE setCountPerDuration(size_t count, Seconds duration);
 
     static constexpr size_t defaultThrottleAccessCount = 5;
     static constexpr Seconds defaultThrottleDuration = 24_h;
@@ -68,8 +69,8 @@ private:
         AccessThrottler() = default;
 
         bool tryAccessAndUpdateHistory(ContinuousApproximateTime, const Config&);
-        bool tryExpire(ContinuousApproximateTime, const Config&);
-        ContinuousApproximateTime oldestAccessTime() const;
+        bool NODELETE tryExpire(ContinuousApproximateTime, const Config&);
+        ContinuousApproximateTime NODELETE oldestAccessTime() const;
         ContinuousApproximateTime newestAccessTime() const { return m_newestAccessTime; }
 
     private:

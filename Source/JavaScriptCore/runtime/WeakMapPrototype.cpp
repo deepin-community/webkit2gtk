@@ -34,8 +34,6 @@
 
 namespace JSC {
 
-const ASCIILiteral WeakMapInvalidKeyError { "WeakMap keys must be objects or non-registered symbols"_s };
-
 const ClassInfo WeakMapPrototype::s_info = { "WeakMap"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(WeakMapPrototype) };
 
 static JSC_DECLARE_HOST_FUNCTION(protoFuncWeakMapDelete);
@@ -53,12 +51,8 @@ void WeakMapPrototype::finishCreation(VM& vm, JSGlobalObject* globalObject)
     JSC_NATIVE_INTRINSIC_FUNCTION_WITHOUT_TRANSITION(vm.propertyNames->get, protoFuncWeakMapGet, static_cast<unsigned>(PropertyAttribute::DontEnum), 1, ImplementationVisibility::Public, JSWeakMapGetIntrinsic);
     JSC_NATIVE_INTRINSIC_FUNCTION_WITHOUT_TRANSITION(vm.propertyNames->has, protoFuncWeakMapHas, static_cast<unsigned>(PropertyAttribute::DontEnum), 1, ImplementationVisibility::Public, JSWeakMapHasIntrinsic);
     JSC_NATIVE_INTRINSIC_FUNCTION_WITHOUT_TRANSITION(vm.propertyNames->set, protoFuncWeakMapSet, static_cast<unsigned>(PropertyAttribute::DontEnum), 2, ImplementationVisibility::Public, JSWeakMapSetIntrinsic);
-
-    if (Options::useMapGetOrInsert()) {
-        JSC_NATIVE_FUNCTION_WITHOUT_TRANSITION("getOrInsert"_s, protoFuncWeakMapGetOrInsert, static_cast<unsigned>(PropertyAttribute::DontEnum), 2, ImplementationVisibility::Public);
-        JSC_NATIVE_FUNCTION_WITHOUT_TRANSITION("getOrInsertComputed"_s, protoFuncWeakMapGetOrInsertComputed, static_cast<unsigned>(PropertyAttribute::DontEnum), 2, ImplementationVisibility::Public);
-    }
-
+    JSC_NATIVE_FUNCTION_WITHOUT_TRANSITION("getOrInsert"_s, protoFuncWeakMapGetOrInsert, static_cast<unsigned>(PropertyAttribute::DontEnum), 2, ImplementationVisibility::Public);
+    JSC_NATIVE_FUNCTION_WITHOUT_TRANSITION("getOrInsertComputed"_s, protoFuncWeakMapGetOrInsertComputed, static_cast<unsigned>(PropertyAttribute::DontEnum), 2, ImplementationVisibility::Public);
     JSC_TO_STRING_TAG_WITHOUT_TRANSITION();
 }
 
@@ -72,7 +66,7 @@ ALWAYS_INLINE static JSWeakMap* getWeakMap(JSGlobalObject* globalObject, JSValue
         return nullptr;
     }
 
-    if (auto* map = jsDynamicCast<JSWeakMap*>(asObject(value))) [[likely]]
+    if (auto* map = dynamicDowncast<JSWeakMap>(asObject(value))) [[likely]]
         return map;
 
     throwTypeError(globalObject, scope, "Called WeakMap function on a non-WeakMap object"_s);
@@ -194,7 +188,7 @@ JSC_DEFINE_HOST_FUNCTION(protoFuncWeakMapGetOrInsertComputed, (JSGlobalObject* g
 
     JSValue value;
     if (callData.type == CallData::Type::JS) [[likely]] {
-        CachedCall cachedCall(globalObject, jsCast<JSFunction*>(valueCallback), 1);
+        CachedCall cachedCall(globalObject, uncheckedDowncast<JSFunction>(valueCallback), 1);
         RETURN_IF_EXCEPTION(scope, { });
 
         value = cachedCall.callWithArguments(globalObject, jsUndefined(), key);

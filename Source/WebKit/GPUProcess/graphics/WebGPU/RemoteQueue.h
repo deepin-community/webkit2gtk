@@ -87,9 +87,6 @@ private:
     RemoteQueue& operator=(RemoteQueue&&) = delete;
 
     WebCore::WebGPU::Queue& backing() { return m_backing; }
-    Ref<WebCore::WebGPU::Queue> protectedBacking();
-
-    Ref<WebGPU::ObjectHeap> protectedObjectHeap() const;
 
     void didReceiveStreamMessage(IPC::StreamServerConnection&, IPC::Decoder&) final;
 
@@ -129,7 +126,7 @@ private:
     void setLabel(String&&);
     void destruct();
 
-    Ref<WebCore::WebGPU::Queue> m_backing;
+    const Ref<WebCore::WebGPU::Queue> m_backing;
     WeakRef<WebGPU::ObjectHeap> m_objectHeap;
     const Ref<IPC::StreamServerConnection> m_streamConnection;
     WeakRef<RemoteGPU> m_gpu;

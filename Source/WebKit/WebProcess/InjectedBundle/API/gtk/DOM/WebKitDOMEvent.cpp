@@ -20,16 +20,15 @@
 #include "config.h"
 #include "WebKitDOMEvent.h"
 
+#include <WebCore/CSSImportRule.h>
 #include "DOMObjectCache.h"
+#include <WebCore/Document.h>
+#include <WebCore/ExceptionCode.h>
+#include <WebCore/JSExecState.h>
 #include "WebKitDOMEventPrivate.h"
 #include "WebKitDOMEventTargetPrivate.h"
 #include "WebKitDOMPrivate.h"
 #include "ConvertToUTF8String.h"
-#include <WebCore/CSSImportRule.h>
-#include <WebCore/Document.h>
-#include <WebCore/ExceptionCode.h>
-#include <WebCore/EventTargetInlines.h>
-#include <WebCore/JSExecState.h>
 #include <wtf/GetPtr.h>
 #include <wtf/RefPtr.h>
 
@@ -67,7 +66,7 @@ WebKitDOMEvent* wrapEvent(WebCore::Event* coreObject)
 
 } // namespace WebKit
 
-WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GTK
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GTK port
 G_DEFINE_TYPE(WebKitDOMEvent, webkit_dom_event, WEBKIT_DOM_TYPE_OBJECT)
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
@@ -365,7 +364,7 @@ guint32 webkit_dom_event_get_time_stamp(WebKitDOMEvent* self)
     WebCore::JSMainThreadNullState state;
     g_return_val_if_fail(WEBKIT_DOM_IS_EVENT(self), 0);
     WebCore::Event* item = WebKit::core(self);
-    guint32 result = item->timeStamp().approximateWallTime().secondsSinceEpoch().milliseconds();
+    guint32 result = item->timeStamp().approximate<WallTime>().secondsSinceEpoch().milliseconds();
     return result;
 }
 

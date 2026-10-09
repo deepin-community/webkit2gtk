@@ -43,7 +43,7 @@ std::unique_ptr<WebGLDefaultFramebuffer> WebGLDefaultFramebuffer::create(WebGLRe
 WebGLDefaultFramebuffer::WebGLDefaultFramebuffer(WebGLRenderingContextBase& context)
     : m_context(context)
 {
-    auto attributes = context.graphicsContextGL()->contextAttributes();
+    auto& attributes = context.attributes();
     m_hasStencil = attributes.stencil;
     m_hasDepth = attributes.depth;
     if (!attributes.preserveDrawingBuffer) {
@@ -57,12 +57,13 @@ WebGLDefaultFramebuffer::WebGLDefaultFramebuffer(WebGLRenderingContextBase& cont
 
 IntSize WebGLDefaultFramebuffer::size() const
 {
-    return m_context->graphicsContextGL()->getInternalFramebufferSize();
+    return m_size;
 }
 
 void WebGLDefaultFramebuffer::reshape(IntSize size)
 {
-    m_context->graphicsContextGL()->reshape(size.width(), size.height());
+    m_size = size;
+    protect(m_context->graphicsContextGL())->reshape(size.width(), size.height());
 }
 
 void WebGLDefaultFramebuffer::markBuffersClear(GCGLbitfield clearBuffers)

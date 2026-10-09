@@ -1,0 +1,34 @@
+From: Michael Catanzaro <mcatanzaro@gnome.org>
+Subject: RELEASE_ASSERT in initializeMainThread aborts Eclipse/SWT applications
+Bug: https://bugs.webkit.org/show_bug.cgi?id=322394
+Bug-Debian: https://bugs.debian.org/1149700
+Origin: https://commits.webkit.org/317695.353@webkitglib/2.54
+Index: webkitgtk/Source/WTF/wtf/Threading.cpp
+===================================================================
+--- webkitgtk.orig/Source/WTF/wtf/Threading.cpp
++++ webkitgtk/Source/WTF/wtf/Threading.cpp
+@@ -133,9 +133,9 @@ static std::optional<size_t> NODELETE st
+ #endif
+ }
+ 
+-#if PLATFORM(COCOA) || OS(LINUX)
++#if PLATFORM(COCOA)
+ // uid 1 is reserved for the main thread, assigned in Thread::initializeCurrentTLS
+-// when current thread is detected as main thread. ++s_uid yields >= 2 for every non-main thread.
++// when pthread_main_np() returns true. ++s_uid yields >= 2 for every non-main thread.
+ std::atomic<uint32_t> ThreadLike::s_uid { 1 };
+ #else
+ // On platforms without a way to detect the main thread before initializeMainThread()
+Index: webkitgtk/Source/WTF/wtf/posix/ThreadingPOSIX.cpp
+===================================================================
+--- webkitgtk.orig/Source/WTF/wtf/posix/ThreadingPOSIX.cpp
++++ webkitgtk/Source/WTF/wtf/posix/ThreadingPOSIX.cpp
+@@ -457,8 +457,6 @@ Thread& Thread::initializeCurrentTLS()
+     WTF::initialize();
+ #if PLATFORM(COCOA)
+     Ref thread = adoptRef(*new Thread(SchedulingPolicy::Other, pthread_main_np() ? IsMain::Yes : IsMain::No));
+-#elif OS(LINUX)
+-    Ref thread = adoptRef(*new Thread(SchedulingPolicy::Other, getpid() == static_cast<pid_t>(syscall(SYS_gettid)) ? IsMain::Yes : IsMain::No));
+ #else
+     Ref thread = adoptRef(*new Thread(SchedulingPolicy::Other));
+ #endif

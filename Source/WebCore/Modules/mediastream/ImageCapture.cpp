@@ -34,6 +34,8 @@
 #include "ImageBitmapOptions.h"
 #include "ImageBuffer.h"
 #include "JSBlob.h"
+#include "JSDOMConvertInterface.h"
+#include "JSDOMPromiseDeferred.h"
 #include "JSImageBitmap.h"
 #include "JSPhotoCapabilities.h"
 #include "JSPhotoSettings.h"
@@ -109,7 +111,7 @@ void ImageCapture::takePhoto(PhotoSettings&& settings, DOMPromiseDeferred<IDLInt
 }
 
 // FIXME: Move this routine to VideoFrame.
-static ImageOrientation videoFrameOrientation(const VideoFrame& videoFrame)
+static ImageOrientation NODELETE videoFrameOrientation(const VideoFrame& videoFrame)
 {
     switch (videoFrame.rotation()) {
     case VideoFrame::Rotation::None:

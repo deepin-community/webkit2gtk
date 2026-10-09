@@ -29,12 +29,12 @@
 
 #include "CSSParserContext.h"
 #include "CSSParserTokenRange.h"
-#include "CSSPrimitiveValueMappings.h"
 #include "CSSPropertyParserConsumer+Ident.h"
 #include "CSSValue.h"
 #include "CSSValueList.h"
 #include "CSSValuePair.h"
 #include "RenderStyleConstants.h"
+#include "StyleKeyword+Mappings.h"
 
 namespace WebCore {
 namespace CSSPropertyParserHelpers {
@@ -111,7 +111,7 @@ enum class KeywordType : uint8_t {
     Axisless
 };
 
-static std::optional<KeywordType> getKeywordType(CSSValueID id)
+static std::optional<KeywordType> NODELETE getKeywordType(CSSValueID id)
 {
     switch (id) {
     case CSSValueLeft:
@@ -189,7 +189,7 @@ static std::optional<KeywordType> getKeywordType(CSSValueID id)
 
 // Check if the two keyword types are compatible with each other. For example,
 // <physical-area-x> must go with <physical-area-y> or <axisless-keyword>
-static bool typesAreCompatible(KeywordType dim1Type, KeywordType dim2Type)
+static bool NODELETE typesAreCompatible(KeywordType dim1Type, KeywordType dim2Type)
 {
     switch (dim1Type) {
     case KeywordType::PhysicalX:
@@ -225,7 +225,7 @@ static bool typesAreCompatible(KeywordType dim1Type, KeywordType dim2Type)
 }
 
 // Check if a keyword type is explicit about its axis.
-static bool typeIsAxisExplicit(KeywordType type)
+static bool NODELETE typeIsAxisExplicit(KeywordType type)
 {
     switch (type) {
     case KeywordType::PhysicalX:
@@ -242,7 +242,7 @@ static bool typeIsAxisExplicit(KeywordType type)
 }
 
 // Check if a keyword type refers to the X or block axis.
-static bool typeIsBlockOrXAxis(KeywordType type)
+static bool NODELETE typeIsBlockOrXAxis(KeywordType type)
 {
     switch (type) {
     case KeywordType::PhysicalX:
@@ -256,7 +256,7 @@ static bool typeIsBlockOrXAxis(KeywordType type)
 }
 
 // Check if a keyword type refers to the Y or inline axis.
-static bool typeIsInlineOrYAxis(KeywordType type)
+static bool NODELETE typeIsInlineOrYAxis(KeywordType type)
 {
     switch (type) {
     case KeywordType::PhysicalY:
@@ -269,7 +269,7 @@ static bool typeIsInlineOrYAxis(KeywordType type)
     }
 }
 
-static CSSValueID makeAmbiguous(CSSValueID dim)
+static CSSValueID NODELETE makeAmbiguous(CSSValueID dim)
 {
     switch (dim) {
     case CSSValueBlockStart: return CSSValueStart;
@@ -316,9 +316,9 @@ RefPtr<CSSValue> valueForPositionArea(CSSValueID dim1, CSSValueID dim2, ValueTyp
         return nullptr;
 
     if (dim1 == CSSValueSpanAll && typeIsAxisExplicit(dim2Type))
-        return CSSPrimitiveValue::create(dim2);
+        return CSSKeywordValue::create(dim2);
     if (typeIsAxisExplicit(dim1Type) && dim2 == CSSValueSpanAll)
-        return CSSPrimitiveValue::create(dim1);
+        return CSSKeywordValue::create(dim1);
 
     // Ensure the X/block axis keyword goes first in the pair.
     if (typeIsInlineOrYAxis(dim1Type) || typeIsBlockOrXAxis(dim2Type)) {
@@ -339,7 +339,7 @@ RefPtr<CSSValue> valueForPositionArea(CSSValueID dim1, CSSValueID dim2, ValueTyp
         }
     }
 
-    return CSSValuePair::create(CSSPrimitiveValue::create(dim1), CSSPrimitiveValue::create(dim2));
+    return CSSValuePair::create(CSSKeywordValue::create(dim1), CSSKeywordValue::create(dim2));
 }
 
 RefPtr<CSSValue> consumePositionArea(CSSParserTokenRange& range, CSS::PropertyParserState&)
@@ -352,13 +352,13 @@ RefPtr<CSSValue> consumePositionArea(CSSParserTokenRange& range, CSS::PropertyPa
         return nullptr;
     auto dim1 = *maybeDim1;
     if (dim1 == CSSValueNone)
-        return CSSPrimitiveValue::create(CSSValueNone);
+        return CSSKeywordValue::create(CSSValueNone);
 
     auto maybeDim2 = consumeIdentRaw(range);
     if (!maybeDim2) {
         if (!getKeywordType(dim1))
             return nullptr;
-        return CSSPrimitiveValue::create(dim1);
+        return CSSKeywordValue::create(dim1);
     }
     auto dim2 = *maybeDim2;
 

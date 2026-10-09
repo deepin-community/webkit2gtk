@@ -27,9 +27,11 @@
 
 #include "config.h"
 #include "RenderMathMLFraction.h"
+#include "RenderBlockInlines.h"
 
 #if ENABLE(MATHML)
 
+#include "FontCascadeInlines.h"
 #include "GraphicsContext.h"
 #include "MathMLFractionElement.h"
 #include "OpenTypeMathData.h"
@@ -43,7 +45,7 @@ namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(RenderMathMLFraction);
 
-RenderMathMLFraction::RenderMathMLFraction(MathMLFractionElement& element, RenderStyle&& style)
+RenderMathMLFraction::RenderMathMLFraction(MathMLFractionElement& element, Style::ComputedStyle&& style)
     : RenderMathMLRow(Type::MathMLFraction, element, WTF::move(style))
 {
     ASSERT(isRenderMathMLFraction());
@@ -55,7 +57,7 @@ bool RenderMathMLFraction::isValid() const
 {
     // Verify whether the list of children is valid:
     // <mfrac> numerator denominator </mfrac>
-    auto* child = firstInFlowChildBox();
+    CheckedPtr child = firstInFlowChildBox();
     if (!child)
         return false;
     child = child->nextInFlowSiblingBox();
@@ -78,13 +80,13 @@ LayoutUnit RenderMathMLFraction::defaultLineThickness() const
 {
     Ref primaryFont = style().fontCascade().primaryFont();
     if (RefPtr mathData = primaryFont->mathData())
-        return LayoutUnit(mathData->getMathConstant(primaryFont, OpenTypeMathData::FractionRuleThickness));
+        return LayoutUnit(mathData->getMathConstant(primaryFont, OpenTypeMathData::MathConstant::FractionRuleThickness));
     return ruleThicknessFallback();
 }
 
 LayoutUnit RenderMathMLFraction::lineThickness() const
 {
-    return std::max<LayoutUnit>(toUserUnits(element().lineThickness(), style(), defaultLineThickness()), 0);
+    return std::max<LayoutUnit>(toUserUnits(protect(element())->lineThickness(), style(), defaultLineThickness()), 0);
 }
 
 float RenderMathMLFraction::relativeLineThickness() const
@@ -106,10 +108,10 @@ RenderMathMLFraction::FractionParameters RenderMathMLFraction::fractionParameter
     bool display = style().mathStyle() == MathStyle::Normal;
     Ref primaryFont = style().fontCascade().primaryFont();
     if (RefPtr mathData = primaryFont->mathData()) {
-        numeratorGapMin = mathData->getMathConstant(primaryFont, display ? OpenTypeMathData::FractionNumDisplayStyleGapMin : OpenTypeMathData::FractionNumeratorGapMin);
-        denominatorGapMin = mathData->getMathConstant(primaryFont, display ? OpenTypeMathData::FractionDenomDisplayStyleGapMin : OpenTypeMathData::FractionDenominatorGapMin);
-        numeratorMinShiftUp = mathData->getMathConstant(primaryFont, display ? OpenTypeMathData::FractionNumeratorDisplayStyleShiftUp : OpenTypeMathData::FractionNumeratorShiftUp);
-        denominatorMinShiftDown = mathData->getMathConstant(primaryFont, display ? OpenTypeMathData::FractionDenominatorDisplayStyleShiftDown : OpenTypeMathData::FractionDenominatorShiftDown);
+        numeratorGapMin = mathData->getMathConstant(primaryFont, display ? OpenTypeMathData::MathConstant::FractionNumDisplayStyleGapMin : OpenTypeMathData::MathConstant::FractionNumeratorGapMin);
+        denominatorGapMin = mathData->getMathConstant(primaryFont, display ? OpenTypeMathData::MathConstant::FractionDenomDisplayStyleGapMin : OpenTypeMathData::MathConstant::FractionDenominatorGapMin);
+        numeratorMinShiftUp = mathData->getMathConstant(primaryFont, display ? OpenTypeMathData::MathConstant::FractionNumeratorDisplayStyleShiftUp : OpenTypeMathData::MathConstant::FractionNumeratorShiftUp);
+        denominatorMinShiftDown = mathData->getMathConstant(primaryFont, display ? OpenTypeMathData::MathConstant::FractionDenominatorDisplayStyleShiftDown : OpenTypeMathData::MathConstant::FractionDenominatorShiftDown);
     } else {
         // The MATH table specification suggests default rule thickness or (in displaystyle) 3 times default rule thickness for the gaps.
         numeratorGapMin = display ? 3 * ruleThicknessFallback() : ruleThicknessFallback();
@@ -144,9 +146,9 @@ RenderMathMLFraction::FractionParameters RenderMathMLFraction::stackParameters()
     bool display = style().mathStyle() == MathStyle::Normal;
     Ref primaryFont = style().fontCascade().primaryFont();
     if (RefPtr mathData = primaryFont->mathData()) {
-        gapMin = mathData->getMathConstant(primaryFont, display ? OpenTypeMathData::StackDisplayStyleGapMin : OpenTypeMathData::StackGapMin);
-        parameters.numeratorShiftUp = mathData->getMathConstant(primaryFont, display ? OpenTypeMathData::StackTopDisplayStyleShiftUp : OpenTypeMathData::StackTopShiftUp);
-        parameters.denominatorShiftDown = mathData->getMathConstant(primaryFont, display ? OpenTypeMathData::StackBottomDisplayStyleShiftDown : OpenTypeMathData::StackBottomShiftDown);
+        gapMin = mathData->getMathConstant(primaryFont, display ? OpenTypeMathData::MathConstant::StackDisplayStyleGapMin : OpenTypeMathData::MathConstant::StackGapMin);
+        parameters.numeratorShiftUp = mathData->getMathConstant(primaryFont, display ? OpenTypeMathData::MathConstant::StackTopDisplayStyleShiftUp : OpenTypeMathData::MathConstant::StackTopShiftUp);
+        parameters.denominatorShiftDown = mathData->getMathConstant(primaryFont, display ? OpenTypeMathData::MathConstant::StackBottomDisplayStyleShiftDown : OpenTypeMathData::MathConstant::StackBottomShiftDown);
     } else {
         // We use the values suggested in the MATH table specification.
         gapMin = display ? 7 * ruleThicknessFallback() : 3 * ruleThicknessFallback();
@@ -175,7 +177,7 @@ RenderMathMLOperator* RenderMathMLFraction::unembellishedOperator() const
     if (!isValid())
         return RenderMathMLRow::unembellishedOperator();
 
-    auto* mathMLBlock = dynamicDowncast<RenderMathMLBlock>(numerator());
+    CheckedPtr mathMLBlock = dynamicDowncast<RenderMathMLBlock>(numerator());
     return mathMLBlock ? mathMLBlock->unembellishedOperator() : nullptr;
 }
 
@@ -184,25 +186,26 @@ MathMLFractionElement& RenderMathMLFraction::element() const
     return static_cast<MathMLFractionElement&>(nodeForNonAnonymous());
 }
 
-void RenderMathMLFraction::computePreferredLogicalWidths()
+void RenderMathMLFraction::computeIntrinsicLogicalWidthContributions()
 {
-    ASSERT(needsPreferredLogicalWidthsUpdate());
+    ASSERT(hasInvalidContentLogicalWidths());
 
     if (!isValid()) {
-        RenderMathMLRow::computePreferredLogicalWidths();
+        RenderMathMLRow::computeIntrinsicLogicalWidthContributions();
         return;
     }
 
-    LayoutUnit numeratorWidth = numerator().maxPreferredLogicalWidth() + marginIntrinsicLogicalWidthForChild(numerator());
-    LayoutUnit denominatorWidth = denominator().maxPreferredLogicalWidth() + marginIntrinsicLogicalWidthForChild(denominator());
-    m_minPreferredLogicalWidth = m_maxPreferredLogicalWidth = std::max(numeratorWidth, denominatorWidth);
+    LayoutUnit numeratorWidth = numerator().maxContentLogicalWidthContribution() + marginIntrinsicLogicalWidthForChild(numerator());
+    LayoutUnit denominatorWidth = denominator().maxContentLogicalWidthContribution() + marginIntrinsicLogicalWidthForChild(denominator());
+    m_maxContentLogicalWidthContribution = std::max(numeratorWidth, denominatorWidth);
+    m_minContentLogicalWidthContribution = m_maxContentLogicalWidthContribution;
 
     auto sizes = sizeAppliedToMathContent(LayoutPhase::CalculatePreferredLogicalWidth);
     applySizeToMathContent(LayoutPhase::CalculatePreferredLogicalWidth, sizes);
 
-    adjustPreferredLogicalWidthsForBorderAndPadding();
+    adjustContentLogicalWidthsForBorderAndPadding();
 
-    clearNeedsPreferredWidthsUpdate();
+    clearContentLogicalWidthsInvalidation();
 }
 
 LayoutUnit RenderMathMLFraction::horizontalOffset(RenderBox& child, MathMLFractionElement::FractionAlignment align) const
@@ -210,11 +213,11 @@ LayoutUnit RenderMathMLFraction::horizontalOffset(RenderBox& child, MathMLFracti
     LayoutUnit contentBoxInlineSize = logicalWidth();
     LayoutUnit childMarginBoxInlineSize = child.marginStart() + child.logicalWidth() + child.marginEnd();
     switch (align) {
-    case MathMLFractionElement::FractionAlignmentRight:
+    case MathMLFractionElement::FractionAlignment::Right:
         return LayoutUnit(contentBoxInlineSize - childMarginBoxInlineSize);
-    case MathMLFractionElement::FractionAlignmentCenter:
+    case MathMLFractionElement::FractionAlignment::Center:
         return LayoutUnit((contentBoxInlineSize - childMarginBoxInlineSize) / 2);
-    case MathMLFractionElement::FractionAlignmentLeft:
+    case MathMLFractionElement::FractionAlignment::Left:
         return 0_lu;
     }
 
@@ -261,7 +264,7 @@ void RenderMathMLFraction::layoutBlock(RelayoutChildren relayoutChildren, Layout
 
     LayoutUnit verticalOffset = 0; // This is the top of the renderer.
     verticalOffset += numerator().marginBefore();
-    LayoutPoint numeratorLocation(numerator().marginLeft() + horizontalOffset(numerator(), element().numeratorAlignment()), verticalOffset);
+    LayoutPoint numeratorLocation(numerator().marginLeft() + horizontalOffset(numerator(), protect(element())->numeratorAlignment()), verticalOffset);
     numerator().setLocation(numeratorLocation);
 
     LayoutUnit denominatorAscent = ascentForChild(denominator()) + denominator().marginBefore();
@@ -270,7 +273,7 @@ void RenderMathMLFraction::layoutBlock(RelayoutChildren relayoutChildren, Layout
     verticalOffset += parameters.denominatorShiftDown - denominatorAscent;
 
     verticalOffset += denominator().marginBefore();
-    LayoutPoint denominatorLocation(denominator().marginLeft() + horizontalOffset(denominator(), element().denominatorAlignment()), verticalOffset);
+    LayoutPoint denominatorLocation(denominator().marginLeft() + horizontalOffset(denominator(), protect(element())->denominatorAlignment()), verticalOffset);
     denominator().setLocation(denominatorLocation);
 
     verticalOffset += denominator().logicalHeight() + denominator().marginAfter(); // This is the bottom of our renderer.
@@ -283,6 +286,8 @@ void RenderMathMLFraction::layoutBlock(RelayoutChildren relayoutChildren, Layout
 
     adjustLayoutForBorderAndPadding();
 
+    updateLogicalHeight();
+
     layoutOutOfFlowBoxes(relayoutChildren);
 }
 
@@ -294,22 +299,24 @@ void RenderMathMLFraction::paint(PaintInfo& info, const LayoutPoint& paintOffset
         return;
 
     LayoutUnit borderAndPaddingLeft = writingMode().isBidiLTR() ? borderAndPaddingStart() : borderAndPaddingEnd();
-    auto adjustedPaintOffset = roundPointToDevicePixels(paintOffset + location() + LayoutPoint(borderAndPaddingLeft, borderAndPaddingBefore() + fractionAscent() - mathAxisHeight()), document().deviceScaleFactor());
+    LayoutUnit barX = borderAndPaddingLeft;
+    LayoutUnit barY = borderAndPaddingBefore() + fractionAscent() - mathAxisHeight() - thickness / 2;
+    LayoutUnit barWidth = logicalWidth() - borderAndPaddingLogicalWidth();
+
+    auto barOrigin = roundPointToDevicePixels(paintOffset + location() + LayoutPoint(barX, barY), protect(document())->deviceScaleFactor());
+    auto barEnd = roundPointToDevicePixels(paintOffset + location() + LayoutPoint(barX + barWidth, barY + thickness), protect(document())->deviceScaleFactor());
 
     GraphicsContextStateSaver stateSaver(info.context());
 
-    info.context().setStrokeThickness(thickness);
-    info.context().setStrokeStyle(StrokeStyle::SolidStroke);
-    info.context().setStrokeColor(style().visitedDependentColorApplyingColorFilter());
     // MathML Core says the fraction bar takes the full width of the content box.
-    auto endPoint = roundPointToDevicePixels({ adjustedPaintOffset.x() + logicalWidth() - borderAndPaddingLogicalWidth(), adjustedPaintOffset.y() }, document().deviceScaleFactor());
-    info.context().drawLine(adjustedPaintOffset, endPoint);
+    info.context().setFillColor(style().visitedDependentColorApplyingColorFilter());
+    info.context().fillRect({ barOrigin, barEnd });
 }
 
 std::optional<LayoutUnit> RenderMathMLFraction::firstLineBaseline() const
 {
     if (isValid()) {
-        auto baseline = settings().subpixelInlineLayoutEnabled() ? borderAndPaddingBefore() + fractionAscent() : LayoutUnit(roundf(borderAndPaddingBefore() + fractionAscent()));
+        auto baseline = borderAndPaddingBefore() + fractionAscent();
         return { baseline };
     }
     return RenderMathMLRow::firstLineBaseline();

@@ -58,7 +58,8 @@ public:
 
     void reportErrorObject(JSC::JSValue);
 
-    template<typename Visitor> void visitAdditionalChildren(Visitor&);
+    // JSCustomMarkFunction; for JSSubscriberCustom
+    template<typename Visitor> void visitAdditionalChildrenInGCThread(Visitor&);
 
 private:
     explicit Subscriber(ScriptExecutionContext&, Ref<InternalObserver>&&, const SubscribeOptions&);

@@ -227,11 +227,13 @@ public:
             }
         }
         
+        ASSERT(m_graph.m_planStage < PlanStage::AfterStackLayout);
+        m_graph.m_planStage = PlanStage::AfterStackLayout;
         return true;
     }
 
 private:
-    VirtualRegister assign(const Operands<bool>& usedOperands, const Vector<unsigned>& allocation, Operand operand)
+    VirtualRegister NODELETE assign(const Operands<bool>& usedOperands, const Vector<unsigned>& allocation, Operand operand)
     {
         if (operand.isArgument())
             return operand.virtualRegister();

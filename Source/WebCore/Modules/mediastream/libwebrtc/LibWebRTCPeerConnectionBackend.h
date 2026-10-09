@@ -27,7 +27,6 @@
 #if ENABLE(WEB_RTC) && USE(LIBWEBRTC)
 
 #include "PeerConnectionBackend.h"
-#include "RTCPeerConnection.h"
 #include "RealtimeMediaSource.h"
 #include <wtf/TZoneMalloc.h>
 
@@ -51,6 +50,8 @@ class RealtimeIncomingVideoSource;
 class RealtimeMediaSource;
 class RealtimeOutgoingAudioSource;
 class RealtimeOutgoingVideoSource;
+
+struct LibWebRTCRtpReceiverBackendAndSource;
 
 class LibWebRTCPeerConnectionBackend final : public PeerConnectionBackend {
     WTF_MAKE_TZONE_ALLOCATED(LibWebRTCPeerConnectionBackend);
@@ -81,7 +82,6 @@ private:
     friend class LibWebRTCMediaEndpoint;
     friend class LibWebRTCRtpSenderBackend;
     RTCPeerConnection& connection() { return m_peerConnection; }
-    Ref<RTCPeerConnection> protectedConnection() { return m_peerConnection.get(); }
 
     void getStatsSucceeded(const DeferredPromise&, Ref<RTCStatsReport>&&);
 
@@ -92,13 +92,17 @@ private:
     ExceptionOr<Ref<RTCRtpTransceiver>> addTransceiver(Ref<MediaStreamTrack>&&, const RTCRtpTransceiverInit&) final;
     void setSenderSourceFromTrack(LibWebRTCRtpSenderBackend&, MediaStreamTrack&);
 
-    RefPtr<RTCRtpTransceiver> existingTransceiver(Function<bool(LibWebRTCRtpTransceiverBackend&)>&&);
-    Ref<RTCRtpTransceiver> newRemoteTransceiver(std::unique_ptr<LibWebRTCRtpTransceiverBackend>&&, RealtimeMediaSource::Type);
+    void addInternalTransceiver(UniqueRef<LibWebRTCRtpTransceiverBackend>&&, RealtimeMediaSource::Type);
+    void removeTransceiver(const RTCRtpTransceiver&);
 
-    void collectTransceivers() final;
+    void collectTransceivers(Vector<Ref<RTCRtpTransceiver>>&&) final;
+
+    const HashMap<String, String>& trackIds() const { return m_trackIds; }
 
 private:
     bool isLocalDescriptionSet() const final { return m_isLocalDescriptionSet; }
+
+    bool shouldEnableServiceClass() const final;
 
     void startGatheringStatLogs(Function<void(String&&)>&&) final;
     void stopGatheringStatLogs() final;
@@ -108,7 +112,7 @@ private:
     template<typename T>
     ExceptionOr<Ref<RTCRtpTransceiver>> addTransceiverFromTrackOrKind(T&& trackOrKind, const RTCRtpTransceiverInit&, IgnoreNegotiationNeededFlag = IgnoreNegotiationNeededFlag::No);
 
-    Ref<RTCRtpReceiver> createReceiver(std::unique_ptr<LibWebRTCRtpReceiverBackend>&&);
+    Ref<RTCRtpReceiver> createReceiver(LibWebRTCRtpReceiverBackendAndSource&&);
 
     void suspend() final;
     void resume() final;
@@ -119,9 +123,9 @@ private:
     bool m_isLocalDescriptionSet { false };
     bool m_isRemoteDescriptionSet { false };
 
-    Vector<std::unique_ptr<webrtc::IceCandidate>> m_pendingCandidates;
     Vector<Ref<RTCRtpReceiver>> m_pendingReceivers;
 
+    HashMap<String, String> m_trackIds;
     Function<void(String&&)> m_rtcStatsLogCallback;
 };
 
